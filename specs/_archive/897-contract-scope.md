@@ -1,6 +1,6 @@
 # Spec 897 — The contract says what it is about
 
-**Status:** BUILT (2026-10-09) — §2 + §7 D6–D9; `e2e:897-scope` green; open: the reporter's second replay
+**Status:** DONE (2026-10-09) — §2 + §7 D6–D9; `e2e:897-scope` green; the reporter's replay held (issues #39, #40 closed)
 **Repo:** C64RE. From issue #39 (Mike, *The Magician's Curse*, C16 → C64).
 
 ## §1 What goes wrong
@@ -104,7 +104,7 @@ counted`. `annotate` never widens or narrows what is counted.
 - D4/D5 in `formatContract`; a `deliver.scope` kickoff question.
 - Gate step in `gates.yml` after 848's.
 
-**Open:** the §4 replay of #39's numbers needs the reporter's project — asked on the issue.
+**Replay:** held on the reporter's project — scoped to the game image, 14592 / 14592 bytes, contract met (#39).
 **Known, not this spec:** S12's per-owner range lookup keys on the un-lowercased file stem,
 so a `Game.prg` would miss its lowercase graph owner. Scope membership uses `normStem` and
 is unaffected; fixing the lookup moves existing numbers and is its own change.
