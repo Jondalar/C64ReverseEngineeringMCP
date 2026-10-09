@@ -83,7 +83,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // knowledge/graph.sqlite — working around the tool surface to read the tool surface's
   // own data.
   "read_finding",
-  "ram_report",
+  "ram_report", "pointer_report",
   // Analyse / disassemble. TWO doors: `disasm` renders bytes and `analyze` classifies
   // them, and in both the LOAD ADDRESS decides how the bytes are read, never the file
   // name — given, they are raw and start there; omitted, the file must carry a header.

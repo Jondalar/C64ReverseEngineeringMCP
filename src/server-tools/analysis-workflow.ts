@@ -1387,7 +1387,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "pointer_report",
-    "Generate a pointer table facts report (markdown) from an analysis JSON.",
+    "Generate a pointer table facts report (markdown) from an analysis JSON. Use after analyze to list the program's pointer tables. Not for zero-page/RAM usage (use ram_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
     {
       analysis_json: z.string().describe("Path to the analysis JSON"),
       output_md: z.string().optional().describe("Output path for the markdown report"),

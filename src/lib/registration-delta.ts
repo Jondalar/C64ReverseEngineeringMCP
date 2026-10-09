@@ -175,6 +175,8 @@ interface WalkSink {
   human: string[];
   humanByExt: Record<string, number>;
   tool: string[];
+  /** Per tool file, parallel to `tool`: the owning dir prefix and the size — what a declared-intentional filter must take back out of the by-dir totals. */
+  toolMeta: { prefix: string; size: number }[];
   toolByDir: Record<string, number>;
   toolBytesByDir: Record<string, number>;
   toolBytes: number;
@@ -183,7 +185,7 @@ interface WalkSink {
 }
 
 function newSink(projectRoot: string, registered: Set<string>): WalkSink {
-  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0, skip: projectSkipDirs(projectRoot) };
+  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolMeta: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0, skip: projectSkipDirs(projectRoot) };
 }
 
 function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: number } {
@@ -225,6 +227,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
       // registering the bulk would cost, and the alternative — saying nothing —
       // is what let a caller register 2732 of them.
       const size = statSafe(full)?.size ?? 0;
+      sink.toolMeta.push({ prefix: owner.prefix, size });
       sink.toolBytes += size;
       sink.toolBytesByDir[owner.prefix] = (sink.toolBytesByDir[owner.prefix] ?? 0) + size;
       continue;
@@ -269,18 +272,18 @@ export function scanRegistrationDelta(
   const registered = loadRegisteredPaths(projectRoot);
   const { sink, totalCandidates, alreadyRegistered } = walkAllRoots(projectRoot, registered);
   const declared = declaration ?? readInventoryDeclaration(projectRoot);
-  const { debt, debtByExt, intentional } = splitDeclaredIntentional(sink, declared);
+  const { debt, debtByExt, intentional, tool } = splitDeclaredIntentional(sink, declared);
   return {
     totalCandidates,
     alreadyRegistered,
     unregistered: debt.slice(0, cap),
     unregisteredCount: debt.length,
     unregisteredByExt: debtByExt,
-    toolOutput: sink.tool.slice(0, cap),
-    toolOutputCount: sink.tool.length,
-    toolOutputByDir: sink.toolByDir,
-    toolOutputBytes: sink.toolBytes,
-    toolOutputBytesByDir: sink.toolBytesByDir,
+    toolOutput: tool.files.slice(0, cap),
+    toolOutputCount: tool.files.length,
+    toolOutputByDir: tool.byDir,
+    toolOutputBytes: tool.bytes,
+    toolOutputBytesByDir: tool.bytesByDir,
     declaredIntentional: intentional.slice(0, cap),
     declaredIntentionalCount: intentional.length,
     declarationProblems: declared.problems,
@@ -288,19 +291,30 @@ export function scanRegistrationDelta(
   };
 }
 
-// Pull the project's own declared-intentional files out of the human debt list.
+// Pull the project's own declared-intentional files out of the debt lists: the human
+// list and the tool-produced list alike. A tool file a declared glob matches is
+// intentional, so it leaves the tool count, the by-dir counts and the byte totals too.
 function splitDeclaredIntentional(
   sink: WalkSink,
   declared: ProjectInventoryDeclaration,
-): { debt: string[]; debtByExt: Record<string, number>; intentional: string[] } {
+): {
+  debt: string[];
+  debtByExt: Record<string, number>;
+  intentional: string[];
+  tool: { files: string[]; byDir: Record<string, number>; bytes: number; bytesByDir: Record<string, number> };
+} {
   if (declared.intentional.length === 0) {
-    return { debt: sink.human, debtByExt: sink.humanByExt, intentional: [] };
+    return {
+      debt: sink.human, debtByExt: sink.humanByExt, intentional: [],
+      tool: { files: sink.tool, byDir: sink.toolByDir, bytes: sink.toolBytes, bytesByDir: sink.toolBytesByDir },
+    };
   }
+  const isDeclared = (rel: string) => declared.intentional.some((g) => matchesGlob(rel, g));
   const debt: string[] = [];
   const intentional: string[] = [];
   const debtByExt: Record<string, number> = {};
   for (const rel of sink.human) {
-    if (declared.intentional.some((g) => matchesGlob(rel, g))) {
+    if (isDeclared(rel)) {
       intentional.push(rel);
       continue;
     }
@@ -311,7 +325,19 @@ function splitDeclaredIntentional(
       debtByExt[ext] = (debtByExt[ext] ?? 0) + 1;
     }
   }
-  return { debt, debtByExt, intentional };
+  const tool = { files: [] as string[], byDir: {} as Record<string, number>, bytes: 0, bytesByDir: {} as Record<string, number> };
+  sink.tool.forEach((rel, i) => {
+    if (isDeclared(rel)) {
+      intentional.push(rel);
+      return;
+    }
+    const { prefix, size } = sink.toolMeta[i];
+    tool.files.push(rel);
+    tool.byDir[prefix] = (tool.byDir[prefix] ?? 0) + 1;
+    tool.bytes += size;
+    tool.bytesByDir[prefix] = (tool.bytesByDir[prefix] ?? 0) + size;
+  });
+  return { debt, debtByExt, intentional, tool };
 }
 
 /** Where a project says what its own directories are for. Re-exported for report text. */

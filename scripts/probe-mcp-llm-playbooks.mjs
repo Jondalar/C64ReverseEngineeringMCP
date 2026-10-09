@@ -77,7 +77,7 @@ const uncovered = defaults.filter((n) => !inPlaybooks.has(n));
 const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "runtime_media_browse",
   "runtime_media_unmount", "runtime_step_into", "runtime_step_over", "runtime_monitor_disasm",
   "runtime_monitor_registers", "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
-  "list_entities", "list_flows", "get_artifact_lineage", "ram_report", "build_all_views",
+  "list_entities", "list_flows", "get_artifact_lineage", "ram_report", "pointer_report", "build_all_views",
   "build_memory_map", "build_annotated_listing_view", "render_docs", "trace_store_anchor_list",
   "trace_store_anchor_find", "trace_store_query", "runtime_until", "suggest_depacker", "try_depack",
   "run_prg_reverse_workflow", "read_artifact", "agent_propose_next", "c64re_whats_next",

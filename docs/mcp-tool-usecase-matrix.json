@@ -2,8 +2,8 @@
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
   "total": 299,
-  "defaultCount": 193,
-  "advancedCount": 106,
+  "defaultCount": 194,
+  "advancedCount": 105,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -2221,14 +2221,16 @@
       "name": "pointer_report",
       "namespace": "pointer",
       "sourceFile": "server-tools/analysis-workflow.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
-      "notFor": "Normal workflow — covered by the default facade.",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
       "adjacentTools": [],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {

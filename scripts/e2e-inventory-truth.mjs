@@ -538,5 +538,47 @@ const openVersionQuestions = (svc) =>
   }
 }
 
+// ───────── 11 — a declared `intentional` glob silences TOOL output too
+//
+// `splitDeclaredIntentional` only filtered the human list, so tool-produced files under
+// a directory the project had ALREADY declared intentional were still reported as
+// "registered by nothing", with the same `intentional` glob recommended again.
+{
+  head(11, "tool output under a declared intentional glob is not reported");
+
+  const proj = tmpProject("c64re-toolintentional-");
+  const svc = new ProjectKnowledgeService(proj);
+  svc.initProject({ name: "Tool intentional" });
+  for (let i = 0; i < 30; i += 1) {
+    const b = Buffer.alloc(64, i);
+    b.writeUInt16LE(i, 0);
+    write(proj, `analysis/latest/g${i}.bin`, b);
+    write(proj, `analysis/g64/side1/s${i}.bin`, b);
+  }
+
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({ patterns: [], intentional: [] }, null, 2));
+  const undeclared = await runProjectInventorySync(svc, proj);
+  check(undeclared.unregisteredToolOutput === 60, "undeclared: all 60 files are tool output", String(undeclared.unregisteredToolOutput));
+
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({ patterns: [], intentional: ["analysis/latest/**"] }, null, 2));
+  const delta = scanRegistrationDelta(proj, new Set());
+  check(delta.toolOutputCount === 30, "declared analysis/latest/**: only the 30 g64 files stay tool output", String(delta.toolOutputCount));
+  check(delta.toolOutput.every((f) => !f.startsWith("analysis/latest/")), "…none of them under analysis/latest/");
+  check(delta.toolOutputByDir["analysis/latest"] === undefined && delta.toolOutputBytesByDir["analysis/latest"] === undefined,
+    "…and the by-dir counts and bytes carry no analysis/latest entry");
+  check(delta.toolOutputBytes === 30 * 64, "…and the byte total is the g64 files alone", String(delta.toolOutputBytes));
+  check(delta.declaredIntentionalCount === 30, "the 30 declared files are counted as declared intentional", String(delta.declaredIntentionalCount));
+  const r = await runProjectInventorySync(svc, proj);
+  const text = r.remainingProblems.join("\n");
+  check(r.unregisteredToolOutput === 30 && /30 tool-produced file/.test(text), "sync says 30, not 60", String(r.unregisteredToolOutput));
+  check(!/"analysis\/latest\/\*\*"/.test(text.split("\n").filter((l) => /"intentional"/.test(l)).join("\n")),
+    "…and never recommends the glob that is already declared");
+
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({ patterns: [], intentional: ["analysis/latest/**", "analysis/g64/**"] }, null, 2));
+  const silent = await runProjectInventorySync(svc, proj);
+  check(silent.unregisteredToolOutput === 0 && !/tool-produced file/.test(silent.remainingProblems.join("\n")),
+    "every tool dir declared: no tool-produced warning at all", String(silent.unregisteredToolOutput));
+}
+
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e-inventory-truth: ${pass} passed, ${failCount} failed.`);
 process.exit(failCount === 0 ? 0 : 1);

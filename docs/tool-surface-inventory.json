@@ -1,7 +1,7 @@
 {
   "total": 299,
   "specCount": 41,
-  "advancedCandidate": 106,
+  "advancedCandidate": 105,
   "byNamespace": {
     "runtime": 89,
     "list": 20,
@@ -1225,8 +1225,8 @@
       "ns": "pointer",
       "hasSpec": false,
       "firstSentence": "Generate a pointer table facts report (markdown) from an analysis JSON.",
-      "desc": "Generate a pointer table facts report (markdown) from an analysis JSON.",
-      "tier": "advanced?"
+      "desc": "Generate a pointer table facts report (markdown) from an analysis JSON. Use after analyze to list the program's pointer tables. Not for zero-page/RAM usage (use ram_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
+      "tier": "default?"
     },
     {
       "name": "project_audit",
