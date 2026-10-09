@@ -2672,7 +2672,7 @@ function* strippedCodeLines(rendered: string[]): Generator<string> {
  * and a name that would collide with one this listing already uses is refused
  * out loud rather than allowed to shadow it.
  */
-function renderGraphNameEquates(context: RenderAnalysisContext, body: string[]): string[] {
+function renderGraphNameEquates(context: RenderAnalysisContext, body: string[], registry: EquateRegistry): string[] {
   const projectDir = process.env.C64RE_PROJECT_DIR;
   if (!projectDir) return [];
 
@@ -2697,14 +2697,14 @@ function renderGraphNameEquates(context: RenderAnalysisContext, body: string[]):
     space: activePlatform === "c1541" ? "drive8" : "c64",
     addresses: referenced,
     defined: [...defined],
-    definedElsewhere: namesDefinedIn(body),
+    definedElsewhere: [...new Set([...namesDefinedIn(body), ...registry.names()])],
   });
   if (result.equates.length === 0 && result.notes.length === 0 && !result.reason) return [];
 
   const lines = ["// Names the project knows for addresses this listing references but does not hold"];
   for (const e of result.equates) {
     const where = e.payload ? `  // ${e.kind} in ${e.payload}` : `  // ${e.kind}`;
-    lines.push(`      .label ${e.name} = ${formatAddress(e.address)}${where}`);
+    lines.push(...registry.equate(e.name, formatAddress(e.address), where));
   }
   if (result.reason) lines.push(`//  no names read: ${result.reason}`);
   for (const note of result.notes.slice(0, 20)) lines.push(`//  ${note}`);
@@ -2764,7 +2764,7 @@ function namesDefinedIn(body: string[]): string[] {
  * equate emits no bytes, so adding one can never change the rebuild; leaving a
  * symbol undefined always breaks it.
  */
-function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: string[]): string[] {
+function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: string[], registry: EquateRegistry): string[] {
   // name -> address, the inverse of makeLabel over everything that can be named
   const addressOf = new Map<string, number>();
   const remember = (address: number): void => {
@@ -2775,7 +2775,7 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
   for (const address of context.annotations?.labelsByAddress.keys() ?? []) remember(address);
   for (const address of context.annotations?.routinesByAddress.keys() ?? []) remember(address);
 
-  const defined = new Set<string>();
+  const defined = new Set<string>(registry.names());
   const used = new Set<string>();
   for (const stripped of strippedCodeLines(rendered)) {
     let code = stripped;
@@ -2804,7 +2804,8 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
   missing.sort((left, right) => addressOf.get(left)! - addressOf.get(right)!);
 
   const lines = ["// Equates for named addresses this listing references but does not define"];
-  for (const name of missing) lines.push(`      .label ${name} = ${formatAddress(addressOf.get(name)!)}`);
+  for (const name of missing) lines.push(...registry.equate(name, formatAddress(addressOf.get(name)!)));
+  if (lines.length === 1) return [];
   lines.push("");
   return lines;
 }
@@ -2822,22 +2823,19 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
  * `.label`, not a code label: the address is not in this file and must not
  * look as though it were.
  */
-function renderExternalLabelEquates(context: RenderAnalysisContext): string[] {
+function renderExternalLabelEquates(context: RenderAnalysisContext, registry: EquateRegistry): string[] {
   const { startAddress, endAddress } = context.report.mapping;
   const foreign = Array.from(context.labelSet)
     .filter((address) => address < startAddress || address > endAddress)
     .sort((left, right) => left - right);
   if (foreign.length === 0) return [];
 
-  const lines: string[] = ["// Addresses referenced from this file but defined in another payload"];
-  for (const address of foreign) {
-    lines.push(`      .label ${makeLabel(address)} = ${formatAddress(address)}`);
-  }
-  lines.push("");
-  return lines;
+  const equates = foreign.flatMap((address) => registry.equate(makeLabel(address), formatAddress(address)));
+  if (equates.length === 0) return [];
+  return ["// Addresses referenced from this file but defined in another payload", ...equates, ""];
 }
 
-function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage): string[] {
+function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage, registry: EquateRegistry): string[] {
   const lines: string[] = [];
   const codeLikeSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations)
     .filter((segment) => segment.kind === "code" || segment.kind === "basic_stub");
@@ -2868,10 +2866,10 @@ function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage)
     return lines;
   }
 
+  const aliases = aliasAddresses.flatMap((address) => registry.equate(makeLabel(address), formatAddress(address)));
+  if (aliases.length === 0) return lines;
   lines.push("// Address aliases for labels that point into operand/data bytes inside decoded code segments");
-  for (const address of aliasAddresses) {
-    lines.push(`      .label ${makeLabel(address)} = ${formatAddress(address)}`);
-  }
+  lines.push(...aliases);
   lines.push("");
   return lines;
 }
@@ -3640,35 +3638,50 @@ function subtractRelocations(segStart: number, segEnd: number, relocations: Relo
 }
 
 /**
- * One definition per equate. Several emitters write `.label NAME = value` (the
- * relocation file-address aliases, the code-segment aliases, the external and graph
- * equates, the undefined-symbol backstop), each deciding on its own list, so an
- * address that lands on two lists is defined twice and the assembler stops.
- * Only an EXACT repeat (same name, same value once whitespace and hex case are
- * normalised) is dropped: it is the same claim. The same name with a different
- * value is a real conflict and stays, so the assembler refuses it instead of the
- * rebuild quietly taking the first meaning.
+ * The one set of symbol definitions a listing makes. Several emitters write an
+ * equate (`.label NAME = value`): the relocation file-address aliases, the
+ * code-segment address aliases, the graph / external equates and the
+ * undefined-symbol backstop. Each used to decide on its own list, so an address
+ * on two lists was defined twice and the assembler stopped. They now all ask here
+ * BEFORE writing a line, so a symbol is emitted exactly once whichever emitter
+ * reaches it first.
+ *
+ * An exact repeat (same name, same value once whitespace and hex case are
+ * normalised) is the same claim and is refused. The same name with a DIFFERENT
+ * value is a real conflict and is let through, so the assembler refuses it
+ * instead of the rebuild quietly taking the first meaning.
  */
-export function dropRedefinedEquates(lines: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of lines) {
-    const m = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^/]*?)\s*(?:\/\/.*)?$/.exec(line);
-    if (m) {
-      const key = `${m[1]}=${m[2]!.replace(/\s+/g, "").toUpperCase()}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-    }
-    out.push(line);
+export class EquateRegistry {
+  private readonly values = new Map<string, Set<string>>();
+
+  private static normalise(value: string): string {
+    return value.replace(/\s+/g, "").toUpperCase();
   }
-  return out;
+
+  /** Is this name already defined (to any value)? */
+  has(name: string): boolean {
+    return this.values.has(name);
+  }
+
+  names(): string[] {
+    return [...this.values.keys()];
+  }
+
+  /** The equate line, or nothing when this exact definition was already made. */
+  equate(name: string, value: string, comment = ""): string[] {
+    const key = EquateRegistry.normalise(value);
+    const known = this.values.get(name);
+    if (known?.has(key)) return [];
+    if (known) known.add(key); else this.values.set(name, new Set([key]));
+    return [`      .label ${name} = ${value}${comment}`];
+  }
 }
 
 // Spec 741: analysis-driven rendering WITH relocations. Gap stretches render
 // via the full analysis path (clipped to non-relocated sub-intervals);
 // relocation regions render as .pseudopc blocks. Items are emitted in file
 // address order so the byte stream stays a single, gap-free emission.
-function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[]): void {
+function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[], registry: EquateRegistry): void {
   lines.push(...renderAnalysisPreface(analysis));
 
   // Spec 842 — hand each relocation the annotation segments that fall inside it, in
@@ -3715,10 +3728,11 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
       labelsByAddress.set(addr, { ...named, label: renamed });
     }
   }
+  const aliasStart = lines.length;
   for (const addr of aliasAddrs) {
-    lines.push(`      .label ${makeLabel(addr)} = $${formatHex16(addr)}`);
+    lines.push(...registry.equate(makeLabel(addr), `$${formatHex16(addr)}`));
   }
-  if (aliasAddrs.length > 0) lines.push("");
+  if (lines.length > aliasStart) lines.push("");
 
   type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
   const items: Item[] = [];
@@ -3946,24 +3960,24 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   lines.push("");
 
   if (relocations && analysisContext) {
+    const registry = new EquateRegistry();
     const body: string[] = [];
-    renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations);
-    const tailStart = lines.length;
-    lines.push(...renderGraphNameEquates(analysisContext, body));
-    lines.push(...renderAddressAliasLabels(analysisContext, prg));
-    lines.push(...renderExternalLabelEquates(analysisContext));
-    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
+    renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations, registry);
+    lines.push(...renderGraphNameEquates(analysisContext, body, registry));
+    lines.push(...renderAddressAliasLabels(analysisContext, prg, registry));
+    lines.push(...renderExternalLabelEquates(analysisContext, registry));
+    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body], registry));
     lines.push(...body);
-    lines.push(...dropRedefinedEquates(lines.splice(tailStart)));
   } else if (relocations) {
     renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
   } else if (analysisContext) {
+    const registry = new EquateRegistry();
     const body: string[] = [];
     renderWithAnalysis(prg, analysisContext, body);
-    lines.push(...renderGraphNameEquates(analysisContext, body));
-    lines.push(...renderAddressAliasLabels(analysisContext, prg));
-    lines.push(...renderExternalLabelEquates(analysisContext));
-    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
+    lines.push(...renderGraphNameEquates(analysisContext, body, registry));
+    lines.push(...renderAddressAliasLabels(analysisContext, prg, registry));
+    lines.push(...renderExternalLabelEquates(analysisContext, registry));
+    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body], registry));
     lines.push(...body);
   } else {
     renderLegacy(prg, options.entryPoints ?? [], lines, annotationsIndex);

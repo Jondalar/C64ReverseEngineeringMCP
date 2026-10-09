@@ -334,15 +334,57 @@ try {
   ok(false, "issue43 harness", e.message);
 }
 
-// Issue #43 — dropRedefinedEquates: an exact repeat goes, a conflicting pair stays.
+// Issue #43 (reporter's shape) — a HUMAN label on the last stored byte of relocated region 1,
+// referenced from the installer. With region 1 a code segment the address-alias emitter fires
+// as well as the relocation-equate emitter; the symbol must still be defined exactly once, in
+// both dialects, and both rebuild byte-exact.
+for (const variant of [
+  { tag: "code-segment", segments: [{ start: "1091", end: "10EA", kind: "code", space: "file" }] },
+  { tag: "no-segment", segments: [] },
+]) {
+  try {
+    const b = new Array(0x170).fill(0xea);
+    const put = (a, bytes) => bytes.forEach((v, i) => { b[a - 0x1000 + i] = v; });
+    put(0x1000, [0xa2, 0x5a, 0xbd, 0x90, 0x10, 0x9d, 0xa0, 0x02, 0xca, 0xd0, 0xf7,
+                 0xa2, 0x85, 0xbd, 0xea, 0x10, 0x9d, 0x0a, 0x01, 0xca, 0xd0, 0xf7, 0x4c, 0xa1, 0x02]);
+    put(0x1019, [0xad, 0x91, 0x10, 0x60]);
+    put(0x1091, [0x4c, 0xe8, 0x10]); put(0x10e8, [0xad, 0x00, 0xea]);
+    put(0x10eb, [0xa9, 0x00, 0x60]); b[0x116f - 0x1000] = 0x60;
+    const name = `i43h_${variant.tag}`;
+    const prg = writePrg(`${name}.prg`, 0x1000, b);
+    const json = join(work, `${name}_analysis.json`);
+    const a = spawnSync(process.execPath, [cliCjs, "analyze-prg", prg, json, "1000,1019", "--no-register"], { cwd: work, encoding: "utf8" });
+    if (a.status !== 0) throw new Error(a.stderr || a.stdout);
+    const ann = join(work, `${name}_ann.json`);
+    writeFileSync(ann, JSON.stringify({ version: 1, binary: `${name}.prg`, segments: variant.segments, labels: [{ address: "10EA", label: "src_010B_base" }], routines: [] }));
+    const rp = join(work, `${name}_reloc.json`);
+    writeFileSync(rp, JSON.stringify([{ fileStart: "1091", fileEnd: "10EA", runtimeAddr: "02A1" }, { fileStart: "10EB", fileEnd: "116F", runtimeAddr: "010B" }]));
+    const out = join(work, `${name}.asm`);
+    const r = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg, out, "1000,1019", json, "--no-register", "--relocations", rp, "--annotations", ann], { cwd: work, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(r.stderr || r.stdout);
+    const tasPath = out.replace(/\.asm$/, ".tas");
+    for (const [dialect, file, re] of [["kick", out, /^\s*\.label\s+src_010B_base\s*=/gm], ["tass", tasPath, /^\s*src_010B_base\s*(=|:)/gm]]) {
+      const n = (readFileSync(file, "utf8").match(re) ?? []).length;
+      ok(n === 1, `issue43 human label (${variant.tag}) defined once in ${dialect}`, `${n}x`);
+    }
+    await assertByteExact(`issue43 human ${variant.tag}`, out, "kickassembler", prg);
+    await assertByteExact(`issue43 human ${variant.tag}`, tasPath, "64tass", prg);
+  } catch (e) {
+    ok(false, `issue43 human harness (${variant.tag})`, e.message);
+  }
+}
+
+// Issue #43 — EquateRegistry: an exact repeat is refused, a conflicting pair is let through.
 try {
-  const { dropRedefinedEquates } = await import(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
-  const rep = dropRedefinedEquates(["      .label W10EA = $10ea", "      .label W10EA = $10EA  // x"]);
-  ok(rep.length === 1, "issue43 identical equate repeat dropped", `${rep.length} left`);
-  const conflict = dropRedefinedEquates(["      .label A = $10EA", "      .label A = $02A1"]);
-  ok(conflict.length === 2, "issue43 conflicting same-name equates both kept", `${conflict.length} left`);
+  const { EquateRegistry } = await import(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
+  const reg = new EquateRegistry();
+  const first = reg.equate("W10EA", "$10ea");
+  const repeat = reg.equate("W10EA", "$10EA", "  // x");
+  ok(first.length === 1 && repeat.length === 0, "issue43 identical equate repeat refused", `${first.length}+${repeat.length} lines`);
+  const conflict = reg.equate("W10EA", "$02A1");
+  ok(conflict.length === 1, "issue43 conflicting same-name equate let through", `${conflict.length} lines`);
 } catch (e) {
-  ok(false, "issue43 dedupe unit", e.message);
+  ok(false, "issue43 registry unit", e.message);
 }
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} smoke-741: ${pass} pass, ${fail} fail.`);
