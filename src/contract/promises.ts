@@ -105,7 +105,7 @@ export async function contractPromises(
     // named, and the nodes inside it. That closes the loop — asserting a boundary is what
     // makes the contract checkable, and the contract is what makes asserting it matter.
     const { modelReport } = await import("../model/rollup.js");
-    const { isMachineName } = await import("../slots/state.js");
+    const { humanNamedStarts, isNodeNamed } = await import("../slots/state.js");
     const model = await modelReport(projectDir);
     const { GraphStore } = await import("../knowledge-graph/store.js");
 
@@ -128,15 +128,17 @@ export async function contractPromises(
         try {
           const rows = store.db.prepare(
             `SELECT id, MAX(CASE WHEN layer='human' THEN name END) AS hn, MAX(name) AS an,
-                    MIN(address) AS address, MAX(owner) AS owner
+                    MIN(address) AS address, MAX(owner) AS owner,
+                    MAX(space) AS space, MAX(bank) AS bank
              FROM nodes WHERE kind IN ('routine','data_block','lookup_table','pointer_table')
              GROUP BY id`,
-          ).all() as Array<{ hn: string | null; an: string | null; address: number; owner: string | null }>;
+          ).all() as Array<{ hn: string | null; an: string | null; address: number; owner: string | null; space: string | null; bank: number | null }>;
+          const starts = humanNamedStarts(store.db);
           for (const r of rows) {
             if (r.address < boundary.start || r.address > boundary.end) continue;
             if (boundary.owner && r.owner !== boundary.owner) continue;
             total++;
-            if (!isMachineName(r.hn ?? r.an)) named++;
+            if (isNodeNamed({ human_name: r.hn, any_name: r.an, owner: r.owner, space: r.space, bank: r.bank, address: r.address }, starts)) named++;
           }
         } finally { store.close(); }
       } catch { /* no graph — reported as unnamed below */ }

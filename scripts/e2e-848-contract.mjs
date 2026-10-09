@@ -130,6 +130,32 @@ try {
       `${(r.naming.ratio * 100).toFixed(1)} % — an annotation gives a name and a start, never an extent`);
   }
 
+  // ------------------------------------- a human label/segment at the start names the routine
+  {
+    const d = newProject(); dirs.push(d);
+    const store = GraphStore.open(d);
+    const rid = (owner, kind, addr) => `${SLUG}:ram/${owner}:${kind}:${addr.toString(16).padStart(4, "0")}`;
+    const gen = (owner, addr) => ({ id: rid(owner, "routine", addr), kind: "routine", name: `W${addr.toString(16).toUpperCase()}`, endAddress: addr + 0x3f, origin: "static", confidence: "certain" });
+    store.replaceGenerated("test", null, [
+      gen("game", 0x2000), // human label at the start             -> named
+      gen("game", 0x2100), // human segment named at the start     -> named
+      gen("game", 0x2200), // label inside it, not at the start    -> unnamed
+      gen("game", 0x2300), // label with a machine name            -> unnamed
+      gen("game", 0x2400), // label at the start, other owner      -> unnamed
+    ], []);
+    const human = (owner, kind, addr, name) => store.upsertHuman({ id: rid(owner, kind, addr), kind, name, origin: "user", confidence: "user_asserted" });
+    human("game", "label", 0x2000, "sound_channel");
+    human("game", "segment", 0x2100, "tape_loader_tail");
+    human("game", "label", 0x2210, "inside_label");
+    human("game", "label", 0x2300, "W2300");
+    human("other", "label", 0x2400, "elsewhere");
+    store.close();
+    const r = await slotReport(d);
+    check("a human label or segment name at a routine's start counts it named; nothing else does",
+      r.naming.members === 5 && r.naming.named === 2 && r.naming.machineNamed === 3,
+      `${r.naming.named}/${r.naming.members}, ${r.naming.machineNamed} machine-named`);
+  }
+
   // ---------------------------------------------------------------- the contract
   {
     const d = newProject(); dirs.push(d);

@@ -81,6 +81,41 @@ export function isMachineName(name: string | null | undefined): boolean {
 }
 
 /**
+ * The human-layer names that sit at a START address: `label` nodes and `segment` nodes
+ * (a segment `label` in the annotation file) whose name is not a machine name, keyed by
+ * owner, space, bank and address.
+ *
+ * An annotation can name an address without naming the routine node there: the routine
+ * lives in the generated layer as `W236D`, the human layer holds `label:236d` =
+ * `sound_channel` as a separate id, and the listing renders `sound_channel:`. Grouping by
+ * id alone never joins the two, so the routine counted as machine-named.
+ */
+export function humanNamedStarts(db: { prepare(sql: string): { all(...p: unknown[]): unknown[] } }): Set<string> {
+  const rows = db.prepare(
+    `SELECT owner, space, bank, address, name FROM nodes
+     WHERE layer = 'human' AND kind IN ('label','segment') AND owner IS NOT NULL`,
+  ).all() as Array<{ owner: string; space: string; bank: number | null; address: number; name: string | null }>;
+  const out = new Set<string>();
+  for (const r of rows) if (!isMachineName(r.name)) out.add(startKey(r));
+  return out;
+}
+
+const startKey = (r: { owner: string | null; space: string | null; bank: number | null; address: number }): string =>
+  `${r.owner}|${r.space}|${r.bank ?? ""}|${r.address}`;
+
+/**
+ * Does a meaning-bearing node count as named? Its own name decides first; failing that, a
+ * human label or segment name at exactly its start address (same owner, space, bank) does.
+ * One definition for every counter, so they cannot disagree.
+ */
+export function isNodeNamed(
+  r: { human_name: string | null; any_name: string | null; owner: string | null; space: string | null; bank: number | null; address: number },
+  starts: Set<string>,
+): boolean {
+  return !isMachineName(r.human_name ?? r.any_name) || starts.has(startKey(r));
+}
+
+/**
  * Named-ness is counted per NODE, not per byte — and the reason is structural, not a
  * preference. An annotation gives a name and a start address; it does not give an
  * extent. All 978 named routines in Ultima VI carry `end_address = null`, so "named
@@ -280,6 +315,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
                 MAX(CASE WHEN layer = 'human' THEN name END) AS human_name,
                 MAX(name)        AS any_name,
                 MAX(owner)       AS owner,
+                MAX(space)       AS space,
+                MAX(bank)        AS bank,
                 MAX(kind)        AS kind,
                 MIN(address)     AS address,
                 MAX(end_address) AS end_address,
@@ -288,7 +325,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
          WHERE kind IN ('routine','segment','payload','data_block','entry','lookup_table','pointer_table')
          GROUP BY id
          HAVING owner IS NOT NULL`,
-      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null; segment_kind: string | null }>;
+      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; space: string; bank: number | null; kind: string; address: number; end_address: number | null; segment_kind: string | null }>;
+      const starts = humanNamedStarts(store.db);
       for (const r of rows) {
         if (r.end_address !== null) {
           const verdict = claimsItsBytes(r.kind, r.segment_kind, r.human_name ?? r.any_name);
@@ -301,11 +339,11 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
         if (!inScope(r.owner)) {
           const o = asideOf(r.owner);
           o.members++;
-          if (!isMachineName(r.human_name ?? r.any_name)) o.named++;
+          if (isNodeNamed(r, starts)) o.named++;
           continue;
         }
         memberNodes++;
-        if (isMachineName(r.human_name ?? r.any_name)) machineNamed++;
+        if (!isNodeNamed(r, starts)) machineNamed++;
       }
     } finally { store.close(); }
   } catch { /* no graph yet — every artifact is simply uncovered */ }
