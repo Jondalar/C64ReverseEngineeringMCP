@@ -61,12 +61,18 @@ export async function contractPromises(
   const { slotReport } = await import("../slots/state.js");
   const slots = opts?.slots ?? (await slotReport(projectDir));
 
+  // Spec 897 — both measures below already count the scope alone (slotReport reads it);
+  // the note only says so, so "above" and "below" are never read against the wrong set.
+  const scopeNote = slots.scope
+    ? ` [scope: ${slots.scope.entries.filter((e) => e.owner).length} file(s); ${slots.scope.outOfScope.length} owner(s) set aside, not counted]`
+    : "";
+
   if (d.namedRatio !== undefined && slots.naming.members > 0 && slots.naming.ratio < d.namedRatio) {
     out.push({
       id: "namedRatio",
       asks: `>= ${(d.namedRatio * 100).toFixed(0)} % of the meaning-bearing nodes carry a HUMAN name`,
       askedValue: String(d.namedRatio),
-      now: `${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes; ${slots.naming.machineNamed} carry only a machine name)`,
+      now: `${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes; ${slots.naming.machineNamed} carry only a machine name)${scopeNote}`,
       clearBy: "disasm the payload and then NAME what is in it — `write_annotations` (segments/labels/routines in, the file out) → `disasm`, which applies it and imports it into the graph's human layer; `merge_annotations` when several passes produced fragments; or `save_finding` with tags=[\"routine\"] and an addressRange",
       blocker: `named ${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes) is below the ${(d.namedRatio * 100).toFixed(0)} % the contract asks for — coverage counts bytes in a RANGE, this counts things with a name`,
     });
@@ -81,7 +87,7 @@ export async function contractPromises(
       id: "coverageRatio",
       asks: `>= ${(slots.coverage.threshold * 100).toFixed(0)} % of the bytes sit inside a range that says what they ARE`,
       askedValue: String(d.coverageRatio),
-      now: `${(slots.coverage.ratio * 100).toFixed(1)} % (${slots.coverage.covered}/${slots.coverage.total} bytes; ${slots.coverage.declaredUnknown} declared unknown, ${slots.coverage.machineOnly} machine-named only)`,
+      now: `${(slots.coverage.ratio * 100).toFixed(1)} % (${slots.coverage.covered}/${slots.coverage.total} bytes; ${slots.coverage.declaredUnknown} declared unknown, ${slots.coverage.machineOnly} machine-named only)${scopeNote}`,
       clearBy: "classify the ranges that are still unaccounted for — `save_finding` with an addressRange, or `analyze` + `disasm` the payloads that have none",
       blocker: `coverage ${(slots.coverage.ratio * 100).toFixed(1)} % is below the ${(slots.coverage.threshold * 100).toFixed(0)} % threshold`,
     });

@@ -17,6 +17,7 @@
 
 import type { ModelReport } from "./types.js";
 import { modelReport, formatModel } from "./rollup.js";
+import { formatScope } from "../contract/scope.js";
 
 export interface Refutation {
   title: string;
@@ -35,6 +36,8 @@ export interface ReentryPackage {
   openQuestions: string[];
   refutations: Refutation[];
   coverage: { covered: number; total: number; ratio: number };
+  /** Spec 897 — what the contract's scope sets aside, so a scoped ratio is read as scoped. */
+  scope?: import("../contract/scope.js").ScopeReport;
 }
 
 export async function reentryPackage(projectDir: string): Promise<ReentryPackage> {
@@ -74,6 +77,7 @@ export async function reentryPackage(projectDir: string): Promise<ReentryPackage
     openQuestions,
     refutations,
     coverage: { covered: slots.coverage.covered, total: slots.coverage.total, ratio: slots.coverage.ratio },
+    ...(slots.scope ? { scope: slots.scope } : {}),
   };
 }
 
@@ -110,5 +114,6 @@ export function formatReentry(p: ReentryPackage): string {
   if (p.coverage.total > 0) {
     out.push("", `Coverage: ${p.coverage.covered}/${p.coverage.total} bytes = ${(p.coverage.ratio * 100).toFixed(1)} %`);
   }
+  if (p.scope) out.push(...formatScope(p.scope));
   return out.join("\n");
 }

@@ -185,21 +185,31 @@ export async function critique(projectDir: string): Promise<CriticReport> {
       }
 
       const { limit, fromContract } = orphanLimit(projectDir);
+      // Spec 897 D2 — the limit counts the contract's scope alone. A reference file's
+      // unplaced nodes are not the deliverable's orphans.
+      const { loadContract } = await import("../contract/contract.js");
+      const { activeScope } = await import("../contract/scope.js");
+      const stated = loadContract(projectDir);
+      const scope = stated.present ? await activeScope(projectDir, stated.contract.deliver?.scope) : undefined;
+      const scoped = scope ? await modelReport(projectDir, { owners: scope.owners }) : model;
       // A project with NO boundary at all reports memberTotal 0, and the check used to
       // fall silent there — so the way past an orphan limit was to assert nothing, which
       // is the behaviour the limit exists to catch. With no model, every classified node
       // is outside every boundary by definition.
-      let orphanCount = model.orphans.length;
-      let memberTotal = model.memberTotal;
+      let orphanCount = scoped.orphans.length;
+      let memberTotal = scoped.memberTotal;
+      let setAside = scoped.setAside ?? 0;
       if (model.nodes.length === 0 && store) {
         try {
           const { MEMBER_KINDS } = await import("../model/types.js");
           const ph = MEMBER_KINDS.map(() => "?").join(",");
-          const n = (store.db.prepare(
-            `SELECT COUNT(*) AS n FROM (SELECT id FROM nodes WHERE kind IN (${ph}) GROUP BY id)`,
-          ).get(...MEMBER_KINDS) as { n?: number } | undefined)?.n ?? 0;
-          orphanCount = n;
-          memberTotal = n;
+          const owners = store.db.prepare(
+            `SELECT MAX(owner) AS owner FROM nodes WHERE kind IN (${ph}) GROUP BY id`,
+          ).all(...MEMBER_KINDS) as Array<{ owner: string | null }>;
+          const kept = scope ? owners.filter((o) => o.owner !== null && scope.owners.has(o.owner)) : owners;
+          orphanCount = kept.length;
+          memberTotal = kept.length;
+          setAside = owners.length - kept.length;
         } catch { /* leave the report's own numbers alone */ }
       }
       if (memberTotal > 0) {
@@ -210,7 +220,8 @@ export async function critique(projectDir: string): Promise<CriticReport> {
               ? `no boundary is asserted — all ${memberTotal} classified nodes sit outside the model`
               : `${orphanCount} of ${memberTotal} nodes sit outside every boundary`,
             `${(ratio * 100).toFixed(1)} % orphaned, limit ${(limit * 100).toFixed(0)} % `
-              + (fromContract ? "(the project contract)" : "(C64RE_ORPHAN_RATIO)"),
+              + (fromContract ? "(the project contract)" : "(C64RE_ORPHAN_RATIO)")
+              + (scope ? `; counted over the ${scope.owners.size} owner(s) in the contract's scope, ${setAside} node(s) of other owners set aside` : ""),
             fromContract ? "blocking" : undefined);
         }
       }

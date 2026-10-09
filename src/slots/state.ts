@@ -18,6 +18,7 @@
 
 import type { SlotDef, SlotId } from "./schema.js";
 import { SLOTS } from "./schema.js";
+import { formatScope } from "../contract/scope.js";
 
 export type SlotStatus =
   /** Answered, by a record or by the project's own data. */
@@ -45,6 +46,11 @@ export interface SlotReport {
   /** Required slots that are empty. The answer to "what is still unmapped". */
   missing: SlotState[];
   coverage: CoverageReport;
+  /**
+   * Spec 897 — present only when the contract states a scope. Coverage and naming above
+   * then count the in-scope owners alone; what was set aside is here, per owner.
+   */
+  scope?: import("../contract/scope.js").ScopeReport;
 }
 
 /**
@@ -188,6 +194,19 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   })();
   /** Slots this project owes. The contract may demand FEWER — 844 is a template. */
   const owed = contractPresent ? contract.deliver?.slots : undefined;
+  // Spec 897 D1 — the owners the contract's measures are about; undefined = every one.
+  const { activeScope } = await import("../contract/scope.js");
+  const { normStem } = await import("../knowledge-graph/migrate/classify.js");
+  const scope = contractPresent ? await activeScope(projectDir, contract.deliver?.scope) : undefined;
+  const inScope = (owner: string): boolean => !scope || scope.owners.has(normStem(owner));
+  // D2 — what the scope sets aside, per owner, with its own numbers.
+  const setAside = new Map<string, import("../contract/scope.js").OutOfScopeOwner>();
+  const asideOf = (owner: string, label?: string) => {
+    let o = setAside.get(owner);
+    if (!o) { o = { owner, label: label ?? owner, bytes: 0, covered: 0, members: 0, named: 0 }; setAside.set(owner, o); }
+    else if (label) o.label = label;
+    return o;
+  };
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
   const rec = new KnowledgeRecords(projectDir);
 
@@ -279,6 +298,12 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           into.set(r.owner, list);
         }
         if (!NAMED_KINDS.has(r.kind)) continue;
+        if (!inScope(r.owner)) {
+          const o = asideOf(r.owner);
+          o.members++;
+          if (!isMachineName(r.human_name ?? r.any_name)) o.named++;
+          continue;
+        }
         memberNodes++;
         if (isMachineName(r.human_name ?? r.any_name)) machineNamed++;
       }
@@ -310,16 +335,28 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   let duplicates = 0;
   const unmeasured: string[] = [];
   for (const a of artifacts) {
-    const id = identityOf(a);
-    if (seen.has(id)) { duplicates += 1; continue; }
+    const own = stemOf(a.relativePath ?? a.path ?? a.title);
+    const aside = !inScope(own);
+    // Identity is judged inside its class: a set-aside copy of an in-scope file must not
+    // turn the in-scope one into a "duplicate", nor the other way round.
+    const id = (aside ? "aside:" : "") + identityOf(a);
+    if (seen.has(id)) { if (!aside) duplicates += 1; continue; }
     seen.add(id);
     const size = a.addressRange
       ? a.addressRange.end - a.addressRange.start + 1
       : (a.fileSize && a.fileSize > 2 ? a.fileSize - 2 : 0); // minus the load address
+    if (aside) {
+      if (size <= 0) continue;
+      const o = asideOf(normStem(own), a.title);
+      const clipAside = (list: Array<{ start: number; end: number }> | undefined) =>
+        list ? Math.min(unionSize(list), size) : 0;
+      o.bytes += size;
+      o.covered += clipAside(rangesByOwner.get(own));
+      continue;
+    }
     if (size <= 0) { unmeasured.push(a.title); continue; }
     total += size;
     counted += 1;
-    const own = stemOf(a.relativePath ?? a.path ?? a.title);
     // Clipped to the file: ranges live in load-address space and a union can otherwise
     // exceed the artifact it describes. The cap is a cap, not a measurement, and it is
     // better than a ratio above 1.
@@ -496,6 +533,13 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     records: findings.length + entities.length + routines.length,
     missing: states.filter((s) => s.status === "empty" || s.status === "hypothesis"),
     coverage,
+    ...(scope
+      ? { scope: {
+          entries: scope.entries,
+          unresolved: scope.unresolved,
+          outOfScope: [...setAside.values()].sort((x, y) => x.owner.localeCompare(y.owner)),
+        } }
+      : {}),
   };
 }
 
@@ -577,6 +621,7 @@ export function formatSlotReport(r: SlotReport): string {
         + `\n  denominator: ${r.coverage.artifacts} distinct loadable artifact(s)`
         + (r.coverage.duplicates > 0 ? `, ${r.coverage.duplicates} further cop${r.coverage.duplicates === 1 ? "y" : "ies"} of content already counted left out` : "")
       : "Coverage: nothing measurable registered yet",
+    ...formatScope(r.scope),
     ...(r.coverage.unmeasured.length ? [`  unmeasured (no addressRange, no fileSize): ${r.coverage.unmeasured.join(", ")}`] : []),
   ].join("\n");
 }

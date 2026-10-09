@@ -538,6 +538,11 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         if (pkg.coverage.total > 0) {
           lines.push(``, `Coverage: ${pkg.coverage.covered} / ${pkg.coverage.total} bytes = ${(pkg.coverage.ratio * 100).toFixed(1)} % inside a known address range. "exhaustive" / "fully mapped" are claims ABOUT this number and are refused below its threshold.`, ``);
         }
+        // Spec 897 — a ratio over a scope is read as one: what was set aside is said here.
+        if (pkg.scope) {
+          const { formatScope } = await import("../contract/scope.js");
+          lines.push(...formatScope(pkg.scope), ``);
+        }
 
         // The critic is announced, never auto-run: it reads the whole graph, and an
         // onboarding that silently does that is an onboarding people learn to dread.

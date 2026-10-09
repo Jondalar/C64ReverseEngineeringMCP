@@ -33,6 +33,13 @@ export interface DocumentDemand {
   why?: string;
 }
 
+export interface ScopeEntry {
+  /** An artifact name, path or id, or a payload name. */
+  file: string;
+  /** Why the contract is about this file, in the owner's words. */
+  why?: string;
+}
+
 export interface ProjectContract {
   /** What the job is, in one sentence. Not checkable — it is the frame for a human. */
   goal: string;
@@ -47,6 +54,13 @@ export interface ProjectContract {
     annotate?: string[];
     /** Synthesis that must exist and declare itself (Spec 847). */
     documents?: DocumentDemand[];
+    /**
+     * Spec 897 — which files the measures are about: an artifact name, path or id, or a
+     * payload name, each resolved to its owner. Coverage, the named ratio and the orphan
+     * limit count only these; the rest is reported, never counted. Omitted = every
+     * loadable file, which is what the code did before. `annotate` never implies it.
+     */
+    scope?: Array<string | ScopeEntry>;
   };
   limits?: {
     /** Gated runtime calls allowed with no durable record (844 D5). */
@@ -122,6 +136,11 @@ export const KICKOFF_QUESTIONS: ReadonlyArray<{ field: string; ask: string; note
     note: "The argued narrative a graph cannot hold. Give the address range or artifact it must cover.",
   },
   {
+    field: "deliver.scope",
+    ask: "Which files is this contract about — and which registered files are only reference?",
+    note: "A packed original, an earlier crack, a port kept for comparison are loadable, so they count in the ratios unless the scope leaves them out. Omit it and every file counts.",
+  },
+  {
     field: "deliver.namedRatio",
     ask: "How much of the code must carry human names before this counts as mapped?",
     note: "A fraction. Machine names (unknown_3E00, addr_0006) do not count toward it.",
@@ -135,6 +154,15 @@ export function formatContract(c: ProjectContract, present: boolean): string {
   if (d.slots) out.push(`  slots owed:    ${d.slots.join(", ")}`);
   else out.push("  slots owed:    (all of the default fifteen)");
   if (d.annotate?.length) out.push(`  annotate:      ${d.annotate.join(", ")}`);
+  const scope = (d.scope ?? []).map((e) => (typeof e === "string" ? { file: e } : e));
+  if (scope.length) {
+    out.push(`  scope:         ${scope.map((e) => e.file).join(", ")}`);
+    for (const e of scope) if (e.why) out.push(`                 ${e.file} — ${e.why}`);
+  } else if (present && d.annotate?.length) {
+    // 897 D5 — annotate says what must be NAMED, never what is COUNTED. Said once, here,
+    // so nobody reads a low ratio as "the annotated payload is low".
+    out.push(`  annotate names ${d.annotate.join(", ")}; no scope set — every loadable file is counted`);
+  }
   if (d.documents?.length) out.push(`  documents:     ${d.documents.map((x) => x.covers).join(", ")}`);
   if (d.namedRatio !== undefined) out.push(`  named:         >= ${(d.namedRatio * 100).toFixed(0)} %`);
   if (d.coverageRatio !== undefined) out.push(`  coverage:      >= ${(d.coverageRatio * 100).toFixed(0)} %`);

@@ -84,4 +84,6 @@ export interface ModelReport {
   orphans: Orphan[];
   /** Fine nodes of a member kind, total. The denominator for the orphan count. */
   memberTotal: number;
+  /** Spec 897 — fine nodes left out because their owner is outside the contract's scope. */
+  setAside?: number;
 }

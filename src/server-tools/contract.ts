@@ -37,6 +37,13 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       const pd = context.projectDir({ projectDir: project_dir });
       const { contract, present } = loadContract(pd);
       const lines = [formatContract(contract, present)];
+      // Spec 897 D2 — with a scope, say what it counts and what it sets aside, with the
+      // numbers of each, so a reader of 99 % does not have to guess where the rest went.
+      if (present && (contract.deliver?.scope?.length ?? 0) > 0) {
+        const { slotReport } = await import("../slots/state.js");
+        const { formatScope } = await import("../contract/scope.js");
+        try { lines.push("", ...formatScope((await slotReport(pd)).scope)); } catch { /* the contract still prints */ }
+      }
       // Spec 877 D2 — a waiver nobody can see from outside is not a record. It prints
       // here, under the promise it releases, for as long as it holds.
       const waived = formatWaivers(pd);
@@ -59,14 +66,21 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "contract_set",
-    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits, or waive + waive_reason + waived_by. Returns: the stored contract, or the recorded waiver.",
+    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10 — and name the files its ratios are about (`scope`), so a packed original or a port kept for reference stops counting against the game. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables (incl. optional scope) + optional limits, or waive + waive_reason + waived_by. Returns: the stored contract, or the recorded waiver.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       goal: z.string().min(10).optional().describe("What this job is for, in one sentence. The frame, not a checkable. Required unless this call only waives."),
       slots: z.array(z.string()).optional().describe("Which Spec 844 slots THIS game owes, e.g. [\"S1\",\"S3\",\"S4\"]. Omit for all fifteen."),
       named_ratio: z.number().min(0).max(1).optional().describe("Fraction of meaning-bearing nodes that must carry a HUMAN name. Machine names (unknown_3E00, addr_0006) do not count."),
       coverage_ratio: z.number().min(0).max(1).optional().describe("Fraction of bytes that must sit inside a known address range (S12)."),
-      annotate: z.array(z.string()).optional().describe("Payloads that must be semantically annotated, not merely disassembled."),
+      annotate: z.array(z.string()).optional().describe("Payloads that must be semantically annotated, not merely disassembled. Says what must be NAMED, never what is COUNTED — that is `scope`."),
+      scope: z.array(z.union([
+        z.string(),
+        z.object({
+          file: z.string().describe("Artifact name, path or id, or a payload name"),
+          why: z.string().optional().describe("Why the contract is about this file"),
+        }),
+      ])).optional().describe("Spec 897: the files the coverage, named and orphan measures are about — e.g. [\"mc_orig_unpacked.prg\"]. Each resolves to an owner; one that resolves to none is refused with the candidates. Everything else loadable is reported on its own line and not counted. Omit it and every loadable file counts."),
       documents: z.array(z.object({
         covers: z.string().describe("Address range ($4300-$73FC) or artifact name the document must cover"),
         why: z.string().optional(),
@@ -79,6 +93,11 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
     },
     async (a) => {
       const pd = context.projectDir({ projectDir: a.project_dir }, true);
+
+      // Spec 897 D3 — a scope that matches nothing would report 100 % over zero bytes.
+      // Checked first, before a waiver can be recorded: a refused call writes nothing.
+      const refused = await scopeRefused(pd, a.scope);
+      if (refused) return { content: [{ type: "text" as const, text: refused }] };
 
       // Spec 877 D2. A waiver is its own act: it must not be able to arrive as a side
       // effect of rewriting the contract, and a call that only waives does not need a
@@ -112,9 +131,16 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
     },
   );
 
+  async function scopeRefused(pd: string, scope: Array<string | { file: string; why?: string }> | undefined): Promise<string | undefined> {
+    if (!scope?.length) return undefined;
+    const { scopeRefusal } = await import("../contract/scope.js");
+    return scopeRefusal(pd, scope);
+  }
+
   function writeContract(pd: string, a: {
     goal?: string; slots?: string[]; named_ratio?: number; coverage_ratio?: number;
     annotate?: string[]; documents?: Array<{ covers: string; why?: string }>;
+    scope?: Array<string | { file: string; why?: string }>;
     runtime_ratchet?: number; orphan_ratio?: number;
   }): string {
     const contract: ProjectContract = {
@@ -125,6 +151,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
         ...(a.coverage_ratio !== undefined ? { coverageRatio: a.coverage_ratio } : {}),
         ...(a.annotate ? { annotate: a.annotate } : {}),
         ...(a.documents ? { documents: a.documents } : {}),
+        ...(a.scope?.length ? { scope: a.scope } : {}),
       },
       limits: {
         ...(a.runtime_ratchet !== undefined ? { runtimeRatchet: a.runtime_ratchet } : {}),

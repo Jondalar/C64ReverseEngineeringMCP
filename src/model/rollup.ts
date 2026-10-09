@@ -54,7 +54,12 @@ function nestedIn(outer: ModelNode, boundaries: ModelNode[]): ModelNode[] {
     && (b.end - b.start) < (outer.end - outer.start));
 }
 
-export async function modelReport(projectDir: string): Promise<ModelReport> {
+/**
+ * `opts.owners` (Spec 897): count only these owners' nodes — membership, orphans and
+ * `memberTotal` follow, the boundaries themselves do not. Callers that mean "the model"
+ * pass nothing; the orphan limit passes the contract's scope.
+ */
+export async function modelReport(projectDir: string, opts?: { owners?: ReadonlySet<string> }): Promise<ModelReport> {
   const boundaries = await listBoundaries(projectDir);
   const empty: ModelReport = { nodes: boundaries, edges: [], membership: [], orphans: [], memberTotal: 0 };
   if (boundaries.length === 0) return empty;
@@ -64,9 +69,10 @@ export async function modelReport(projectDir: string): Promise<ModelReport> {
   try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return empty; }
   try {
     const placeholders = MEMBER_KINDS.map(() => "?").join(",");
-    const fine = store.db.prepare(
+    const every = store.db.prepare(
       `SELECT id, kind, name, space, owner, address FROM nodes WHERE kind IN (${placeholders}) GROUP BY id`,
     ).all(...MEMBER_KINDS) as Array<{ id: string; kind: string; name: string | null; space: string; owner: string | null; address: number }>;
+    const fine = opts?.owners ? every.filter((n) => n.owner !== null && opts.owners!.has(n.owner)) : every;
 
     const owning = new Map<string, string>(); // fine node id -> INNERMOST container id (D4 rolls edges up by this)
     const membership = new Map<string, ModelMembership>();
@@ -119,6 +125,7 @@ export async function modelReport(projectDir: string): Promise<ModelReport> {
       membership: [...membership.values()],
       orphans: orphans.sort((x, y) => x.address - y.address),
       memberTotal: fine.length,
+      ...(opts?.owners ? { setAside: every.length - fine.length } : {}),
     };
   } finally {
     store.close();

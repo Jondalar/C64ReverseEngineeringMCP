@@ -1,6 +1,6 @@
 # Spec 897 — The contract says what it is about
 
-**Status:** READY (2026-10-09) — refined with the owner, all questions settled
+**Status:** BUILT (2026-10-09) — `e2e:897-scope` 26/0; open: the replay on the reporter's project (§6)
 **Repo:** C64RE. From issue #39 (Mike, *The Magician's Curse*, C16 → C64).
 
 ## §1 What goes wrong
@@ -85,3 +85,23 @@ counted`. `annotate` never widens or narrows what is counted.
    existing contract on update. Instead the contract report says it (D5).
 4. ~~Does a project with no contract stay unscoped?~~ **Yes** (owner, 2026-10-09). No
    contract, nobody said what it is about; the default 0.6 counts every loadable file.
+
+## §6 As built (2026-10-09)
+
+- `src/contract/scope.ts` — the one place an entry becomes an owner (`normStem`): artifact
+  id, title, path or basename, payload node name, or the owner key; normal forms, never a
+  substring. `formatScope` prints the scope and one line per set-aside owner.
+- D2: `slotReport` (`src/slots/state.ts`) counts coverage and the named ratio over in-scope
+  owners; duplicates are judged inside each class. The `coverageRatio`/`namedRatio`
+  promises read the same numbers. Orphans: `modelReport(…, {owners})` and the critic's
+  orphan check (both branches) are scoped; empty-boundary stays unscoped.
+- Reported in `project_slots`, `contract_show`, `agent_onboard` (re-entry) — never counted.
+- D3: `contract_set` resolves the scope before any write or waiver and refuses with the
+  loadable files and payload names as candidates.
+- D4/D5 in `formatContract`; a `deliver.scope` kickoff question.
+- Gate step in `gates.yml` after 848's.
+
+**Open:** the §4 replay of #39's numbers needs the reporter's project — asked on the issue.
+**Known, not this spec:** S12's per-owner range lookup keys on the un-lowercased file stem,
+so a `Game.prg` would miss its lowercase graph owner. Scope membership uses `normStem` and
+is unaffected; fixing the lookup moves existing numbers and is its own change.
