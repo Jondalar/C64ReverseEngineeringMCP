@@ -9,6 +9,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js";
 import {
+  INPUT_MEDIA_EXTENSIONS,
   INVENTORY_PATTERNS_FILE,
   projectSkipDirs,
   readInventoryDeclaration,
@@ -24,11 +25,18 @@ const KNOWN_EXTENSIONS = new Set([
   ".json", ".md", ".html", ".png", ".jsonl",
 ]);
 
-// Subdirectories to scan. Other folders (input, knowledge, views, session,
-// node_modules, .git) are skipped to avoid false positives.
-const SCAN_ROOTS = ["analysis", "artifacts", "build", "docs", "tools", "src", "session/graphics-previews"];
+// Subdirectories to scan. `input` is the user's drop zone for source media and
+// the DEFAULT_PATTERNS name it, so it is walked — but only for media extensions
+// (INPUT_MEDIA_EXTENSIONS, see ROOT_EXTENSIONS). knowledge, views, session
+// (bar graphics-previews), node_modules and .git are not scanned.
+const SCAN_ROOTS = ["input", "analysis", "artifacts", "build", "docs", "tools", "src", "session/graphics-previews"];
 
-// Folders that must never be scanned.
+// A root that counts a narrower set of extensions than KNOWN_EXTENSIONS.
+const ROOT_EXTENSIONS: Record<string, ReadonlySet<string>> = { input: INPUT_MEDIA_EXTENSIONS };
+
+// Directory NAMES that are never entered at any depth (so a nested analysis/input
+// stays unscanned; the top-level input/ root is named in SCAN_ROOTS and is not
+// subject to this).
 const SKIP_DIRS = new Set(["node_modules", ".git", "knowledge", "views", "input"]);
 
 // Spec 832 D5 — directories a TOOL owns and fills.
@@ -188,7 +196,7 @@ function newSink(projectRoot: string, registered: Set<string>): WalkSink {
   return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolMeta: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0, skip: projectSkipDirs(projectRoot) };
 }
 
-function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: number } {
+function walk(dir: string, sink: WalkSink, exts: ReadonlySet<string> = KNOWN_EXTENSIONS): { total: number; alreadyRegistered: number } {
   let total = 0;
   let already = 0;
   let entries: { name: string; isDirectory(): boolean; isFile(): boolean }[];
@@ -203,7 +211,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (sink.skip(relative(sink.projectRoot, full))) continue;
-      const sub = walk(full, sink);
+      const sub = walk(full, sink, exts);
       total += sub.total;
       already += sub.alreadyRegistered;
       continue;
@@ -212,7 +220,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     const dot = entry.name.lastIndexOf(".");
     if (dot < 0) continue;
     const ext = entry.name.slice(dot).toLowerCase();
-    if (!KNOWN_EXTENSIONS.has(ext)) continue;
+    if (!exts.has(ext)) continue;
     total += 1;
     const rel = storeSpelling(relative(sink.projectRoot, full));
     if (sink.registered.has(rel)) {
@@ -245,7 +253,7 @@ function walkAllRoots(projectRoot: string, registered: Set<string>): { sink: Wal
   for (const sub of SCAN_ROOTS) {
     const root = resolve(projectRoot, sub);
     if (!existsSync(root)) continue;
-    const r = walk(root, sink);
+    const r = walk(root, sink, ROOT_EXTENSIONS[sub]);
     totalCandidates += r.total;
     alreadyRegistered += r.alreadyRegistered;
   }

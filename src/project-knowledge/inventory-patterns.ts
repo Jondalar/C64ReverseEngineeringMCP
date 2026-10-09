@@ -39,6 +39,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+/** The extensions the walk counts under `input/` — the user's drop zone for source media. Documents, images and
+ *  archives lying there are not registration debt; a media file no pattern covers is. */
+export const INPUT_MEDIA_EXTENSIONS: ReadonlySet<string> = new Set([".prg", ".d64", ".g64", ".d81", ".crt", ".t64", ".tap", ".bin"]);
+
 export const INVENTORY_PATTERNS_FILE = "knowledge/inventory-patterns.json";
 
 // The artifact kind / scope vocabularies. They live in this leaf module rather than in
@@ -310,6 +314,12 @@ const ROLE_BY_EXT: Record<string, string> = {
   json: "report",
 };
 
+// The roles the default `input/` patterns (registration.ts DEFAULT_PATTERNS) give source media. .d81, .t64, .tap
+// and .bin have no source role anywhere in the project model, so an input file of those types gets none.
+const INPUT_ROLE_BY_EXT: Record<string, string> = {
+  prg: "source-prg", d64: "source-disk", g64: "source-disk", crt: "source-cart",
+};
+
 const FORMAT_BY_EXT: Record<string, string> = {
   asm: "asm", tas: "tass", tass: "tass", json: "json", jsonl: "jsonl",
   md: "md", png: "png", html: "html", sym: "sym", bin: "bin", prg: "prg",
@@ -367,7 +377,7 @@ export function suggestPatternFor(examples: string[]): ProjectInventoryPattern {
     kind,
     scope: suggestedScopeFor(examples[0] ?? ""),
   };
-  const role = ROLE_BY_EXT[ext];
+  const role = pattern.scope === "input" ? INPUT_ROLE_BY_EXT[ext] : ROLE_BY_EXT[ext];
   if (role) pattern.role = role;
   const format = FORMAT_BY_EXT[ext];
   if (format) pattern.format = format;
@@ -502,7 +512,10 @@ export function diagnoseEmptyPattern(projectRoot: string, glob: string, candidat
 
   const under = candidates.filter((c) => dir === "" || c === dir || c.startsWith(`${dir}/`));
   if (under.length === 0) {
-    out.push(`  ${dir}/ exists but the walk found no registerable file under it (empty, or nothing with a known extension).`);
+    const inInput = dir === "input" || dir.startsWith("input/");
+    out.push(inInput
+      ? `  ${dir}/ exists but holds no media file the walk registers (${[...INPUT_MEDIA_EXTENSIONS].join(" ")}) — input/ is walked for source media only.`
+      : `  ${dir}/ exists but the walk found no registerable file under it (empty, or nothing with a known extension).`);
     return out;
   }
   const byExt = new Map<string, number>();

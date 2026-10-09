@@ -580,5 +580,53 @@ const openVersionQuestions = (svc) =>
     "every tool dir declared: no tool-produced warning at all", String(silent.unregisteredToolOutput));
 }
 
+// ───────────────────────────────────────────────── 12 — input/ is walked (issue #42)
+{
+  head(12, "input/ is the drop zone: default and declared input patterns register, strays are judged by extension");
+  const proj = tmpProject("inv-input-");
+  const svc = new ProjectKnowledgeService(proj);
+  write(proj, "input/prg/game.prg", "\x01\x08prg");
+  write(proj, "input/disk/game.d64", "d64-bytes");
+  write(proj, "input/Ori/a.prg", "\x01\x08a");
+  write(proj, "input/Ori/sub/b.prg", "\x01\x08b");
+  write(proj, "input/notes.txt", "hello");
+  write(proj, "input/readme.md", "hello");
+  write(proj, "input/misc/odd.prg", "\x01\x08odd");
+  write(proj, "input/misc/pack.zip", "zip");
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+    patterns: [{ glob: "input/Ori/**/*.prg", kind: "prg", scope: "input", role: "source-prg" }], intentional: [],
+  }, null, 2));
+  // a PRG another door (analyze_prg) already registered, by path
+  svc.saveArtifact({ kind: "prg", scope: "input", title: "game.prg", path: join(proj, "input/prg/game.prg"), role: "source-prg", producedByTool: "analyze_prg" });
+  const before = readJson(proj, "knowledge/artifacts.json").length;
+
+  const r1 = await runProjectInventorySync(svc, proj);
+  const arts = readJson(proj, "knowledge/artifacts.json");
+  const by = (rel) => arts.filter((a) => (a.relativePath ?? "").replace(/\\/g, "/") === rel);
+  check(by("input/prg/game.prg").length === 1, "a PRG already registered by path is not registered twice", String(by("input/prg/game.prg").length));
+  const d64 = by("input/disk/game.d64")[0];
+  check(d64 && d64.kind === "d64" && d64.scope === "input" && d64.role === "source-disk", "input/disk/*.d64 registers as d64 / input / source-disk", JSON.stringify(d64 && [d64.kind, d64.scope, d64.role]));
+  const ori = ["input/Ori/a.prg", "input/Ori/sub/b.prg"].map((x) => by(x)[0]);
+  check(ori.every((a) => a && a.kind === "prg" && a.scope === "input" && a.role === "source-prg"), "declared input/Ori/**/*.prg registers both files as prg / input / source-prg");
+  check(arts.length - before === 3, "exactly three new rows (d64 + two Ori PRGs)", String(arts.length - before));
+  const delta = scanRegistrationDelta(proj);
+  check(delta.unregistered.includes("input/misc/odd.prg"), "an input media file no pattern covers is reported", JSON.stringify(delta.unregistered));
+  check(!delta.unregistered.some((f) => /notes\.txt|readme\.md|pack\.zip/.test(f)), "non-media files under input/ are not counted", JSON.stringify(delta.unregistered));
+  check(delta.unregistered.length === 1, "the delta holds only the one stray media file", String(delta.unregistered.length));
+  check(!/input\/Ori/.test(r1.remainingProblems.join("\n")), "the sync raises no 'matched no file' problem for input/Ori", r1.remainingProblems.join(" | "));
+
+  const adv = r1.remainingProblems.join("\n");
+  check(/"glob":"input\/misc\/\*\.prg","kind":"prg","scope":"input","role":"source-prg"/.test(adv) && !/"role":"payload"/.test(adv.split("input/misc")[1] ?? ""),
+    "the advice for an unmatched input PRG is scope input / role source-prg, not payload");
+  const { suggestPatternFor } = await import(join(ROOT, "dist/project-knowledge/inventory-patterns.js"));
+  check(suggestPatternFor(["input/x/a.d64"]).role === "source-disk" && suggestPatternFor(["input/x/a.crt"]).role === "source-cart"
+    && suggestPatternFor(["input/x/a.d81"]).role === undefined && suggestPatternFor(["analysis/x/a.prg"]).role === "payload",
+    "d64 -> source-disk, crt -> source-cart, d81 -> no role, and outside input/ the PRG suggestion is unchanged");
+
+  const r2 = await runProjectInventorySync(svc, proj);
+  check(r2.registered === 0, "second sync registers 0", String(r2.registered));
+  check(readJson(proj, "knowledge/artifacts.json").length === arts.length, "…and the store does not grow");
+}
+
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e-inventory-truth: ${pass} passed, ${failCount} failed.`);
 process.exit(failCount === 0 ? 0 : 1);
