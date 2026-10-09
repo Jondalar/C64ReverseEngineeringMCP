@@ -45,8 +45,13 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
         try { lines.push("", ...formatScope((await slotReport(pd)).scope)); } catch { /* the contract still prints */ }
       }
       // Spec 877 D2 — a waiver nobody can see from outside is not a record. It prints
-      // here, under the promise it releases, for as long as it holds.
-      const waived = formatWaivers(pd);
+      // here, under the promise it releases, for as long as it holds; a waiver that has
+      // lapsed is listed apart, marked, so it is not read as a release that still stands.
+      let waived: string;
+      try {
+        const { contractPromises } = await import("../contract/promises.js");
+        waived = formatWaivers(pd, await contractPromises(pd));
+      } catch { waived = formatWaivers(pd); }
       if (waived) lines.push("", waived);
       if (!present) {
         lines.push("", "Kickoff questions — ask the human, then write the answers with `contract_set`.");
@@ -66,7 +71,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "contract_set",
-    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10 — and name the files its ratios are about (`scope`), so a packed original or a port kept for reference stops counting against the game. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables (incl. optional scope) + optional limits, or waive + waive_reason + waived_by. Returns: the stored contract, or the recorded waiver.",
+    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10 — and name the files its ratios are about (`scope`), so a packed original or a port kept for reference stops counting against the game. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. `unwaive` takes a waiver back: the promise is owed again, and the waiver stays on the record marked withdrawn. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables (incl. optional scope) + optional limits, or waive / unwaive + waive_reason + waived_by. Returns: the stored contract, the recorded waiver, or the recorded withdrawal.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       goal: z.string().min(10).optional().describe("What this job is for, in one sentence. The frame, not a checkable. Required unless this call only waives."),
@@ -88,8 +93,9 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       runtime_ratchet: z.number().int().min(0).optional().describe("Gated runtime calls allowed with no durable record (844 D5). 0 disables."),
       orphan_ratio: z.number().min(0).max(1).optional().describe("Fraction of nodes allowed outside every named boundary (846)."),
       waive: z.array(z.string()).optional().describe("Spec 877: promise ids to release, e.g. [\"namedRatio\"]. The refusal names the id. The measurement is unchanged — this opens the publishing doors, it does not mark the promise met."),
-      waive_reason: z.string().optional().describe("Why this project ships short of the promise, in the words the decision was made in. Required with waive."),
-      waived_by: z.string().optional().describe("Who is overruling. Required with waive, recorded verbatim, never defaulted — this is a human's decision and the server cannot tell a human's call from a run's."),
+      unwaive: z.array(z.string()).optional().describe("Spec 897 D9: promise ids whose waiver to take back, e.g. [\"namedRatio\"]. Needs waive_reason and waived_by. Refused by name when the promise has no active waiver; the waiver itself is never deleted, it is listed as withdrawn."),
+      waive_reason: z.string().optional().describe("Why this project ships short of the promise (or why the waiver is withdrawn), in the words the decision was made in. Required with waive or unwaive."),
+      waived_by: z.string().optional().describe("Who is overruling (or withdrawing). Required with waive or unwaive, recorded verbatim, never defaulted — this is a human's decision and the server cannot tell a human's call from a run's."),
     },
     async (a) => {
       const pd = context.projectDir({ projectDir: a.project_dir }, true);
@@ -98,6 +104,21 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       // Checked first, before a waiver can be recorded: a refused call writes nothing.
       const refused = await scopeRefused(pd, a.scope);
       if (refused) return { content: [{ type: "text" as const, text: refused }] };
+
+      // Spec 897 D9 — taking a waiver back is its own act too, and never the same call as
+      // granting one.
+      if (a.unwaive?.length) {
+        if (a.waive?.length) {
+          return { content: [{ type: "text" as const, text: "# contract_set refused — waive and unwaive in one call. Say one thing at a time." }] };
+        }
+        const { unwaivePromises } = await import("../contract/waive.js");
+        const result = await unwaivePromises(pd, { promises: a.unwaive, reason: a.waive_reason ?? "", by: a.waived_by ?? "" });
+        if (!result.ok || a.goal === undefined) {
+          return { content: [{ type: "text" as const, text: result.message }] };
+        }
+        const written = writeContract(pd, a);
+        return { content: [{ type: "text" as const, text: `${result.message}\n\n---\n\n${written}` }] };
+      }
 
       // Spec 877 D2. A waiver is its own act: it must not be able to arrive as a side
       // effect of rewriting the contract, and a call that only waives does not need a

@@ -32,12 +32,35 @@ export interface LoadableOwner {
   label: string;
   /** Every spelling by which an entry may name it. */
   names: Set<string>;
+  /** The registered artifact ids under this owner. */
+  ids: Set<string>;
+  /** D6 — the content identities of its artifacts (`identityOf`). */
+  identities: Set<string>;
+}
+
+/**
+ * Spec 897 D6 — what makes two artifacts the same bytes. S12 deduplicates its denominator
+ * by this, and a scope entry takes every owner it matches, so the two cannot disagree.
+ * In order: the content hash the store records; else the lineage root (Spec 025: a derived
+ * copy points at its origin); else the path — which only ever matches itself.
+ */
+export function identityOf(a: { contentHash?: string; lineageRoot?: string; relativePath?: string; path?: string; title: string }): string {
+  return a.contentHash ? `hash:${a.contentHash}` : a.lineageRoot ? `lineage:${a.lineageRoot}` : `path:${a.relativePath ?? a.path ?? a.title}`;
+}
+
+/** D6/D7 — an owner the scope took without being named, and the recorded link that brought it. */
+export interface PulledInOwner {
+  owner: string;
+  label: string;
+  /** `same bytes as X` (D6) or `payload stored in X` / `payload depacked from X` (D7). */
+  link: string;
 }
 
 export interface ResolvedScope {
   /** Owners the contract's measures are about. */
   owners: Set<string>;
   entries: Array<{ file: string; why?: string; owner?: string }>;
+  pulledIn: PulledInOwner[];
   /** Entries that name no owner now — only possible after the contract was written. */
   unresolved: string[];
 }
@@ -56,6 +79,7 @@ export interface OutOfScopeOwner {
 
 export interface ScopeReport {
   entries: ResolvedScope["entries"];
+  pulledIn?: PulledInOwner[];
   unresolved: string[];
   outOfScope: OutOfScopeOwner[];
 }
@@ -78,7 +102,9 @@ export async function loadableOwners(projectDir: string): Promise<LoadableOwner[
     const path = a.relativePath ?? a.path ?? a.title;
     if (!path) continue;
     const owner = normStem(basename(path));
-    const cur = byOwner.get(owner) ?? { owner, label: a.title || basename(path), names: new Set<string>() };
+    const cur = byOwner.get(owner) ?? { owner, label: a.title || basename(path), names: new Set<string>(), ids: new Set<string>(), identities: new Set<string>() };
+    cur.ids.add(a.id);
+    cur.identities.add(identityOf(a));
     for (const c of [a.id, a.title, a.relativePath, a.path]) {
       if (!c) continue;
       for (const f of artifactNameForms(c)) cur.names.add(f);
@@ -88,15 +114,37 @@ export async function loadableOwners(projectDir: string): Promise<LoadableOwner[
   return [...byOwner.values()].sort((x, y) => x.owner.localeCompare(y.owner));
 }
 
-/** Payload nodes by name -> owner, from the graph. A payload name is a valid entry. */
-async function payloadOwners(projectDir: string): Promise<Array<{ name: string; owner: string }>> {
+interface PayloadRef {
+  name: string;
+  owner: string;
+  /** D7 — the recorded links (register_payload source_artifact_id / depacked_artifact_id). */
+  sourceArtifactId?: string;
+  depackedArtifactId?: string;
+}
+
+/**
+ * Payload nodes by name -> owner, from the graph, with the artifact links a door recorded
+ * on them (`attrs.payload`). A payload name is a valid entry; the links are D7's.
+ */
+async function payloadOwners(projectDir: string): Promise<PayloadRef[]> {
   try {
     const { GraphStore } = await import("../knowledge-graph/store.js");
     const store = GraphStore.open(projectDir, { readOnly: true });
     try {
-      return store.db.prepare(
-        "SELECT DISTINCT name, owner FROM nodes WHERE kind = 'payload' AND owner IS NOT NULL AND name IS NOT NULL",
-      ).all() as Array<{ name: string; owner: string }>;
+      const rows = store.db.prepare(
+        "SELECT id, name, owner, attrs FROM nodes WHERE kind = 'payload' AND owner IS NOT NULL AND name IS NOT NULL ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END",
+      ).all() as Array<{ id: string; name: string; owner: string; attrs: string }>;
+      // One id lives in up to two layers; the links may sit in either, the human layer first.
+      const byId = new Map<string, PayloadRef>();
+      for (const r of rows) {
+        let pl: { source_artifact_id?: unknown; depacked_artifact_id?: unknown } = {};
+        try { pl = (JSON.parse(r.attrs) as { payload?: typeof pl }).payload ?? {}; } catch { /* attrs is JSON by CHECK */ }
+        const cur = byId.get(r.id) ?? { name: r.name, owner: r.owner };
+        if (!cur.sourceArtifactId && typeof pl.source_artifact_id === "string") cur.sourceArtifactId = pl.source_artifact_id;
+        if (!cur.depackedArtifactId && typeof pl.depacked_artifact_id === "string") cur.depackedArtifactId = pl.depacked_artifact_id;
+        byId.set(r.id, cur);
+      }
+      return [...byId.values()];
     } finally { store.close(); }
   } catch { return []; }
 }
@@ -114,6 +162,7 @@ export async function resolveScope(projectDir: string, scope: readonly ScopeInpu
   const owners = new Set<string>();
   const out: ResolvedScope["entries"] = [];
   const unresolved: string[] = [];
+  const pulledIn: PulledInOwner[] = [];
   for (const e of entries) {
     const forms = artifactNameForms(e.file);
     const stem = normStem(basename(e.file.trim().replace(/^artifact:/i, "")));
@@ -124,7 +173,64 @@ export async function resolveScope(projectDir: string, scope: readonly ScopeInpu
     if (hit) { owners.add(hit); out.push({ ...e, owner: hit }); }
     else { out.push({ ...e }); unresolved.push(e.file); }
   }
-  return { owners, entries: out, unresolved };
+  if (owners.size === 0) return { owners, entries: out, pulledIn, unresolved };
+
+  // D6 — a file's bytes may live under another owner (annotations carry their own
+  // `binary`, so names and ranges sit under that stem). Same content identity = same owner
+  // set. Only direct hits seed it: a pulled-in owner does not widen the scope on its own.
+  const labelOf = (o: string) => loadable.find((l) => l.owner === o)?.label ?? o;
+  const pull = (owner: string, link: string) => {
+    if (owners.has(owner)) return false;
+    owners.add(owner);
+    pulledIn.push({ owner, label: labelOf(owner), link });
+    return true;
+  };
+  for (const direct of [...owners]) {
+    const from = loadable.find((l) => l.owner === direct);
+    if (!from) continue;
+    for (const l of loadable) {
+      if (l.owner === direct) continue;
+      if ([...l.identities].some((i) => from.identities.has(i))) pull(l.owner, `same bytes as ${from.label}`);
+    }
+  }
+
+  // D7 — a payload stored inside a scoped file comes with it, but only through a link a
+  // door RECORDED (source or depacked artifact), never through an address that happens to
+  // fit. Artifacts are compared by id and by content identity, so a payload recorded
+  // against the byte-identical twin counts too. A joined payload's depacked artifact is
+  // itself a scoped artifact from then on, hence the loop (it ends: owners only grow).
+  if (payloads.some((p) => p.sourceArtifactId || p.depackedArtifactId)) {
+    const identityById = new Map<string, string>();
+    try {
+      const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
+      for (const a of new KnowledgeRecords(projectDir).listArtifacts()) identityById.set(a.id, identityOf(a));
+    } catch { /* the loadable ids below still answer */ }
+    const scopedIds = new Set<string>();
+    const scopedIdent = new Set<string>();
+    const absorb = (id: string | undefined) => {
+      if (!id) return;
+      scopedIds.add(id);
+      const i = identityById.get(id);
+      if (i) scopedIdent.add(i);
+    };
+    for (const l of loadable) if (owners.has(l.owner)) { for (const id of l.ids) absorb(id); for (const i of l.identities) scopedIdent.add(i); }
+    const holds = (id: string | undefined): boolean => !!id && (scopedIds.has(id) || (identityById.has(id) && scopedIdent.has(identityById.get(id)!)));
+    const nameOfArtifact = (id: string) =>
+      loadable.find((l) => l.ids.has(id))?.label ?? id;
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const p of payloads) {
+        const via = holds(p.sourceArtifactId) ? `payload stored in ${nameOfArtifact(p.sourceArtifactId!)}`
+          : holds(p.depackedArtifactId) ? `payload depacked from ${nameOfArtifact(p.depackedArtifactId!)}` : undefined;
+        if (!via) continue;
+        for (const o of new Set([p.owner, normStem(p.name)])) {
+          if (pull(o, `${via} (${p.name})`)) changed = true;
+        }
+        if (p.depackedArtifactId && !scopedIds.has(p.depackedArtifactId)) { absorb(p.depackedArtifactId); changed = true; }
+      }
+    }
+  }
+  return { owners, entries: out, pulledIn, unresolved };
 }
 
 /** D3 — the refusal text: what matched nothing, and what could have. */
@@ -163,6 +269,10 @@ export function formatScope(s: ScopeReport | undefined): string[] {
   if (!s) return [];
   const out: string[] = [];
   out.push(`Scope (contract): ${s.entries.map((e) => `${e.file}${e.owner && e.owner !== e.file ? ` [${e.owner}]` : ""}${e.why ? ` — ${e.why}` : ""}`).join("; ")}`);
+  if (s.pulledIn && s.pulledIn.length > 0) {
+    out.push("  also in scope — brought in by a recorded link, not named:");
+    for (const p of s.pulledIn) out.push(`    ${p.label}${p.label !== p.owner ? ` [${p.owner}]` : ""}: ${p.link}`);
+  }
   for (const u of s.unresolved) out.push(`  scope entry "${u}" no longer resolves to an owner — it counts nothing`);
   if (s.outOfScope.length > 0) {
     out.push("  out of scope — reported, not counted:");

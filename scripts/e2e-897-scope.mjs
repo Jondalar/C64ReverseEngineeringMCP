@@ -15,6 +15,7 @@ const { contractPromises } = await import("../dist/contract/promises.js");
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { registerContractTools } = await import("../dist/server-tools/contract.js");
 const { assertBoundary } = await import("../dist/model/store.js");
+const { activeWaivers, resetStanding } = await import("../dist/contract/standing.js");
 
 let failures = 0;
 const check = (name, cond, detail) => {
@@ -162,6 +163,131 @@ try {
   const rn = await slotReport(none);
   check("no contract: default threshold, every file counted, no scope",
     rn.coverage.total === 5000 && rn.coverage.threshold === 0.6 && rn.scope === undefined);
+
+  // ---- (D6/D7) The Magician's Curse in miniature: the file the tools read is not the stem
+  // the names sit under, and the low-RAM block is a payload stored in it.
+  {
+    const dir = mkdtempSync(join(tmpdir(), "c64re-897-mc-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "knowledge"), { recursive: true });
+    writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
+    writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+      { id: "a-orig", kind: "prg", title: "mc_orig_unpacked.prg", path: "analysis/depack/mc_orig_unpacked.prg", relativePath: "analysis/depack/mc_orig_unpacked.prg", scope: "input", fileSize: 1002, contentHash: "HX", tags: [] },
+      { id: "a-game", kind: "prg", title: "mc_game.prg", path: "mc_game.prg", relativePath: "mc_game.prg", scope: "input", fileSize: 1002, contentHash: "HX", tags: [] },
+      { id: "a-ref", kind: "prg", title: "reference.prg", path: "reference.prg", relativePath: "reference.prg", scope: "input", fileSize: 4002, contentHash: "HR", tags: [] },
+    ] }, null, 2));
+    const rid = (owner, kind, a) => `${SLUG}:ram/${owner}:${kind}:${a.toString(16).padStart(4, "0")}`;
+    const store = GraphStore.open(dir);
+    const payload = (owner, src) => ({ id: rid(owner, "payload", 0x200), kind: "payload", name: owner, endAddress: 0x21f, origin: "static", confidence: "certain", attrs: src ? { payload: { source_artifact_id: src } } : {} });
+    store.replaceGenerated("test", null, [
+      { id: rid("mc_game", "routine", 0x2000), kind: "routine", name: "W2000", endAddress: 0x20ff, origin: "static", confidence: "certain" },
+      { id: rid("mc_game", "routine", 0x2100), kind: "routine", name: "W2100", endAddress: 0x21ff, origin: "static", confidence: "certain" },
+      { id: rid("mc_game", "routine", 0x2200), kind: "routine", name: "W2200", endAddress: 0x22ff, origin: "static", confidence: "certain" },
+      payload("mc_lowram", "a-orig"),
+      { id: rid("mc_lowram", "routine", 0x200), kind: "routine", name: "L0200", endAddress: 0x20f, origin: "static", confidence: "certain" },
+      payload("other_blob", undefined),
+      { id: rid("other_blob", "routine", 0x200), kind: "routine", name: "O0200", endAddress: 0x20f, origin: "static", confidence: "certain" },
+      { id: rid("reference", "routine", 0x3000), kind: "routine", name: "W3000", endAddress: 0x30ff, origin: "static", confidence: "certain" },
+    ], []);
+    for (const [o, a] of [["mc_game", 0x2000], ["mc_game", 0x2100], ["mc_game", 0x2200], ["mc_lowram", 0x200]]) {
+      store.upsertHuman({ id: rid(o, "routine", a), kind: "routine", name: `${o}_routine_${a.toString(16)}`, origin: "user", confidence: "user_asserted" });
+    }
+    store.close();
+
+    // D6 — the entry names the file the tools read; the names live under its twin.
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["mc_orig_unpacked.prg"], coverageRatio: 0.9, namedRatio: 0.9 } });
+    const mc = await slotReport(dir);
+    check("(D6) scope = the file the tools read counts its twin's ranges, once",
+      mc.coverage.total === 1000 && mc.coverage.covered === 768 && mc.coverage.artifacts === 1,
+      `${mc.coverage.covered}/${mc.coverage.total}, artifacts ${mc.coverage.artifacts}`);
+    check("(D6) the twin's owner is in scope, named by its link",
+      (mc.scope?.pulledIn ?? []).some((p) => p.owner === "mc_game" && /^same bytes as mc_orig_unpacked\.prg/.test(p.link)),
+      JSON.stringify(mc.scope?.pulledIn));
+    check("(D6) the twin's names count; the reference stays out",
+      mc.naming.members > 0 && mc.naming.named > 0 && mc.scope?.outOfScope.length === 2
+        && mc.scope.outOfScope.some((o) => o.owner === "reference") , JSON.stringify({ n: mc.naming, aside: mc.scope?.outOfScope.map((o) => o.owner) }));
+    const mcText = formatSlotReport(mc);
+    check("(D6) the report says 'same bytes as'", /same bytes as mc_orig_unpacked\.prg/.test(mcText),
+      mcText.split("\n").filter((l) => /same bytes|payload/.test(l)).join(" | "));
+
+    // D7 — the recorded link brings mc_lowram in; the unlinked payload at the same range stays out.
+    check("(D7) a payload recorded as stored in the scoped file joins, and the report names the link",
+      (mc.scope?.pulledIn ?? []).some((p) => p.owner === "mc_lowram" && /^payload stored in mc_orig_unpacked\.prg/.test(p.link)),
+      JSON.stringify(mc.scope?.pulledIn));
+    check("(D7) a payload with no recorded link stays out, same address range or not",
+      !(mc.scope?.pulledIn ?? []).some((p) => p.owner === "other_blob")
+        && (mc.scope?.outOfScope ?? []).some((o) => o.owner === "other_blob" && o.members > 0),
+      JSON.stringify(mc.scope?.outOfScope.map((o) => o.owner)));
+    // the same link through the twin artifact (D6 + D7), and through a depacked artifact
+    const aRaw = JSON.parse(readFileSync(join(dir, "knowledge", "artifacts.json"), "utf8"));
+    const viaTwin = await (await import("../dist/contract/scope.js")).resolveScope(dir, ["mc_game.prg"]);
+    check("(D6) the entry may name the twin instead: same owners",
+      viaTwin.owners.has("mc_game") && viaTwin.owners.has("mc_lowram") && !viaTwin.owners.has("other_blob") && !viaTwin.owners.has("reference"),
+      [...viaTwin.owners].join(","));
+    check("(D7) the scope without the payload's file does not pull it in",
+      !(await (await import("../dist/contract/scope.js")).resolveScope(dir, ["reference.prg"])).owners.has("mc_lowram"));
+    void aRaw;
+    check("(D6/D7) contract_show prints the links", /also in scope — brought in by a recorded link/.test(await tools(dir).show()));
+  }
+
+  // ---- (D8) a waiver whose number moved is listed as lapsed, never under Waived
+  {
+    const dir = newProject();
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9 } });
+    const tt = tools(dir);
+    const w = await tt.set({ waive: ["namedRatio"], waive_reason: "demo tonight", waived_by: "Alex" });
+    check("(D8) the waiver is recorded", /aiv/.test(w), w.split("\n")[0]);
+    const live = await tt.show();
+    check("(D8) while the number stands it is listed under Waived, not as lapsed",
+      /Waived — the human overruled/.test(live) && !/Lapsed/.test(live), live.split("\n").filter((l) => /Waived|Lapsed|namedRatio/.test(l)).join(" | "));
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.85 } });
+    const moved = await tt.show();
+    check("(D8) after the number changed it is listed as lapsed, not under Waived",
+      /Lapsed — recorded, no longer holding:/.test(moved) && /the number changed: waived at .*, the contract now asks/.test(moved) && !/Waived — the human overruled/.test(moved),
+      moved.split("\n").filter((l) => /Waived|Lapsed|lapsed/.test(l)).join(" | "));
+  }
+
+  // ---- (D9) a waiver is withdrawn explicitly, on the record
+  {
+    const dir = newProject();
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9 } });
+    const tt = tools(dir);
+    const ledger = () => readFileSync(join(dir, "knowledge", "contract-standing.json"), "utf8");
+    const noWaiver = await tt.set({ unwaive: ["namedRatio"], waive_reason: "changed my mind", waived_by: "Alex" });
+    check("(D9) unwaive with no active waiver is refused by name, nothing written",
+      /unwaive refused/.test(noWaiver) && /"namedRatio" has no active waiver/.test(noWaiver) && !existsSync(join(dir, "knowledge", "contract-standing.json")),
+      noWaiver.split("\n")[0]);
+    await tt.set({ waive: ["namedRatio"], waive_reason: "demo tonight", waived_by: "Alex" });
+    const afterWaive = ledger();
+    check("(D9) the promise is waived before the withdrawal", activeWaivers(dir, await contractPromises(dir)).length === 1);
+    const missing = await tt.set({ unwaive: ["namedRatio"], waive_reason: "short", waived_by: "Alex" });
+    check("(D9) a withdrawal needs a reason, record unchanged", /unwaive refused/.test(missing) && ledger() === afterWaive, missing.split("\n")[0]);
+    const wrongOne = await tt.set({ unwaive: ["coverageRatio"], waive_reason: "changed my mind", waived_by: "Alex" });
+    check("(D9) unwaiving another promise is refused, record unchanged", /"coverageRatio" has no active waiver/.test(wrongOne) && ledger() === afterWaive);
+    const done = await tt.set({ unwaive: ["namedRatio"], waive_reason: "the bar stands after all", waived_by: "Alex" });
+    check("(D9) unwaive is recorded", /Waiver withdrawn by Alex: namedRatio/.test(done), done.split("\n")[0]);
+    const rec = JSON.parse(ledger());
+    check("(D9) the waiver is still in the record, the withdrawal appended with who/when/why/via",
+      rec.waivers?.length === 1 && rec.withdrawals?.length === 1
+        && rec.withdrawals[0].by === "Alex" && rec.withdrawals[0].reason === "the bar stands after all"
+        && rec.withdrawals[0].via === "contract_set" && !!rec.withdrawals[0].at,
+      JSON.stringify(rec.withdrawals));
+    const shown = await tt.show();
+    check("(D9) contract_show lists it as withdrawn, not under Waived",
+      /Lapsed — recorded, no longer holding:/.test(shown) && /withdrawn by Alex, .*: the bar stands after all/.test(shown) && !/Waived — the human overruled/.test(shown),
+      shown.split("\n").filter((l) => /Waived|Lapsed|withdrawn/.test(l)).join(" | "));
+    check("(D9) the promise blocks again", activeWaivers(dir, await contractPromises(dir)).length === 0
+      && (await contractPromises(dir)).some((p) => p.id === "namedRatio"));
+    resetStanding(dir);
+    check("(D9) the withdrawal survives resetStanding", activeWaivers(dir, await contractPromises(dir)).length === 0 && JSON.parse(ledger()).withdrawals?.length === 1);
+    await tt.set({ waive: ["namedRatio"], waive_reason: "demo again, really", waived_by: "Alex" });
+    const again = await tt.show();
+    check("(D9) re-waive after unwaive is active again; the withdrawn one stays listed",
+      activeWaivers(dir, await contractPromises(dir)).length === 1 && /Waived — the human overruled/.test(again) && /withdrawn by Alex/.test(again),
+      again.split("\n").filter((l) => /Waived|Lapsed|withdrawn/.test(l)).join(" | "));
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg", "reference.prg"], namedRatio: 0.9 } });
+    check("(D9) a scope change retires nothing by itself", activeWaivers(dir, await contractPromises(dir)).length === 1);
+  }
 
   check("the kickoff asks about the scope, as a deliverable", KICKOFF_QUESTIONS.some((q) => q.field === "deliver.scope"));
 } finally {

@@ -18,7 +18,7 @@
 
 import type { SlotDef, SlotId } from "./schema.js";
 import { SLOTS } from "./schema.js";
-import { formatScope } from "../contract/scope.js";
+import { formatScope, identityOf } from "../contract/scope.js";
 
 export type SlotStatus =
   /** Answered, by a record or by the project's own data. */
@@ -362,8 +362,25 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   // hash the store already records; else the lineage root, which is how Spec 025 says
   // a derived copy points at its origin; else the path. Same rule the UI applies when
   // it shows one artifact per lineage.
-  const identityOf = (a: typeof artifacts[number]): string =>
-    a.contentHash ? `hash:${a.contentHash}` : a.lineageRoot ? `lineage:${a.lineageRoot}` : `path:${a.relativePath ?? a.path ?? a.title}`;
+  // `identityOf` lives in scope.ts: a scope entry takes the owners of byte-identical files
+  // by the very same rule (Spec 897 D6), so the denominator and the scope cannot disagree.
+  // Under a scope, byte-identical in-scope files are one piece of content seen under
+  // several owners (annotations carry their own `binary`, so the names sit under another
+  // stem than the file the tools read). The kept copy is measured against the ranges of
+  // every owner in its class, or whichever stem came first would decide the ratio.
+  const classOwners = new Map<string, string[]>();
+  if (scope) {
+    for (const a of artifacts) {
+      const own = stemOf(a.relativePath ?? a.path ?? a.title);
+      if (!inScope(own)) continue;
+      const id = identityOf(a);
+      const list = classOwners.get(id) ?? [];
+      if (!list.includes(own)) list.push(own);
+      classOwners.set(id, list);
+    }
+  }
+  const rangesOf = (m: Map<string, Array<{ start: number; end: number }>>, own: string, id: string) =>
+    (classOwners.get(id) ?? [own]).flatMap((o) => m.get(o) ?? []);
   const seen = new Set<string>();
   let total = 0;
   let covered = 0;
@@ -400,9 +417,10 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     // better than a ratio above 1.
     const clip = (list: Array<{ start: number; end: number }> | undefined) =>
       list ? Math.min(unionSize(list), size) : 0;
-    covered += clip(rangesByOwner.get(own));
-    declaredUnknown += clip(unknownByOwner.get(own));
-    machineOnly += clip(machineByOwner.get(own));
+    const cls = identityOf(a);
+    covered += clip(rangesOf(rangesByOwner, own, cls));
+    declaredUnknown += clip(rangesOf(unknownByOwner, own, cls));
+    machineOnly += clip(rangesOf(machineByOwner, own, cls));
   }
 
   const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);
@@ -574,6 +592,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     ...(scope
       ? { scope: {
           entries: scope.entries,
+          pulledIn: scope.pulledIn,
           unresolved: scope.unresolved,
           outOfScope: [...setAside.values()].sort((x, y) => x.owner.localeCompare(y.owner)),
         } }

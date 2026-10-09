@@ -212,7 +212,8 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   head(8, "project_slots reports a reachable number and does not contradict itself");
   const { formatSlotReport } = await import("../dist/slots/state.js");
   const slots = readFileSync(join(ROOT, "src/slots/state.ts"), "utf8");
-  check(/identityOf/.test(slots) && /contentHash/.test(slots) && /lineageRoot/.test(slots),
+  const scopeSrc = readFileSync(join(ROOT, "src/contract/scope.ts"), "utf8");
+  check(/identityOf/.test(slots) && /contentHash/.test(scopeSrc) && /lineageRoot/.test(scopeSrc),
     "the denominator counts each distinct piece of content once");
   check(/S5 is answered but no count can be read from its wording/.test(slots)
     && /S5 has not stated a runtime count yet/.test(slots),

@@ -1,6 +1,6 @@
 # Spec 897 — The contract says what it is about
 
-**Status:** BUILT (2026-10-09) — `e2e:897-scope` 26/0; open: the replay on the reporter's project (§6)
+**Status:** BUILT (2026-10-09) — §2 + §7 D6–D9; `e2e:897-scope` green; open: the reporter's second replay
 **Repo:** C64RE. From issue #39 (Mike, *The Magician's Curse*, C16 → C64).
 
 ## §1 What goes wrong
@@ -85,6 +85,9 @@ counted`. `annotate` never widens or narrows what is counted.
    existing contract on update. Instead the contract report says it (D5).
 4. ~~Does a project with no contract stay unscoped?~~ **Yes** (owner, 2026-10-09). No
    contract, nobody said what it is about; the default 0.6 counts every loadable file.
+5. ~~Withdraw explicitly, or retire on a scope change?~~ **Explicitly** (owner,
+   2026-10-09) — D9. A withdrawal is a human decision like the waiver; a waiver must
+   never vanish because something else changed.
 
 ## §6 As built (2026-10-09)
 
@@ -105,3 +108,49 @@ counted`. `annotate` never widens or narrows what is counted.
 **Known, not this spec:** S12's per-owner range lookup keys on the un-lowercased file stem,
 so a `Game.prg` would miss its lowercase graph owner. Scope membership uses `normStem` and
 is unaffected; fixing the lookup moves existing numbers and is its own change.
+
+## §7 Amendment after the replay (2026-10-09, issue #39)
+
+The reporter's replay found three gaps.
+
+**D6 — an entry takes the owners its file's bytes live under (defect).** The game image is
+`mc_orig_unpacked.prg` (owner `mc_orig_unpacked`, the file `disasm_prg` reads). Its
+annotations carry `"binary": "mc_game.prg"`, so every name and range is imported under
+owner `mc_game`, and `mc_game.prg` holds the same 14592 bytes. Scoping the file the owner
+knows measured 0 %. Rule: a scope entry also takes every owner whose loadable artifact has
+the same content identity (`identityOf`, the same rule S12 deduplicates by). No name
+guessing.
+
+**D7 — a payload stored inside a scoped file comes with it.** `mc_lowram` (the game's
+low-RAM block, stored in the image at `$0900`, runs at `$0200`) was listed out of scope.
+Owner, 2026-10-09: yes, but only through a **recorded** link, never inferred from
+addresses. The recorded links are: a payload whose `sourceArtifactId` (or source PRG) is a
+scoped artifact (or a content-identical one, D6); and a payload whose depacked artifact
+is one. The payload's owner (`normStem` of its name, as on its nodes) joins the scope.
+Without such a link the file has to be named in the scope explicitly. The scope report
+says, per pulled-in owner, which link brought it in.
+
+**D8 — `contract_show` lists lapsed waivers as if they stood (display defect).**
+`formatWaivers` prints every waiver ever recorded. It now prints the active ones under
+"Waived", and the superseded or lapsed ones separately, marked as such. 
+
+**D9 — a waiver is withdrawn explicitly.** `contract_set` takes `unwaive: [<promise id>]`
+with a reason. The withdrawal is appended to the record (who, when, why, via) like the
+waiver itself, never by deleting it; `activeWaivers` treats a withdrawal newer than the
+waiver as ending it, and `contract_show` lists it among the lapsed ones as "withdrawn". A
+scope change retires nothing by itself. Unwaiving a promise that has no active waiver is
+refused by name.
+
+
+### §7 as built
+
+- D6: `identityOf` moved to `scope.ts` (S12 imports it — one rule). It compares the recorded
+  `contentHash`, else `lineageRoot`, else the path. Under a scope the kept copy of an
+  identity class is measured against the ranges of every owner in the class.
+  **Known asymmetry:** without a scope, an identical pair is still measured from the
+  first stem only (unchanged, so existing numbers do not move).
+- D7: payload links read from the graph's payload nodes, `attrs.payload.source_artifact_id`
+  / `depacked_artifact_id`; fixpoint over depacked artifacts; never addresses.
+- D8: `sortWaivers` in `standing.ts`; `contract_show` prints "Waived" and "Lapsed".
+- D9: `contract_set unwaive` (with `waive_reason`, `waived_by`); a `Withdrawal` record with
+  `ends` = the waiver it ends; a timeline event `contract.unwaived`; survives `resetStanding`.

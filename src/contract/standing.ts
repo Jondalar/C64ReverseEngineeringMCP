@@ -65,6 +65,20 @@ export interface Waiver {
   wasAt?: string;
 }
 
+/**
+ * Spec 897 D9 — the human takes a waiver back. Appended like a waiver, never by deleting
+ * one: the decision to waive stays on the record, and so does the decision to end it.
+ */
+export interface Withdrawal {
+  promise: string;
+  reason: string;
+  by: string;
+  at: string;
+  via: string;
+  /** The `at` of the newest waiver of this promise it ends; a waiver recorded later stands. */
+  ends: string;
+}
+
 interface Standing {
   /** the blocker texts that were standing when we last spoke */
   blockers: string[];
@@ -74,6 +88,8 @@ interface Standing {
   owed?: string[];
   /** 877 D2 — who waived what, and why. Appended, never silently replaced. */
   waivers?: Waiver[];
+  /** 897 D9 — waivers taken back. Appended, never silently replaced. */
+  withdrawals?: Withdrawal[];
 }
 
 function path(projectDir: string): string {
@@ -90,6 +106,7 @@ function read(projectDir: string): Standing | undefined {
         ...(Array.isArray(raw.promises) ? { promises: raw.promises.map(String) } : {}),
         ...(Array.isArray(raw.owed) ? { owed: raw.owed.map(String) } : {}),
         ...(Array.isArray(raw.waivers) ? { waivers: raw.waivers as Waiver[] } : {}),
+        ...(Array.isArray(raw.withdrawals) ? { withdrawals: raw.withdrawals as Withdrawal[] } : {}),
       };
     }
   } catch { /* never spoken here before */ }
@@ -121,6 +138,7 @@ export function resetStanding(projectDir: string): void {
     writeFileSync(path(projectDir), JSON.stringify({
       blockers: [], at: "",
       ...(prev?.waivers?.length ? { waivers: prev.waivers } : {}),
+      ...(prev?.withdrawals?.length ? { withdrawals: prev.withdrawals } : {}),
     }, null, 2) + "\n");
   } catch { /* best-effort */ }
 }
@@ -142,14 +160,17 @@ export function activeWaivers(
   projectDir: string,
   promises: ReadonlyArray<{ id: string; askedValue: string }>,
 ): Waiver[] {
-  const byId = new Map(promises.map((p) => [p.id, p.askedValue]));
-  const seen = new Map<string, Waiver>();
-  for (const w of listWaivers(projectDir)) {
-    if (!byId.has(w.promise)) continue;                 // not owed any more, or gone from the contract
-    if (byId.get(w.promise) !== w.askedValue) continue; // the human moved the number: lapsed
-    seen.set(w.promise, w);                             // the newest one for a promise wins
-  }
-  return [...seen.values()];
+  return sortWaivers(projectDir, promises).active;
+}
+
+/** Every withdrawal ever recorded here, newest last. */
+export function listWithdrawals(projectDir: string): Withdrawal[] {
+  return read(projectDir)?.withdrawals ?? [];
+}
+
+/** Append a withdrawal (D9). The waiver it ends is left where it is. */
+export function recordWithdrawal(projectDir: string, w: Withdrawal): void {
+  write(projectDir, { withdrawals: [...listWithdrawals(projectDir), w] });
 }
 
 /** What the teeth last computed, so the ledger tells the same story the door told. */
@@ -165,19 +186,74 @@ export function recordWaiver(projectDir: string, w: Waiver): void {
   write(projectDir, { waivers: [...listWaivers(projectDir), w] });
 }
 
-/** The waivers, for a human to read — `contract_show` prints this under the contract. */
-export function formatWaivers(projectDir: string): string {
+/** A waiver that no longer holds, and why. */
+export interface LapsedWaiver { waiver: Waiver; why: string }
+
+/**
+ * Split every recorded waiver into the ones that hold and the ones that do not, against the
+ * promises as they stand NOW. A waiver holds while its promise is still owed, at the number
+ * it was granted for, and nobody took it back (D9: a withdrawal at or after the waiver ends
+ * it); the newest holding waiver of a promise is the one that counts.
+ */
+export function sortWaivers(
+  projectDir: string,
+  promises: ReadonlyArray<{ id: string; askedValue: string }>,
+): { active: Waiver[]; lapsed: LapsedWaiver[] } {
+  const byId = new Map(promises.map((p) => [p.id, p.askedValue]));
+  const withdrawals = listWithdrawals(projectDir);
+  const lapsed: LapsedWaiver[] = [];
+  const holding: Waiver[] = [];
+  for (const w of listWaivers(projectDir)) {
+    const taken = withdrawals.filter((x) => x.promise === w.promise && x.ends >= w.at).pop();
+    const now = byId.get(w.promise);
+    if (taken) lapsed.push({ waiver: w, why: `withdrawn by ${taken.by}, ${taken.at.slice(0, 10)} (via ${taken.via}): ${taken.reason}` });
+    else if (now === undefined) lapsed.push({ waiver: w, why: "the promise is not owed any more" });
+    else if (now !== w.askedValue) lapsed.push({ waiver: w, why: `the number changed: waived at ${w.askedValue}, the contract now asks ${now}` });
+    else holding.push(w);
+  }
+  const newest = new Map<string, Waiver>();
+  for (const w of holding) newest.set(w.promise, w);
+  for (const w of holding) {
+    if (newest.get(w.promise) !== w) lapsed.push({ waiver: w, why: "superseded by a newer waiver of the same promise" });
+  }
+  return { active: [...newest.values()], lapsed };
+}
+
+/**
+ * The waivers, for a human to read — `contract_show` prints this under the contract.
+ *
+ * With the current promises, only the waivers that still hold are listed as waived and the
+ * rest are marked lapsed. Without them nothing can be judged and every record is printed
+ * as it was.
+ */
+export function formatWaivers(
+  projectDir: string,
+  promises?: ReadonlyArray<{ id: string; askedValue: string }>,
+): string {
   const all = listWaivers(projectDir);
   if (all.length === 0) return "";
-  const out = ["Waived — the human overruled, and it is on the record:"];
-  for (const w of all) {
-    out.push(`  ${w.promise} — by ${w.by}, ${w.at.slice(0, 10)} (via ${w.via})`);
-    out.push(`     asked: ${w.askedValue}${w.wasAt ? `, shipped at ${w.wasAt}` : ""}`);
-    out.push(`     why:   ${w.reason}`);
+  const { active, lapsed } = promises ? sortWaivers(projectDir, promises) : { active: all, lapsed: [] as LapsedWaiver[] };
+  const entry = (w: Waiver) => [
+    `  ${w.promise} — by ${w.by}, ${w.at.slice(0, 10)} (via ${w.via})`,
+    `     asked: ${w.askedValue}${w.wasAt ? `, shipped at ${w.wasAt}` : ""}`,
+    `     why:   ${w.reason}`,
+  ];
+  const out: string[] = [];
+  if (active.length > 0) {
+    out.push("Waived — the human overruled, and it is on the record:");
+    for (const w of active) out.push(...entry(w));
+    out.push("");
+    out.push("A waiver opens the doors; it does not change the measurement, and it lapses by");
+    out.push("itself when the contract's number changes.");
   }
-  out.push("");
-  out.push("A waiver opens the doors; it does not change the measurement, and it lapses by");
-  out.push("itself when the contract's number changes.");
+  if (lapsed.length > 0) {
+    if (out.length > 0) out.push("");
+    out.push("Lapsed — recorded, no longer holding:");
+    for (const l of lapsed) {
+      out.push(...entry(l.waiver));
+      out.push(`     lapsed: ${l.why}`);
+    }
+  }
   return out.join("\n");
 }
 

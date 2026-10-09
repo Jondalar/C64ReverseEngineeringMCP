@@ -149,3 +149,70 @@ export async function waivePromises(projectDir: string, req: WaiveRequest): Prom
     ].join("\n"),
   };
 }
+
+export interface UnwaiveResult {
+  ok: boolean;
+  message: string;
+  withdrawn: string[];
+}
+
+/**
+ * Spec 897 D9 — take a waiver back. Appended to the standing record next to the waiver it
+ * ends (who, when, why, via), never by deleting it. Only a promise with an ACTIVE waiver
+ * can be unwaived; anything else is refused by name and nothing is written. Same signature
+ * rule as the waiver itself: a name and a reason, recorded verbatim.
+ */
+export async function unwaivePromises(projectDir: string, req: WaiveRequest): Promise<UnwaiveResult> {
+  const by = (req.by ?? "").trim();
+  const reason = (req.reason ?? "").trim();
+  const wanted = (req.promises ?? []).map((p) => p.trim()).filter(Boolean);
+  const refuse = (message: string): UnwaiveResult => ({ ok: false, message, withdrawn: [] });
+
+  if (!by) return refuse(["# unwaive refused — a withdrawal has to say WHO.", "", "  contract_set(unwaive=[…], waive_reason=\"…\", waived_by=\"<who>\")"].join("\n"));
+  if (reason.length < MIN_REASON) return refuse(`# unwaive refused — a withdrawal has to say WHY (at least ${MIN_REASON} characters).`);
+  if (wanted.length === 0) return refuse("# unwaive refused — name at least one promise to unwaive.");
+
+  const { contractPromises } = await import("./promises.js");
+  const { activeWaivers, recordWithdrawal } = await import("./standing.js");
+  const active = activeWaivers(projectDir, await contractPromises(projectDir));
+  const byPromise = new Map(active.map((w) => [w.promise, w]));
+  const none = wanted.filter((p) => !byPromise.has(p));
+  if (none.length > 0) {
+    return refuse([
+      `# unwaive refused — ${none.map((u) => `"${u}"`).join(", ")} ${none.length === 1 ? "has" : "have"} no active waiver. Nothing was written.`,
+      "",
+      active.length ? `Waived right now: ${active.map((w) => w.promise).join(", ")}` : "No promise is waived right now.",
+      "",
+      "`contract_show` lists the waivers that hold and the ones that lapsed.",
+    ].join("\n"));
+  }
+
+  const at = new Date().toISOString();
+  for (const id of wanted) {
+    recordWithdrawal(projectDir, { promise: id, reason, by, at, via: "contract_set", ends: byPromise.get(id)!.at });
+  }
+  try {
+    const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
+    const service = new ProjectKnowledgeService(projectDir);
+    for (const id of wanted) {
+      service.appendTimelineEvent({
+        kind: "contract.unwaived",
+        title: `Contract waiver withdrawn: ${id}`,
+        summary: `${by} withdrew the waiver of "${id}": ${reason}`,
+        payload: { promise: id, by, reason, via: "contract_set" },
+      });
+    }
+  } catch { /* the standing file is the record; the timeline is the second copy */ }
+
+  return {
+    ok: true,
+    withdrawn: wanted,
+    message: [
+      `Waiver withdrawn by ${by}: ${wanted.join(", ")}`,
+      `Reason: ${reason}`,
+      "",
+      "The promise is owed again and the doors close on it. The waiver stays in",
+      "`knowledge/contract-standing.json`, marked withdrawn.",
+    ].join("\n"),
+  };
+}
