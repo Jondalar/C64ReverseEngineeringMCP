@@ -39,10 +39,18 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       const lines = [formatContract(contract, present)];
       // Spec 897 D2 — with a scope, say what it counts and what it sets aside, with the
       // numbers of each, so a reader of 99 % does not have to guess where the rest went.
-      if (present && (contract.deliver?.scope?.length ?? 0) > 0) {
-        const { slotReport } = await import("../slots/state.js");
+      // The measured number for each ratio the contract promises goes with it, met or not.
+      if (present && ((contract.deliver?.scope?.length ?? 0) > 0 || contract.deliver?.namedRatio !== undefined || contract.deliver?.coverageRatio !== undefined)) {
+        const { slotReport, formatCoverageLine, formatNamed } = await import("../slots/state.js");
         const { formatScope } = await import("../contract/scope.js");
-        try { lines.push("", ...formatScope((await slotReport(pd)).scope)); } catch { /* the contract still prints */ }
+        try {
+          const r = await slotReport(pd);
+          const measured = [
+            ...(contract.deliver?.coverageRatio !== undefined && r.coverage.total > 0 ? [formatCoverageLine(r)] : []),
+            ...(contract.deliver?.namedRatio !== undefined ? formatNamed(r) : []),
+          ];
+          lines.push("", ...measured, ...formatScope(r.scope));
+        } catch { /* the contract still prints */ }
       }
       // Spec 877 D2 — a waiver nobody can see from outside is not a record. It prints
       // here, under the promise it releases, for as long as it holds; a waiver that has

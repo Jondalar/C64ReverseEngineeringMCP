@@ -100,6 +100,8 @@ try {
     /Scope \(contract\): game\.prg/.test(text) && /out of scope — reported, not counted/.test(text) && /reference\.prg \[reference\]: 0\.0 % covered \(0\/4000 bytes\); 0\.0 % named \(0\/2 nodes\)/.test(text),
     text.split("\n").filter((l) => /cope|reference/.test(l)).join(" | "));
   const promises = await contractPromises(d);
+  check("(b) the slot report prints the in-scope named line (3/4, not the set-aside owner's 0/2), promise unmet",
+    /Named: 3 \/ 4 meaning-bearing nodes = 75\.0 % carry a human name \(contract asks >= 90 %\)/.test(text), text.split("\n").find((l) => l.startsWith("Named:")));
   const named = promises.find((p) => p.id === "namedRatio");
   check("(b) the promise measures the scope and says so",
     !!named && /75\.0 % \(3\/4 nodes/.test(named.now) && /set aside, not counted/.test(named.now), named?.now);
@@ -146,6 +148,16 @@ try {
   const shown = await t.show();
   check("(f) formatContract shows the why", /game\.prg — the shipped image/.test(formatContract(loadContract(d).contract, true)));
   check("(f) contract_show shows the why and the set-aside numbers", /game\.prg — the shipped image/.test(shown) && /Scope \(contract\)/.test(shown));
+
+  // ---- (g) the named number is printed when the promise is MET too, in both outputs
+  saveContract(d, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.5, coverageRatio: 0.1 } });
+  const metSlots = formatSlotReport(await slotReport(d));
+  const metShown = await t.show();
+  const metPromises = await contractPromises(d);
+  check("(g) namedRatio met: no promise open, yet project_slots prints Named: 3 / 4 = 75.0 %",
+    !metPromises.some((p) => p.id === "namedRatio") && /Named: 3 \/ 4 meaning-bearing nodes = 75\.0 % carry a human name \(contract asks >= 50 %\)/.test(metSlots), metSlots.split("\n").find((l) => l.startsWith("Named:")));
+  check("(g) contract_show prints the same Named line and the coverage line",
+    /Named: 3 \/ 4 meaning-bearing nodes = 75\.0 % carry a human name \(contract asks >= 50 %\)/.test(metShown) && /Coverage: \d+ \/ \d+ bytes/.test(metShown), metShown.split("\n").filter((l) => /^(Named|Coverage):/.test(l)).join(" | "));
 
   // ---- (e) D5 hint
   const annotated = formatContract({ goal: GOAL, deliver: { annotate: ["mc_orig_unpacked.prg (game image)"] } }, true);

@@ -131,6 +131,8 @@ export interface NamedReport {
   ratio: number;
   /** Of `members`, how many carry only a machine name. */
   machineNamed: number;
+  /** The contract's `deliver.namedRatio` when it states one — the number this is read against. */
+  asked?: number;
 }
 
 export interface CoverageReport {
@@ -580,6 +582,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     members: memberNodes,
     ratio: memberNodes === 0 ? 0 : (memberNodes - machineNamed) / memberNodes,
     machineNamed,
+    ...(contractPresent && contract.deliver?.namedRatio !== undefined ? { asked: contract.deliver.namedRatio } : {}),
   };
 
   return {
@@ -651,6 +654,26 @@ function parseRuntimeCount(text: string): number | undefined {
   return undefined;   // none found, or the sentence states two different ones
 }
 
+/** The measured coverage, one line. `project_slots` and `contract_show` both print this one. */
+export function formatCoverageLine(r: SlotReport): string {
+  return `Coverage: ${r.coverage.covered} / ${r.coverage.total} bytes = ${(r.coverage.ratio * 100).toFixed(1)} % (threshold ${(r.coverage.threshold * 100).toFixed(0)} %)`;
+}
+
+/**
+ * The measured named ratio over the same owners the `namedRatio` promise counts (both read
+ * `slotReport().naming`, which is already the in-scope set when the contract states a
+ * scope). Printed whether or not the promise holds; nothing when there is nothing to name.
+ */
+export function formatNamed(r: SlotReport): string[] {
+  const n = r.naming;
+  if (n.members === 0) return [];
+  return [
+    `Named: ${n.named} / ${n.members} meaning-bearing nodes = ${(n.ratio * 100).toFixed(1)} % carry a human name`
+      + (n.asked !== undefined ? ` (contract asks >= ${(n.asked * 100).toFixed(0)} %)` : ""),
+    ...(n.machineNamed > 0 ? [`  not counted: ${n.machineNamed} carry only a machine name`] : []),
+  ];
+}
+
 export function formatSlotReport(r: SlotReport): string {
   const mark = (s: SlotStatus) => s === "filled" ? "✓" : s === "hypothesis" ? "~" : s === "n/a" ? "·" : "✗";
   const lines = r.states.map((s) =>
@@ -670,13 +693,14 @@ export function formatSlotReport(r: SlotReport): string {
     ...lines,
     "",
     r.coverage.total > 0
-      ? `Coverage: ${r.coverage.covered} / ${r.coverage.total} bytes = ${(r.coverage.ratio * 100).toFixed(1)} % (threshold ${(r.coverage.threshold * 100).toFixed(0)} %)`
+      ? formatCoverageLine(r)
         + `\n  counted: bytes in a range that says what they ARE — a classification, or a human name`
         + (r.coverage.declaredUnknown > 0 ? `\n  not counted: ${r.coverage.declaredUnknown} byte(s) in ranges declared \`unknown\` — honest, and worth nothing here; classify them or name them` : "")
         + (r.coverage.machineOnly > 0 ? `\n  not counted: ${r.coverage.machineOnly} byte(s) in ranges carrying only a machine name (unknown_3E00, W0801) and no classification — naming them is what moves this number` : "")
         + `\n  denominator: ${r.coverage.artifacts} distinct loadable artifact(s)`
         + (r.coverage.duplicates > 0 ? `, ${r.coverage.duplicates} further cop${r.coverage.duplicates === 1 ? "y" : "ies"} of content already counted left out` : "")
       : "Coverage: nothing measurable registered yet",
+    ...formatNamed(r),
     ...formatScope(r.scope),
     ...(r.coverage.unmeasured.length ? [`  unmeasured (no addressRange, no fileSize): ${r.coverage.unmeasured.join(", ")}`] : []),
   ].join("\n");
