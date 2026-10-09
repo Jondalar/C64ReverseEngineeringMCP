@@ -138,9 +138,9 @@ export interface NamedReport {
 export interface CoverageReport {
   /** Bytes inside at least one range that CLAIMS something about them. */
   covered: number;
-  /** Bytes in ranges classified `unknown` — declared, honestly, and not coverage. */
+  /** Bytes in ranges classified `unknown` — declared, honestly, and not coverage — that no counted range covers. */
   declaredUnknown: number;
-  /** Bytes in ranges carrying only a machine name and no classification. */
+  /** Bytes in ranges carrying only a machine name and no classification, that no counted range and no `unknown` range covers. */
   machineOnly: number;
   /** Bytes in the artifacts that could be measured, each distinct payload counted ONCE. */
   total: number;
@@ -221,6 +221,30 @@ function unionSize(ranges: Array<{ start: number; end: number }>): number {
     else { total += curEnd - curStart + 1; curStart = r.start; curEnd = r.end; }
   }
   return total + (curEnd - curStart + 1);
+}
+
+/** Bytes of the union of `ranges` that the union of `minus` does not cover. */
+function differenceSize(ranges: Array<{ start: number; end: number }>, minus: Array<{ start: number; end: number }>): number {
+  const merge = (list: Array<{ start: number; end: number }>) => {
+    const out: Array<{ start: number; end: number }> = [];
+    for (const r of [...list].sort((a, b) => a.start - b.start)) {
+      const last = out[out.length - 1];
+      if (last && r.start <= last.end + 1) last.end = Math.max(last.end, r.end);
+      else out.push({ start: r.start, end: r.end });
+    }
+    return out;
+  };
+  const cut = merge(minus);
+  let total = 0;
+  for (const r of merge(ranges)) {
+    let left = r.end - r.start + 1;
+    for (const c of cut) {
+      const lo = Math.max(r.start, c.start), hi = Math.min(r.end, c.end);
+      if (hi >= lo) left -= hi - lo + 1;
+    }
+    total += left;
+  }
+  return total;
 }
 
 export async function slotReport(projectDir: string): Promise<SlotReport> {
@@ -420,8 +444,13 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
       list ? Math.min(unionSize(list), size) : 0;
     const cls = identityOf(a);
     covered += clip(rangesOf(rangesByOwner, own, cls));
-    declaredUnknown += clip(rangesOf(unknownByOwner, own, cls));
-    machineOnly += clip(rangesOf(machineByOwner, own, cls));
+    // "Not counted" names only bytes no counted range covers (issue #46). A byte both
+    // declared unknown and machine-named is reported once, as unknown: the declaration
+    // is a deliberate statement, the machine name is only the absence of one.
+    const countedRanges = rangesOf(rangesByOwner, own, cls);
+    const unknownRanges = rangesOf(unknownByOwner, own, cls);
+    declaredUnknown += Math.min(differenceSize(unknownRanges, countedRanges), size);
+    machineOnly += Math.min(differenceSize(rangesOf(machineByOwner, own, cls), [...countedRanges, ...unknownRanges]), size);
   }
 
   const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);

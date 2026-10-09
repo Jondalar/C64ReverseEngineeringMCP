@@ -331,6 +331,44 @@ try {
     check("painting a blanket beside real names adds nothing to coverage",
       rboth.coverage.covered === 0x0900 - 0x0801 + 1,
       `${rboth.coverage.covered} covered, ${rboth.coverage.declaredUnknown} declared unknown`);
+
+    // 6. issue #46: "not counted" must not name bytes that ARE counted. A generated
+    //    routine (machine name) inside a classified segment is covered, not machine-only.
+    const inv = (r) => r.coverage.covered + r.coverage.declaredUnknown + r.coverage.machineOnly <= r.coverage.total;
+    const dInside = mk(); dirs.push(dInside);
+    seed(dInside, [
+      node("segment", 0x0801, 0x0fff, "seg_0801", "code"),
+      node("routine", 0x0900, 0x09ff, "W0900"),
+    ]);
+    const rin = await slotReport(dInside);
+    check("a machine-named range inside a counted one is not 'not counted'",
+      rin.coverage.machineOnly === 0 && rin.coverage.covered === 0x0fff - 0x0801 + 1,
+      `covered=${rin.coverage.covered} machineOnly=${rin.coverage.machineOnly}`);
+    check("…and the invariant covered+unknown+machine <= total holds", inv(rin));
+
+    const dHalf = mk(); dirs.push(dHalf);
+    seed(dHalf, [
+      node("segment", 0x0801, 0x0900, "seg_0801", "code"),
+      node("routine", 0x0881, 0x0980, "W0881"),
+    ]);
+    const rhalf = await slotReport(dHalf);
+    check("a machine-named range half outside the counted one: only the outside half is machine-only",
+      rhalf.coverage.machineOnly === 128 && rhalf.coverage.covered === 256,
+      `covered=${rhalf.coverage.covered} machineOnly=${rhalf.coverage.machineOnly}`);
+    check("…and the invariant holds", inv(rhalf));
+
+    const dUnk = mk(); dirs.push(dUnk);
+    seed(dUnk, [
+      node("segment", 0x0801, 0x0fff, "seg_0801", "code"),
+      node("segment", 0x0901, 0x0a00, "unnamed_0901", "unknown"),   // inside counted
+      node("segment", 0x1000, 0x10ff, "unnamed_1000", "unknown"),   // outside, 256 bytes
+      node("routine", 0x1080, 0x117f, "W1080"),                     // half over the unknown range
+    ]);
+    const runk = await slotReport(dUnk);
+    check("`unknown` under a counted range is not 'not counted'; unknown wins over machine-only on overlap",
+      runk.coverage.declaredUnknown === 256 && runk.coverage.machineOnly === 128,
+      `unknown=${runk.coverage.declaredUnknown} machineOnly=${runk.coverage.machineOnly}`);
+    check("…and no byte is reported twice (invariant)", inv(runk));
   }
 
   // -------------------------------------------------------------- the escape hatch
