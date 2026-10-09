@@ -5,18 +5,13 @@
 // the PC is never there at a frame boundary. Checks, through the real MCP tool:
 //   1. reaches $C120 (the handler) within 10 frames          — passes
 //   2. reaches $EA31 (KERNAL ROM, reached through the IRQ) within 10   — passes
-//      (Asserting $EA31 and not only $FF48: the released TRX64 0.12.8 folds the 7-cycle interrupt
-//      entry and the first handler opcode into one step, so $FF48 is no instruction boundary it can
-//      stop on — $FF49 is. Fixed after 0.12.8 in TRX64 (#49), so check 2b asserts $FF48 on a daemon
-//      newer than 0.12.8 and prints an explicit SKIP on 0.12.8 itself.)
 //   3. reaches $C200 (never executed) within 5 frames        — times out, with the old message shape
 //   4. the breakpoint is gone afterwards: a later plain wait runs, a second wait works and
 //      $C001 keeps counting
-//   2b. reaches $FF48 (the first instruction of the IRQ handler) within 10 — only on a daemon that
-//      has the #49 fix; C64RE_EXPECT_IRQ_ENTRY=1 forces it (a branch build still reports 0.12.8)
+//   2b. reaches $FF48 (the IRQ handler's first instruction, right after the 7-cycle entry) within 10
 // Needs a TRX64 daemon (the sibling release build, or C64RE_TRX64_BIN).
 //
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -29,12 +24,6 @@ if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run buil
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-// Which daemon do the sandboxes run? Same resolution the tool uses; its own --version decides 2b.
-const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
-const daemon = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: tmpdir(), port: "0" });
-const daemonVersion = daemon.cmd ? /(\d+)\.(\d+)\.(\d+)/.exec(spawnSync(daemon.cmd, ["--version"], { encoding: "utf8" }).stdout ?? "") : null;
-const newerThan0128 = daemonVersion ? Number(daemonVersion[1]) * 1e6 + Number(daemonVersion[2]) * 1e3 + Number(daemonVersion[3]) > 12008 : false;
-const irqEntry = process.env.C64RE_EXPECT_IRQ_ENTRY === "1" || newerThan0128;
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-sbx-pc-"));
 
@@ -89,12 +78,8 @@ try {
   const b = await run(["I wait until the CPU reaches $EA31 within 10 frames"]);
   check(/reaches \$EA31 within 10 frames — after \d+ frames/.test(b), "2 KERNAL ROM $EA31 is reached within 10 frames", (/reaches[^\n]*/.exec(b) ?? [b.slice(0, 200)])[0]);
 
-  if (irqEntry) {
-    const f = await run(["I wait until the CPU reaches $FF48 within 10 frames"]);
-    check(/reaches \$FF48 within 10 frames — after \d+ frames/.test(f), "2b the IRQ entry $FF48 itself is reached within 10 frames", (/reaches[^\n]*|did not happen[^\n]*/.exec(f) ?? [f.slice(0, 200)])[0]);
-  } else {
-    console.log(`  SKIP  2b $FF48 (IRQ handler entry) — daemon ${daemonVersion?.[0] ?? "unknown"} is not newer than the released 0.12.8, which folds the interrupt entry into one step (#49); set C64RE_EXPECT_IRQ_ENTRY=1 to run it against a build that has the fix`);
-  }
+  const f = await run(["I wait until the CPU reaches $FF48 within 10 frames"]);
+  check(/reaches \$FF48 within 10 frames — after \d+ frames/.test(f), "2b the IRQ entry $FF48 itself is reached within 10 frames", (/reaches[^\n]*|did not happen[^\n]*/.exec(f) ?? [f.slice(0, 200)])[0]);
 
   const c = await run(["I wait until the CPU reaches $C200 within 5 frames"]);
   check(/did not happen within 5 frames \(PC now \$[0-9A-F]{4}\)/.test(c), "3 an address never executed times out with the PC", (/did not happen[^\n]*/.exec(c) ?? [c.slice(0, 200)])[0]);
