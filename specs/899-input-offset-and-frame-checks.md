@@ -1,6 +1,6 @@
 # Spec 899 — A scripted run can press a key anywhere in the frame and watch every frame
 
-**Status:** PROPOSED 2026-10-10 — waits for the TRX64 half (Spec 901)
+**Status:** IN BUILD 2026-10-10 — the TRX64 half (Spec 901) is on TRX64 main (e0ac127), not released
 **Repo:** C64RE (the step notation and its report). TRX64: Spec 901 (cycle-exact input, the frame probe).
 **Number:** 899 (registry: `specs/README.md`).
 **Origin:** issues #67 and #68 (Mike, the Mega Vault VIC-20 → C64 port, 2026-10-10). Owner
