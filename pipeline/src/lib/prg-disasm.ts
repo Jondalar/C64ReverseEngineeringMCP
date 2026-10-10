@@ -619,13 +619,28 @@ function findOperandExpression(
 }
 
 /**
- * The name a human gave a zero-page address, if any. Zero-page operands are
- * bytes, not addresses the label machinery resolves (`labelSet` is built from
- * code and data targets), so only the annotation names are consulted here. The
- * equate that defines the name comes from `renderUndefinedSymbolEquates`.
+ * The address ranges the listing itself holds: the image, and the runtime space
+ * of every relocated block. A label inside them is placed inline by the renderer;
+ * a label outside them has no line to sit on and is an equate.
  */
-function zeroPageName(address: number | undefined): string | undefined {
-  if (address === undefined || address < 0 || address > 0xff) return undefined;
+let activeHeldRanges: Array<[number, number]> = [];
+
+function isHeldAddress(address: number): boolean {
+  return activeHeldRanges.some(([first, last]) => address >= first && address <= last);
+}
+
+/**
+ * The name a human gave an address the operand points at, if any. Two populations
+ * are named here: zero-page addresses (bytes, not addresses the label machinery
+ * resolves — `labelSet` is built from code and data targets) and absolute addresses
+ * outside everything the listing holds (game RAM, KERNAL variables). An address
+ * inside the listing is placed by the renderer as a label line and answers through
+ * `findOperandExpression`. The equate that defines the name comes from
+ * `renderUndefinedSymbolEquates` (analysis) or `renderLegacy` (linear).
+ */
+function annotatedOperandName(address: number | undefined): string | undefined {
+  if (address === undefined || address < 0 || address > 0xffff) return undefined;
+  if (address > 0xff && isHeldAddress(address)) return undefined;
   return activeAnnotations?.labelsByAddress.get(address)?.label;
 }
 
@@ -654,23 +669,25 @@ function operandTextFromFact(
     case "imm":
       return `#$${formatHex8(operand)}`;
     case "zp":
-      return zeroPageName(operand) ?? `$${formatHex8(operand)}`;
+      return annotatedOperandName(operand) ?? `$${formatHex8(operand)}`;
     case "zp,x":
-      return `${zeroPageName(operand) ?? `$${formatHex8(operand)}`},x`;
+      return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},x`;
     case "zp,y":
-      return `${zeroPageName(operand) ?? `$${formatHex8(operand)}`},y`;
+      return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},y`;
+    // the human's name wins over the platform's for the operand; the platform name
+    // stays in the line comment as a hint
     case "abs":
-      return targetExpression ?? zeroPageName(targetAddress) ?? `$${formatHex16(operand)}`;
+      return annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`;
     case "abs,x":
-      return `${targetExpression ?? zeroPageName(targetAddress) ?? `$${formatHex16(operand)}`},x`;
+      return `${annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},x`;
     case "abs,y":
-      return `${targetExpression ?? zeroPageName(targetAddress) ?? `$${formatHex16(operand)}`},y`;
+      return `${annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},y`;
     case "ind":
-      return `(${targetExpression ?? `$${formatHex16(operand)}`})`;
+      return `(${annotatedOperandName(operand) ?? targetExpression ?? `$${formatHex16(operand)}`})`;
     case "(zp,x)":
-      return `(${zeroPageName(operand) ?? `$${formatHex8(operand)}`},x)`;
+      return `(${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},x)`;
     case "(zp),y":
-      return `(${zeroPageName(operand) ?? `$${formatHex8(operand)}`}),y`;
+      return `(${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`}),y`;
     case "rel":
       return targetExpression ?? `$${formatHex16(targetAddress ?? operand)}`;
     default:
@@ -855,10 +872,10 @@ function generateInstructionComment(
 
   // 14. Indirect addressing
   if (mode === "(zp),y" && operand !== undefined) {
-    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${zeroPageName(operand) ?? `$${hex8(operand)}`}),Y (indirect indexed)`;
+    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`}),Y (indirect indexed)`;
   }
   if (mode === "(zp,x)" && operand !== undefined) {
-    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${zeroPageName(operand) ?? `$${hex8(operand)}`},X) (indexed indirect)`;
+    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`},X) (indexed indirect)`;
   }
 
   // No comment for truly trivial instructions
@@ -3192,8 +3209,8 @@ function renderLegacy(
 
   // A named zero-page operand needs its definition before first use. There is no
   // equate backstop on this path, so the names the loop actually prints are collected.
-  const zeroPageEquateAt = lines.length;
-  const usedZeroPage = new Set<number>();
+  const namedEquateAt = lines.length;
+  const usedNamed = new Set<number>();
 
   for (const instruction of instructions) {
     if (labels.has(instruction.address)) {
@@ -3212,10 +3229,10 @@ function renderLegacy(
             targetAddress: instruction.targetAddress,
           };
           const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
-          const zeroPageOperand = instruction.mode.startsWith("abs") ? instruction.targetAddress : instruction.operand;
-          const zeroPageLabel = zeroPageName(zeroPageOperand);
-          if (zeroPageLabel !== undefined && zeroPageOperand !== undefined && operand.includes(zeroPageLabel)) {
-            usedZeroPage.add(zeroPageOperand);
+          const namedOperand = instruction.mode === "ind" ? instruction.operand : instruction.mode.startsWith("abs") ? instruction.targetAddress : instruction.operand;
+          const namedLabel = annotatedOperandName(namedOperand);
+          if (namedLabel !== undefined && namedOperand !== undefined && operand.includes(namedLabel)) {
+            usedNamed.add(namedOperand);
           }
           // Force `.abs` for the abs-with-zeropage-operand case — otherwise KickAss/64tass
           // shrink it to the 2-byte ZP form and byte-identity breaks (the segment-override bug).
@@ -3233,15 +3250,18 @@ function renderLegacy(
     }
   }
 
-  const foreignZeroPage = [...usedZeroPage]
+  const foreignNamed = [...usedNamed]
     .filter((address) => address < prg.loadAddress || address > prg.loadAddress + prg.data.length - 1)
     .sort((left, right) => left - right);
-  if (foreignZeroPage.length > 0) {
+  if (foreignNamed.length > 0) {
     lines.splice(
-      zeroPageEquateAt,
+      namedEquateAt,
       0,
-      "// Zero-page addresses named by the annotations",
-      ...foreignZeroPage.map((address) => `      .label ${makeLabel(address)} = $${formatHex8(address)}`),
+      "// Addresses outside this listing named by the annotations",
+      // a zero-page name is defined as the one-byte value it names, the width the operand has
+      ...foreignNamed.map(
+        (address) => `      .label ${makeLabel(address)} = ${address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address)}`,
+      ),
       "",
     );
   }
@@ -3976,6 +3996,8 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const relocations = options.relocations && options.relocations.length > 0
     ? normalizeRelocations(options.relocations, prg)
     : undefined;
+  activeHeldRanges = [[prg.loadAddress, prg.loadAddress + prg.data.length - 1]];
+  for (const r of relocations ?? []) activeHeldRanges.push([r.runtimeAddr, r.runtimeAddr + (r.fileEnd - r.fileStart)]);
   const renderMode: AnnotationRenderMode = analysisContext
     ? "analysis"
     : relocations ? "relocation" : "legacy";
@@ -4048,6 +4070,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   }
 
   activeAnnotations = undefined;
+  activeHeldRanges = [];
   activeExternalEntries = undefined;
   activeExternalAbi = undefined;
   const kickAsmOutput = `${lines.join("\n")}\n`;

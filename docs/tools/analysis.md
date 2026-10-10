@@ -229,6 +229,15 @@ listing defines it once, before first use (`.label ptrLo = $FB` in the `.asm`,
 `ptrLo = $FB` in the `.tas`). The platform's own name for the address stays in
 the line comment as a hint behind yours.
 
+The same holds for a label on an absolute address outside the rendered image —
+game RAM (`$0333`), a KERNAL variable (`$0543`): the name replaces the raw
+address in `abs`, `abs,x`, `abs,y`, `(ind)` and `jmp`/`jsr` operands, and the
+listing defines it once before first use (`.label under_chars = $0333` in the
+`.asm`, `under_chars = $0333` in the `.tas`). Where the platform has its own name
+for the address, yours wins the operand and the platform's stays in the comment.
+This includes addresses outside the whole image seen from a relocated block. A
+label on an address inside the image is placed as a label line, as before.
+
 **Segment kinds:** `code`, `basic` (a tokenized BASIC V2 program — not 6502),
 `basic_stub` (machine code entered from a BASIC `SYS`), `text`, `petscii_text`,
 `screen_code_text`, `sprite`, `charset`, `charset_source`, `screen_ram`,
