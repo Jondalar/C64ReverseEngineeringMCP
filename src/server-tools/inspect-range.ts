@@ -169,7 +169,9 @@ function trackedVicRegisterName(platform: PlatformTag, address: number): string 
   }
   if (platformKindForAddress(platform, address) !== "io") return undefined;
   const node = platformKb().node(platform, address);
-  return node ? (node.symbol ?? node.name) : `$${hex16(address)} (no ${platform} row in the platform store)`;
+  if (node) return node.symbol ?? node.name;
+  const region = platformKb().region(platform, address);
+  return region ? `$${hex16(address)} (${region.name})` : `$${hex16(address)} (no ${platform} row in the platform store)`;
 }
 
 function hex16(value: number): string {
@@ -360,6 +362,15 @@ export function buildReport(args: InspectArgs): string {
   if (platform !== "c64") lines.push(`Platform: ${platform}`);
   lines.push(`Analysis: ${analysisPath}`);
   if (graph) lines.push(graph.note);
+  if (platform !== "c64") {
+    let inWindow = false, named = false;
+    for (let a = startAddress; a <= endAddress && !named; a += 1) {
+      if (platformKindForAddress(platform, a) !== "io") continue;
+      inWindow = true;
+      if (platformKb().node(platform, a) || platformKb().region(platform, a)) named = true;
+    }
+    if (inWindow && !named) lines.push(`Platform store: no ${platform} row or region covers any address of $${hex16(startAddress)}–$${hex16(endAddress)} — the range lies in the I/O window but the store names nothing in it`);
+  }
   lines.push("");
 
   // Containing segments — Spec 751: apply the annotation overlay (effective
@@ -380,7 +391,11 @@ export function buildReport(args: InspectArgs): string {
   lines.push("");
 
   // VIC writes (full register set, with decoded meaning where possible)
-  const vicEvents = collectVicWrites(report, platform, graph);
+  // On the C64 the VIC program is the whole VIC window by design (a screen / charset candidate is
+  // judged by the registers that point at it). On any other machine the section answers for the
+  // requested range: a store outside it is not a fact about it.
+  const vicEvents = collectVicWrites(report, platform, graph)
+    .filter((e) => platform === "c64" || (e.registerAddress >= startAddress && e.registerAddress <= endAddress));
   // Track most-recent $DD00 to interpret $D018 in context.
   let lastBankBase = 0x0000;
   lines.push(platform === "c64" ? `## VIC register program (${vicEvents.length} stores)` : `## I/O register stores (${vicEvents.length} stores)`);

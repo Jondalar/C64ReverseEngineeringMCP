@@ -213,3 +213,14 @@ No signature → the D6 refusal with the machine's offers, `$A000` added for `vi
   refusal offers the machine's addresses.
 - `inspect_address_range` and `c64ref_lookup` on a `vic20` artifact return VIC-20
   names, and say so when the store has no row.
+- An annotate boundary with no owner takes its machine from the graph: the platform tag
+  its `USES_HARDWARE` / `USES_ZP` edges point at, else the machine declared for the
+  owners — only when they all agree on one tag; mixed tags fall to the project default.
+- `$9600-$97FF` (the VIC-20's normal colour RAM) is a marked secondary region, so a store
+  there is commented and `inspect_address_range` names it.
+- On a VIC-20 / TED file `inspect_address_range` lists only the stores inside the
+  requested range, and says in its header when the store names nothing in it.
+- A `disasm` preview (`import_graph: false`) records no machine on the file.
+- A row whose name equals its symbol is printed once, on every platform.
+- `graph seed` slugs a file stem the owner rule rejects (runs of other characters become
+  one `_`) and names, rather than aborts on, a file it cannot seed.

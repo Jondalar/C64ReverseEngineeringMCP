@@ -17,6 +17,10 @@
 //     RAM vector pairs per machine; basic_list / basic_tokenize speak BASIC 3.5 on plus4 and V2 elsewhere
 //  10 D8: onboarding / status state the machine and ask for it; a .d64 extracted in a vic20 project
 //     renders with VIC-20 names; D9: a raw cartridge image is placed by its signature
+//  11 the acceptance run on real VIC-20 / C16 games: an unowned I/O boundary takes the machine the
+//     graph's own edges name; the colour RAM at $9600 has a (secondary) region; a store the report
+//     was not asked about is not listed, and a range with no row says so in the header; a symbol
+//     that equals its name is printed once; a disasm preview records no machine on the file
 //
 // Hermetic: temp projects, synthetic bytes, no ROMs, no media, no daemon, no network. Needs
 // the assemblers the rebuild proof uses (KickAssembler jar, 64tass) and skips those checks
@@ -676,6 +680,98 @@ function makeD64(files) {
   put(p64, "tiny.bin", Buffer.from([0xea, 0xea]));
   const rn64 = await call("disasm", { project_dir: p64, path: "artifacts/prg/tiny.bin" });
   check(/refused/.test(rn64) && !/\$A000|\$1001/.test(rn64), "c64: the refusal is as it was, no offers");
+  // ── 11 the acceptance run ───────────────────────────────────────────────────
+  head(11, "unowned I/O boundary, colour RAM, preview, one-name rows, range-true stores");
+  {
+    const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
+    const { assertBoundary } = await import(join(ROOT, "dist/model/store.js"));
+    const { saveContract } = await import(join(ROOT, "dist/contract/contract.js"));
+    const { verdict } = await import(join(ROOT, "dist/critic/run.js"));
+    const { declareMachine } = await import(join(ROOT, "dist/knowledge-graph/producers/machine.js"));
+    // D-A: a boundary with NO owner, in a project with NO default machine
+    async function unowned({ edges, declared, human }) {
+      const d = mkdtempSync(join(tmpdir(), "c64re-898da-"));
+      mkdirSync(join(d, "knowledge"), { recursive: true });
+      writeFileSync(join(d, "knowledge", "project.json"), JSON.stringify({ name: "da", slug: "da" }));
+      const owner = "vic";
+      const rid = (a) => `da:ram/${owner}:routine:${a.toString(16).padStart(4, "0")}`;
+      const store = GraphStore.open(d);
+      const sites = edges.map((e, i) => ({ at: 0x1200 + i * 0x100, tag: e[0], addr: e[1] }));
+      store.replaceGenerated("test", owner, sites.map((s) => ({ id: rid(s.at), kind: "routine", name: `sub_${s.at.toString(16)}`, endAddress: s.at + 8, origin: "static", confidence: "certain" })),
+        sites.map((s) => ({ from: rid(s.at), type: "USES_HARDWARE", to: ids.derivePlatformId(s.tag, s.addr), evidenceKey: `${s.at}:${s.addr}`, origin: "static", confidence: "certain" })));
+      if (human) for (const s of sites) store.upsertHuman({ id: rid(s.at), kind: "routine", name: `named_${s.at.toString(16)}`, origin: "user", confidence: "user_asserted" });
+      store.close();
+      if (declared) declareMachine(d, owner, declared);
+      await assertBoundary(d, { name: "io window", level: "container", start: 0x9000, end: 0x912f, description: "io", evidence: ["map"] });
+      saveContract(d, { goal: "annotate the io window", deliver: { slots: ["S1"], annotate: ["io window"] } });
+      return (await verdict(d)).blockers.find((b) => /"io window"/.test(b));
+    }
+    const vicEdges = [["vic20", 0x9005], ["vic20", 0x9110]];
+    const a1 = await unowned({ edges: vicEdges, human: false });
+    check(/touched by 2 routines and not one carries a human name/.test(a1 ?? ""), "D-A: an unowned $9000-$912F boundary, edges all vic20, no default → judged as the I/O window", a1);
+    const a2 = await unowned({ edges: vicEdges, human: true });
+    check(a2 === undefined, "D-A: …and met once the referencing routines carry human names", a2);
+    const a3 = await unowned({ edges: [], declared: "vic20" });
+    check(/no code references \$9000-\$912F/.test(a3 ?? ""), "D-A: no edges, the owner declared vic20 → still the I/O window, not RAM", a3);
+    const a4 = await unowned({ edges: [["vic20", 0x9005], ["c64", 0xd020]], human: true });
+    check(/holds no routine, table or data segment to annotate/.test(a4 ?? ""), "D-A: mixed tags → the project default (c64), $9000 is RAM, as before", a4);
+
+    // D-C / D-B / D-D / D-E on one VIC-20 file
+    const pd = mkdtempSync(join(tmpdir(), "c64re-898-acc-"));
+    await call("project_init", { project_dir: pd, name: "acc" });
+    await call("agent_onboard", { project_dir: pd });
+    // lda #1 ; sta $9600,x ; sta $9005 ; lda #$e ; sta $9110 ; jsr $FFD2 ; rts
+    const accBody = [0xa9, 0x01, 0x9d, 0x00, 0x96, 0x8d, 0x05, 0x90, 0xa9, 0x0e, 0x8d, 0x10, 0x91, 0x20, 0xd2, 0xff, 0x60];
+    put(pd, "acc.prg", prgBytes(0x1201, accBody));
+    const rAcc = await call("disasm", { project_dir: pd, path: "artifacts/prg/acc.prg", platform: "vic20" });
+    const lst = readFileSync(join(pd, "artifacts/prg", "acc_disasm.tas"), "utf8");
+    const line = (re) => lst.split("\n").find((l) => re.test(l)) ?? "";
+    const colLine = line(/\$9600/);
+    check(/colour RAM/.test(colLine), "D-C: `sta $9600,x` carries a comment naming the colour RAM", colLine);
+    const reg = kb.region("vic20", 0x9600);
+    check(reg && reg.endAddress === 0x97ff && /^secondary: .*p\.\d+/.test(reg.source), "D-C: the store holds the region $9600-$97FF as a marked, page-cited secondary row", reg?.source);
+    check(!kb.region("vic20", 0x9800) && kb.region("vic20", 0x95ff)?.name === "VICCOL", "D-C: …$9400-$95FF stays the ROM-source VICCOL, $9800 is outside");
+    const crLine = line(/\$9005/);
+    check(/VIC_CR5/.test(crLine) && !/VIC_CR5 VIC_CR5/.test(crLine), "D-B: a row whose name equals its symbol prints it once (VIC_CR5)", crLine);
+    const bsLine = line(/\$FFD2/i);
+    check(!/(\b\w+\b) \1\b/.test(bsLine.slice(bsLine.indexOf(";"))), "D-B: …and so does the KERNAL call", bsLine);
+    const gn = await call("graph_node", { project_dir: pd, ref: "vic20:io:9005" });
+    check(!/VIC_CR5 VIC_CR5/.test(gn) && /VIC_CR5/.test(gn), "D-B: graph_node prints it once too", gn.split("\n")[0]);
+    await call("analyze", { project_dir: pd, path: "artifacts/prg/acc.prg", platform: "vic20" });
+    const insA = (start, end) => call("inspect_address_range", { project_dir: pd, prg_path: "artifacts/prg/acc.prg", start_address: start, end_address: end, analysis_json: "artifacts/prg/acc_analysis.json", platform: "vic20" });
+    const i1 = await insA("9000", "9010");
+    check(/\$1\w+ VIC_CR5/.test(i1) && !/\$9600/.test(i1.split("##").find((x) => /I\/O register stores/.test(x)) ?? "") && !/\$9110/.test(i1.split("##").find((x) => /I\/O register stores/.test(x)) ?? ""), "D-D: $9000-$9010 lists the $9005 store and none of the others", (i1.split("##").find((x) => /I\/O register stores/.test(x)) ?? "").trim().split("\n").slice(0, 4).join(" | "));
+    check(/I\/O register stores \(1 stores\)/.test(i1), "D-D: …and the count is the filtered one", i1.split("\n").find((l) => /register stores/.test(l)));
+    const i2 = await insA("9600", "9604");
+    check(/I\/O register stores \(1 stores\)/.test(i2) && /colour RAM/.test(i2), "D-C/D-D: $9600-$9604 lists the one store, and names the region", i2.split("\n").find((l) => /\$1\w+ .*9600|colour/.test(l)));
+    const i3 = await insA("9800", "9803");
+    check(/I\/O register stores \(0 stores\)/.test(i3) && /Platform store: no vic20 row or region covers/.test(i3.split("##")[0]), "D-D: a range the store names nothing in says so in the header (before the sections)", i3.split("\n").find((l) => /Platform store/.test(l)));
+    check(!/Platform store: no/.test(i1) && !/Platform store: no/.test(i2), "D-D: …and does not say it where there is a row or region");
+    const i4 = await insA("1201", "1210");
+    check(!/Platform store: no/.test(i4), "D-D: a range outside the I/O window gets no such note");
+
+    // D-B on the c64: PHOENIX ($FF56) is a row whose name equals its symbol
+    const pc64 = mkdtempSync(join(tmpdir(), "c64re-898-b64-"));
+    await call("project_init", { project_dir: pc64, name: "b64" });
+    await call("agent_onboard", { project_dir: pc64 });
+    put(pc64, "b.prg", prgBytes(0x0801, [0x20, 0x56, 0xff, 0x60]));
+    await call("analyze", { project_dir: pc64, path: "artifacts/prg/b.prg", platform: "c64" });
+    await call("disasm", { project_dir: pc64, path: "artifacts/prg/b.prg", platform: "c64" });
+    const l64 = readFileSync(join(pc64, "artifacts/prg", "b_disasm.tas"), "utf8").split("\n").find((l) => /\$FF56/i.test(l)) ?? "";
+    check(/PHOENIX/.test(l64) && !/PHOENIX PHOENIX/.test(l64), "D-B: c64 `jsr $FF56` prints PHOENIX once", l64);
+
+    // D-E: a preview records no machine on the file
+    put(pd, "pv.prg", prgBytes(0x1201, accBody));
+    await call("disasm", { project_dir: pd, path: "artifacts/prg/pv.prg", platform: "vic20", import_graph: false });
+    check(rowOf(pd, "pv.prg")?.platform === undefined, "D-E: disasm platform=vic20 import_graph=false leaves the artifact record without a platform", String(rowOf(pd, "pv.prg")?.platform));
+    await call("disasm", { project_dir: pd, path: "artifacts/prg/pv.prg", import_graph: false });
+    const pvTas = readFileSync(join(pd, "artifacts/prg", "pv_disasm.tas"), "utf8");
+    check(!/VIC_CR5/.test(pvTas), "D-E: the control render without a platform is the c64 reading, not a silently-recorded vic20", pvTas.split("\n").find((l) => /\$9005/.test(l)));
+    await call("disasm", { project_dir: pd, path: "artifacts/prg/pv.prg", platform: "vic20" });
+    check(rowOf(pd, "pv.prg")?.platform === "vic20", "D-E: a normal render with the explicit platform records it", String(rowOf(pd, "pv.prg")?.platform));
+    await call("disasm", { project_dir: pd, path: "artifacts/prg/pv.prg" });
+    check(/VIC_CR5/.test(readFileSync(join(pd, "artifacts/prg", "pv_disasm.tas"), "utf8")), "D-E: …and the next render that names none keeps vic20");
+  }
 } finally {
   proc.kill();
 }

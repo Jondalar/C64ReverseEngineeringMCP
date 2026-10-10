@@ -121,7 +121,7 @@ export function platformNode(platform: PlatformTag, address: number): PlatformNo
   open();
   const row = nodeStmt!.get(platform, address & 0xffff) as { kind: PlatformNodeHit["kind"]; symbol: string | null; name: string } | undefined;
   if (!row) return undefined;
-  return { kind: row.kind, symbol: row.symbol, name: row.name, label: row.symbol ? `${row.symbol} ${row.name}` : row.name };
+  return { kind: row.kind, symbol: row.symbol, name: row.name, label: row.symbol && !(row.symbol === row.name) ? `${row.symbol} ${row.name}` : row.name };
 }
 
 /** The innermost documented range containing `address` ("VIC-II Chip Registers"). */

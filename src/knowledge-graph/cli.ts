@@ -124,7 +124,7 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "seed") {
     // The pass itself is producers/seed-project.ts — the cut-over runs the same
     // one. The verb is no budget: asked for by hand, it seeds everything.
-    const r = seedProject({ projectDir: args.project, owner: args.owner });
+    const r = seedProject({ projectDir: args.project, owner: args.owner, continueOnError: !args.owner });
     out(formatSeedProject(r), { results: r.seeded, resolve: r.resolve, signatures: r.signatures, skipped: r.skipped, removed: r.removed, deferred: r.deferred, failed: r.failed });
     return;
   }

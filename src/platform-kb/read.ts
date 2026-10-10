@@ -100,7 +100,7 @@ export class PlatformKb {
   label(platform: PlatformTag, address: number): string | undefined {
     const n = this.node(platform, address);
     if (!n) return undefined;
-    return n.symbol ? `${n.symbol} ${n.name}` : n.name;
+    return n.symbol && !(n.symbol === n.name) ? `${n.symbol} ${n.name}` : n.name;
   }
 
   meta(): Record<string, string> {

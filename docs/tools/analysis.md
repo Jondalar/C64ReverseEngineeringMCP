@@ -8,7 +8,7 @@ TRXDis pipeline.
 | Tool | Description |
 |---|---|
 | `analyze` | Heuristic analysis of bytes → JSON with segments, cross-references, RAM facts, pointer tables. Headed or headerless: the load address decides (below). |
-| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied, and imports those names into the knowledge graph under the file's stem. `import_graph: false` renders a **preview** instead: the listing and its rebuild proof, and the graph left exactly as it was — for scratch and draft renders. A stem imported by mistake is dropped with `graph_remove_owner`. `platform` picks the symbol tables (`c64` default, `c1541` for drive code); `platform: "none"` is for code of any other machine — the listing then carries no ROM / zero-page / I/O names or comments and no hardware inference, only the names and comments of the project's annotations and graph, and nothing is recorded as the file's machine. The choice sticks to the file: later renders that name no platform keep it, an explicit `c64` / `c1541` clears it. |
+| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied, and imports those names into the knowledge graph under the file's stem. `import_graph: false` renders a **preview** instead: the listing and its rebuild proof, and the graph left exactly as it was — for scratch and draft renders. A stem imported by mistake is dropped with `graph_remove_owner`. `platform` picks the symbol tables (`c64` default, `c1541` for drive code); `platform: "none"` is for code of any other machine — the listing then carries no ROM / zero-page / I/O names or comments and no hardware inference, only the names and comments of the project's annotations and graph, and nothing is recorded as the file's machine. A preview never records a machine on the file either (the `none` switch is not a machine and still sticks). The choice sticks to the file: later renders that name no platform keep it, an explicit `c64` / `c1541` clears it. |
 | `disasm_prg` · `disasm_raw` · `analyze_prg` | The old names. Aliases of the two above for one release — the same body, and each says so once in its answer, naming its successor. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
@@ -123,7 +123,8 @@ all resolve it the same way, first hit wins:
 4. `c64`.
 
 An explicitly named machine is recorded on the file, so every later call that names
-none finds it. The platform store names only what it has rows for: on a VIC-20 or a
+none finds it — except in a `disasm` preview (`import_graph: false`), which records
+nothing: the machine is for that render only. The platform store names only what it has rows for: on a VIC-20 or a
 TED address with no row, the listing stays unnamed and `c64ref_lookup` says there is
 no row — a C64 name is never borrowed. `platform: "none"` is a rendering switch, not a
 machine: no platform names at all, for code of any other machine.

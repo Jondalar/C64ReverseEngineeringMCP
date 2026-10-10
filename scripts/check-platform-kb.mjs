@@ -166,6 +166,19 @@ try {
       if (!n || n.source.startsWith("secondary")) fail(`${platform}: a ROM-source row carries a secondary marker`);
     }
   }
+  // Colour RAM at its normal VIC-20 place: a marked secondary region, nothing in the ROM source covers it.
+  {
+    const { VIC20_SECONDARY_REGIONS } = await import(join(ROOT, "dist/platform-kb/seeds/secondary.js"));
+    const { VIC20_REGIONS } = await import(join(ROOT, "dist/platform-kb/seeds/vic20.js"));
+    for (const [start, end, name, source] of VIC20_SECONDARY_REGIONS) {
+      if (!/^secondary: \S/.test(source) || !/\bp\.\d+/.test(source)) fail(`vic20 region $${start.toString(16)}: source "${source}" lacks the "secondary: " marker or a page cite`);
+      if (VIC20_REGIONS.some((r) => r[0] <= end && r[1] >= start)) fail(`vic20 region $${start.toString(16)}: overlaps a ROM-source region`);
+      const r = kb.region("vic20", start);
+      if (!r || r.name !== name || r.source !== source || r.endAddress !== end) fail(`vic20 region $${start.toString(16)}: store region is not the secondary region (${r?.name}/${r?.source})`);
+    }
+    for (const a of [0x9600, 0x96ff, 0x97ff]) if (!kb.region("vic20", a)) fail(`vic20 $${a.toString(16)} (colour RAM) has no region`);
+    if (kb.region("vic20", 0x9800)) fail("vic20 $9800 must not be inside the colour RAM region");
+  }
   // Still unnamed: the hardware vectors, which no Commodore reference names ($FFFA-$FFFF).
   for (const platform of ["vic20", "plus4"]) for (const a of [0xfffa, 0xfffc, 0xfffe]) if (kb.node(platform, a)) fail(`${platform} $${a.toString(16)} has a row but no reference names the hardware vectors`);
   if (["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0000)?.symbol) || ["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0001)?.symbol)) fail("vic20 has no on-chip port: $00/$01 must not carry a port row");

@@ -116,6 +116,18 @@ export function ownerPlatformTag(
     if (tags.length === 1) return tags[0]!;
     const declared = declaredMachine(projectDir, owner);
     if (declared) return declared;
+  } else {
+    // An unowned boundary: the graph's own evidence first (what the hardware / zero-page edges
+    // point at), then the machines declared for the owners — only when they name ONE tag.
+    const rows = db.prepare(
+      "SELECT DISTINCT substr(to_id, 1, instr(to_id, ':') - 1) AS tag FROM edges WHERE type IN ('USES_ZP','USES_HARDWARE')",
+    ).all() as Array<{ tag: string }>;
+    const tags = new Set(rows.map((r) => r.tag).filter((t): t is PlatformTag => (PLATFORM_TAGS as readonly string[]).includes(t)));
+    if (tags.size === 1) return [...tags][0]!;
+    if (tags.size === 0) {
+      const decl = new Set(declaredMachines(projectDir).map((m) => m.machine as PlatformTag));
+      if (decl.size === 1) return [...decl][0]!;
+    }
   }
   return resolvePlatform({ projectDir }).platform;
 }

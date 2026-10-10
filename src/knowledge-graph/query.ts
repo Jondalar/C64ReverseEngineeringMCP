@@ -198,7 +198,7 @@ export class Graph {
       const p = this.platform?.byId(id);
       if (p) {
         return {
-          id: p.id, kind: p.kind, name: p.symbol ? `${p.symbol} ${p.name}` : p.name, symbol: p.symbol, address: p.address, endAddress: null,
+          id: p.id, kind: p.kind, name: p.symbol && !(p.symbol === p.name) ? `${p.symbol} ${p.name}` : p.name, symbol: p.symbol, address: p.address, endAddress: null,
           space: p.kind === "io" ? "io" : p.kind === "rom" ? "rom" : "ram", owner: null, bank: null, attrs: { source: p.source },
           origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
         };

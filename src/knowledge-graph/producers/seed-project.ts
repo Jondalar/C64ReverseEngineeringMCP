@@ -154,7 +154,7 @@ export function seedProject(options: SeedProjectOptions): SeedProjectResult {
   const t0 = process.hrtime.bigint();
   const { projectDir } = options;
   const all = options.owner
-    ? findAnalysisJsons(projectDir).filter((p) => p.toLowerCase().endsWith(`${options.owner}_analysis.json`))
+    ? findAnalysisJsons(projectDir).filter((p) => p.toLowerCase().endsWith(`${options.owner}_analysis.json`) || ownerFromAnalysisPath(p).endsWith(options.owner!))
     : findAnalysisJsons(projectDir);
   if (all.length === 0) throw new Error(`no _analysis.json under ${projectDir}${options.owner ? ` for owner ${options.owner}` : ""}`);
   // Spec 830 D5 — before anything is written, not after half of it is

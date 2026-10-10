@@ -26,7 +26,7 @@ import { join } from "node:path";
 import type { PlatformTag } from "./schema.js";
 import { PLUS4_REGIONS, PLUS4_ROWS } from "./seeds/plus4.js";
 import type { SeedRegion, SeedRow } from "./seeds/types.js";
-import { PLUS4_SECONDARY_ROWS, VIC20_SECONDARY_ROWS } from "./seeds/secondary.js";
+import { PLUS4_SECONDARY_ROWS, VIC20_SECONDARY_REGIONS, VIC20_SECONDARY_ROWS } from "./seeds/secondary.js";
 import { VIC20_REGIONS, VIC20_ROWS } from "./seeds/vic20.js";
 
 export interface ExtensionEntry {
@@ -143,7 +143,7 @@ export function seededAddresses(platform: PlatformTag): Set<number> {
 }
 
 export function loadExtensionRegions(): ExtensionRegion[] {
-  return [...regionsFromSeed("vic20", VIC20_REGIONS), ...regionsFromSeed("plus4", PLUS4_REGIONS)];
+  return [...regionsFromSeed("vic20", VIC20_REGIONS), ...regionsFromSeed("vic20", VIC20_SECONDARY_REGIONS), ...regionsFromSeed("plus4", PLUS4_REGIONS)];
 }
 
 /** Spec 898 D3: names from a second, marked source. Always listed BEFORE the source rows, so a source label wins. */

@@ -116,8 +116,20 @@ function hex4(a: number): string {
   return a.toString(16).toUpperCase().padStart(4, "0");
 }
 
+/**
+ * The owner id a stem becomes. A stem that already passes the owner rule
+ * (lowercase `[a-z0-9_.-]`) is returned unchanged; any other run of characters
+ * (spaces, parentheses, ...) becomes one `_` — the rule `normStem` applies to the
+ * same names on the annotation side, so both halves land on one owner.
+ */
+export function ownerSlug(stem: string): string {
+  const s = stem.toLowerCase();
+  if (/^[a-z0-9_.\-]+$/u.test(s)) return s;
+  return s.replace(/[^a-z0-9_.\-]+/gu, "_");
+}
+
 export function ownerFromAnalysisPath(analysisPath: string): string {
-  return basename(analysisPath).replace(/_analysis\.json$/u, "").toLowerCase();
+  return ownerSlug(basename(analysisPath).replace(/_analysis\.json$/u, ""));
 }
 
 export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlowResult {

@@ -4,7 +4,7 @@
 // through ./platform-kb; what stays here is address arithmetic, not knowledge.
 
 import { hex16 } from "./format";
-import { isIoAddress, platformNode, type PlatformTag } from "./platform-kb";
+import { isIoAddress, platformNode, platformRegionName, type PlatformTag } from "./platform-kb";
 
 export interface C64IoMetadata {
   comment: string;
@@ -15,6 +15,11 @@ export interface C64IoMetadata {
  * renderer and must not be pre-empted by the generic operand comment. */
 export function findC64IoMetadata(address: number, platform: PlatformTag = "c64"): C64IoMetadata | undefined {
   const hit = platformNode(platform, address);
+  if (!hit && (platform === "vic20" || platform === "plus4") && isIoAddress(platform, address)) {
+    // an I/O address with no row of its own but inside a named range (colour RAM): the range names it
+    const region = platformRegionName(platform, address);
+    return region ? { comment: region } : undefined;
+  }
   if (!hit || hit.kind !== "io") {
     return undefined;
   }

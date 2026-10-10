@@ -119,6 +119,8 @@ byte for byte. For where something is *described* in prose, `project_search`.
 
 ## Dropping an owner
 
+An owner id is the file stem, lowercased; any run of characters outside `[a-z0-9_.-]` (spaces, parentheses) becomes one `_`, so `Mikey (1001-1e00)_analysis.json` seeds as owner `mikey_1001-1e00_`. A project-wide `graph seed` that meets a file it cannot seed names it (`FAILED <owner>: …`) and goes on with the rest.
+
 Every `disasm` with annotations imports them under the file's stem, and every
 `analyze` seeds the stem's control flow, memory access and signatures. A scratch
 render (`draft1`, `l1_prop`, a fragment tried out once) therefore stays in the

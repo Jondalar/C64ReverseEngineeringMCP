@@ -24,7 +24,7 @@
 // $FFFA-$FFFF (the VIC-20 Programmer's Reference Guide and the Plus/4 Hardware Manual
 // describe the NMI and RESET pins and the RAM vectors at $0314, never the $FFFA-$FFFF
 // ROM words); TED $FF20-$FF3D (the data sheet describes registers 0-31 and 62/63 only).
-import type { SeedRow } from "./types.js";
+import type { SeedRegion, SeedRow } from "./types.js";
 
 const VIC = "secondary: MOS 6560/6561 VIC data sheet (Commodore 2/80) p.3 (VIC control registers)";
 const NOTE = " (name not in the ROM source)";
@@ -45,6 +45,14 @@ export const VIC20_SECONDARY_ROWS: SeedRow[] = [
   [0x900d, "VIC_CRD", "VIC_CRD", "CRD: F_IN(4), noise" + NOTE, VIC],
   [0x900e, "VIC_CRE", "VIC_CRE", "CRE: amplitude; auxiliary colour" + NOTE, VIC],
   [0x900f, "VIC_CRF", "VIC_CRF", "CRF: colour control (background, exterior border, invert)" + NOTE, VIC],
+];
+
+// Colour RAM. The ROM source names only $9400-$95FF (VICCOL, where the KERNAL puts it once
+// block 1 is populated). The VIC-20 Programmer's Reference Guide's memory map (p.177) puts the
+// "Normal location of COLOR RAM" at $9600-$97FF -- the unexpanded machine and the +3K
+// expansion -- and its memory-configuration table (p.244) says the same.
+export const VIC20_SECONDARY_REGIONS: SeedRegion[] = [
+  [0x9600, 0x97ff, "VIC colour RAM, normal location (unexpanded and +3K)", "secondary: VIC-20 Programmer's Reference Guide memory map p.177 (9600-97FF Normal location of COLOR RAM), configuration table p.244"],
 ];
 
 const TED = (page: string) => `secondary: Plus/4 Hardware Manual, 7360 TED data sheet ${page}`;

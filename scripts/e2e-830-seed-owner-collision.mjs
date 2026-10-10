@@ -12,6 +12,9 @@
 // 02_a seeded once with routines=14 and once with routines=8, and the graph
 // kept the 8.
 //
+// Also: a stem the owner rule rejects (spaces, parentheses — "Mickey The Bricky (1001-1E00)")
+// is slugged, not fatal; a file the producers cannot read is named and the rest still seeds.
+//
 // Exit 0 = pass, 1 = fail.   npm run e2e:830-seed
 
 import { execFileSync } from "node:child_process";
@@ -85,6 +88,36 @@ check(/--owner/.test(withStray.out), "…and says what to do instead");
 // the graph still holds the good seed — refusing wrote nothing
 const graphFile = join(project, "knowledge", "graph.sqlite");
 check(existsSync(graphFile), "the refusal left the previously seeded graph in place");
+
+// ------------------------------------- an owner stem outside [a-z0-9_.-]
+{
+  const pd = mkdtempSync(join(tmpdir(), "c64re-830-slug-"));
+  const dir = join(pd, "analysis", "payloads");
+  mkdirSync(dir, { recursive: true });
+  mkdirSync(join(pd, "knowledge"), { recursive: true });
+  writeFileSync(join(pd, "knowledge", "project.json"), JSON.stringify({
+    schemaVersion: 1, id: "project-slug-gate", name: "slug gate", slug: "slugs", description: "temp", rootPath: pd,
+  }, null, 2));
+  const bytes = Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE]);
+  for (const stem of ["Mickey The Bricky VIC-20 1004 (1001-1E00)", "plain_ok"]) {
+    writeFileSync(join(dir, `${stem}.prg`), bytes);
+    execFileSync(process.execPath, [pipelineCli, "analyze-prg", join(dir, `${stem}.prg`), join(dir, `${stem}_analysis.json`), "0801", "--no-register"], { stdio: "pipe" });
+  }
+  const run = (args) => {
+    try { return { okRun: true, out: execFileSync(process.execPath, [graphCli, "graph", "seed", "--project", pd, ...args], { stdio: "pipe" }).toString() }; }
+    catch (e) { return { okRun: false, out: `${e.stdout ?? ""}${e.stderr ?? ""}` }; }
+  };
+  const r = run([]);
+  check(r.okRun, "a stem with spaces and parentheses does not abort the project's seed");
+  check(/^mickey_the_bricky_vic-20_1004_1001-1e00_\s/m.test(r.out), "…its owner is the slug: runs of disallowed characters become one underscore", r.out.split("\n")[0]);
+  check(/^plain_ok\s/m.test(r.out), "…and a stem that already passes the rule keeps its owner id unchanged");
+  const one = run(["--owner", "mickey_the_bricky_vic-20_1004_1001-1e00_"]);
+  check(one.okRun && /^mickey_the_bricky/m.test(one.out), "…and --owner finds it by the slug");
+  // an analysis the producers cannot read: named, the rest seeded
+  writeFileSync(join(dir, "broken_analysis.json"), "{ not json");
+  const b = run([]);
+  check(b.okRun && /FAILED broken/.test(b.out) && /^plain_ok\s/m.test(b.out), "an unreadable analysis is named (FAILED broken …) and does not stop the other owners", b.out.split("\n").filter((l) => /FAILED/.test(l))[0]);
+}
 
 console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 830 seed: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount ? 1 : 0);

@@ -107,7 +107,7 @@ function platformKbLines(address: number): string[] {
     const kb = platformKb();
     const node = kb.node("c64", address) ?? kb.node("c1541", address);
     if (!node) return [];
-    const out = [`Platform KB: ${node.symbol ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
+    const out = [`Platform KB: ${node.symbol && node.symbol !== node.name ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
     if (node.description) out.push(node.description);
     return out;
   } catch { return []; }
@@ -117,7 +117,7 @@ function platformKbSearch(query: string, limit: number): string[] {
   try {
     const kb = platformKb();
     const hits = [...kb.search("c64", query, limit), ...kb.search("c1541", query, limit)].slice(0, limit);
-    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`);
+    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol && !(n.symbol === n.name) ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`);
   } catch { return []; }
 }
 
@@ -130,7 +130,7 @@ function foreignPlatformAnswer(platform: PlatformTag, address: number | undefine
     if (address !== undefined) {
       const node = kb.node(platform, address);
       if (!node) return `No ${platform} row for ${formatHexWord(address)} in the platform store (the C64Ref snapshot describes the C64 only and is not consulted for ${platform}).`;
-      const out = [`Platform KB (${platform}): ${node.symbol ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
+      const out = [`Platform KB (${platform}): ${node.symbol && !(node.symbol === node.name) ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
       if (node.description) out.push(node.description);
       return out.join("\n");
     }
@@ -138,7 +138,7 @@ function foreignPlatformAnswer(platform: PlatformTag, address: number | undefine
     if (asAddress) return foreignPlatformAnswer(platform, parseInt(asAddress[1]!, 16), undefined, limit);
     const hits = kb.search(platform, query ?? "", limit);
     if (hits.length === 0) return `No ${platform} row matches "${query}" in the platform store (the C64Ref snapshot describes the C64 only and is not consulted for ${platform}).`;
-    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`).join("\n");
+    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol && !(n.symbol === n.name) ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`).join("\n");
   } catch (error) {
     return `The platform store could not be read for ${platform}: ${error instanceof Error ? error.message : String(error)}`;
   }
