@@ -1,6 +1,6 @@
 # Spec 898 — The VIC-20 and the TED machines are platforms
 
-**Status:** IN BUILD 2026-10-10 (owner: build it whole)
+**Status:** DONE (2026-10-10) — D1–D9 and the acceptance fixes; `e2e:898` green (179); accepted on Mega Vault, Chariot Race, JETPAC, Mickey The Bricky (VIC-20) and The Magician's Curse (C16): no C64 name in a VIC-20 / TED listing, every rebuild byte-identical; awaiting the reporter's retest
 **Repo:** C64RE only. TRX64: no change.
 **Number:** 898 (registry: `specs/README.md`).
 **Origin:** issue #50 point 3 (split to #56, the off switch only) and issue #51 point 2
