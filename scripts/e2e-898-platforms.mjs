@@ -341,7 +341,9 @@ try {
   const refViaProject = await call("c64ref_lookup", { address: "9005", project_dir: projB });
   check(refViaProject === refVic, "c64ref_lookup resolves the machine from the project default");
   const refC64 = await call("c64ref_lookup", { address: "D020" });
-  check(/D020/i.test(refC64) && !/vic20/.test(refC64), "c64ref_lookup without any machine is the C64 lookup it was");
+  // With the C64Ref snapshot (built locally, gitignored) the answer quotes $D020; without it (CI) the bundled
+  // platform KB answers by name. Either way it is the C64 store, never the VIC-20 one.
+  check(/D020|EXTCOL/i.test(refC64) && !/vic20/.test(refC64), "c64ref_lookup without any machine is the C64 lookup it was", refC64.split("\n")[0]);
 
   // ── 7 load addresses ───────────────────────────────────────────────────────
   head(7, "the load address a tool guesses for a block with no header");
