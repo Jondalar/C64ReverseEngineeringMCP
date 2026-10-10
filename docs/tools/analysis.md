@@ -238,6 +238,15 @@ for the address, yours wins the operand and the platform's stays in the comment.
 This includes addresses outside the whole image seen from a relocated block. A
 label on an address inside the image is placed as a label line, as before.
 
+A name on a RUNTIME address inside a relocated block (`relocations`, `space: runtime`
+by default) is defined at its instruction inside the block, whether or not anything
+references it, and every absolute operand that targets that address uses it: from
+outside the block, from another block and from the same block. An address in the
+middle of an instruction, or in zero page, is an equate instead. An operand resolves
+to the runtime name only when its address is in a block's runtime window and NOT also
+an address of the loaded image; which of the two is in memory when the operand runs
+is not knowable from the bytes, so an address the image holds keeps its image meaning.
+
 **Segment kinds:** `code`, `basic` (a tokenized BASIC V2 program — not 6502),
 `basic_stub` (machine code entered from a BASIC `SYS`), `text`, `petscii_text`,
 `screen_code_text`, `sprite`, `charset`, `charset_source`, `screen_ram`,

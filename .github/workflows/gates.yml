@@ -504,6 +504,11 @@ jobs:
       # use, and the rebuild stays byte-identical. Hermetic.
       - name: Labels outside the image
         run: npm run e2e:ext-labels
+      # Issue #70 - a name on a runtime address inside a relocated block is defined at its
+      # instruction there, and names every absolute operand that targets it (outside, other
+      # blocks, same block); mid-instruction and zero-page names are equates. Hermetic.
+      - name: Names inside relocated blocks
+        run: npm run e2e:reloc-names
       # Spec 898 — the VIC-20 and the TED machines as platforms: the memory map per tag,
       # ids, the same bytes rendered on three machines (no C64 name off a C64), the graph's
       # USES_HARDWARE, the resolution order, the lookups, the guessed load addresses.

@@ -630,6 +630,29 @@ function isHeldAddress(address: number): boolean {
 }
 
 /**
+ * Issue #70 — the runtime windows of the relocated blocks, and the image the
+ * listing loads. An absolute operand that lands in a window and NOT in the image
+ * means the relocated code: the block renders a label there (or an equate, when
+ * the address is mid-instruction), so the human's name belongs on the operand,
+ * from outside the block, from another block and from the same block alike.
+ *
+ * A window address that is ALSO an image address is ambiguous — which of the two
+ * is in memory when the operand executes depends on whether the copy has run, and
+ * that is not knowable from the bytes. The image reading wins there: the operand
+ * keeps the name (or the raw address) it had before, and the listing never claims
+ * the relocated meaning for bytes that the image also holds at that address.
+ */
+let activeRelocWindows: Array<[number, number]> = [];
+let activeImageRange: [number, number] | undefined;
+/** Annotated runtime addresses strictly inside an instruction of a block: defined by an equate. */
+let pendingRelocAliases = new Set<number>();
+
+function isRelocOnlyAddress(address: number): boolean {
+  if (activeImageRange && address >= activeImageRange[0] && address <= activeImageRange[1]) return false;
+  return activeRelocWindows.some(([first, last]) => address >= first && address <= last);
+}
+
+/**
  * The name a human gave an address the operand points at, if any. Two populations
  * are named here: zero-page addresses (bytes, not addresses the label machinery
  * resolves — `labelSet` is built from code and data targets) and absolute addresses
@@ -640,7 +663,7 @@ function isHeldAddress(address: number): boolean {
  */
 function annotatedOperandName(address: number | undefined): string | undefined {
   if (address === undefined || address < 0 || address > 0xffff) return undefined;
-  if (address > 0xff && isHeldAddress(address)) return undefined;
+  if (address > 0xff && isHeldAddress(address) && !isRelocOnlyAddress(address)) return undefined;
   return activeAnnotations?.labelsByAddress.get(address)?.label;
 }
 
@@ -2932,6 +2955,16 @@ function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage,
   return lines;
 }
 
+/** Issue #70 — the equates for annotated runtime addresses that fall inside an instruction of a relocated block. */
+function renderRelocAliasEquates(registry: EquateRegistry): string[] {
+  if (pendingRelocAliases.size === 0) return [];
+  const equates = [...pendingRelocAliases]
+    .sort((left, right) => left - right)
+    .flatMap((address) => registry.equate(makeLabel(address), address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address)));
+  if (equates.length === 0) return [];
+  return ["// Address aliases for annotated runtime addresses that fall inside an instruction of a relocated block", ...equates, ""];
+}
+
 function renderCodeSegment(
   segment: Segment,
   prg: PrgImage,
@@ -3335,6 +3368,14 @@ function emptyAnnotationsIndex(): AnnotationsIndex {
   };
 }
 
+function declaredRuntimeAddresses(annotations: AnnotationsIndex | undefined, first: number, last: number): number[] {
+  if (!annotations) return [];
+  const declared = new Set<number>();
+  for (const address of annotations.labelsByAddress.keys()) declared.add(address & 0xffff);
+  for (const address of annotations.routinesByAddress.keys()) declared.add(address & 0xffff);
+  return [...declared].filter((address) => address >= first && address <= last && isRelocOnlyAddress(address)).sort((a, b) => a - b);
+}
+
 function overlayRelocLabels(base: AnnotationsIndex | undefined, subSegments: RelocationSubSegment[]): AnnotationsIndex {
   const labelsByAddress = new Map(base?.labelsByAddress ?? []);
   for (const s of subSegments) {
@@ -3376,6 +3417,21 @@ function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[]
   for (const s of segs) {
     if (s.label) labels.add(s.start & 0xffff); // anchor labelled data/code spans
   }
+  // Issue #70 — a human naming a runtime address inside the block IS the declaration
+  // that it matters (Spec 833 D1b, one level down): the name is defined here whether
+  // or not anything in the block references it. An address in the middle of an
+  // instruction cannot carry a label line, so it is an equate instead (the block is
+  // decoded linearly and cannot be split), emitted outside by the caller.
+  // A zero-page address is the exception: its operands are one byte wide, and an
+  // assembler that meets `lda name` before `name:` assumes two (KickAssembler does, and
+  // the rebuild stops being byte-identical). It is an equate, which is defined before
+  // first use, exactly as #66 names zero-page operands everywhere else.
+  for (const address of declaredRuntimeAddresses(activeAnnotations, runtimeStart, runtimeEnd)) {
+    if (address <= 0xff && !labels.has(address)) { pendingRelocAliases.add(address); continue; }
+    labels.add(address);
+    const inCode = segs.some((s) => isRelocCodeKind(s.kind) && address >= (s.start & 0xffff) && address <= (s.end & 0xffff));
+    if (inCode && !index.byAddress.has(address)) pendingRelocAliases.add(address);
+  }
   const xrefs = collectCrossReferences(codeInstructions, labels, index);
   const ownerByAddress = new Map<number, number>();
   for (const ins of codeInstructions) {
@@ -3390,7 +3446,7 @@ function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[]
     for (const s of segs) {
       if (s.start > cursor) {
         // Uncovered span between sub-segments → data (defensive, byte-exact).
-        emitRelocDataRange(sub, cursor, s.start - 1, labels, lines);
+        emitRelocDataRange(sub, cursor, s.start - 1, labels, lines, true);
       }
       if (s.comment) lines.push(`      // ${s.comment}`);
       if (isRelocCodeKind(s.kind)) {
@@ -3403,7 +3459,7 @@ function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[]
       }
       cursor = s.end + 1;
     }
-    if (cursor <= runtimeEnd) emitRelocDataRange(sub, cursor, runtimeEnd, labels, lines);
+    if (cursor <= runtimeEnd) emitRelocDataRange(sub, cursor, runtimeEnd, labels, lines, true);
   } finally {
     activeAnnotations = savedAnnotations;
   }
@@ -3459,12 +3515,13 @@ function emitRelocCodeRange(
 }
 
 // Emit a runtime-addressed data span as .byte (LUTs, tables, text, pads).
-function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, labels: Set<number>, lines: string[]): void {
+function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, labels: Set<number>, lines: string[], labelStart = false): void {
   if (endAddr < startAddr) return;
   let address = startAddr;
   while (address <= endAddr) {
     // Break .byte chunks at interior label anchors so refs stay addressable.
-    if (address !== startAddr && labels.has(address)) {
+    // `labelStart`: the span has no sub-segment line of its own, so its first byte is labelled here.
+    if ((address !== startAddr || labelStart) && labels.has(address)) {
       lines.push(`${makeLabel(address)}:`);
     }
     let chunkEnd = Math.min(endAddr, address + 15);
@@ -3998,6 +4055,9 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     : undefined;
   activeHeldRanges = [[prg.loadAddress, prg.loadAddress + prg.data.length - 1]];
   for (const r of relocations ?? []) activeHeldRanges.push([r.runtimeAddr, r.runtimeAddr + (r.fileEnd - r.fileStart)]);
+  activeImageRange = [prg.loadAddress, prg.loadAddress + prg.data.length - 1];
+  activeRelocWindows = (relocations ?? []).map((r): [number, number] => [r.runtimeAddr, r.runtimeAddr + (r.fileEnd - r.fileStart)]);
+  pendingRelocAliases = new Set();
   const renderMode: AnnotationRenderMode = analysisContext
     ? "analysis"
     : relocations ? "relocation" : "legacy";
@@ -4051,6 +4111,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations, registry);
     lines.push(...renderGraphNameEquates(analysisContext, body, registry));
     lines.push(...renderAddressAliasLabels(analysisContext, prg, registry));
+    lines.push(...renderRelocAliasEquates(registry));
     lines.push(...renderExternalLabelEquates(analysisContext, registry));
     lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body], registry));
     lines.push(...body);
@@ -4071,6 +4132,9 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
 
   activeAnnotations = undefined;
   activeHeldRanges = [];
+  activeRelocWindows = [];
+  activeImageRange = undefined;
+  pendingRelocAliases = new Set();
   activeExternalEntries = undefined;
   activeExternalAbi = undefined;
   const kickAsmOutput = `${lines.join("\n")}\n`;
