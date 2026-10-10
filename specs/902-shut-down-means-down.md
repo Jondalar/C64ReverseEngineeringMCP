@@ -2,9 +2,12 @@
 
 **Status:** PROPOSED 2026-10-10
 **Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64:
-`../TRX64/docs/902-daemon-shutdown.md` — `daemon/shutdown`, and SIGTERM/SIGINT (+ Windows
-ctrl events) running the same exit work. Today the daemon handles no signal at all: a kill
-loses unpersisted cartridge/disk writes on every OS; only `--idle-exit` persists.
+`../TRX64/docs/_archive/902-daemon-shutdown.md`, DONE on TRX64 main afae8f1 (not released).
+`daemon/shutdown` (no params) → `{ok:true, persisted:{cartridge:path|null, disks:[path…]},
+trace:<duckdb path|null>, exitCode:0}`, then WS close, then exit 0 within 2 s. SIGTERM/SIGINT,
+Windows Ctrl-C/Break/console-close and `--idle-exit` run the same exit work once: stop the run,
+finalize a recording trace, persist media. Before it, the daemon handled no signal: a kill lost
+unpersisted cartridge/disk writes on every OS.
 **Number:** 902 (registry: `specs/README.md`).
 **Origin:** owner, 2026-10-10: "fahre das UI und den Dämon runter" leaves remains every time.
 
