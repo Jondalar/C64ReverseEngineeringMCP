@@ -536,6 +536,57 @@ const openVersionQuestions = (svc) =>
   } catch (e) {
     check(false, "the door back refuses a row that carries a finding", e.message);
   }
+
+  // A moved file (same bytes) is repointed, a gone file with uncited same-path versions is retired.
+  const { moveProjectFile } = await import(join(ROOT, "dist/server-tools/registration.js"));
+  const mk = (rel, bytes) => { write(proj, rel, Buffer.from(bytes)); };
+  const rebuild = (rel, a, b) => {   // register, then change the bytes: a same-path versions[] entry
+    mk(rel, a);
+    const r1 = svc.saveArtifact({ kind: "prg", scope: "analysis", title: rel, path: join(proj, rel) });
+    mk(rel, b);
+    return svc.saveArtifact({ kind: "prg", scope: "analysis", title: rel, path: join(proj, rel) });
+  };
+  const man = rebuild("port/manual/manual.prg", [1, 2, 3], [1, 2, 3, 4]);
+  check((man.versions ?? []).length > 0, "fixture: the record carries same-path versions", String(man.versions?.length));
+  const cite = svc.saveFinding({ kind: "observation", title: "manual cited", status: "confirmed", artifactIds: [man.id], addressRange: { start: 0x0801, end: 0x0803 } });
+  check(unregisterProjectFiles(svc, proj, { glob: "port/manual/**", dryRun: true }).kept.length === 1, "fixture: the old door refuses the file", "");
+
+  mkdirSync(join(proj, "manual"), { recursive: true });
+  writeFileSync(join(proj, "manual/manual.prg"), readFileSync(join(proj, "port/manual/manual.prg")));
+  rmSync(join(proj, "port/manual/manual.prg"));
+  const mv = moveProjectFile(svc, proj, { glob: "port/manual/manual.prg", moveTo: "manual/manual.prg" });
+  const afterMove = readJson(proj, "knowledge/artifacts.json").find((a) => a.id === man.id);
+  check(mv.to === "manual/manual.prg" && afterMove?.relativePath === "manual/manual.prg", "move: relativePath changed", String(afterMove?.relativePath));
+  check(afterMove?.id === man.id && afterMove.versions.length === man.versions.length && afterMove.lineageRoot === man.lineageRoot,
+    "move: id, lineage and same-path versions kept");
+  check(svc.listFindings().find((f) => f.id === cite.id)?.artifactIds?.includes(man.id), "move: the citation still resolves to the same id");
+  check(readJson(proj, "knowledge/artifacts.json").filter((a) => a.relativePath === "manual/manual.prg").length === 1, "move: exactly one row at the new path");
+
+  const refuse = (opts, re, label) => {
+    try { moveProjectFile(svc, proj, opts); check(false, label, "did not throw"); }
+    catch (e) { check(re.test(e.message), label, e.message); }
+  };
+  refuse({ glob: "manual/manual.prg", moveTo: "manual/nowhere.prg" }, /no file there/, "move to a nonexistent path is refused");
+  refuse({ glob: "manual/manual.prg", moveTo: "../outside.prg" }, /outside the project/, "move outside the project root is refused");
+  writeFileSync(join(proj, "manual/other.prg"), Buffer.from([9, 9, 9]));
+  refuse({ glob: "manual/manual.prg", moveTo: "manual/other.prg" }, /differ/, "move onto different bytes is refused without confirmation");
+  const confirmed = moveProjectFile(svc, proj, { glob: "manual/manual.prg", moveTo: "manual/other.prg", bytesChanged: true });
+  check(confirmed.bytesChanged && readJson(proj, "knowledge/artifacts.json").find((a) => a.id === man.id).relativePath === "manual/other.prg",
+    "move with bytes_changed=true is accepted");
+
+  // Missing file, same-path versions, nothing cites it: retired. Cited: kept, citation named.
+  const gone = rebuild("scratch/gone.prg", [5, 5], [5, 5, 5]);
+  const goneCited = rebuild("scratch/gone-cited.prg", [6, 6], [6, 6, 6]);
+  svc.saveFinding({ kind: "observation", title: "gone but cited", status: "confirmed", artifactIds: [goneCited.id], addressRange: { start: 0x0801, end: 0x0803 } });
+  const live = rebuild("scratch/live.prg", [7, 7], [7, 7, 7]);
+  rmSync(join(proj, "scratch/gone.prg")); rmSync(join(proj, "scratch/gone-cited.prg"));
+  const retire = unregisterProjectFiles(svc, proj, { glob: "scratch/**" });
+  const ids = readJson(proj, "knowledge/artifacts.json").map((a) => a.id);
+  check(!ids.includes(gone.id) && retire.removed === 1, "missing file with uncited same-path versions is unregistered", JSON.stringify(retire.kept));
+  check(ids.includes(goneCited.id) && retire.kept.some((k) => k.artifactId === goneCited.id && /finding cites it \("gone but cited"\)/.test(k.reason)),
+    "missing file cited by a finding is kept, the citation named", JSON.stringify(retire.kept));
+  check(ids.includes(live.id) && retire.kept.some((k) => k.artifactId === live.id && /version history/.test(k.reason)),
+    "a present file with a version history is still kept", "");
 }
 
 // ───────── 11 — a declared `intentional` glob silences TOOL output too

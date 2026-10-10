@@ -5178,7 +5178,7 @@
       "tier": "default",
       "role": "workflow",
       "swimlane": "entry-project-baseline",
-      "useWhen": "Take artifact rows back out of the store after a bulk of machine output was registered by mistake — those rows add their bytes to the coverage denominator and nothing to what is understood, and declaring the glob `intentional` afterwards only stops NEW registrations.",
+      "useWhen": "Take artifact rows back out of the store after a bulk of machine output was registered by mistake — those rows add their bytes to the coverage denominator and nothing to what is understood, and declaring the glob `intentional` afterwards only stops NEW registrations. Also retires a row whose file is gone, and with `move_to` repoints a moved file's row (id, lineage and citations kept).",
       "notFor": "Deleting a file — this never touches disk; hiding infrastructure from the UI — that is the internal flag; removing a row somebody has written about — it refuses those and says why.",
       "adjacentTools": [
         "project_inventory_sync",

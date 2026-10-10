@@ -3629,6 +3629,66 @@ export class ProjectKnowledgeService {
    * `unregisterProjectFiles`), because "is anything written about this row" is a
    * knowledge question and this method is the storage half.
    */
+  /**
+   * Repoint one artifact record at another path. The id never changes, so every
+   * citation (findings, entities, relations, flows, questions, graph nodes — all
+   * keyed by artifact id) and the lineage stay intact; same-path `versions[]` ride
+   * along on the record. The only path-keyed store is a version group's `subjectId`
+   * (a path stem); it is rewritten when it was derived from the old path.
+   * Checks (file exists, inside the project, hash) are the caller's job.
+   */
+  moveArtifact(
+    artifactId: string,
+    newAbsPath: string,
+    opts: { bytesChanged?: boolean } = {},
+  ): ArtifactRecord {
+    return withJsonStoreLock(this.storage.paths.knowledgeArtifacts, () => {
+      const store = this.storage.loadArtifacts();
+      const existing = store.items.find((item) => item.id === artifactId);
+      if (!existing) throw new Error(`No artifact with id ${artifactId}.`);
+      const timestamp = nowIso();
+      const newHash = sha256OfFile(newAbsPath);
+      let versions = existing.versions ?? [];
+      if (opts.bytesChanged && existing.contentHash && newHash && existing.contentHash !== newHash
+        && !versions.some((v) => v.contentHash === existing.contentHash)) {
+        versions = [...versions, {
+          contentHash: existing.contentHash,
+          capturedAt: timestamp,
+          note: "bytes changed while the file moved; prior bytes not snapshotted",
+        }];
+      }
+      const oldStem = existing.relativePath.replace(/\.[^./]+$/, "");
+      const moved = this.storage.buildArtifactRecord({
+        ...existing,
+        path: newAbsPath,
+        contentHash: newHash ?? existing.contentHash,
+        versions,
+        createdAt: existing.createdAt,
+        updatedAt: timestamp,
+      });
+      this.storage.saveArtifacts({ ...store, updatedAt: timestamp, items: upsertRecord(store.items, moved) });
+      const newStem = moved.relativePath.replace(/\.[^./]+$/, "");
+      const groups = this.storage.loadArtifactVersionGroups();
+      if (groups.items.some((g) => g.subjectId === oldStem && g.versions.some((v) => v.artifactId === artifactId))) {
+        this.storage.saveArtifactVersionGroups({
+          ...groups,
+          updatedAt: timestamp,
+          items: groups.items.map((g) =>
+            g.subjectId === oldStem && g.versions.some((v) => v.artifactId === artifactId)
+              ? { ...g, subjectId: newStem, updatedAt: timestamp }
+              : g),
+        });
+      }
+      this.appendTimelineEvent({
+        kind: "artifact.registered",
+        title: `Artifact moved: ${existing.title}`,
+        artifactId,
+        summary: `${existing.relativePath} -> ${moved.relativePath}`,
+      });
+      return moved;
+    });
+  }
+
   removeArtifacts(artifactIds: string[]): number {
     const wanted = new Set(artifactIds);
     if (wanted.size === 0) return 0;

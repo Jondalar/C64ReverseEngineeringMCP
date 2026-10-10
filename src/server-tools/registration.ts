@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { ProjectKnowledgeService, sha256OfFile } from "../project-knowledge/service.js";
 import { describeWalkRoots, findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
 import { howToSilenceToolOutput, INVENTORY_KIND_VALUES, INVENTORY_PATTERNS_FILE, INVENTORY_SCOPE_VALUES } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
@@ -222,7 +222,10 @@ export interface UnregisterFilesResult {
  * registration mistake, it is work. So a row is kept when a finding / entity / relation
  * / flow / open question references it, when it names entities of its own, when it sits
  * in a lineage (derived from something, something derived from it, or it carries a
- * version history), or when its version group holds more than one member. Everything
+ * version history of a file that is still there), or when its version group holds more
+ * than one member. A row whose file is gone and whose only history is same-path
+ * versions is retired unless something cites its id (then the citation is named).
+ * Everything
  * else is just a path the store knows about, and the store can forget it.
  *
  * It never deletes a FILE. The bulk it exists for is a tool's output, and the tool will
@@ -267,7 +270,7 @@ export function unregisterProjectFiles(
   for (const a of matched) {
     const reason = referenced.get(a.id)
       ?? (a.derivedFrom ? "it is derived from another artifact" : undefined)
-      ?? ((a.versions ?? []).length > 0 ? "it carries a version history" : undefined)
+      ?? ((a.versions ?? []).length > 0 && existsSync(a.path) ? "it carries a version history" : undefined)
       ?? ((a.entityIds ?? []).length > 0 ? "it names entities of its own" : undefined)
       ?? (multiVersionSubjects.has(a.id) ? "its subject holds more than one version" : undefined);
     if (reason) kept.push({ artifactId: a.id, relativePath: a.relativePath ?? "", reason });
@@ -282,6 +285,47 @@ export function unregisterProjectFiles(
     kept,
     dryRun: opts.dryRun === true,
   };
+}
+
+export interface MoveFileResult {
+  artifactId: string;
+  from: string;
+  to: string;
+  bytesChanged: boolean;
+}
+
+/**
+ * Repoint the ONE artifact row a glob matches at a new project-relative path, after the
+ * file has been moved on disk. Throws (the message is the refusal) unless exactly one
+ * row matches, the target exists inside the project root, no other row owns the target,
+ * and — when the row has a content hash — the bytes there are the same, or the caller
+ * confirmed they changed. Ids do not change, so citations and lineage stay as they are.
+ */
+export function moveProjectFile(
+  service: ProjectKnowledgeService,
+  projectRoot: string,
+  opts: { glob: string; moveTo: string; bytesChanged?: boolean; dryRun?: boolean },
+): MoveFileResult {
+  const matched = service.listArtifacts().filter((a) => matchesGlob(a.relativePath ?? "", opts.glob));
+  if (matched.length !== 1) {
+    throw new Error(`move_to repoints exactly one record; "${opts.glob}" matches ${matched.length}${matched.length > 0 ? `: ${matched.slice(0, 5).map((a) => a.relativePath).join(", ")}` : ""}.`);
+  }
+  const a = matched[0]!;
+  const root = resolve(projectRoot);
+  const target = resolve(root, opts.moveTo);
+  if (target !== root && !target.startsWith(root + sep)) throw new Error(`move_to "${opts.moveTo}" is outside the project root.`);
+  if (!existsSync(target)) throw new Error(`move_to "${opts.moveTo}": no file there. Move the file first, then repoint the record.`);
+  const clash = service.listArtifacts().find((o) => o.id !== a.id && resolve(o.path) === target);
+  if (clash) throw new Error(`move_to "${opts.moveTo}" is already registered as ${clash.id}.`);
+  const newHash = sha256OfFile(target);
+  const differs = !!(a.contentHash && newHash && a.contentHash !== newHash);
+  if (differs && !opts.bytesChanged) {
+    throw new Error(`The bytes at "${opts.moveTo}" differ from the registered content hash of ${a.relativePath}. If the file really changed while it moved, repeat with bytes_changed=true.`);
+  }
+  const from = a.relativePath ?? "";
+  if (opts.dryRun) return { artifactId: a.id, from, to: opts.moveTo, bytesChanged: differs };
+  const moved = service.moveArtifact(a.id, target, { bytesChanged: opts.bytesChanged });
+  return { artifactId: a.id, from, to: moved.relativePath, bytesChanged: differs };
 }
 
 export function registerRegistrationTools(server: McpServer, ctx: ServerToolContext): void {
@@ -427,15 +471,27 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
 
   server.tool(
     "unregister_files",
-    "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose subject holds more than one version — naming each refusal and why. dry_run=true previews. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
+    "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose subject holds more than one version — naming each refusal and why. dry_run=true previews. A row whose file is gone and whose only history is same-path versions is taken out too, unless something cites it (the citation is named). With move_to the glob must match exactly one row and that row is REPOINTED at the new project-relative path instead (the file must already exist there, inside the project, with the registered bytes unless bytes_changed=true): the id, lineage, same-path versions and every citation stay. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
     {
       project_dir: z.string().optional(),
       glob: z.string().describe("Glob for the rows to take out, relative to the project root, e.g. 'analysis/g64/**/*.bin'."),
-      dry_run: z.boolean().optional().describe("If true, report what would be taken out without writing. Default false."),
+      dry_run: z.boolean().optional().describe("If true, report what would be taken out (or moved) without writing. Default false."),
+      move_to: z.string().optional().describe("Repoint the single matched row to this project-relative path instead of removing it (the file was moved on disk)."),
+      bytes_changed: z.boolean().optional().describe("With move_to: confirm the bytes at the new path legitimately differ from the registered content hash."),
     },
-    safeHandler("unregister_files", async ({ project_dir, glob, dry_run }: { project_dir?: string; glob: string; dry_run?: boolean }) => {
+    safeHandler("unregister_files", async ({ project_dir, glob, dry_run, move_to, bytes_changed }: { project_dir?: string; glob: string; dry_run?: boolean; move_to?: string; bytes_changed?: boolean }) => {
       const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
+      if (move_to !== undefined) {
+        const m = moveProjectFile(service, projectRoot, { glob, moveTo: move_to, bytesChanged: bytes_changed, dryRun: dry_run });
+        return textContent([
+          `unregister_files move${dry_run ? " (dry run)" : ""} — ${glob}`,
+          `Project: ${projectRoot}`,
+          `Artifact ${m.artifactId}: ${m.from} -> ${m.to}${dry_run ? " (would be repointed)" : " (repointed)"}`,
+          m.bytesChanged ? `Bytes differ from the registered hash (confirmed by bytes_changed).` : `Bytes match the registered hash.`,
+          `Id, lineage, same-path versions and every citation are unchanged.`,
+        ].join("\n"));
+      }
       const r = unregisterProjectFiles(service, projectRoot, { glob, dryRun: dry_run });
       const lines: string[] = [];
       lines.push(`unregister_files${r.dryRun ? " (dry run)" : ""} — ${glob}`);
