@@ -440,7 +440,7 @@ try {
         const around = t.slice(m.index, m.index + 600);
         if (!/windowsHide:\s*true/.test(around)) offenders.push(`${f.slice(ROOT.length + 1)}:${t.slice(0, m.index).split("\n").length}`);
       }
-      if (/shell:\s*true/.test(t) && !f.endsWith("project-knowledge/service.ts")) offenders.push(`${f.slice(ROOT.length + 1)} uses shell: true`);
+      if (/shell:\s*true/.test(t) && !f.replace(/\\/g, "/").endsWith("project-knowledge/service.ts")) offenders.push(`${f.slice(ROOT.length + 1)} uses shell: true`);
     };
     walk(join(ROOT, "src"));
     scan(join(ROOT, "ui/vite.config.ts"));

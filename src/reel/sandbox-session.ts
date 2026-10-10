@@ -195,6 +195,9 @@ export class SandboxSession {
         await sleep(250);
       }
     }
+    // In the ledger before anyone gets it: a `down` right after the start must find it. Reading
+    // the OS identity is slow on Windows (PowerShell), so this is awaited, not left to race.
+    await s.registered.catch(() => undefined);
     return s;
   }
 
