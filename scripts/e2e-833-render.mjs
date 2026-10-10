@@ -160,8 +160,13 @@ check(legacy.hasLine(/jsr\s+entry_b\b/),
   "…and the reference to it uses the human's name, not `W081A+1` — a declared address wins over the owner+offset form");
 check(legacy.hasLine(/sta\s+W0801\+1/),
   "830 D2 on the legacy path: an UNDECLARED mid-instruction target still renders `<owner>+<offset>` — self-mod is untouched by the wider label set");
-check(!legacy.definedAt("far_routine"),
-  "an annotated address OUTSIDE the image is not defined by the legacy listing — it lives elsewhere and must not look as if it were defined here");
+// An address OUTSIDE the image lives elsewhere: never a positional label here. Since #69 the legacy
+// path equates it like the analysis path does (`.label far_routine = $C160`) — an equate says where
+// it is, a `far_routine:` line would claim it is here.
+check(!legacy.hasLine(/^far_routine:/),
+  "an annotated address OUTSIDE the image is not placed as a label in the legacy listing — it lives elsewhere and must not look as if it were defined here");
+check(!legacy.definedAt("far_routine") || legacy.hasLine(/^\s*\.label\s+far_routine\s*=\s*\$C160/),
+  "…if the legacy listing names it at all, it is an equate to its own address ($C160), not a definition here");
 check(analysis.hasLine(/\.label far_routine = \$C160/),
   "…while the analysis path, which does reference it, still equates it (830 D3 unbroken)");
 
