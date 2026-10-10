@@ -384,6 +384,21 @@ jobs:
       - name: A Then a runner can decide (Spec 900)
         run: npm run e2e:900-checks
 
+      # Spec 899 — hermetic: the window check and the series in the scenario notation, the
+      # input offset, the jitter seed and the sweep's offsets as pure functions, a runtime
+      # that cannot place input refused by name, a stopped probe reported as a stop, and the
+      # tools' descriptions. No daemon, no media, no :4312.
+      - name: Input offsets, windows and series — the notation (Spec 899)
+        run: npm run e2e:899-notation
+
+      # Spec 899 — the live half: private machines running synthetic PRGs (the $D011 read-
+      # modify-write swept across a frame, a register wrong for 3 frames in 200). It needs a
+      # runtime with cycle-exact input and the frame probe; without a daemon binary it SKIPS
+      # LOUDLY, and against a runtime that predates them it proves the refusal and skips the
+      # rest. Ports of its own, never :4312.
+      - name: Input offsets, sweeps, windows and series on real machines (Spec 899)
+        run: npm run e2e:899-sweep
+
       # Spec 889 — the C64 Ultimate backend against a fake Ultimate in this process: every
       # socket on 127.0.0.1 (REST, the app's WebSocket, the UDP ident), no device, no
       # daemon. Routing, discovery, probe, select/start, the one connection, the gate by
