@@ -1,8 +1,8 @@
 # Spec 902 — Shutting down means everything is down, and stays down
 
 **Status:** PROPOSED 2026-10-10
-**Repo:** C64RE (the ledger, the command, autostart). TRX64: nothing new — the daemon already
-ends on a signal and on its idle clock (Spec 887).
+**Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64: a
+`daemon/shutdown` request if it has none (D6: Windows has no SIGTERM).
 **Number:** 902 (registry: `specs/README.md`).
 **Origin:** owner, 2026-10-10: "fahre das UI und den Dämon runter" leaves remains every time.
 
@@ -92,7 +92,35 @@ the ledger holds no record with `startedBy: "smoke"` and nothing listens on a te
 A smoke that starts a server ends it in `finally`. The leak step names the smoke that left
 something behind and fails the gate.
 
-**D6 — Docs.** `docs/runtime-sandbox.md`, the README's start/stop section and the
+**D6 — Windows, the same command, the same result.** Everything above runs on Windows
+natively and under WSL. There is one platform layer, and nothing outside it asks which OS it
+is on:
+- **Ending a process.** POSIX: SIGTERM, then SIGKILL. Windows has no SIGTERM — `process.kill`
+  there is a hard kill and skips the child's cleanup. So Windows first asks the process to end
+  itself through C64RE's own channel: a `daemon/shutdown` request to the daemon and bridges,
+  and a shutdown request to the UI server. Only after 5 s does it fall back to
+  `taskkill /PID <pid> /T /F`. `/T` takes the process tree with it; that matters because the
+  UI launcher's children and npm/npx shims are separate processes there.
+- **Identity.** On POSIX, `ps -o lstart=,command=` gives the start time and command line. On
+  Windows, `Get-CimInstance Win32_Process` gives `CreationDate` and `CommandLine`, called via
+  `powershell.exe -NoProfile`. `wmic` is gone from current Windows. A pid that cannot be read
+  is treated as not ours.
+- **Ports.** POSIX: `lsof -nP -iTCP -sTCP:LISTEN`. Windows: `Get-NetTCPConnection -State Listen`,
+  with `netstat -ano` as the fallback. Each listener is matched to its owning pid.
+- **Paths.** `stateDir()` (`%USERPROFILE%\.c64re`, `C64RE_STATE_DIR` overrides) is already
+  shared. Records store the command line exactly as the OS reports it, never rebuilt by hand.
+- **Spawning.** Every detached start (daemon, bridge) gets `windowsHide: true` so no console
+  window opens. It is spawned through the npm shim rules in
+  `reference_windows_and_wsl_ci_gotchas` (`npm_execpath`, never `shell: true`), so the
+  recorded pid is the real process and not a `cmd.exe` wrapper that dies while the child
+  keeps running.
+- **WSL.** Inside WSL it is Linux. A daemon on the Windows side is a foreign process from
+  there: it is reported, never killed across the boundary.
+
+The Windows CI job runs the §4 acceptance e2e (with a fake bridge target and a stub daemon
+when no TRX64 binary is present), and the gate's leak step (D5).
+
+**D7 — Docs.** `docs/runtime-sandbox.md`, the README's start/stop section and the
 `project_launchers` text say how to shut down and how to start again. Those texts are
 corrected wherever they now say "kill the process".
 
@@ -101,7 +129,7 @@ corrected wherever they now say "kill the process".
 - No `down` for the shared session from a script or an agent on its own. `runtime_down`
   is an owner action: the tool says so in its description, and the doctrine line on the
   shared machine applies (the agent co-drives it, it does not end it).
-- No change to the TRX64 daemon. SIGTERM and the idle exit are enough.
+- No other change to the TRX64 daemon than `daemon/shutdown` (D6).
 - Processes nobody from C64RE started (a hand-started `trx64-daemon`, another tool on 4312)
   are reported, never killed.
 
@@ -119,3 +147,5 @@ corrected wherever they now say "kill the process".
   dropped as stale.
 - The gate's leak step fails on a smoke that leaves a server running (checked with a test
   smoke that does exactly that) and passes on the clean gate.
+- The same acceptance e2e passes in the Windows CI job: everything ends, nothing stays
+  listening, no console window opened, and a hard kill is only used after the 5 s grace.
