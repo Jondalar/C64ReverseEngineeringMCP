@@ -30,7 +30,7 @@
 // `assertNotShared` makes the one remaining coincidence, a free port that happens
 // to BE the shared one, a refusal rather than a surprise.
 
-import type { Step, Predicate, Check } from "../project-knowledge/scenario-gherkin.js";
+import type { Step, Predicate, Check, SeriesRead } from "../project-knowledge/scenario-gherkin.js";
 import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
 import {
   joinChunks, screenShows, screenCodesToRows, SCREEN_COLS, SCREEN_ROWS,
@@ -39,6 +39,13 @@ import {
 import { describeMachine, machineIdentity, type MachineIdentity } from "../runtime/machine-model.js";
 import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
 import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
+import {
+  inputOffsetFor, offsetRefusal, offsetsRequested, type InputOffsetOptions, type InputRecord,
+} from "./input-offset.js";
+import {
+  defaultProbeLine, describeAssertFailure, describeRowViolation, describeStop, everyNth, firstViolation,
+  probeAssert, probeSeries, requireProbeRuntime, type ProbeRow, type ProbeStop,
+} from "./frame-probe.js";
 
 // A bounded run is split a frame at a time so a JAM still stops where it happens. How
 // long a frame is comes from the machine (Spec 863): 19 656 cycles PAL, 17 095 NTSC.
@@ -75,7 +82,7 @@ export interface MemoryRead {
   readonly lens: RegionLens;
 }
 
-export interface SandboxRunOptions extends SandboxOptions {
+export interface SandboxRunOptions extends SandboxOptions, InputOffsetOptions {
   /** The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re. */
   mediaPath?: string;
   /** A PRG's entry: start there after the load instead of typing RUN. */
@@ -133,6 +140,36 @@ export interface SandboxCheckResult extends SandboxCheck {
   readonly actual: string;
   /** Cycle it was decided on. */
   readonly cycle: number;
+  /**
+   * Spec 899 D3 — a window check that did not hold: the frame (counted from the start of the
+   * window) and the cycle of the first sample where it failed.
+   */
+  readonly failedAt?: { readonly frame: number; readonly cycle: number; readonly line: number; readonly rasterCycle: number };
+  /**
+   * Spec 899 — the probe was stopped by an armed breakpoint or watchpoint before the window
+   * ended. The check is undecided: `pass` is false, but this is neither a pass nor a fail of
+   * the value, and the machine stays where it stopped.
+   */
+  readonly stopped?: ProbeStop;
+}
+
+/** Spec 899 D4 — one `I read the series …` step, as it came back. */
+export interface SeriesResult {
+  readonly step: number;
+  readonly text: string;
+  readonly reads: readonly SeriesRead[];
+  readonly everyFrames: number;
+  readonly frames: number;
+  /** The raster line each sample was aimed at. */
+  readonly line: number;
+  readonly startCycle: number;
+  readonly endCycle: number;
+  /** Only the rows where a sampled value changed. `seenFrame` is set when `everyFrames` > 1. */
+  readonly rows: readonly (ProbeRow & { seenFrame?: number })[];
+  /** Samples the probe took, and how many of them differed from the one before. */
+  readonly samples: number;
+  readonly changes: number;
+  readonly stopped?: ProbeStop;
 }
 
 export interface SandboxRunResult {
@@ -157,6 +194,10 @@ export interface SandboxRunResult {
   readonly coreOnly?: string;
   /** Spec 900 — every check asked for, in the order decided. */
   readonly checks: readonly SandboxCheckResult[];
+  /** Spec 899 D1 — the offset every input step used, when an offset option was set. */
+  readonly inputs: readonly InputRecord[];
+  /** Spec 899 D4 — every series read. */
+  readonly series: readonly SeriesResult[];
   /** Set when the sandbox ended ITSELF — the budget, or the daemon dying. */
   readonly endedBecause: string | null;
   readonly elapsedMs: number;
@@ -215,6 +256,9 @@ export function assertNotShared(port: number): void {
  */
 export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunResult> {
   const startedAt = Date.now();
+  // Refused before a daemon starts: a contradiction in the offset options costs no machine.
+  const refusal = offsetRefusal(opts);
+  if (refusal) throw new Error(refusal);
   const box = await SandboxSession.start(opts);
   try {
     assertNotShared(box.port);
@@ -227,6 +271,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   const waits: { text: string; frames: number; budget: number; cycle: number }[] = [];
   const reads: { read: MemoryRead; bytes: Uint8Array }[] = [];
   const checks: SandboxCheckResult[] = [];
+  const inputs: InputRecord[] = [];
+  const series: SeriesResult[] = [];
   /** Set when the runtime dropped this machine onto its isolated CPU core. */
   let coreOnly: string | undefined;
 
@@ -255,6 +301,52 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       const r = await box.call<{ c64Cycles?: number }>("session/run", { cycles: step });
       at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
     }
+  };
+  /**
+   * Spec 899 D1 — the cycle an input step presses at: the point it always pressed at, plus its
+   * offset. Undefined when no offset option is set, and the call then carries no `at_cycle`
+   * at all — the bytes of such a run do not change. What was used is logged for the result.
+   */
+  const pressAt = (i: number, text: string, holdFrames?: number): number | undefined => {
+    const off = inputOffsetFor(opts, i, F);
+    if (off === undefined) return undefined;
+    const press = at + off;
+    inputs.push({ step: i, text, offset: off, pressAt: press, ...(holdFrames === undefined ? {} : { releaseAt: press + holdFrames * F }) });
+    return press;
+  };
+  const at_ = (cycle: number | undefined, params: Record<string, unknown>): Record<string, unknown> =>
+    cycle === undefined ? params : { ...params, at_cycle: cycle };
+  const offsetNote = (press: number | undefined): string => (press === undefined ? "" : `, at cycle ${press}`);
+
+  /** Moves the schedule to where a probe left the machine. */
+  const landedAt = async (c64Cycles: unknown): Promise<void> => {
+    if (typeof c64Cycles === "number") { at = c64Cycles; resync(); } else { await readMachine(); resync(); }
+  };
+  /** The line a window is sampled at: the one asked for, else the line after the visible area. */
+  const probeLine = async (asked: number | undefined): Promise<number> => {
+    if (asked !== undefined) {
+      if (asked >= machine!.linesPerFrame) {
+        throw new Error(`raster line ${asked} does not exist on ${machine!.model}, which has ${machine!.linesPerFrame} lines (0 to ${machine!.linesPerFrame - 1})`);
+      }
+      return asked;
+    }
+    return defaultProbeLine(box.call.bind(box) as Parameters<typeof defaultProbeLine>[0], machine!.model, machine!.linesPerFrame);
+  };
+  const probeCall = box.call.bind(box) as Parameters<typeof probeSeries>[0];
+  /** `I read the series …`: one probe call over the window, the changes only. */
+  const readSeries = async (i: number, step: Extract<Step, { kind: "series" }>): Promise<SeriesResult> => {
+    const line = await probeLine(step.line);
+    const startCycle = at;
+    const r = await probeSeries(probeCall, { frames: step.frames, line, reads: step.reads });
+    await landedAt(r.c64Cycles);
+    return {
+      step: i, text: step.text, reads: step.reads, everyFrames: step.everyFrames, frames: step.frames, line,
+      startCycle, endCycle: r.c64Cycles,
+      rows: step.everyFrames > 1 ? everyNth(r.rows, step.everyFrames, step.frames) : r.rows,
+      samples: step.everyFrames > 1 ? Math.ceil(step.frames / step.everyFrames) : r.samples,
+      changes: step.everyFrames > 1 ? Math.max(0, everyNth(r.rows, step.everyFrames, step.frames).length - 1) : r.changes,
+      ...(r.stopped ? { stopped: r.stopped } : {}),
+    };
   };
   const readRanges = async (ranges: RegionRange[]): Promise<Uint8Array> => {
     const r = await box.call<ReadMemoryResult>("session/read_memory", { ranges });
@@ -321,6 +413,13 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       await setDriveBoard(call, opts.driveType);
       log.push(`drive 8 is a ${opts.driveType}, as asked`);
     }
+
+    // Spec 899 — what needs the runtime's cycle-exact input or its frame probe says so NOW,
+    // before the medium goes in: an older runtime is refused by name, never run with the
+    // press moved to a frame boundary or the window read one frame at a time.
+    const windowed = (opts.checks ?? []).some((c) => c.check.kind === "memory" && c.check.window);
+    const needs = offsetsRequested(opts) ? "an input offset" : windowed ? "a `throughout` check" : opts.steps.some((s) => s.kind === "series") ? "a series read" : undefined;
+    if (needs) await requireProbeRuntime(box.call.bind(box) as Parameters<typeof requireProbeRuntime>[0], needs);
 
     const boot = await warmBoot();
     log.push(
@@ -450,54 +549,86 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           log.push(`${i}: ${step.text}`);
           break;
 
-        case "type":
+        case "type": {
+          // `session/type` has no cycle of its own: the keys start playing when the call
+          // arrives. An offset therefore runs the machine that far first, and the step's own
+          // duration gives it back, so the steps after it keep their place in the schedule.
+          const off = inputOffsetFor(opts, i, F);
+          if (off !== undefined) {
+            await runCycles(off);
+            inputs.push({ step: i, text: step.text, offset: off, pressAt: at });
+          }
           await box.call("session/type", { text: step.keys });
           // The type buffer drains as the machine runs, so a `type` with nothing
           // after it would return before a single key was pressed.
-          await runCycles(Math.max(F * 4, step.keys.length * KEY_CYCLES + F * 2));
-          log.push(`${i}: ${step.text}`);
+          await runCycles(Math.max(0, Math.max(F * 4, step.keys.length * KEY_CYCLES + F * 2) - (off ?? 0)));
+          log.push(`${i}: ${step.text}${off === undefined ? "" : ` (pressed ${off} cycles into the frame)`}`);
           break;
+        }
 
         case "key": {
-          for (const k of step.keys) await box.call("session/key_down", { key: k, source: "sandbox" });
+          const press = pressAt(i, step.text, step.frames);
+          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "sandbox" }));
+          // With an offset the release is scheduled too, BEFORE the run: its cycle is a fixed
+          // distance from the press, and a call made after the run could find the clock past it.
+          if (press !== undefined) for (const k of step.keys) await box.call("session/key_up", at_(press + step.frames * F, { key: k, source: "sandbox" }));
           await runCycles(step.frames * F);
-          for (const k of step.keys) await box.call("session/key_up", { key: k, source: "sandbox" });
-          log.push(`${i}: ${step.text} (held, then released)`);
+          if (press === undefined) for (const k of step.keys) await box.call("session/key_up", { key: k, source: "sandbox" });
+          log.push(`${i}: ${step.text} (held, then released${offsetNote(press)})`);
           break;
         }
 
         // A hold in two halves: neither moves the clock; the steps between them happen
         // while it is held.
-        case "keyDown":
-          for (const k of step.keys) await box.call("session/key_down", { key: k, source: "sandbox" });
-          log.push(`${i}: ${step.text} (held until its release)`);
-          break;
-
-        case "keyUp":
-          for (const k of step.keys) await box.call("session/key_up", { key: k, source: "sandbox" });
-          log.push(`${i}: ${step.text}`);
-          break;
-
-        case "joystickDown": {
-          const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
-          for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", set);
-          log.push(`${i}: ${step.text} (held until its release)`);
+        case "keyDown": {
+          const press = pressAt(i, step.text);
+          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "sandbox" }));
+          log.push(`${i}: ${step.text} (held until its release${offsetNote(press)})`);
           break;
         }
 
-        case "joystickUp":
-          await box.call("session/joystick_clear", { port: step.port });
-          log.push(`${i}: ${step.text}`);
+        case "keyUp": {
+          const press = pressAt(i, step.text);
+          for (const k of step.keys) await box.call("session/key_up", at_(press, { key: k, source: "sandbox" }));
+          log.push(`${i}: ${step.text}${offsetNote(press)}`);
           break;
+        }
 
-        case "joystick": {
+        case "joystickDown": {
+          const press = pressAt(i, step.text);
           const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", set);
+          await box.call("session/joystick_set", at_(press, set));
+          log.push(`${i}: ${step.text} (held until its release${offsetNote(press)})`);
+          break;
+        }
+
+        case "joystickUp": {
+          const press = pressAt(i, step.text);
+          await box.call("session/joystick_clear", at_(press, { port: step.port }));
+          log.push(`${i}: ${step.text}${offsetNote(press)}`);
+          break;
+        }
+
+        case "joystick": {
+          const press = pressAt(i, step.text, step.frames);
+          const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
+          for (const d of step.directions) set[d] = true;
+          await box.call("session/joystick_set", at_(press, set));
+          if (press !== undefined) await box.call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
           await runCycles(step.frames * F);
-          await box.call("session/joystick_clear", { port: step.port });
-          log.push(`${i}: ${step.text} (held, then released)`);
+          if (press === undefined) await box.call("session/joystick_clear", { port: step.port });
+          log.push(`${i}: ${step.text} (held, then released${offsetNote(press)})`);
+          break;
+        }
+
+        case "series": {
+          const r = await readSeries(i, step);
+          series.push(r);
+          log.push(
+            `${i}: ${step.text} — ${r.samples} samples, ${r.rows.length} rows (cycle ${r.startCycle} to ${r.endCycle})` +
+              (r.stopped ? ` — ${describeStop(r.stopped)}` : ""),
+          );
           break;
         }
 
@@ -593,7 +724,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return {
       port: box.port,
       machine: machineIdentity(end),
-      log, waits, reads, frame, screenRows, screenUnreadable, trace, checks,
+      log, waits, reads, frame, screenRows, screenUnreadable, trace, checks, inputs, series,
       endCycle: end.c64Cycles,
       pc: end.cpu.pc,
       cpu: {
@@ -615,9 +746,47 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   async function decideChecksAfter(n: number): Promise<void> {
     for (const c of opts.checks ?? []) {
       if (c.afterSteps !== n) continue;
+      if (c.check.kind === "memory" && c.check.window) {
+        checks.push({ ...c, ...(await decideWindow(c.check, c.check.window)) });
+        continue;
+      }
       const { pass, actual } = await decide(c.check);
       checks.push({ ...c, pass, actual, cycle: (await state()).c64Cycles });
     }
+  }
+
+  /**
+   * Spec 899 D3 — a memory check that must hold at every frame of a window. The runtime's
+   * frame probe walks the window; an `is` check runs it in assert mode, which stops at the
+   * first failing frame and leaves the machine there. `is not` and `is one of` are not
+   * something assert mode can say, so they read the series — which holds every change, and
+   * between changes the value does not move — and fail on the first row that breaks them.
+   * The window advances the machine; the schedule continues from where it ends.
+   */
+  async function decideWindow(
+    check: Extract<Check, { kind: "memory" }>, win: { frames: number; line?: number },
+  ): Promise<Pick<SandboxCheckResult, "pass" | "actual" | "cycle" | "failedAt" | "stopped">> {
+    const line = await probeLine(win.line);
+    const call = box.call.bind(box) as Parameters<typeof probeAssert>[0];
+    const stop = async (s: ProbeStop) => {
+      await landedAt(s.c64Cycles);
+      return { pass: false, actual: `UNDECIDED — ${describeStop(s)}`, cycle: s.c64Cycles, stopped: s };
+    };
+    const fail = (frame: number, cycle: number, l: number, c: number, actual: string) =>
+      ({ pass: false, actual, cycle, failedAt: { frame, cycle, line: l, rasterCycle: c } });
+    if (check.op === "is") {
+      const r = await probeAssert(call, { frames: win.frames, line, addr: check.address, lens: check.lens, expect: check.values });
+      if ("stopped" in r) return stop(r.stopped);
+      await landedAt(r.c64Cycles);
+      if (r.held) return { pass: true, actual: `held for ${win.frames} frames`, cycle: r.c64Cycles };
+      return fail(r.frame, r.c64Cycles, r.line, r.cycle, describeAssertFailure(r));
+    }
+    const r = await probeSeries(call, { frames: win.frames, line, reads: [{ addr: check.address, len: 1, lens: check.lens, label: "" }] });
+    if (r.stopped) return stop(r.stopped);
+    await landedAt(r.c64Cycles);
+    const bad = firstViolation(check, r.rows);
+    if (bad) return fail(bad.frame, bad.c64Cycles, bad.line, bad.cycle, describeRowViolation(check, bad));
+    return { pass: true, actual: `held for ${win.frames} frames`, cycle: r.c64Cycles };
   }
 
   async function decide(check: Check): Promise<{ pass: boolean; actual: string }> {

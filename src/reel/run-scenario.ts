@@ -25,6 +25,10 @@ import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
 import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
 import type { Frame } from "./gif89a.js";
 import type { JournalEntry } from "./record-scenario.js";
+import {
+  inputOffsetFor, offsetRefusal, offsetsRequested, type InputOffsetOptions, type InputRecord,
+} from "./input-offset.js";
+import { requireProbeRuntime } from "./frame-probe.js";
 
 // A bounded run is split a frame at a time so a breakpoint or a JAM still stops where it
 // happens. How long a frame is comes from the machine (Spec 863), never from here.
@@ -59,6 +63,8 @@ export interface RunResult {
   /** The machine's own input journal of the run, when `journal` asked for it: armed where
    *  the first step starts, so it lines up with a recording's journal entry for entry. */
   readonly journal?: { readonly armedAtCycle: number; readonly entries: readonly JournalEntry[] };
+  /** Spec 899 D1 — the offset every input step used, when an offset option was set. */
+  readonly inputs: readonly InputRecord[];
 }
 
 interface MachineState {
@@ -95,7 +101,7 @@ function fnv1a(bytes: Uint8Array): bigint {
   return h;
 }
 
-export interface RunOptions extends SandboxOptions {
+export interface RunOptions extends SandboxOptions, InputOffsetOptions {
   /**
    * Resolve a medium named in the feature file to a path on disk.
    *
@@ -136,6 +142,15 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
   if (!scenario.steps.some((s) => s.kind === "capture")) {
     throw new Error(`scenario "${scenario.name}" captures nothing, so it would produce an empty reel`);
   }
+  const offsetWhy = offsetRefusal(opts);
+  if (offsetWhy) throw new Error(offsetWhy);
+  const series = scenario.steps.find((s) => s.kind === "series");
+  if (series) {
+    throw new Error(
+      `"${series.text}": a reel assembles pictures and does not read series. Read the series with ` +
+        `runtime_sandbox_run or \`c64re scenario run\`, which report them.`,
+    );
+  }
 
   // Spec 863 — the machine a scenario runs on: the one the caller names, else the one it
   // was recorded on, else the caller's default (the project's). A recorded scenario on
@@ -174,6 +189,19 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     }
   };
   const frameIndices = async (): Promise<FrameIndices> => box.call<FrameIndices>("session/frame_indices");
+
+  // Spec 899 D1 — the cycle an input step presses at: where it always pressed, plus its offset.
+  // No offset option: undefined, no `at_cycle` on the call, the same bytes as before.
+  const inputs: InputRecord[] = [];
+  const pressAt = (i: number, text: string, holdFrames?: number): number | undefined => {
+    const off = inputOffsetFor(opts, i, F);
+    if (off === undefined) return undefined;
+    const press = at + off;
+    inputs.push({ step: i, text, offset: off, pressAt: press, ...(holdFrames === undefined ? {} : { releaseAt: press + holdFrames * F }) });
+    return press;
+  };
+  const at_ = (cycle: number | undefined, params: Record<string, unknown>): Record<string, unknown> =>
+    cycle === undefined ? params : { ...params, at_cycle: cycle };
 
   // ── Spec 813 — regions and the bytes behind them ───────────────────────────
   const readRanges = async (ranges: RegionRange[]): Promise<Uint8Array> => {
@@ -237,6 +265,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     await readMachine();
     await refuseOtherModel();
     log.push(`machine: ${describeMachine(machine!)}`);
+    if (offsetsRequested(opts)) await requireProbeRuntime(box.call.bind(box) as Parameters<typeof requireProbeRuntime>[0], "an input offset");
     const call = box.call.bind(box) as Parameters<typeof setDriveBoard>[0];
     if (opts.driveType && opts.driveType !== "1541") {
       await setDriveBoard(call, opts.driveType);
@@ -290,57 +319,77 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           log.push(`${i}: ${step.text}`);
           break;
 
-        case "type":
+        case "type": {
+          // `session/type` has no cycle of its own, and a reel's type has no duration either:
+          // an offset runs the machine that far first, so the keys start playing that far in.
+          const off = inputOffsetFor(opts, i, F);
+          if (off !== undefined) {
+            await runCycles(off);
+            inputs.push({ step: i, text: step.text, offset: off, pressAt: at });
+          }
           await box.call("session/type", { text: step.keys });
           log.push(`${i}: ${step.text}`);
           break;
+        }
 
         // Spec 814 — a key HELD, frame-locked, exactly like the joystick below it.
         // `session/type` plays a queue out at the typing pace, which a game that scans
         // the matrix in its own IRQ can miss entirely; this holds the key DOWN across
         // however many of its scans you said.
         case "key": {
-          for (const k of step.keys) await box.call("session/key_down", { key: k, source: "reel" });
+          const press = pressAt(i, step.text, step.frames);
+          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "reel" }));
+          // With an offset the release is scheduled before the run, a fixed distance from the press.
+          if (press !== undefined) for (const k of step.keys) await box.call("session/key_up", at_(press + step.frames * F, { key: k, source: "reel" }));
           await runCycles(step.frames * F);
-          for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
+          if (press === undefined) for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
         }
 
         case "joystick": {
+          const press = pressAt(i, step.text, step.frames);
           const set: Record<string, unknown> = { port: step.port, source: "reel" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", set);
+          await box.call("session/joystick_set", at_(press, set));
+          if (press !== undefined) await box.call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
           await runCycles(step.frames * F);
-          await box.call("session/joystick_clear", { port: step.port });
+          if (press === undefined) await box.call("session/joystick_clear", { port: step.port });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
         }
 
         // A hold in two halves: down here, up at its `I release`. Neither moves the
         // clock — the steps between them do, and they happen while it is held.
-        case "keyDown":
-          for (const k of step.keys) await box.call("session/key_down", { key: k, source: "reel" });
-          log.push(`${i}: ${step.text} (held until its release)`);
-          break;
-
-        case "keyUp":
-          for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
-          log.push(`${i}: ${step.text}`);
-          break;
-
-        case "joystickDown": {
-          const set: Record<string, unknown> = { port: step.port, source: "reel" };
-          for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", set);
+        case "keyDown": {
+          const press = pressAt(i, step.text);
+          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "reel" }));
           log.push(`${i}: ${step.text} (held until its release)`);
           break;
         }
 
-        case "joystickUp":
-          await box.call("session/joystick_clear", { port: step.port });
+        case "keyUp": {
+          const press = pressAt(i, step.text);
+          for (const k of step.keys) await box.call("session/key_up", at_(press, { key: k, source: "reel" }));
           log.push(`${i}: ${step.text}`);
           break;
+        }
+
+        case "joystickDown": {
+          const press = pressAt(i, step.text);
+          const set: Record<string, unknown> = { port: step.port, source: "reel" };
+          for (const d of step.directions) set[d] = true;
+          await box.call("session/joystick_set", at_(press, set));
+          log.push(`${i}: ${step.text} (held until its release)`);
+          break;
+        }
+
+        case "joystickUp": {
+          const press = pressAt(i, step.text);
+          await box.call("session/joystick_clear", at_(press, { port: step.port }));
+          log.push(`${i}: ${step.text}`);
+          break;
+        }
 
         case "waitUntil": {
           const frames = await waitUntil(step.predicate, step.timeoutFrames);
@@ -434,6 +483,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
       regions: regionLines,
       waits,
       ...(journal ? { journal: { armedAtCycle, entries: journal.entries ?? [] } } : {}),
+      inputs,
     };
   } finally {
     await box.close();
