@@ -13,10 +13,15 @@
 // `packageRoot` is computed from THIS module, not from a caller's cwd or a baked path:
 // `dist/workspace-ui/launch.js` → two levels up is the package root in both shapes.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createConnection } from "node:net";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { clearHold } from "../runtime/hold.js";
+import { platformProc, spawnHidden } from "../runtime/platform-proc.js";
+import { UI_SHUTDOWN_PATH, httpShutdown, wsShutdown } from "../runtime/process-end.js";
+import { childEnv, registerProcess, registerSelf, unregisterProcess } from "../runtime/process-ledger.js";
 
 const packageRoot = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -73,6 +78,8 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
 
   // Resolve once (throws with a clear message if no --project / C64RE_PROJECT_DIR).
   const projectDir = resolveProjectDir(argv, env);
+  // Spec 902 D3 — `c64re ui` is an explicit start: it ends a `c64re down`.
+  clearHold();
   const devSamples = hasDevSamples(argv);
   const httpPortIdx = argv.indexOf("--port");
   const httpPort = httpPortIdx >= 0 && argv[httpPortIdx + 1] ? argv[httpPortIdx + 1] : "4310";
@@ -91,27 +98,39 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
   // knowledge API and the WS runtime can never drift to different projects.
   const childArgs = ["--project", projectDir, ...(devSamples ? ["--dev-samples"] : [])];
 
-  const children: ChildProcess[] = [];
+  // Spec 902 D1 — this launcher is in the process ledger; so is every child it starts (the HTTP
+  // server records itself, the runtime daemon is recorded here).
+  await registerSelf({ kind: "ui", port: Number(httpPort), project: projectDir, startedBy: "cli" });
+
+  const children: { c: ChildProcess; ask: () => Promise<boolean> }[] = [];
   let shuttingDown = false;
   let done: () => void = () => {};
   const finished = new Promise<void>((r) => { done = r; });
 
+  /** Spec 902 D6 — each child is ended through the platform layer: a signal on POSIX, its own shutdown request first on Windows. */
   function shutdown(): void {
     if (shuttingDown) return;
     shuttingDown = true;
-    for (const c of children) { try { c.kill("SIGINT"); } catch { /* already gone */ } }
-    setTimeout(done, 500);
+    void Promise.all(children.filter(({ c }) => c.pid && c.exitCode === null).map(async ({ c, ask }) => {
+      await platformProc.end(c.pid!, { ask });
+      unregisterProcess(c.pid!);
+    })).finally(() => {
+      setTimeout(done, 100);
+      // the launcher has nothing left to wait for: do not let a stray handle keep a stopped workbench alive
+      setTimeout(() => process.exit(process.exitCode ?? 0), 1500).unref();
+    });
   }
 
-  function start(label: string, cmd: string, args: string[], childEnv?: NodeJS.ProcessEnv): void {
-    const c = spawn(cmd, args, { stdio: ["inherit", "pipe", "pipe"], cwd: packageRoot, env: childEnv ?? env });
+  function start(label: string, cmd: string, args: string[], extraEnv: NodeJS.ProcessEnv | undefined, ask: () => Promise<boolean>, record?: { port: number }): void {
+    const c = spawnHidden(cmd, args, { stdio: ["inherit", "pipe", "pipe"], cwd: packageRoot, env: childEnv("ui", extraEnv ?? env) });
+    if (record && c.pid) void registerProcess({ pid: c.pid, kind: "daemon", port: record.port, project: projectDir, startedBy: "ui" });
     c.stdout?.on("data", (b: Buffer) => process.stdout.write(`[${label}] ${b}`));
     c.stderr?.on("data", (b: Buffer) => process.stderr.write(`[${label}] ${b}`));
     c.on("exit", (code) => {
       console.error(`[workspace] ${label} exited (code ${code}) — shutting down`);
       shutdown();
     });
-    children.push(c);
+    children.push({ c, ask });
   }
 
   process.on("SIGINT", shutdown);
@@ -121,7 +140,7 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
   // resolved here — not left to guess :4312 while the daemon runs somewhere else.
   const wsUrl = explicitEndpoint || `ws://${wsEndpoint.host}:${wsEndpoint.port}`;
   start("http", process.execPath, [`${packageRoot}/dist/workspace-ui/server.js`, "--port", httpPort, ...childArgs],
-    { ...env, C64RE_RUNTIME_ENDPOINT: wsUrl });
+    { ...env, C64RE_RUNTIME_ENDPOINT: wsUrl }, () => httpShutdown(Number(httpPort), UI_SHUTDOWN_PATH));
 
   if (!wsIsLocal) {
     // Explicit remote endpoint: nothing to spawn here, just trust it.
@@ -170,7 +189,7 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
           ? `[workspace] machine = ${plan.model} (${plan.modelFrom === "project" ? "knowledge/project.json → machine.model" : plan.modelFrom === "args" ? "C64RE_RUNTIME_BIN_ARGS" : "requested"})`
           : "[workspace] machine = the runtime's default (the project names no machine.model)",
       );
-      start("ws", plan.cmd, plan.args);
+      start("ws", plan.cmd, plan.args, undefined, async () => (await wsShutdown(wsEndpoint.port)).accepted, { port: wsEndpoint.port });
     }
   }
 

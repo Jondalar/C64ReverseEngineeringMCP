@@ -8,6 +8,7 @@
 import { createServer } from "node:net";
 import { BridgeServer } from "./server.js";
 import { findBridge } from "./launch.js";
+import { registerSelf } from "../process-ledger.js";
 import { bridgeRegistryFile, readBridgeEntry, removeFile, writeJsonAtomic, type BridgeRegistryEntry } from "./state.js";
 
 const HELP = [
@@ -101,6 +102,8 @@ export async function runC64uBridgeCli(argv: string[]): Promise<void> {
   delete process.env.C64RE_C64U_PASSWORD; // held in memory only; not for a child of ours to inherit
 
   const listenPort = port ?? (await firstFreePort(4313));
+  // Spec 902 D1 — in the process ledger before anyone can ask it anything.
+  await registerSelf({ kind: "bridge", port: listenPort, project: takeValue(argv, "--project") ?? process.env.C64RE_PROJECT_DIR, device: `${host}:${restPort}` });
   const regFile = bridgeRegistryFile(host, restPort);
   const bridge: BridgeServer = new BridgeServer({
     host, restPort,

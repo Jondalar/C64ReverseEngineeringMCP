@@ -6,7 +6,6 @@
 // itself on idle (`--idle-exit`, Spec 886's rules). The REST password goes to the child on STDIN,
 // never in argv, and is not written anywhere; this module keeps it in memory for respawns.
 
-import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
@@ -14,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "../setup-recipe.js";
 import { idleExitSeconds } from "../idle-exit.js";
+import { spawnDetached } from "../platform-proc.js";
+import { childEnv } from "../process-ledger.js";
 import {
   bridgeLogFile, bridgeRegistryDir, bridgeRegistryFile, pidAlive, readBridgeEntry, removeFile, type BridgeRegistryEntry,
 } from "./state.js";
@@ -211,10 +212,10 @@ export async function ensureBridge(cfg: BridgeConfig): Promise<BridgeHandle> {
     mkdirSync(bridgeRegistryDir(), { recursive: true });
     const logFd = openSync(bridgeLogFile(cfg.host, cfg.restPort), "a");
     let exitNote: string | undefined;
-    const env = { ...process.env };
+    const env = childEnv("mcp");
     delete env.C64RE_C64U_PASSWORD; // the password reaches the child on stdin only
-    const child = spawn(process.execPath, args, {
-      detached: true,
+    // The bridge records itself in the process ledger (Spec 902 D1) once it knows its port.
+    const child = spawnDetached(process.execPath, args, {
       stdio: [cfg.password ? "pipe" : "ignore", "ignore", logFd],
       env,
       cwd: process.cwd(),

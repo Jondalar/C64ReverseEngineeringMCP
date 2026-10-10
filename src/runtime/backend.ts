@@ -26,6 +26,7 @@ import { classifyIdent, discoverUltimates, type DiscoverTarget, type FoundDevice
 import { startTrxmon } from "./c64u/start-monitor.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "./setup-recipe.js";
 import { noteFreshRuntime } from "./idle-exit.js";
+import { clearHold } from "./hold.js";
 import { BridgeClient } from "./c64u-bridge/client.js";
 import { bridgeCall, ensureBridge, findBridge, rememberPassword, passwordFor, shutdownBridge, forgetPasswordsForTests, bridgeConfigFor } from "./c64u-bridge/launch.js";
 import { pidAlive, readSelection, writeSelection, type SelectionRecord } from "./c64u-bridge/state.js";
@@ -197,6 +198,8 @@ export async function selectBackend(spec: BackendSpec, opts: SelectOptions = {})
 
   const restPort = spec.restPort ?? 80;
   const k = devKey(spec.host, restPort);
+  // Spec 902 D3 — choosing a C64 Ultimate is an explicit start: it ends a `c64re down`.
+  clearHold();
   if (opts.password !== undefined) rememberPassword(spec.host, restPort, opts.password);
   // A switch from another device frees the fixed UDP ports BEFORE the new bridge binds them — but
   // only once the new one has connected: a device that cannot be selected leaves the old choice

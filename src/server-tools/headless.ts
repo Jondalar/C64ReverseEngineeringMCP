@@ -120,6 +120,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     }) => {
       // BUG-041 — one input. `disk_path` is the deprecated alias.
       const mediaIn = media_path ?? disk_path;
+      // Spec 902 D3 — starting a session is an explicit start: it ends a `c64re down`.
+      (await import("../runtime/hold.js")).clearHold();
       // Spec 744.4c — the product MCP creates the session IN THE DAEMON (the one
       // process-stable authority the UI also uses), NOT a private session in the MCP
       // process. The LLM still sees this stable tool; the daemon owns the machine.

@@ -25,7 +25,7 @@
 // outcomes; paused and advanced in cycles, five for five identical.
 
 import { WebSocket } from "ws";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +33,9 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDaemonSpawn } from "../runtime/resolve-daemon-spawn.js";
 import { runtimeSetupRecipe } from "../runtime/setup-recipe.js";
+import { platformProc, spawnHidden } from "../runtime/platform-proc.js";
+import { wsShutdown } from "../runtime/process-end.js";
+import { childEnv, registerProcess, unregisterProcess } from "../runtime/process-ledger.js";
 
 const SESSION_ID = "integrated-1";
 /** How long a sandbox may live before it ends itself, regardless of the caller. */
@@ -52,7 +55,7 @@ const KEEPER = `
 const { spawn } = require("node:child_process");
 const { rmSync } = require("node:fs");
 const [parent, budget, scratch, cmd, ...args] = JSON.parse(process.argv[1]);
-const d = spawn(cmd, args, { stdio: ["ignore", "ignore", "inherit"] });
+const d = spawn(cmd, args, { stdio: ["ignore", "ignore", "inherit"], windowsHide: true });
 process.stdout.write(String(d.pid) + "\\n");
 let orphaned = false;
 const parentGone = () => {
@@ -116,6 +119,7 @@ export class SandboxSession {
   /** The daemon itself, as the keeper reported it — killed directly on close, so a
    *  platform where killing the keeper cannot forward the signal still ends it. */
   private daemonPid: number | null = null;
+  private registered: Promise<unknown> = Promise.resolve();
 
   private constructor(readonly port: number) {}
 
@@ -132,17 +136,22 @@ export class SandboxSession {
     const budget = opts.budgetMs ?? DEFAULT_BUDGET_MS;
     // The keeper is the child; the daemon is ITS child. Not detached either way: neither
     // may survive this command, and the keeper makes sure of it when this process cannot.
-    s.child = spawn(process.execPath, [
+    s.child = spawnHidden(process.execPath, [
       "-e", KEEPER,
       JSON.stringify([process.pid, budget + KEEPER_GRACE_MS, s.ownTmp ?? "", plan.cmd, ...plan.args]),
     ], {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port) },
+      env: { ...childEnv("sandbox"), C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port) },
     });
     s.child.stdout?.once("data", (b: Buffer) => {
       const pid = Number.parseInt(b.toString(), 10);
-      if (Number.isFinite(pid)) s.daemonPid = pid;
+      if (Number.isFinite(pid)) {
+        s.daemonPid = pid;
+        // Spec 902 D1 — a sandbox is in the ledger too, so `c64re down` ends it. It is never held
+        // back by the hold (D3): it has a budget and ends itself.
+        s.registered = registerProcess({ pid, kind: "sandbox", port, project: projectDir, startedBy: "sandbox" });
+      }
     });
     let stderr = "";
     let exited = false;
@@ -246,7 +255,13 @@ export class SandboxSession {
     if (this.reaper) clearTimeout(this.reaper);
     try { this.ws?.close(); } catch { /* going away anyway */ }
     this.ws = null;
-    if (this.daemonPid) { try { process.kill(this.daemonPid, "SIGTERM"); } catch { /* already gone */ } }
+    if (this.daemonPid) {
+      const pid = this.daemonPid;
+      await this.registered;
+      // Spec 902 D6: through the platform layer — SIGTERM on POSIX, the runtime's own shutdown request on Windows.
+      await platformProc.end(pid, { graceMs: 3000, ask: async () => (await wsShutdown(this.port)).accepted });
+      unregisterProcess(pid);
+    }
     if (this.child && this.child.exitCode === null) {
       this.child.kill("SIGTERM");
       for (let i = 0; i < 20 && this.child.exitCode === null; i++) await sleep(50);
