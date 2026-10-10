@@ -275,10 +275,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
       // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
       // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
-      const after = s0.streamPump
+      // The blocking run is refused on a machine the daemon is free-running; with no pump
+      // attached nobody is watching that run, so stop it and do the bounded advance.
+      if (!s0.streamPump && s0.runState === "running") await runtimeDaemon.pause(session_id);
+      const after: Awaited<ReturnType<typeof runtimeDaemon.state>> & { stalled?: boolean; pumpIdle?: boolean } = s0.streamPump
         ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
         : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
-      return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: `Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}` }) }] };
+      return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, stalled: after.stalled, via: `Runtime Daemon${s0.streamPump ? (after.pumpIdle ? ", live pump idle (no UI attached), run done blocking" : ", live-streamed") : ""}` }) }] };
     },
 ));
 

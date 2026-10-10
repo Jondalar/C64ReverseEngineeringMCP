@@ -109,14 +109,30 @@ export abstract class RuntimeMethods {
    *  time (no freeze). Requires the stream pump (--stream) — callers gate on
    *  state().streamPump and fall back to the blocking run() when it's a headless daemon. */
   async runCapped(sessionId: string, cycles: number, pace = "warp") {
+    const start = await this.state(sessionId) as Awaited<ReturnType<RuntimeMethods["state"]>> & { pacing?: { mode: string; ratio?: number } };
     await this.runLive(sessionId, { cycles, pace });
     // Poll until the pump auto-pauses at the cap (runState leaves "running"), or a bp/jam
     // stops it. Generous wall-clock deadline: warp advances a few M cyc/s, plus margin.
-    const deadline = Date.now() + Math.min(120_000, 3_000 + cycles / 3_000);
+    const t0 = Date.now();
+    const deadline = t0 + Math.min(120_000, 3_000 + cycles / 3_000);
     for (;;) {
       const s = await this.state(sessionId);
-      if (s.runState !== "running") return s;
-      if (Date.now() > deadline) return s;
+      if (s.runState !== "running") return { ...s, stalled: false, pumpIdle: false };
+      if (s.c64Cycles <= start.c64Cycles && Date.now() - t0 > 300) {
+        // Accepted, "running", and not one cycle in 300 ms (warp does millions): nothing is
+        // pumping the machine (the daemon's pump thread lives only while an A/V client is
+        // attached). Do not leave it "running" for whoever attaches next to free-run; put the
+        // pace back that the capped run switched, and do the bounded advance blocking.
+        await this.pause(sessionId);
+        if (start.pacing?.mode) await this.call("session/set_pacing", { session_id: sessionId, mode: start.pacing.mode, ratio: start.pacing.ratio });
+        try {
+          await this.run(sessionId, cycles);
+          return { ...(await this.state(sessionId)), stalled: false, pumpIdle: true };
+        } catch {
+          return { ...(await this.state(sessionId)), stalled: true, pumpIdle: true };
+        }
+      }
+      if (Date.now() > deadline) return { ...s, stalled: false, pumpIdle: false };
       await new Promise((r) => setTimeout(r, 25));
     }
   }

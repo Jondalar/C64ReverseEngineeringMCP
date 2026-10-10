@@ -33,9 +33,15 @@ const hex = (v: number) => `$${v.toString(16).toUpperCase().padStart(4, "0")}`;
 export function describeRunAdvance(a: {
   requestedCycles?: number; before: number; after: number; pc: number; via: string;
   until?: { addr: number; halted: boolean };
+  /** The live capped run was accepted but no pump advanced the machine; it was paused again. */
+  stalled?: boolean;
 }): string {
   const adv = a.after - a.before;
   const pc = hex(a.pc);
+  if (adv <= 0 && a.stalled) {
+    return `The machine did not advance: the daemon accepted the run but nothing pumped it, so it was paused again and the blocking run failed (cycles ${a.after}, PC ${pc}; ${a.via}). `
+      + "The live run needs the daemon's stream pump, which runs only while a UI client is attached, and the blocking fallback failed too.";
+  }
   if (adv <= 0) {
     return `The machine did not advance: cycles stayed at ${a.after} and PC at ${pc} (${a.via}). `
       + "Nothing ran. If it should have, the session is paused, jammed, or stalled — check runtime_session_status.";
