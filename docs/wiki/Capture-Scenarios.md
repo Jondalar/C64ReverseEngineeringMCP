@@ -53,6 +53,7 @@ runtime_scene_reel
 | `I start holding the key "SPACE"` … `I release the key "SPACE"` | the same, for a key |
 | `I insert the disk "side2.d64"` | eject, wait, insert. Also `swap in` / `turn to` |
 | `I capture "title"` | take a picture, on a frame boundary |
+| `I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames` | read these bytes once per frame (or `every 3 frames`) over a window and report only the rows where a value changed, each with its frame and cycle. The machine advances by the window. `sandbox` / `scenario run` only; a reel does not read series |
 | `the machine switches to c64-ntsc` | switch to another C64 model at the next frame boundary; the running program keeps its state, and every frame after it is the new model's |
 
 `Then` — criteria. Two are checked automatically:
@@ -386,6 +387,31 @@ the cycle the file says, on every run.
 
 That makes a scenario a regression test as much as a recipe: run it after a change
 and compare.
+
+## Where in the frame input lands, and a check over a window
+
+A press always used to land on a frame boundary, so a bug that depends on the beam
+position when the key arrives never showed. `runtime_sandbox_run`, `runtime_scene_reel`
+and `c64re scenario run` can move it: `input_offset_cycles` (`--input-offset`) shifts every
+input step into the frame, `jitter_seed` (`--jitter-seed`) gives each its own seeded
+offset, and `sweep: 8` (`--sweep 8`) runs the scenario eight times with the press spread
+across one frame, one PASS/FAIL per offset and the first failing offset to replay. The
+offsets used are in the result. They need a runtime with cycle-exact input.
+
+A `Then` can hold over a window instead of at one moment:
+
+```gherkin
+Scenario: the laser stays multicolour
+  Given the disk "game.d64"
+  When I wait 600 frames
+  And I read the series "$D01C:1@io" every frame for 600 frames
+  Then $D01C@io is $04 throughout the next 600 frames
+  And $D01C@io is not $00 at every frame for 600 frames at raster line 250
+```
+
+It passes, or fails at the first frame and cycle where the value was wrong, naming what it
+was. The sample is taken at one raster line per frame; without `at raster line` it is the
+line after the visible area, so the check sees the frame that was shown.
 
 ## Gotchas
 

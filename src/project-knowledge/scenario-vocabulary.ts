@@ -202,6 +202,14 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     doc: "The machine changes model at the next frame boundary, as it did while recording — the running program keeps its state. Every frame after it is the new model's.",
   },
 
+  {
+    section: "step",
+    kind: "series",
+    form: 'And I read the series "<$addr[:len][@lens]>", … every <frame | n frames> for <n> frames [at raster line <l>]',
+    sample: 'And I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames',
+    doc: "Read these bytes once per frame (or every n-th) over a window and keep only the rows where a value changed, each with its frame and cycle. The machine advances by the window. Without a raster line the sample is taken just after the visible area, so it sees the frame that was shown.",
+  },
+
   // ── predicates (inside `I wait until … within N frames`) ───────────────────────
   {
     section: "predicate",
@@ -271,6 +279,12 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     form: 'Then the screen shows "<text>"',
     sample: 'Then the screen shows "READY."',
     doc: "Byte-exact: the text screen is characters.",
+  },
+  {
+    section: "criterion",
+    form: "Then $<addr>[@lens] is $<byte> throughout the next <n> frames [at raster line <l>]",
+    sample: "Then $D01C@io is $04 throughout the next 600 frames",
+    doc: "The value must hold at EVERY frame of the window, not only where the step before ended. Fails at the first frame and cycle it does not, naming what was there. Also `… at every frame for <n> frames`.",
   },
   {
     section: "criterion",

@@ -66,6 +66,64 @@ and exits 1 on a FAIL, an ERROR or a line that does not parse. Each scenario get
 machine, so a file gives the same bytes every time; media resolve beside the file, then
 in the project.
 
+## Where in the frame the input lands, and watching every frame
+
+A scripted press used to reach the game at the same beam position on every run, because
+every step lasted whole frames. A bug that depends on where the beam is when a key or fire
+press arrives (a read-modify-write of `$D011` after arming a raster IRQ, a tick-versus-frame
+race) therefore either always showed or never did. Four options move it, in
+`runtime_sandbox_run`, `runtime_scene_reel` and `c64re scenario run` alike:
+
+```jsonc
+runtime_sandbox_run {
+  "media_path": "port/test_d011.prg",
+  "steps": [
+    "I wait 20 frames",
+    "I hold joystick 2 fire for 3 frames",
+    "I wait 20 frames",
+    "Then $C002 is $01"
+  ],
+  "sweep": 8                       // or "input_offset_cycles": 2457, or "jitter_seed": 7
+}
+```
+
+- `input_offset_cycles: N` presses every input step (`I type`, `I hold …`, `I start holding …`,
+  `I release …`) N cycles past the point it would have pressed at. A frame is 19656 cycles on
+  PAL, 17095 on NTSC.
+- `jitter_seed: S` gives each input step its own offset inside the frame, from the seed and the
+  step's index: the same seed gives the same offsets.
+- `sweep: K` (2 to 64) runs the same steps K times, each on a private machine of its own, with
+  the offset spread evenly across one frame of the machine's model. It returns PASS/FAIL per
+  offset and the first failing offset. It needs at least one `Then` to decide each run.
+  `c64re scenario run … --sweep K` does the same for a `.feature` file (`--input-offset N` and
+  `--jitter-seed S` are the single-run forms).
+- Every offset a step used is in the result. To replay a failing run exactly, give the same
+  `input_offset_cycles` (the sweep names the first failing one) or the same `jitter_seed`.
+
+Without any of them nothing changes: the call carries no cycle, and a run replays to the same
+bytes as before. A runtime that cannot place input at a cycle is refused by name; the press
+is never quietly moved back to a frame boundary.
+
+**A check that holds over a window.** `Then $D01C@io is $04 throughout the next 600 frames`
+(also `… at every frame for 600 frames`) is decided by the runtime's frame probe, which samples
+the address once per frame inside the daemon. It passes, or fails at the first frame and cycle
+where the value was wrong, naming what it was. `is not` and `is one of` work too. The sample is
+taken at one raster line per frame; `… at raster line 250` names it, and without it the line
+after the visible area is used (288 on PAL), so the check sees the frame that was shown. The
+window advances the machine, and the steps after it continue from where it ended. If a
+breakpoint or watchpoint armed in the machine stops the probe, the result says so and the
+check is neither passed nor failed.
+
+**A sample series.** `read_series: ["$D01C:1@io", "$D029@io"]` (with `series_frames`,
+`every_frames`, `series_line`) or, in a `.feature` file, the step
+`I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames` returns a table with
+only the rows where a sampled value changed, each with its frame, cycle and raster line. A read
+is `ADDRESS[:LENGTH][@lens]`; the length is decimal (`$` makes it hex), at most 256 bytes per
+frame in all. `every 3 frames` samples every third frame.
+
+All of this needs a runtime with cycle-exact input and the frame probe; `c64re runtime install`
+fetches one.
+
 <!-- deliberate-limitation: runtime_sandbox_run — it returns no session id BY DESIGN
      (Spec 836): a sandbox you could come back to would be a second shared machine,
      and there is exactly one of those. This limit is the tool's shape, not drift. -->
@@ -165,7 +223,9 @@ killed, crashed or closed — and removes its scratch directory.
 | `session/run` `{cycles}` | bounded advance (needs `running == false`) |
 | `debug/run` `{cycles?, pace?}` | free-run; with `cycles` a bounded run that still streams, auto-pausing at the cap |
 | `debug/pause` | freeze |
-| `session/joystick_set` `{port, up/down/left/right/fire}` / `session/joystick_clear` | input |
+| `session/joystick_set` `{port, up/down/left/right/fire, at_cycle?}` / `session/joystick_clear` `{at_cycle?}` | input; `at_cycle` (absolute `c64Cycles`, not in the past) takes effect at that cycle, also inside one `session/run` |
+| `session/key_down` / `session/key_up` `{key, at_cycle?}` | the same for one key |
+| `session/frame_probe` `{frames, line, cycle?, addresses:[{addr,len?,lens?}], mode, expect?}` | advances `frames` frames, samples once per frame at a raster line; `series` returns only the changing rows, `assert` stops at the first failing frame |
 | `session/type` `{text}` | PETSCII keyboard |
 | `session/screenshot` | one PNG (`dataUrl`) |
 | `monitor/exec` `{command}` | monitor: `m`/`d`/`wr`/`bk`/`trace`/`undump`… |

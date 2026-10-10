@@ -60,7 +60,7 @@ ok(authorOfComment("targets: finding/f-1") === undefined, "4 and any other comme
 // ── §9.1 the vocabulary is the parser's, not a second list ───────────────────
 ok(missingKinds().length === 0,
    "7 the vocabulary covers every step and predicate kind the parser has", missingKinds().join(", "));
-ok(STEP_KINDS.length === 12 && PREDICATE_KINDS.length === 7,
+ok(STEP_KINDS.length === 13 && PREDICATE_KINDS.length === 7,
    "8 and the kind lists are the ones the TYPES are checked against");
 {
   let bad = [];
