@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
-import { analyzeBasicProgram, stripPrgHeader, tokenize, toPrg } from "./lib/basic-v2";
+import { analyzeBasicProgram, dialectForPlatform, stripPrgHeader, tokenize, toPrg } from "./lib/basic-v2";
 import { emitKickAssemblerSources } from "./lib/kickasm";
 import { disassemblePrgToKickAsm, RelocationEntry } from "./lib/prg-disasm";
 import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
@@ -56,8 +56,8 @@ function usage(): never {
       "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--relocations <json>] [--annotations <json>]",
       "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--annotations <json>] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]] [--platform c64|c1541|vic20|plus4]",
-      "  node dist/cli.js basic-list <prg> [--json]",
-      "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
+      "  node dist/cli.js basic-list <prg> [--json] [--platform c64|vic20|plus4]",
+      "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801] [--platform c64|vic20|plus4]",
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
       "  node dist/cli.js analyze-sample [outputJson]",
@@ -422,7 +422,9 @@ function main(): void {
   // reaches the detokenizer: server-tools/basic.ts spawns it via runCli.
   if (command === "basic-list") {
     const asJson = args.includes("--json");
-    const prgPath = args.find((arg) => !arg.startsWith("--"));
+    const platformAt = args.indexOf("--platform");
+    const dialect = dialectForPlatform(platformAt >= 0 ? args[platformAt + 1] : undefined);
+    const prgPath = args.find((arg, i) => !arg.startsWith("--") && !(platformAt >= 0 && i === platformAt + 1));
     if (!prgPath) {
       usage();
     }
@@ -433,7 +435,7 @@ function main(): void {
     }
     const { loadAddress, body } = stripPrgHeader(file);
 
-    const walk = analyzeBasicProgram(body, loadAddress);
+    const walk = analyzeBasicProgram(body, loadAddress, dialect);
     if (!walk.ok) {
       // Spec 829 D2 — a broken chain is reported as NOT BASIC with the offset
       // where it broke. It is not an exception: "this file is machine code"
@@ -446,7 +448,7 @@ function main(): void {
             `File: ${prgAbs}`,
             `Load address: $${loadAddress.toString(16).toUpperCase().padStart(4, "0")}`,
             "",
-            `NOT a tokenized BASIC V2 program: ${walk.reason}`,
+            `NOT a tokenized BASIC program: ${walk.reason}`,
             `Chain broke at body offset ${walk.offset} ($${(loadAddress + walk.offset).toString(16).toUpperCase().padStart(4, "0")}).`,
             "",
             "Use analyze / disasm — this is machine code, not BASIC.",
@@ -514,9 +516,15 @@ function main(): void {
   // lister nobody can invert is a lister nobody can trust.
   if (command === "basic-tokenize") {
     let loadAddress = 0x0801;
+    let dialect = dialectForPlatform(undefined);
     const positional: string[] = [];
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index]!;
+      if (arg === "--platform") {
+        dialect = dialectForPlatform(args[index + 1]);
+        index += 1;
+        continue;
+      }
       if (arg === "--load-address" || arg === "--loadAddress") {
         const value = args[index + 1];
         if (!value) throw new Error(`--load-address requires a value — ${ADDRESS_RULE}`);
@@ -538,14 +546,14 @@ function main(): void {
     const textAbs = resolve(textPath);
     const outputAbs = resolve(outputPrg);
     const text = readFileSync(textAbs, "utf8");
-    const body = tokenize(text, loadAddress);
+    const body = tokenize(text, loadAddress, dialect);
     const prg = Buffer.from(toPrg(loadAddress, body));
     mkdirSync(dirname(outputAbs), { recursive: true });
     writeFileSync(outputAbs, prg);
     registerCliArtifact({
       kind: "prg",
       scope: "generated",
-      title: `${basename(outputAbs)} (tokenized BASIC V2)`,
+      title: `${basename(outputAbs)} (tokenized BASIC${dialect === "ted35" ? " 3.5" : " V2"})`,
       path: outputAbs,
       format: "prg",
       role: "basic_program",

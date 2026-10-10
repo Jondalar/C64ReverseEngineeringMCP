@@ -13,8 +13,8 @@ TRXDis pipeline.
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
 | `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
-| `basic_list` | List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts. |
-| `basic_tokenize` | Tokenize BASIC V2 source text back into a `.prg` — the inverse of `basic_list`. Starts at the machine's BASIC start (`$0801`; `$1001` for `vic20` / `plus4`) unless `load_address` is given. |
+| `basic_list` | List a tokenized BASIC program (V2; BASIC 3.5 on `plus4`) from a PRG and extract its SYS / USR / LOAD facts. |
+| `basic_tokenize` | Tokenize BASIC source text (V2; BASIC 3.5 on `plus4`) back into a `.prg` — the inverse of `basic_list`. Starts at the machine's BASIC start (`$0801`; `$1001` for `vic20` / `plus4`) unless `load_address` is given. |
 
 ## BASIC V2
 
@@ -47,8 +47,14 @@ start: `$0801` on the C64, `$1001` / `$0401` / `$1201` on the VIC-20 (bare, +3K,
 +8K and up) and `$1001` on the C16 / C116 / Plus/4. A `10 SYS` stub there gets the
 BASIC segment and the SYS entry exactly as a C64 `$0801` PRG does; the same bytes
 analysed as another machine are not a stub. `basic_list` walks any load address
-but knows only the V2 token table: a TED BASIC 3.5 token (`$CC` and up) is shown
-as `{$CC}`, never given a name.
+and picks the keyword table by machine (`platform`, else the file's artifact
+record, else the project default, else `c64`): `c64` and `vic20` read BASIC V2,
+`plus4` reads TED BASIC 3.5 — the V2 words plus `RGR` ... `WHILE` (`$CC`..`$FD`,
+read from Commodore's TED BASIC source). On the other machines a byte above `$CB`
+is no token and is shown as `{$CC}`; `$FE`, the hook for third-party extensions,
+is no keyword on any machine and shows as `{$FE}`. `basic_tokenize` takes the same
+`platform` and crunches 3.5 keywords the way the TED ROM does (first match in table
+order).
 
 Each fact carries `site` — the absolute address of the keyword's token byte —
 next to the resolved `value`, so the jump from a BASIC line into the machine

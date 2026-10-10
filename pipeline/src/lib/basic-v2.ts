@@ -134,6 +134,168 @@ export const BASIC_V2_TOKENS: readonly BasicToken[] = [
   { token: 0xcb, keyword: "GO" },
 ];
 
+export const BASIC_35_TOKEN_MAX = 0xfd;
+
+/**
+ * The TED BASIC 3.5 keyword table (C16 / C116 / Plus/4), in ROM order, 126
+ * entries, $80..$FD. Read from Commodore's TED BASIC source, tokens1.src
+ * (RESLST: each word's last character carries the high bit; token = $80 + index,
+ * as the CRUNCH scan in crunch.src counts it). The first 76 rows (..$CB) are
+ * the V2 table verbatim; $CC.. are the 3.5 additions. There is no prefix-token
+ * scheme: ESCTK ($FE) is only the hook for third-party extensions (LIST prints it
+ * as a graphic when nobody claims it), so it is not a keyword and renders as {$FE}.
+ */
+export const BASIC_35_TOKENS: readonly BasicToken[] = [
+  { token: 0x80, keyword: "END" },
+  { token: 0x81, keyword: "FOR" },
+  { token: 0x82, keyword: "NEXT" },
+  { token: 0x83, keyword: "DATA" },
+  { token: 0x84, keyword: "INPUT#" },
+  { token: 0x85, keyword: "INPUT" },
+  { token: 0x86, keyword: "DIM" },
+  { token: 0x87, keyword: "READ" },
+  { token: 0x88, keyword: "LET" },
+  { token: 0x89, keyword: "GOTO" },
+  { token: 0x8a, keyword: "RUN" },
+  { token: 0x8b, keyword: "IF" },
+  { token: 0x8c, keyword: "RESTORE" },
+  { token: 0x8d, keyword: "GOSUB" },
+  { token: 0x8e, keyword: "RETURN" },
+  { token: 0x8f, keyword: "REM" },
+  { token: 0x90, keyword: "STOP" },
+  { token: 0x91, keyword: "ON" },
+  { token: 0x92, keyword: "WAIT" },
+  { token: 0x93, keyword: "LOAD" },
+  { token: 0x94, keyword: "SAVE" },
+  { token: 0x95, keyword: "VERIFY" },
+  { token: 0x96, keyword: "DEF" },
+  { token: 0x97, keyword: "POKE" },
+  { token: 0x98, keyword: "PRINT#" },
+  { token: 0x99, keyword: "PRINT" },
+  { token: 0x9a, keyword: "CONT" },
+  { token: 0x9b, keyword: "LIST" },
+  { token: 0x9c, keyword: "CLR" },
+  { token: 0x9d, keyword: "CMD" },
+  { token: 0x9e, keyword: "SYS" },
+  { token: 0x9f, keyword: "OPEN" },
+  { token: 0xa0, keyword: "CLOSE" },
+  { token: 0xa1, keyword: "GET" },
+  { token: 0xa2, keyword: "NEW" },
+  { token: 0xa3, keyword: "TAB(" },
+  { token: 0xa4, keyword: "TO" },
+  { token: 0xa5, keyword: "FN" },
+  { token: 0xa6, keyword: "SPC(" },
+  { token: 0xa7, keyword: "THEN" },
+  { token: 0xa8, keyword: "NOT" },
+  { token: 0xa9, keyword: "STEP" },
+  { token: 0xaa, keyword: "+" },
+  { token: 0xab, keyword: "-" },
+  { token: 0xac, keyword: "*" },
+  { token: 0xad, keyword: "/" },
+  { token: 0xae, keyword: "^" },
+  { token: 0xaf, keyword: "AND" },
+  { token: 0xb0, keyword: "OR" },
+  { token: 0xb1, keyword: ">" },
+  { token: 0xb2, keyword: "=" },
+  { token: 0xb3, keyword: "<" },
+  { token: 0xb4, keyword: "SGN" },
+  { token: 0xb5, keyword: "INT" },
+  { token: 0xb6, keyword: "ABS" },
+  { token: 0xb7, keyword: "USR" },
+  { token: 0xb8, keyword: "FRE" },
+  { token: 0xb9, keyword: "POS" },
+  { token: 0xba, keyword: "SQR" },
+  { token: 0xbb, keyword: "RND" },
+  { token: 0xbc, keyword: "LOG" },
+  { token: 0xbd, keyword: "EXP" },
+  { token: 0xbe, keyword: "COS" },
+  { token: 0xbf, keyword: "SIN" },
+  { token: 0xc0, keyword: "TAN" },
+  { token: 0xc1, keyword: "ATN" },
+  { token: 0xc2, keyword: "PEEK" },
+  { token: 0xc3, keyword: "LEN" },
+  { token: 0xc4, keyword: "STR$" },
+  { token: 0xc5, keyword: "VAL" },
+  { token: 0xc6, keyword: "ASC" },
+  { token: 0xc7, keyword: "CHR$" },
+  { token: 0xc8, keyword: "LEFT$" },
+  { token: 0xc9, keyword: "RIGHT$" },
+  { token: 0xca, keyword: "MID$" },
+  { token: 0xcb, keyword: "GO" },
+  { token: 0xcc, keyword: "RGR" },
+  { token: 0xcd, keyword: "RCLR" },
+  { token: 0xce, keyword: "RLUM" },
+  { token: 0xcf, keyword: "JOY" },
+  { token: 0xd0, keyword: "RDOT" },
+  { token: 0xd1, keyword: "DEC" },
+  { token: 0xd2, keyword: "HEX$" },
+  { token: 0xd3, keyword: "ERR$" },
+  { token: 0xd4, keyword: "INSTR" },
+  { token: 0xd5, keyword: "ELSE" },
+  { token: 0xd6, keyword: "RESUME" },
+  { token: 0xd7, keyword: "TRAP" },
+  { token: 0xd8, keyword: "TRON" },
+  { token: 0xd9, keyword: "TROFF" },
+  { token: 0xda, keyword: "SOUND" },
+  { token: 0xdb, keyword: "VOL" },
+  { token: 0xdc, keyword: "AUTO" },
+  { token: 0xdd, keyword: "PUDEF" },
+  { token: 0xde, keyword: "GRAPHIC" },
+  { token: 0xdf, keyword: "PAINT" },
+  { token: 0xe0, keyword: "CHAR" },
+  { token: 0xe1, keyword: "BOX" },
+  { token: 0xe2, keyword: "CIRCLE" },
+  { token: 0xe3, keyword: "GSHAPE" },
+  { token: 0xe4, keyword: "SSHAPE" },
+  { token: 0xe5, keyword: "DRAW" },
+  { token: 0xe6, keyword: "LOCATE" },
+  { token: 0xe7, keyword: "COLOR" },
+  { token: 0xe8, keyword: "SCNCLR" },
+  { token: 0xe9, keyword: "SCALE" },
+  { token: 0xea, keyword: "HELP" },
+  { token: 0xeb, keyword: "DO" },
+  { token: 0xec, keyword: "LOOP" },
+  { token: 0xed, keyword: "EXIT" },
+  { token: 0xee, keyword: "DIRECTORY" },
+  { token: 0xef, keyword: "DSAVE" },
+  { token: 0xf0, keyword: "DLOAD" },
+  { token: 0xf1, keyword: "HEADER" },
+  { token: 0xf2, keyword: "SCRATCH" },
+  { token: 0xf3, keyword: "COLLECT" },
+  { token: 0xf4, keyword: "COPY" },
+  { token: 0xf5, keyword: "RENAME" },
+  { token: 0xf6, keyword: "BACKUP" },
+  { token: 0xf7, keyword: "DELETE" },
+  { token: 0xf8, keyword: "RENUMBER" },
+  { token: 0xf9, keyword: "KEY" },
+  { token: 0xfa, keyword: "MONITOR" },
+  { token: 0xfb, keyword: "USING" },
+  { token: 0xfc, keyword: "UNTIL" },
+  { token: 0xfd, keyword: "WHILE" },
+];
+
+/** Which keyword table a program is written in. VIC-20 BASIC is V2; only the TED machines differ. */
+export type BasicDialect = "v2" | "ted35";
+
+interface DialectTable {
+  tokens: readonly BasicToken[];
+  byToken: ReadonlyMap<number, string>;
+}
+
+function makeDialectTable(tokens: readonly BasicToken[]): DialectTable {
+  return { tokens, byToken: new Map(tokens.map((t) => [t.token, t.keyword])) };
+}
+
+const DIALECTS: Record<BasicDialect, DialectTable> = {
+  v2: makeDialectTable(BASIC_V2_TOKENS),
+  ted35: makeDialectTable(BASIC_35_TOKENS),
+};
+
+/** The BASIC dialect of a platform tag: plus4 speaks 3.5, everything else V2. */
+export function dialectForPlatform(platform: string | undefined): BasicDialect {
+  return platform === "plus4" ? "ted35" : "v2";
+}
+
 /**
  * π is not part of the keyword table — the ROM handles it separately in CRUNCH
  * ($A584: `CMP #$FF` before anything else) — but it is a token byte all the
@@ -153,11 +315,9 @@ export const BASIC_TOKEN = {
   PI: 0xff,
 } as const;
 
-const KEYWORD_BY_TOKEN = new Map<number, string>(BASIC_V2_TOKENS.map((t) => [t.token, t.keyword]));
-
 /** The keyword LIST prints for a token byte, or undefined for a non-token. */
-export function keywordForToken(byte: number): string | undefined {
-  return KEYWORD_BY_TOKEN.get(byte);
+export function keywordForToken(byte: number, dialect: BasicDialect = "v2"): string | undefined {
+  return DIALECTS[dialect].byToken.get(byte);
 }
 
 // ---------------------------------------------------------------------------
@@ -529,10 +689,10 @@ function isDirectChar(byte: number): boolean {
   return byte >= 0x20 && byte <= 0x7e && byte !== 0x7b && byte !== 0x7d;
 }
 
-function renderByte(byte: number, literal: boolean): string {
+function renderByte(byte: number, literal: boolean, dialect: BasicDialect): string {
   if (isDirectChar(byte)) return String.fromCharCode(byte);
   if (!literal) {
-    const keyword = KEYWORD_BY_TOKEN.get(byte);
+    const keyword = DIALECTS[dialect].byToken.get(byte);
     if (keyword !== undefined) return keyword;
     if (byte === BASIC_TOKEN.PI) return BASIC_V2_PI.keyword;
   }
@@ -547,6 +707,7 @@ function renderBytesRange(
   from: number,
   to: number,
   forced?: ReadonlySet<number>,
+  dialect: BasicDialect = "v2",
 ): string {
   let out = "";
   for (let i = from; i < to; i += 1) {
@@ -554,7 +715,7 @@ function renderBytesRange(
       out += `{$${hex2(bytes[i])}}`;
       continue;
     }
-    out += renderByte(bytes[i], modes[i] === MODE_LITERAL);
+    out += renderByte(bytes[i], modes[i] === MODE_LITERAL, dialect);
   }
   return out;
 }
@@ -571,15 +732,15 @@ function sameBytes(a: readonly number[], b: readonly number[]): boolean {
  * `{$XX}` and the line is rendered again. This is what makes D3 a property of
  * the code rather than a property of the fixtures.
  */
-export function renderLineBody(bytes: readonly number[]): string {
+export function renderLineBody(bytes: readonly number[], dialect: BasicDialect = "v2"): string {
   const modes = classifyLineBytes(bytes);
   const forced = new Set<number>();
 
   for (let attempt = 0; attempt <= bytes.length; attempt += 1) {
-    const text = renderBytesRange(bytes, modes, 0, bytes.length, forced);
+    const text = renderBytesRange(bytes, modes, 0, bytes.length, forced, dialect);
     let back: number[];
     try {
-      back = tokenizeLineBody(text);
+      back = tokenizeLineBody(text, 0, dialect);
     } catch {
       back = [];
     }
@@ -597,8 +758,8 @@ export function renderLineBody(bytes: readonly number[]): string {
 }
 
 /** `10 SYS 2064` — the line number, one space, the body. */
-export function renderBasicLine(line: BasicLine): string {
-  const body = renderLineBody(line.bytes);
+export function renderBasicLine(line: BasicLine, dialect: BasicDialect = "v2"): string {
+  const body = renderLineBody(line.bytes, dialect);
   return body.length > 0 ? `${line.number} ${body}` : `${line.number}`;
 }
 
@@ -607,6 +768,8 @@ export interface DetokenizeOptions {
   lineSeparator?: string;
   /** Append the separator after the last line too. Default false. */
   trailingSeparator?: boolean;
+  /** Keyword table; default "v2". */
+  dialect?: BasicDialect;
 }
 
 /**
@@ -625,7 +788,7 @@ export function detokenize(bytes: ArrayLike<number>, loadAddress: number, opts?:
 
 export function detokenizeLines(lines: readonly BasicLine[], opts?: DetokenizeOptions): string {
   const separator = opts?.lineSeparator ?? "\n";
-  const text = lines.map(renderBasicLine).join(separator);
+  const text = lines.map((l) => renderBasicLine(l, opts?.dialect ?? "v2")).join(separator);
   return opts?.trailingSeparator ? text + separator : text;
 }
 
@@ -659,8 +822,8 @@ function parseEscape(text: string, open: number, textLine: number): { byte: numb
  * First match in table order, case-insensitively — the ROM's own scan, which is
  * why `INPUT#` beats `INPUT` and why `BTOC` tokenises the TO in the middle.
  */
-function matchKeyword(text: string, at: number): BasicToken | undefined {
-  for (const entry of BASIC_V2_TOKENS) {
+function matchKeyword(text: string, at: number, dialect: BasicDialect): BasicToken | undefined {
+  for (const entry of DIALECTS[dialect].tokens) {
     const candidate = text.substr(at, entry.keyword.length);
     if (candidate.length === entry.keyword.length && candidate.toUpperCase() === entry.keyword) return entry;
   }
@@ -668,7 +831,7 @@ function matchKeyword(text: string, at: number): BasicToken | undefined {
 }
 
 /** One line's body text → its token bytes. */
-export function tokenizeLineBody(text: string, textLine = 0): number[] {
+export function tokenizeLineBody(text: string, textLine = 0, dialect: BasicDialect = "v2"): number[] {
   const out: number[] = [];
   const state = makeLineState();
   let i = 0;
@@ -688,7 +851,7 @@ export function tokenizeLineBody(text: string, textLine = 0): number[] {
       continue;
     }
     if (!state.isLiteral()) {
-      const keyword = matchKeyword(text, i);
+      const keyword = matchKeyword(text, i, dialect);
       if (keyword) {
         out.push(keyword.token);
         state.feed(keyword.token);
@@ -717,7 +880,7 @@ export function tokenizeLineBody(text: string, textLine = 0): number[] {
  * Text → the in-memory image at `loadAddress`, byte-identical to what BASIC
  * would have stored. The inverse of `detokenize` (D3).
  */
-export function tokenize(text: string, loadAddress: number): Uint8Array {
+export function tokenize(text: string, loadAddress: number, dialect: BasicDialect = "v2"): Uint8Array {
   if (!Number.isInteger(loadAddress) || loadAddress < 0 || loadAddress > 0xffff) {
     throw new Error(`Invalid load address $${hex4(loadAddress | 0)}`);
   }
@@ -733,7 +896,7 @@ export function tokenize(text: string, loadAddress: number): Uint8Array {
     if (lineNumber > 0xffff) throw new BasicTokenizeError(`line number ${lineNumber} does not fit in 16 bits`, n + 1, 0);
     let body = raw.slice(header[0].length);
     if (body.startsWith(" ")) body = body.slice(1);
-    records.push({ number: lineNumber, bytes: tokenizeLineBody(body, n + 1) });
+    records.push({ number: lineNumber, bytes: tokenizeLineBody(body, n + 1, dialect) });
   }
 
   const out: number[] = [];
@@ -940,7 +1103,7 @@ function foldSmallInt(text: string, max: number): number | undefined {
  * argument, not its target — USR jumps through the vector at $0311/$0312, which
  * is a memory fact and not a listing fact.
  */
-export function extractBasicFacts(lines: readonly BasicLine[]): BasicFact[] {
+export function extractBasicFacts(lines: readonly BasicLine[], dialect: BasicDialect = "v2"): BasicFact[] {
   const facts: BasicFact[] = [];
   for (const line of lines) {
     const bytes = line.bytes;
@@ -960,28 +1123,28 @@ export function extractBasicFacts(lines: readonly BasicLine[]): BasicFact[] {
       };
 
       if (byte === BASIC_TOKEN.LOAD) {
-        const expression = renderBytesRange(bytes, modes, i + 1, end).trim();
+        const expression = renderBytesRange(bytes, modes, i + 1, end, undefined, dialect).trim();
         const args = splitArguments(bytes, modes, i + 1, end);
         const fact: BasicFact = { kind: "load", ...base, expression, confidence: "unresolved" };
-        const first = args.length > 0 ? renderBytesRange(bytes, modes, args[0][0], args[0][1]).trim() : "";
+        const first = args.length > 0 ? renderBytesRange(bytes, modes, args[0][0], args[0][1], undefined, dialect).trim() : "";
         const quoted = /^"([^"]*)"?$/.exec(first);
         if (quoted) {
           fact.fileName = quoted[1];
           fact.confidence = "certain";
         }
         if (args.length > 1) {
-          const device = foldSmallInt(renderBytesRange(bytes, modes, args[1][0], args[1][1]), 0xff);
+          const device = foldSmallInt(renderBytesRange(bytes, modes, args[1][0], args[1][1], undefined, dialect), 0xff);
           if (device !== undefined) fact.device = device;
         }
         if (args.length > 2) {
-          const secondary = foldSmallInt(renderBytesRange(bytes, modes, args[2][0], args[2][1]), 0xff);
+          const secondary = foldSmallInt(renderBytesRange(bytes, modes, args[2][0], args[2][1], undefined, dialect), 0xff);
           if (secondary !== undefined) fact.secondary = secondary;
         }
         facts.push(fact);
         continue;
       }
 
-      const expression = renderBytesRange(bytes, modes, i + 1, end).trim();
+      const expression = renderBytesRange(bytes, modes, i + 1, end, undefined, dialect).trim();
       const resolved = resolveArgument(expression);
       const fact: BasicFact = {
         kind: byte === BASIC_TOKEN.SYS ? "sys" : "usr",
@@ -1034,14 +1197,14 @@ export interface BasicProgramAnalysisOk extends BasicWalkOk {
 export type BasicProgramAnalysis = BasicProgramAnalysisOk | BasicWalkFail;
 
 /** Walk, list and extract in one call — the shape a tool or an analyzer wants. */
-export function analyzeBasicProgram(bytes: ArrayLike<number>, loadAddress: number): BasicProgramAnalysis {
+export function analyzeBasicProgram(bytes: ArrayLike<number>, loadAddress: number, dialect: BasicDialect = "v2"): BasicProgramAnalysis {
   const strict = walkBasicProgram(bytes, loadAddress);
   const walk = strict.ok ? strict : walkBasicProgram(bytes, loadAddress, { machineCodeTail: true });
   // The open-ended reading claims a SYS leaves BASIC for the bytes after the last line.
   // Without a resolved SYS to or past that point nothing proves it, and the strict
   // failure is the honest answer.
   if (!walk.ok) return walk;
-  const facts = extractBasicFacts(walk.lines);
+  const facts = extractBasicFacts(walk.lines, dialect);
   if (walk.openEnded) {
     const breakAddress = walk.programRange.end + 1;
     const leaves = facts.some((f) => f.kind === "sys" && f.value !== undefined && f.value >= breakAddress
@@ -1050,7 +1213,7 @@ export function analyzeBasicProgram(bytes: ArrayLike<number>, loadAddress: numbe
   }
   return {
     ...walk,
-    listing: detokenizeLines(walk.lines),
+    listing: detokenizeLines(walk.lines, { dialect }),
     facts,
     isStub: walk.lines.length <= 2 && facts.some((f) => f.kind === "sys"),
   };

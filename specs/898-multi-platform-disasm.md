@@ -131,7 +131,11 @@ configurations) and `plus4` offers `$1001`. A PRG header always wins. The same s
 machine's BASIC start in the analysis: a `10 SYS` stub at one of them is a `basic` segment
 with a SYS entry (`c64` `$0801` unchanged, `c1541` none). The RAM vector pairs at `$0314`,
 `$0316` are CINV/CBINV on all three machines and `$0318` is NMINV on the C64 and VIC-20 —
-on the TED machines it is IOPEN, so `plus4` drops that pair.
+on the TED machines it is IOPEN, so `plus4` drops that pair. `basic_list` and
+`basic_tokenize` follow the platform too: `plus4` uses the TED BASIC 3.5 keyword table
+(126 tokens, `$80`..`$FD`, read from the TED BASIC source's keyword list; no prefix-token
+scheme — `$FE` is the extension hook, not a keyword), `c64` and `vic20` the V2 table
+(VIC-20 BASIC is V2). Built: the e2e checks plus4 list, tokenize and the round trip.
 
 **D7 — An annotate region over an I/O window is satisfied by its sites.** When a
 contract `annotate` boundary lies wholly inside the platform's `io` kind (D2), the

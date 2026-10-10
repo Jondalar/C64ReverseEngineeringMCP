@@ -279,8 +279,8 @@
       "file": "server-tools/basic.ts",
       "ns": "basic",
       "hasSpec": false,
-      "firstSentence": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there.",
-      "desc": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there. Use on any PRG that loads at $0801 BEFORE disassembling it: a stock BASIC boot is token bytes, not 6502, and its SYS target is the real entry point into the machine code. Not for machine-code PRGs — on one it answers NOT BASIC and names the byte offset where the line chain broke, instead of half-rendering it (use analyze / disasm for those) — and not for writing BASIC (use basic_tokenize). Inputs: prg_path, optional project_dir, optional json. Returns: the listing, the program's address range and end, and each SYS/USR/LOAD with its line number, its resolved target (or the unresolved expression) and the address of its token byte.",
+      "firstSentence": "List a tokenized BASIC program (V2 on the C64 and VIC-20, BASIC 3.5 on the C16 / C116 / Plus/4) from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there.",
+      "desc": "List a tokenized BASIC program (V2 on the C64 and VIC-20, BASIC 3.5 on the C16 / C116 / Plus/4) from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there. Use on any PRG that loads at $0801 BEFORE disassembling it: a stock BASIC boot is token bytes, not 6502, and its SYS target is the real entry point into the machine code. Not for machine-code PRGs — on one it answers NOT BASIC and names the byte offset where the line chain broke, instead of half-rendering it (use analyze / disasm for those) — and not for writing BASIC (use basic_tokenize). Inputs: prg_path, optional project_dir, optional json, optional platform (c64, vic20 or plus4: plus4 reads the 3.5 keywords — COLOR, GRAPHIC, DO / LOOP, SCNCLR … up to WHILE — which on the other machines are shown as {$xx}). Returns: the listing, the program's address range and end, and each SYS/USR/LOAD with its line number, its resolved target (or the unresolved expression) and the address of its token byte.",
       "tier": "default?"
     },
     {
@@ -288,8 +288,8 @@
       "file": "server-tools/basic.ts",
       "ns": "basic",
       "hasSpec": false,
-      "firstSentence": "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list.",
-      "desc": "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list. Use to build a loader stub, or to turn an edited listing back into bytes; the round trip is byte-identical, which is what makes a listing worth trusting. Not for assembling 6502 source (use assemble_source), and not for reading a program that already exists (use basic_list). Inputs: text, output_path, optional project_dir, platform and load_address (default: the machine's BASIC start — $0801 on the C64, $1001 on the VIC-20 and the TED machines). Returns: the written PRG path, its load address, its byte count, and the knowledge run the PRG was registered under.",
+      "firstSentence": "Tokenize BASIC source text (V2, or BASIC 3.5 when the platform is plus4) into a .prg — the inverse of basic_list.",
+      "desc": "Tokenize BASIC source text (V2, or BASIC 3.5 when the platform is plus4) into a .prg — the inverse of basic_list. Use to build a loader stub, or to turn an edited listing back into bytes; the round trip is byte-identical, which is what makes a listing worth trusting. Not for assembling 6502 source (use assemble_source), and not for reading a program that already exists (use basic_list). Inputs: text, output_path, optional project_dir, platform (plus4 crunches the 3.5 keywords by the TED ROM's own first-match scan) and load_address (default: the machine's BASIC start — $0801 on the C64, $1001 on the VIC-20 and the TED machines). Returns: the written PRG path, its load address, its byte count, and the knowledge run the PRG was registered under.",
       "tier": "default?"
     },
     {

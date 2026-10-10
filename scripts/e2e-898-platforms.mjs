@@ -11,7 +11,7 @@
 //   5 the render's machine is resolved argument > artifact record > project default > c64
 //   6 inspect_address_range and c64ref_lookup take the same resolution, and say so on a miss
 //   8 a `10 SYS` stub at the VIC-20 / TED BASIC start is a BASIC segment with a SYS entry; the
-//     RAM vector pairs per machine; basic_list shows a BASIC 3.5 token as {$xx}
+//     RAM vector pairs per machine; basic_list / basic_tokenize speak BASIC 3.5 on plus4 and V2 elsewhere
 //   7 where a tool guesses a load address for a block with no header, the machine decides:
 //     VIC-20 $1001/$0401/$1201, TED $1001, C64 $0801 — and a header always wins
 //   8 D7: an annotate boundary over the machine's I/O window is met by its access sites
@@ -485,11 +485,43 @@ try {
   check(!(await vecEntry("k_v_ted", "plus4", 0x18)).includes("nmi_vector_ram"), "plus4: $0318/$0319 is IOPEN, not an NMI vector");
   check((await vecEntry("k_v_ted14", "plus4", 0x14)).includes("irq_vector_ram"), "plus4: $0314/$0315 is still CINV, the IRQ vector");
   check((await vecEntry("k_v_vic14", "vic20", 0x14)).includes("irq_vector_ram"), "vic20: $0314/$0315 is CINV, the IRQ vector");
-  // basic_list reads a program at the machine's start; a TED BASIC 3.5 token ($CC+) is shown as {$xx}, not named
+  // basic_list reads a program at the machine's start. On the C64 a byte above $CB is no token (shown as {$CC});
+  // on plus4 it is a BASIC 3.5 keyword, named from the TED BASIC keyword table.
   const ted35 = prgBytes(0x1001, [0x0c, 0x10, 10, 0, 0x99, 0x22, 0x41, 0x22, 0x3a, 0xcc, 0, 0, 0]);   // 10 PRINT"A":<$CC>
   put(projA, "k_ted35.prg", ted35);
   const lst = await call("basic_list", { prg_path: "artifacts/prg/k_ted35.prg" });
-  check(/10 PRINT"A":\{\$CC\}/.test(lst), "basic_list at $1001: V2 tokens named, a BASIC 3.5 token above $CB shown as {$CC} (no names invented)", lst.split("\n").find((l) => /^10 /.test(l)));
+  check(/10 PRINT"A":\{\$CC\}/.test(lst), "basic_list on the C64 (default): $CC is no token, shown as {$CC}", lst.split("\n").find((l) => /^10 /.test(l)));
+  const lstVic = await call("basic_list", { prg_path: "artifacts/prg/k_ted35.prg", platform: "vic20" });
+  check(/10 PRINT"A":\{\$CC\}/.test(lstVic), "basic_list on the VIC-20: BASIC is V2, $CC stays {$CC}");
+  const lstTed = await call("basic_list", { prg_path: "artifacts/prg/k_ted35.prg", platform: "plus4" });
+  check(/10 PRINT"A":RGR/.test(lstTed), "basic_list on plus4: $CC is RGR", lstTed.split("\n").find((l) => /^10 /.test(l)));
+
+  // BASIC 3.5: tokenize -> bytes read off the TED keyword table -> list -> tokenize gives the same bytes
+  const src35 = ["10 COLOR 0,1:GRAPHIC 1,1:SCNCLR", "20 DO:LOOP UNTIL A=1", "30 PRINT USING\"##\";A:DELETE 5-9", "40 IF A THEN PRINT:ELSE PRINT RENUMBER", "50 A$=HEX$(5)+RIGHT$(B$,1):WHILE X", "60 PRINT INSTR(A$,\"X\"):PRINT#1,2"].join("\n");
+  const out35 = join(projA, "artifacts", "tok35.prg");
+  await call("basic_tokenize", { project_dir: projA, text: src35, output_path: out35, platform: "plus4" });
+  const b35 = readFileSync(out35);
+  const has = (...seq) => b35.indexOf(Buffer.from(seq)) >= 0;
+  check(b35[0] === 0x01 && b35[1] === 0x10, "plus4 tokenize loads at $1001");
+  check(has(0xe7, 0x20, 0x30) && has(0xde, 0x20) && has(0xe8) && has(0xeb, 0x3a, 0xec, 0x20, 0xfc),
+    "plus4 tokenize: COLOR=$E7, GRAPHIC=$DE, SCNCLR=$E8, DO=$EB, LOOP=$EC, UNTIL=$FC");
+  check(has(0xfb) && has(0xf7) && has(0xf8) && has(0xd5) && has(0xd2) && has(0xfd) && has(0xd4),
+    "plus4 tokenize: USING=$FB, DELETE=$F7, RENUMBER=$F8, ELSE=$D5, HEX$=$D2, WHILE=$FD, INSTR=$D4");
+  check(has(0x98, 0x31), "plus4 tokenize: PRINT# is still one token ($98)");
+  const lst35 = await call("basic_list", { prg_path: out35, platform: "plus4", json: true });
+  const listing35 = JSON.parse(lst35).listing;
+  check(listing35 === src35, "plus4 basic_list of the tokenized program is the source text, keyword for keyword", listing35.split("\n").slice(0, 2).join(" / "));
+  const out35b = join(projA, "artifacts", "tok35b.prg");
+  await call("basic_tokenize", { project_dir: projA, text: listing35, output_path: out35b, platform: "plus4" });
+  check(readFileSync(out35b).equals(b35), "plus4 round trip: tokenize -> list -> tokenize is byte-identical");
+  // the same text on the C64 is not 3.5: V2 knows no COLOR, so it stays letters
+  const out35c = join(projA, "artifacts", "tok35c.prg");
+  await call("basic_tokenize", { project_dir: projA, text: "10 COLOR 0,1:A=1", output_path: out35c });
+  check(!readFileSync(out35c).includes(0xe7), "C64 tokenize: COLOR is not a keyword, no $E7 written");
+  // the last token and the one past it: $FD is WHILE, $FE (the escape hook) is no keyword
+  put(projA, "k_ted35z.prg", prgBytes(0x1001, [0x09, 0x10, 10, 0, 0xfd, 0xfe, 0xff, 0, 0, 0]));
+  const lstZ = await call("basic_list", { prg_path: "artifacts/prg/k_ted35z.prg", platform: "plus4" });
+  check(/10 WHILE\{\$FE\}π/.test(lstZ), "plus4 list: $FD = WHILE (last token), $FE is no keyword, $FF = pi", lstZ.split("\n").find((l) => /^10 /.test(l)));
 } finally {
   proc.kill();
 }
