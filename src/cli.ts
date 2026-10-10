@@ -60,6 +60,11 @@ if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     "  c64re                        run the MCP server on stdio (what a host does)",
     "  c64re ui --project <dir>     run the workbench: knowledge API + UI on :4310,",
     "                               and the runtime on :4312 unless one already answers",
+    "  c64re down [--project <dir>] [--keep <kind>]",
+    "                               shut C64RE down: the UI, the C64U bridges, the sandboxes and the runtime,",
+    "                               each one recorded in the process ledger; nothing starts again by itself",
+    "  c64re up [--project <dir>]   clear the hold `down` wrote and start the runtime",
+    "  c64re status                 what C64RE has running, the selection and the hold",
     "  c64re runtime install        fetch the TRX64 runtime daemon for this machine",
     "  c64re c64u-bridge --device <host>[:<restport>] [--port <p>]",
     "                               the C64 Ultimate as a daemon of its own: one process per device that",
@@ -125,6 +130,16 @@ if (argv[0] === "graph") {
     await mod.launchWorkspace(argv.slice(1), process.env);
   }).catch((error: unknown) => {
     console.error(`[c64re ui] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+} else if (argv[0] === "down" || argv[0] === "up" || argv[0] === "status") {
+  // Spec 902: the one command that shuts C64RE down, the one that starts it again, and the one that says what runs.
+  await import("./down-cli.js").then(async (mod) => {
+    if (argv[0] === "down") await mod.runDownCli(argv.slice(1));
+    else if (argv[0] === "up") await mod.runUpCli(argv.slice(1));
+    else await mod.runStatusCli(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re ${argv[0]}] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 } else if (argv[0] === "c64u-bridge") {

@@ -1,6 +1,6 @@
 # Spec 902 — Shutting down means everything is down, and stays down
 
-**Status:** PROPOSED 2026-10-10
+**Status:** DONE (2026-10-10). Gates: `e2e:902` (both runtimes, both orders), `e2e:902-leak`, and the leak step last in `gates.yml`; the Linux and Windows jobs run them. The Windows branches are proved on this machine through the layer's own fakes and the ask-first order (`C64RE_DOWN_ASK_FIRST=1`); the Windows CI job is the run on the real thing.
 **Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64:
 `../TRX64/docs/_archive/902-daemon-shutdown.md`, DONE on TRX64 main afae8f1, released in TRX64 0.12.10.
 `daemon/shutdown` (no params) → `{ok:true, persisted:{cartridge:path|null, disks:[path…]},
@@ -154,3 +154,32 @@ corrected wherever they now say "kill the process".
   smoke that does exactly that) and passes on the clean gate.
 - The same acceptance e2e passes in the Windows CI job: everything ends, nothing stays
   listening, no console window opened, and a hard kill is only used after the 5 s grace.
+
+---
+
+## §5 Decisions made while building
+
+- **Ledger identity** is the pid, the OS's start-time string and the command line exactly as the OS reports it; it is
+  matched by equality, never computed with. Records are written by the starter for processes C64RE spawns without
+  a way into (the TRX64 daemon, sandbox daemons, the UI's runtime), and by the process itself for those that are
+  C64RE's own node programs (bridge, workspace server, dev server, `c64re ui`).
+- **The hold is written only by a full `down`.** `--project` and `--keep` are partial: the machine is not "shut down",
+  so they write no hold and keep the selection.
+- **An explicit start clears the hold**, in this order: `c64re up`, `c64re ui` (and `npm run workspace`),
+  `runtime_session_start`, and selecting a C64 Ultimate through `runtime_backend` or the workbench (both go through
+  `selectBackend`). A hold does not stop an attach to a daemon that is already up.
+- **POSIX ends by signal, Windows asks first.** A bridge answers `daemon/shutdown` as well as its older
+  `bridge/shutdown`; the workbench server answers a local `POST /api/shutdown` (loopback peer, loopback Host,
+  `x-c64re-shutdown` header, no foreign Origin), the dev server `POST /__c64re/shutdown`.
+  `C64RE_DOWN_ASK_FIRST=1` puts a POSIX machine through the Windows order; `C64RE_DOWN_GRACE_MS` shortens the 5 s.
+- **A bridge started before the ledger existed** is in the bridge registry only: it is asked to end by its own name and
+  never signalled (its identity was never recorded). A daemon started before the ledger is foreign to `down`.
+- **Known ports** are the runtime port (`C64RE_RUNTIME_ENDPOINT`, else 4312), the UI ports (`C64RE_UI_PORTS`, else
+  4310 and 4311) and the ports in the records; a listener there that is not in the ledger is named, never touched.
+- **Stall self-heal** (`ensureDaemon`) no longer ends any listener on the port with `kill -9`: it ends a process the
+  ledger vouches for, or one that is a `trx64-daemon` by name; anything else is left alone.
+- **The leak step** needs the gate's state directory and `C64RE_STARTED_BY=smoke` (job env in `gates.yml`, exported by
+  `gate.sh`); it names the smoke by the gate step (`C64RE_GATE_STEP`) or the npm script. It also reports a new
+  listener whose command line names this checkout and that is in no ledger.
+- `C64RE_RUNTIME_BIN` may be a `.js`/`.mjs` script: node runs it. That is how the stand-in daemon is started on a runner
+  without a TRX64 binary.

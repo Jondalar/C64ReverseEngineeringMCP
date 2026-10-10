@@ -245,7 +245,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "project_launchers",
-    "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd. Use when the human wants to click to start, stop or restart the workbench UI (HTTP :4310) instead of typing, or when a project folder goes to someone on another system (name that platform). Not for starting the UI yourself (run ./ui.sh start; it opens no browser without --open) and not for creating a project (use project_init). platform defaults to the system this server runs on. Existing files are kept (hand edits are safe) unless refresh is true, which rewrites this platform's files. Returns: files written, files kept, how to start.",
+    "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd. Use when the human wants to click to start, stop or restart the workbench UI (HTTP :4310) instead of typing, or when a project folder goes to someone on another system (name that platform). Not for starting the UI yourself (run ./ui.sh start; it opens no browser without --open) and not for creating a project (use project_init). platform defaults to the system this server runs on. Stop in the starters runs `c64re down`: it ends the UI, the C64 Ultimate bridges, the sandboxes and the runtime that C64RE started (each only if it is still the process that was recorded) and keeps them down until the next start; it never kills a foreign process by port. Existing files are kept (hand edits are safe) unless refresh is true, which rewrites this platform's files. Returns: files written, files kept, how to start.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       platform: z.enum(["linux", "macos", "windows"]).optional().describe("The system the starters are for. Omitted: the system this MCP server runs on."),
@@ -340,6 +340,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         }
       } catch { /* a project without the document layer prints what it always did */ }
 
+      // Spec 902 D4 — what C64RE has running on this machine, the selection and the hold, without ps and lsof.
+      let processLines: string[] = [];
+      try {
+        const { runStatus } = await import("../runtime/down.js");
+        const st = await runStatus();
+        processLines = ["", "Running (c64re status):", ...st.text.split("\n").slice(1)];
+      } catch { /* a status line must never break the project summary */ }
+
       return textContent([
         `Project: ${status.project.name}`,
         `Root: ${status.project.rootPath}`,
@@ -363,6 +371,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Canonical docs: ${status.workflowPlan.canonicalDocPaths.join(", ") || "(none)"}`,
         `Canonical prompts: ${status.workflowPlan.canonicalPromptIds.join(", ") || "(none)"}`,
         ...docLines,
+        ...processLines,
         ...mcpConfigWarnings(root),
         ``,
         `Phase status:`,

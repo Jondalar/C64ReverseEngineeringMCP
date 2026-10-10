@@ -12,12 +12,14 @@
 // actionable error (§236) — never a silent in-process fallback.
 
 import { WebSocket } from "ws";
-import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
 import { resolveDaemonSpawn } from "./resolve-daemon-spawn.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } from "./setup-recipe.js";
 import { idleExitSeconds, noteFreshRuntime } from "./idle-exit.js";
+import { heldMessage } from "./hold.js";
+import { platformProc, spawnDetached } from "./platform-proc.js";
+import { childEnv, registerProcess, unregisterProcess, listProcesses, type StartedBy } from "./process-ledger.js";
 import { RuntimeMethods, type BackendIdentity, type BackendNotification } from "./runtime-methods.js";
 
 /** The product Runtime Daemon always listens here unless overridden. The UI
@@ -100,18 +102,28 @@ async function probeLiveness(endpoint: string, pingTimeoutMs = 3000): Promise<"h
   }
 }
 
-/** Spec 746.x — kill whatever process is LISTENing on the endpoint's port (the
- *  wedged daemon). Best-effort, localhost only. Uses lsof + kill -9. */
-function killStalledDaemon(endpoint: string): boolean {
+/**
+ * Spec 746.x — end the wedged daemon that holds the endpoint's port. Localhost only. Spec 902:
+ * only a process C64RE can vouch for is ended — one the ledger recorded (and whose pid still
+ * matches the record) or one that is a runtime daemon by name. Any other listener is somebody
+ * else's and is left alone; the start that follows then fails on the port and says so.
+ */
+async function killStalledDaemon(endpoint: string): Promise<boolean> {
   const m = endpoint.match(/^wss?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/);
   if (!m) return false; // only self-heal a localhost daemon
-  const port = m[1];
   try {
-    // NB: top-level ESM import of execSync — `require()` is undefined in this ESM
-    // module (package.json type:module), so the old require() form threw + the kill
-    // silently never happened (the zombie survived). This is the real BUG.
-    execSync(`lsof -ti tcp:${port} -sTCP:LISTEN | xargs kill -9`, { stdio: "ignore", timeout: 5000 });
-    return true;
+    const listeners = await platformProc.listenersOn(Number(m[1]));
+    const ours = new Set((await listProcesses()).map((r) => r.pid));
+    const infos = await platformProc.infoMany(listeners.map((l) => l.pid));
+    let ended = false;
+    for (const l of listeners) {
+      const isDaemon = ours.has(l.pid) || /trx64-daemon/i.test(infos.get(l.pid)?.command ?? "");
+      if (!isDaemon) continue;
+      const r = await platformProc.end(l.pid, { graceMs: 300 });
+      unregisterProcess(l.pid);
+      ended ||= r.how !== "survived";
+    }
+    return ended;
   } catch {
     return false;
   }
@@ -124,8 +136,15 @@ function killStalledDaemon(endpoint: string): boolean {
  * second MCP racing to spawn just loses the port bind and its client retries onto
  * the winner. Disable with C64RE_RUNTIME_AUTOSTART=0.
  */
-function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean {
+export interface StartOptions {
+  /** An explicit start (`c64re up`, runtime_session_start) ignores the hold; the four automatic triggers do not. */
+  explicit?: boolean;
+  startedBy?: StartedBy;
+}
+
+async function spawnDaemonDetached(endpoint: string, projectDirArg?: string, so: StartOptions = {}): Promise<boolean> {
   if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return false;
+  if (!so.explicit) { const held = heldMessage(); if (held) throw new Error(held); }
   // Spec 744.4c (fix A) — prefer the project the MCP tool resolved (config-agnostic:
   // works whether C64RE_PROJECT_DIR is in the env or derived from the MCP context),
   // falling back to the env. The daemon is per-project, so it must know which one.
@@ -146,11 +165,19 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
   const idle = idleExitSeconds();
   const args = idle > 0 ? [...plan.args, "--idle-exit", String(idle)] : plan.args;
   try {
-    const child = spawn(plan.cmd, args, {
-      cwd: repo, detached: true, stdio: "ignore",
-      env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
+    const startedBy = so.startedBy ?? "mcp";
+    const child = spawnDetached(plan.cmd, args, {
+      cwd: repo,
+      env: { ...childEnv(startedBy), C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
     });
+    child.once("error", () => { /* surfaced by the connect that follows */ });
     child.unref();
+    // Spec 902 D1 — the ledger knows it from the first moment, so `down` can end it.
+    if (child.pid) {
+      const pid = child.pid;
+      await registerProcess({ pid, kind: "daemon", port: Number(port), project: projectDir, startedBy });
+      child.once("exit", () => unregisterProcess(pid));
+    }
     return true;
   } catch {
     return false;
@@ -159,16 +186,17 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
 
 /**
  * Spec 744.4c — idempotent, fire-and-forget "make sure the daemon is up".
- * The ONE helper behind all three start triggers — MCP eager start (cli.ts),
- * the UI dev-server (vite plugin), and the lazy first-tool-call path. Whoever
- * is first (human opening the UI, or the LLM calling a runtime tool) brings the
- * shared runtime up; the rest see it already running. Never throws. Race-safe:
+ * The helper behind the automatic start triggers — MCP eager start (cli.ts) and the
+ * agent_onboard health probe; the lazy first-tool-call path (`connectWithAutostart`) and the
+ * UI dev-server (vite plugin) apply the same rule. Whoever is first (human opening the UI, or
+ * the LLM calling a runtime tool) brings the shared runtime up; the rest see it already running.
+ * Spec 902 D3: none of them starts anything while `c64re down` stands ("held"). Never throws. Race-safe:
  * if several callers spawn at once, the OS port-bind picks exactly one winner and
  * the loser daemons exit cleanly (run.ts EADDRINUSE → exit 0).
  */
 export async function ensureDaemon(
   opts?: { endpoint?: string; projectDir?: string },
-): Promise<"already-up" | "spawned" | "skipped" | "failed"> {
+): Promise<"already-up" | "spawned" | "skipped" | "held" | "failed"> {
   try {
     if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return "skipped";
     const endpoint = opts?.endpoint ?? runtimeEndpoint();
@@ -177,10 +205,12 @@ export async function ensureDaemon(
     // port held and gave up, so the zombie stayed forever and no session came up.
     const health = await probeLiveness(endpoint);
     if (health === "healthy") return "already-up";
+    // Spec 902 D3 — `c64re down` stands until an explicit start: this is an automatic trigger.
+    if (heldMessage()) return "held";
     if (health === "stall") {
       // self-heal: kill the wedged daemon, then spawn a fresh one onto the freed port.
       console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED (no pong) — killing it + respawning.`);
-      killStalledDaemon(endpoint);
+      await killStalledDaemon(endpoint);
       // wait for the port to actually release (kill -9 + socket teardown is not instant)
       // before spawning, else the fresh daemon hits EADDRINUSE and exits as a race loser.
       for (let i = 0; i < 20; i++) {
@@ -188,10 +218,29 @@ export async function ensureDaemon(
         if ((await probeLiveness(endpoint, 500)) === "down") break;
       }
     }
-    return spawnDaemonDetached(endpoint, opts?.projectDir) ? "spawned" : "failed";
+    return (await spawnDaemonDetached(endpoint, opts?.projectDir)) ? "spawned" : "failed";
   } catch {
     return "failed";
   }
+}
+
+/**
+ * Spec 902 D3 — the EXPLICIT start (`c64re up`): the hold is the caller's to clear, this starts the
+ * daemon on the endpoint and waits until it answers. Returns "already-up" when one does.
+ */
+export async function startRuntimeDaemon(
+  opts: { projectDir: string; endpoint?: string; startedBy?: StartedBy; timeoutMs?: number },
+): Promise<"already-up" | "spawned" | "failed"> {
+  const endpoint = opts.endpoint ?? runtimeEndpoint();
+  if ((await probeLiveness(endpoint)) === "healthy") return "already-up";
+  const started = await spawnDaemonDetached(endpoint, opts.projectDir, { explicit: true, startedBy: opts.startedBy ?? "cli" });
+  if (!started) return "failed";
+  const until = Date.now() + (opts.timeoutMs ?? 40_000);
+  while (Date.now() < until) {
+    await sleep(300);
+    if ((await probeLiveness(endpoint, 1500)) === "healthy") return "spawned";
+  }
+  return "failed";
 }
 
 /**
@@ -290,13 +339,15 @@ export class RuntimeDaemonClient extends RuntimeMethods {
     } else if (health === "stall") {
       if (this.policy.killStalled) {
         console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
-        killStalledDaemon(endpoint);
+        await killStalledDaemon(endpoint);
         for (let i = 0; i < 20; i++) { await sleep(150); if ((await probeLiveness(endpoint, 500)) === "down") break; }
       } else {
         throw new Error(`${this.policy.label()} at ${endpoint} is not answering (it accepted the connection and never replied) — select the runtime again with runtime_backend`);
       }
     }
-    // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
+    // 2) auto-start the daemon (detached, outlives this MCP) then poll for it. Not while `c64re down` stands (Spec 902 D3).
+    const held = heldMessage();
+    if (held) throw new Error(held);
     const spawned = await this.policy.start(this.projectDir);
     // Spec 886 D4 — this process had a machine and it is gone: the daemon ended itself
     // when idle (or was stopped). Say so in the next answer; its state does not come back.
@@ -409,6 +460,8 @@ export async function runtimeHealth(): Promise<
   // for a daemon that predates it). Informational: compatibility is gated on the epoch.
   if (ensured === "already-up" || ensured === "spawned") return { ok: true, build: emulatorDaemon.runtimeBuildVersion ?? lastProbedBuild };
   if ((await probeLiveness(endpoint, 1500)) === "healthy") return { ok: true, build: emulatorDaemon.runtimeBuildVersion ?? lastProbedBuild };
+  const held = heldMessage();
+  if (ensured === "held" && held) return { ok: false, reason: held, recipe: "Start it again with `c64re up` (or runtime_session_start); `c64re status` shows what is running." };
   const reason = `no runtime daemon reachable at ${endpoint} and none could be started`;
   return { ok: false, reason, recipe: runtimeSetupRecipe(reason) };
 }

@@ -25,6 +25,8 @@ import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { handleRuntimeBackendRoute, runtimeUrlFor } from "./runtime-backend-routes.js";
+import { SHUTDOWN_HEADER, UI_SHUTDOWN_PATH } from "../runtime/process-end.js";
+import { registerSelf } from "../runtime/process-ledger.js";
 import { currentSelection } from "../runtime/backend.js";
 
 interface UiMark {
@@ -415,6 +417,25 @@ const server = createServer((req, res) => {
       "Access-Control-Allow-Headers": "Content-Type",
     });
     res.end();
+    return;
+  }
+
+  // Spec 902 D6 — the way to ask this server to end where a signal is a hard kill (Windows). The
+  // server listens on every interface, so the request has to be local in three ways at once: the
+  // peer is loopback, the Host is loopback (a DNS-rebinding page names its own host), and it carries
+  // a header a page cannot add cross-origin (the preflight above refuses everything but GET).
+  if (requestUrl.pathname === UI_SHUTDOWN_PATH) {
+    const peer = req.socket.remoteAddress ?? "";
+    const loopback = (h: string) => /^(127\.\d+\.\d+\.\d+|localhost|\[?::1\]?|::ffff:127\.\d+\.\d+\.\d+)$/.test(h);
+    const hostName = (req.headers.host ?? "").replace(/:\d+$/, "");
+    const origin = req.headers.origin;
+    const originOk = !origin || (() => { try { return loopback(new URL(origin).hostname); } catch { return false; } })();
+    if (req.method !== "POST" || !loopback(peer) || !loopback(hostName) || !originOk || req.headers[SHUTDOWN_HEADER] !== "1") {
+      send(res, jsonResponse(403, { error: "a shutdown request is a local POST with the x-c64re-shutdown header" }));
+      return;
+    }
+    send(res, jsonResponse(200, { ok: true }));
+    setTimeout(() => { server.close(); process.exit(0); }, 100).unref();
     return;
   }
 
@@ -2405,6 +2426,10 @@ const server = createServer((req, res) => {
   }
 });
 
+
+// Spec 902 D1 — in the process ledger, and out of it when this process ends however it ends.
+await registerSelf({ kind: "ui-server", port: options.port, project: options.projectDir });
+for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
 
 server.listen(options.port, () => {
   console.log(`workspace-ui server listening on http://127.0.0.1:${options.port}`);

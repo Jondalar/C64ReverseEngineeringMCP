@@ -1,9 +1,9 @@
 {
-  "total": 299,
+  "total": 300,
   "specCount": 41,
   "advancedCandidate": 105,
   "byNamespace": {
-    "runtime": 89,
+    "runtime": 90,
     "list": 20,
     "project": 14,
     "save": 10,
@@ -1288,7 +1288,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd.",
-      "desc": "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd. Use when the human wants to click to start, stop or restart the workbench UI (HTTP :4310) instead of typing, or when a project folder goes to someone on another system (name that platform). Not for starting the UI yourself (run ./ui.sh start; it opens no browser without --open) and not for creating a project (use project_init). platform defaults to the system this server runs on. Existing files are kept (hand edits are safe) unless refresh is true, which rewrites this platform's files. Returns: files written, files kept, how to start.",
+      "desc": "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd. Use when the human wants to click to start, stop or restart the workbench UI (HTTP :4310) instead of typing, or when a project folder goes to someone on another system (name that platform). Not for starting the UI yourself (run ./ui.sh start; it opens no browser without --open) and not for creating a project (use project_init). platform defaults to the system this server runs on. Stop in the starters runs `c64re down`: it ends the UI, the C64 Ultimate bridges, the sandboxes and the runtime that C64RE started (each only if it is still the process that was recorded) and keeps them down until the next start; it never kills a foreign process by port. Existing files are kept (hand edits are safe) unless refresh is true, which rewrites this platform's files. Returns: files written, files kept, how to start.",
       "tier": "default?"
     },
     {
@@ -1784,6 +1784,15 @@
       "hasSpec": false,
       "firstSentence": "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs.",
       "desc": "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_checkpoint_capture).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_down",
+      "file": "server-tools/runtime-down.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "OWNER ACTION — shut C64RE down: the workbench UI, the C64 Ultimate bridges, the sandboxes and the runtime daemon, every one of them recorded in the process ledger, in that order; then the selection and the bridge registry are removed and a hold is written, so nothing starts again by itself until `c64re up`, `c64re ui`, runtime_session_start or selecting a C64 Ultimate.",
+      "desc": "OWNER ACTION — shut C64RE down: the workbench UI, the C64 Ultimate bridges, the sandboxes and the runtime daemon, every one of them recorded in the process ledger, in that order; then the selection and the bridge registry are removed and a hold is written, so nothing starts again by itself until `c64re up`, `c64re ui`, runtime_session_start or selecting a C64 Ultimate. THIS ENDS THE SHARED MACHINE THE HUMAN CO-DRIVES: its sessions, mounted media, checkpoints and rewind history are gone. Use it only when the owner has just asked for C64RE to be shut down. Not for cleaning up after your own work (a sandbox you started ends itself; use runtime_session_close to release a session), not for recovering from a stalled call, not as a step of a plan. A process whose pid no longer matches its record is dropped, never signalled; a process on a known port that C64RE did not start is named and left alone, and the answer then says what is left. Inputs: project_dir (end only that project's processes; no hold is written, the selection stays), keep (leave one kind running: ui, bridge, sandbox or daemon). Returns: one line per process (pid, port, what happened) and what, if anything, is still there. To see what runs without ending it: project_status, or `c64re status` in a terminal.",
       "tier": "default?"
     },
     {

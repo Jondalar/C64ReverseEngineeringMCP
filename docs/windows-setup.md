@@ -74,7 +74,7 @@ In the project folder, once you have the starters (step 3), double-click:
 | | |
 |---|---|
 | **ui-start.cmd** | builds the backend, starts it, waits for the port, opens the browser at `http://localhost:4310` |
-| **ui-stop.cmd** | stops it |
+| **ui-stop.cmd** | stops it (`c64re down`: the UI, the bridges, the sandboxes and the runtime) |
 | **ui-restart.cmd** | stop + start, picks up code changes |
 
 The window closes by itself when it worked, and stays open when it did not.

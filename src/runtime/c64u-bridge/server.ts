@@ -273,12 +273,14 @@ export class BridgeServer {
         await this.connectPromise;
         return { notes: await this.backend.beginStreams() };
       }
+      case "daemon/shutdown":
       case "bridge/shutdown": {
         // Answered after the streams are stopped and the device's connection is released, so the
         // caller knows the fixed UDP ports and the app's one slot are free when this returns.
         await this.backend.closeAndWait();
         setTimeout(() => void this.shutdown("asked to by a client", 0), 100).unref?.();
-        return { ok: true };
+        // `daemon/shutdown` is the runtime's own shape (Spec 902): a bridge writes back no medium and records no trace.
+        return method === "daemon/shutdown" ? { ok: true, persisted: { cartridge: null, disks: [] }, trace: null, exitCode: 0 } : { ok: true };
       }
       default: break;
     }

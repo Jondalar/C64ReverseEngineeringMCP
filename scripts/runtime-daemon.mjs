@@ -34,8 +34,11 @@ if (plan.mode === "none") {
 }
 if (plan.warn) console.warn(`[daemon] ${plan.warn}`);
 
-const child = spawn(plan.cmd, plan.args, { stdio: "inherit" });
-child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+// Spec 902 D1 — a daemon this script starts is in the process ledger, so `c64re down` ends it.
+const { registerProcess, unregisterProcess, childEnv } = await import(`${repoRoot}/dist/runtime/process-ledger.js`);
+const child = spawn(plan.cmd, plan.args, { stdio: "inherit", windowsHide: true, env: childEnv("cli") });
+if (child.pid) await registerProcess({ pid: child.pid, kind: "daemon", port: Number(port), project: projectDir, startedBy: "cli" });
+child.on("exit", (code, signal) => { if (child.pid) unregisterProcess(child.pid); process.exit(signal ? 1 : (code ?? 0)); });
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => { try { child.kill(sig); } catch { /* already gone */ } });
 }

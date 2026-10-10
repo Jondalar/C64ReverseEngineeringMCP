@@ -6,7 +6,7 @@
 // All of them start / stop / restart the C64RE workspace (HTTP UI :4310 + runtime
 // daemon :4312) pointed at this project. Background + logfile so an agent can call
 // ui.sh without holding a foreground process; `restart` is a single self-contained
-// kill+start. `ui.sh start|restart --open` additionally opens the browser once the
+// stop+start. `ui.sh start|restart --open` additionally opens the browser once the
 // port answers; the double-click starters pass it, a plain `./ui.sh start` does not.
 //
 // `npm run workspace` rebuilds the BACKEND on start when src/ changed since the
@@ -71,9 +71,10 @@ function launcherScript(projectDir: string, repoDir: string, packaged: boolean):
 #
 # Usage: ./ui.sh {start|stop|restart|status|build-ui|logs} [--open]
 #   start     start the workspace in the background (HTTP :4310 + WS :4312)
-#   restart   kill + start again (rebuilds the backend; picks up code changes)
+#   restart   stop + start again (rebuilds the backend; picks up code changes)
 #   --open    (start/restart) wait for :4310, then open it in the browser
-#   stop      kill whatever holds :4310 / :4312
+#   stop      \`c64re down\`: ends the UI, the C64U bridges, the sandboxes and the runtime that
+#             C64RE started, and keeps them down until the next start (no kill by port)
 #   status    show whether the two ports are up
 #   build-ui  rebuild the frontend bundle (ui/dist) — separate from the backend
 #   logs      tail the workspace log
@@ -93,12 +94,29 @@ PIDFILE="$PROJECT/.ui.pid"
 
 is_up() { lsof -ti:"$1" >/dev/null 2>&1; }
 
+# \`c64re down\` ends what C64RE started, each process only if it still is the one it recorded;
+# a foreign process on a port is named, not killed. Only a checkout without a build has no
+# \`c64re\` to ask, and then there is nothing recorded either: the ports are the last resort.
+down_all() {
+${packaged
+  ? `  $C64RE down`
+  : `  [ -f "$REPO/dist/cli.js" ] || return 127
+  node "$REPO/dist/cli.js" down`}
+}
+
 kill_ports() {
   for p in "$HTTP_PORT" "$WS_PORT"; do
     pids=$(lsof -ti:"$p" 2>/dev/null || true)
     [ -n "$pids" ] && kill $pids 2>/dev/null || true
   done
   if [ -f "$PIDFILE" ]; then kill "$(cat "$PIDFILE")" 2>/dev/null || true; rm -f "$PIDFILE"; fi
+}
+
+stop_all() {
+  down_all; rc=$?
+  if [ "$rc" = 127 ]; then echo "[ui.sh] no built c64re here - ending whatever holds :$HTTP_PORT / :$WS_PORT"; kill_ports; return 0; fi
+  rm -f "$PIDFILE"
+  return $rc
 }
 
 start() {
@@ -139,8 +157,8 @@ OPEN=0; [ "\${2:-}" = "--open" ] && OPEN=1
 
 case "\${1:-start}" in
   start)    start; [ "$OPEN" = 1 ] && { open_browser || exit 1; }; true ;;
-  stop)     kill_ports; echo "[ui.sh] stopped (:$HTTP_PORT / :$WS_PORT)" ;;
-  restart)  kill_ports; sleep 1; start; [ "$OPEN" = 1 ] && { open_browser || exit 1; }; true ;;
+  stop)     stop_all; rc=$?; echo "[ui.sh] stopped (:$HTTP_PORT / :$WS_PORT) - c64re up or ./ui.sh start brings it back"; exit $rc ;;
+  restart)  stop_all || true; sleep 1; start; [ "$OPEN" = 1 ] && { open_browser || exit 1; }; true ;;
   status)   for p in "$HTTP_PORT" "$WS_PORT"; do is_up "$p" && echo ":$p UP" || echo ":$p down"; done ;;
   build-ui) ${packaged
     ? `echo "[ui.sh] the bundle ships with the package — nothing to rebuild." ;;`
@@ -180,7 +198,8 @@ function powershellLauncherScript(projectDir: string, repoDir: string, packaged:
 
     start     start the workspace in the background (HTTP :4310 + WS :4312),
               wait for the port, then open the browser
-    stop      kill whatever holds :4310 / :4312 (process TREE)
+    stop      c64re down: ends the UI, the C64U bridges, the sandboxes and the runtime C64RE
+              started and keeps them down until the next start (no kill by port)
     restart   stop + start (rebuilds the backend; picks up code changes)
     status    show whether the two ports are up, and who owns them
     build-ui  rebuild the frontend bundle (ui/dist) — separate from the backend
@@ -289,7 +308,31 @@ function Stop-Tree([int] $TargetPid) {
   & taskkill.exe /PID $TargetPid /T /F | Out-Null
 }
 
+# c64re down ends what C64RE started - each process only if it still is the one it recorded,
+# asked to end first and stopped (taskkill /T /F) only after a grace. A checkout without a
+# build has no c64re to ask and nothing recorded either: then the ports are the last resort.
+function Invoke-Down {
+${packaged
+  ? `  $cli = Get-Command 'c64re' -ErrorAction SilentlyContinue
+  if ($cli) { & $cli.Source 'down'; return $LASTEXITCODE }
+  $npx = Get-Command 'npx' -ErrorAction SilentlyContinue
+  if (-not $npx) { return 127 }
+  & $npx.Source '-y' $C64RE_PKG 'down'
+  return $LASTEXITCODE`
+  : `  $node = Get-Command 'node.exe' -ErrorAction SilentlyContinue
+  try { $entry = Join-Path (Get-Repo) 'dist\\cli.js' } catch { return 127 }
+  if (-not $node -or -not (Test-Path $entry)) { return 127 }
+  & $node.Source $entry 'down'
+  return $LASTEXITCODE`}
+}
+
 function Stop-Workspace {
+  $rc = Invoke-Down
+  if ($rc -ne 127) {
+    if (Test-Path $PIDFILE) { Remove-Item $PIDFILE -Force -ErrorAction SilentlyContinue }
+    return 0
+  }
+  Write-Ui 'no built c64re here - ending whatever holds the ports'
   $killed = 0
   foreach ($port in @($HTTP_PORT, $WS_PORT)) {
     foreach ($owner in (Get-PortOwner $port)) { Stop-Tree ([int] $owner); $killed++ }

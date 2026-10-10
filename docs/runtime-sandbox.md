@@ -201,9 +201,19 @@ when you looked.
 
 ### 3. Clean up — always
 
-```bash
-pkill -f "trx64-daemon --port 4333"
+End the machine you started: send `daemon/shutdown` on its own socket (it answers, closes
+the connection and exits; a runtime from TRX64 0.12.10 on also writes back a mounted
+cartridge or disk and finishes a recording trace), then wait for the process to go. Do not
+look for it by command line and kill it: a sandbox started with `SandboxSession` is in the
+process ledger, and `c64re status` lists it with its pid and port.
+
+```js
+await call("daemon/shutdown", {});   // → { ok: true, persisted: { cartridge, disks }, trace, exitCode: 0 }
 ```
+
+`c64re down` (or `runtime_down`, which is the owner's to ask for) ends every sandbox in the
+ledger together with the rest of C64RE. A sandbox is not blocked by the hold `down`
+leaves — it has a budget and ends itself.
 
 A forgotten sandbox daemon keeps running and pegs a core. That is the whole reason
 `runtime_sandbox_run` carries a budget: it ends itself, so there is nothing to forget. The
