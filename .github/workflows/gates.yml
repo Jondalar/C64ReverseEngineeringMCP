@@ -44,6 +44,12 @@ jobs:
     # first symptom was a bare "The operation was canceled" with no failing step above it
     # — which reads like a flake and is not one.
     timeout-minutes: 30
+    # Spec 902 D5 — every step runs with a state directory of its own and says it is a smoke, so the
+    # process ledger records what a step starts as a smoke's, and the last step can name the one that
+    # left something running.
+    env:
+      C64RE_STATE_DIR: ${{ github.workspace }}/.c64re-ci-state
+      C64RE_STARTED_BY: smoke
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +68,10 @@ jobs:
 
       - name: Build the workspace bundle
         run: npm run ui:build
+
+      # Spec 902 D5 — who listens before the first smoke runs; the last step of this job compares.
+      - name: Leak baseline (Spec 902)
+        run: npm run check:leaks -- --baseline
 
       # Rule 9 — no document may describe a world that no longer exists.
       # A tool that returns structuredContent hides its own text from the model.
@@ -678,6 +688,23 @@ jobs:
       - name: The annotations merger (877 D6)
         run: npm run e2e:877-merge
 
+      # Spec 902 — shut down means down: the ledger, the hold, `c64re down` / `up` / `status`, the
+      # platform layer. A daemon, a UI, a C64U bridge on a fake device and a sandbox are started, ended
+      # by `down`, and nothing is left; down stays down; a foreign listener and a reused pid are never
+      # touched. Real TRX64 when a binary is present, a stand-in daemon always. Own state directory
+      # and free ports, never :4312.
+      - name: Shut down means down (Spec 902)
+        run: npm run e2e:902
+
+      # Spec 902 D5 — the leak step itself, proved by a smoke that leaks on purpose (not in this gate).
+      - name: The leak step fails on a leaking smoke (Spec 902)
+        run: npm run e2e:902-leak
+
+      # Spec 902 D5 — LAST: after every smoke above, nothing a smoke started is still running. Names the
+      # step that left something behind.
+      - name: Nothing a smoke started is still running (Spec 902)
+        run: npm run check:leaks
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — Windows, on a Windows shell, because the alternative is prose.
   #
@@ -696,6 +723,7 @@ jobs:
   # for the same answer — they are platform-independent logic over temp directories, and
   # the one thing that is genuinely platform-shaped is the thing this job runs.
   #
+
   # No WSL2. GitHub's Windows runners do not offer it (nested virtualisation), and the
   # third-party actions that exist install WSL1, which is not what INSTALL.md describes.
   # That section stays marked unproved rather than proved by something adjacent.
@@ -737,6 +765,15 @@ jobs:
       # glob matched — invisible on the Linux job, where the two spellings agree.
       - name: Project knowledge store, on Windows
         run: npm run test:project-knowledge
+
+      # Spec 902 D6 — the same acceptance as the Linux job, on Windows: everything ends, nothing
+      # stays listening, down stays down, no console window opens, a hard stop only after the
+      # grace. The runtime is the stand-in daemon (no TRX64 binary on the runner).
+      - name: Shut down means down, on Windows (Spec 902)
+        run: npm run e2e:902
+
+      - name: The leak step, on Windows (Spec 902)
+        run: npm run e2e:902-leak
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — WSL2, which turns out to be testable after all.

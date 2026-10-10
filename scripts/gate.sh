@@ -110,6 +110,17 @@ temp_daemons() {
 }
 TEMP_DAEMONS_AT_START="$(temp_daemons)"
 
+# Spec 902 D5 — every step runs with a state directory of its own and says it is a smoke, so the
+# process ledger records what a step starts as that step's, and the last step of the workflow
+# (check:leaks) can name the one that left something running. A directory per run: nothing a test
+# writes there is the owner's selection, hold or ledger.
+if [ -z "${C64RE_STATE_DIR:-}" ]; then
+  C64RE_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/c64re-gate-state.XXXXXX")
+  GATE_OWNS_STATE=1
+fi
+export C64RE_STATE_DIR
+export C64RE_STARTED_BY=smoke
+
 N=0
 START=$(date +%s)
 printf '\n=== gate: %s step(s) from gates.yml (tier=%s) ===\n' "$TOTAL" "$TIER" >&2
@@ -120,12 +131,13 @@ while IFS="$(printf '\t')" read -r NAME CMD; do
   printf '\n[%s/%s] %s\n' "$N" "$TOTAL" "$NAME" >&2
   # </dev/null: a step must never inherit the caller's stdin. When this runs from
   # pre-push that stdin is git's ref pipe, and a step that reads it kills the push.
-  if ! sh -c "$CMD" >&2 </dev/null; then
+  if ! C64RE_GATE_STEP="$NAME" sh -c "$CMD" >&2 </dev/null; then
     ELAPSED=$(( $(date +%s) - START ))
     printf '\n=== gate RED at step %s/%s after %ss ===\n' "$N" "$TOTAL" "$ELAPSED" >&2
     printf '    %s\n' "$NAME" >&2
     printf '    re-run it alone:  %s\n\n' "$CMD" >&2
     rm -f /tmp/.c64re-gate-steps.$$
+    [ "${GATE_OWNS_STATE:-0}" = "1" ] && rm -rf "$C64RE_STATE_DIR"
     exit 1
   fi
 done < /tmp/.c64re-gate-steps.$$
@@ -141,6 +153,7 @@ if [ -n "$LEFT_BEHIND" ]; then
 fi
 
 ELAPSED=$(( $(date +%s) - START ))
+[ "${GATE_OWNS_STATE:-0}" = "1" ] && rm -rf "$C64RE_STATE_DIR"
 
 # Leave a note saying WHAT was proved, so the pre-push hook does not prove it again.
 #

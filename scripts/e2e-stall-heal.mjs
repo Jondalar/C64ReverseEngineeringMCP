@@ -5,7 +5,9 @@
 import { spawn, execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,14 +24,20 @@ console.log("Spec 746.x — daemon STALL self-heal (detect wedged daemon, kill, 
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
 killPort();
 
+// Spec 902: only a process C64RE can vouch for is ended — one in the ledger, or a runtime daemon by
+// name. The fake below is a stalled daemon C64RE started, so it is recorded; a stalled listener
+// nobody recorded is somebody else's and is left alone (asserted at the end).
+process.env.C64RE_STATE_DIR = mkdtempSync(join(tmpdir(), "c64re-stall-"));
+const { registerProcess } = await import(pathToFileURL(join(ROOT, "dist/runtime/process-ledger.js")).href);
+
 let exit = 0;
 const procs = [];
 try {
   // 1) Spawn a FAKE STALLED daemon AS A SEPARATE PROCESS: a WS server that ACCEPTS
   //    connections (port held, socket opens) but NEVER replies (dead event loop sim).
-  //    MUST be its own process — killStalledDaemon does `lsof :port | kill -9`, which
-  //    would kill THIS gate if the fake server ran in-process.
-  const fakeSrc = `
+  //    MUST be its own process — killStalledDaemon ends the listener on the port, which
+  //    would end THIS gate if the fake server ran in-process.
+  var fakeSrc = `
     import { WebSocketServer } from "ws";
     const s = new WebSocketServer({ port: ${PORT}, host: "127.0.0.1" });
     s.on("connection", () => {}); // accept, never reply
@@ -39,6 +47,7 @@ try {
   procs.push(fake);
   for (let i = 0; i < 40 && !(await listening()); i++) await sleep(150);
   ok(await listening(), "0 fake stalled daemon (separate proc) holds the port (socket opens)");
+  await registerProcess({ pid: fake.pid, kind: "daemon", port: PORT, startedBy: "mcp" });
 
   // 2+3) ensureDaemon must: detect stall (no pong) → kill the fake → spawn a REAL daemon.
   const { ensureDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js"));
@@ -72,6 +81,15 @@ try {
   } else {
     ok(false, "3 fresh daemon session (skipped — never healthy)");
   }
+  // 6) Spec 902 — a stalled listener nobody recorded is somebody else's: it is not killed.
+  killPort(); await sleep(600);
+  const foreign = spawn(process.execPath, ["--input-type=module", "-e", fakeSrc], { cwd: ROOT, stdio: "ignore" });
+  procs.push(foreign);
+  for (let i = 0; i < 40 && !(await listening()); i++) await sleep(150);
+  await ensureDaemon({ endpoint: ENDPOINT, projectDir: ROOT });
+  await sleep(1500);
+  let foreignAlive = true; try { process.kill(foreign.pid, 0); } catch { foreignAlive = false; }
+  ok(foreignAlive, "4 a stalled listener that is not in the ledger and not a runtime daemon is left alone");
 } catch (e) {
   console.error("FATAL", e.message); exit = 2;
 } finally {
