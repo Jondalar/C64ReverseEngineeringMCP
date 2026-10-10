@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Spec 898 — the VIC-20 and the TED machines are platforms (the foundation: D1, D2, D4, D5, D6).
+// Spec 898 — the VIC-20 and the TED machines are platforms (D1-D9).
 //
 //   1 the memory map per tag, at its boundaries — and the CommonJS twin the pipeline
 //     uses answers the same for every address of every tag
@@ -10,11 +10,13 @@
 //     vic20:io:… / plus4:io:… nodes — and the C64's still go to c64:io:…
 //   5 the render's machine is resolved argument > artifact record > project default > c64
 //   6 inspect_address_range and c64ref_lookup take the same resolution, and say so on a miss
-//   8 a `10 SYS` stub at the VIC-20 / TED BASIC start is a BASIC segment with a SYS entry; the
-//     RAM vector pairs per machine; basic_list / basic_tokenize speak BASIC 3.5 on plus4 and V2 elsewhere
 //   7 where a tool guesses a load address for a block with no header, the machine decides:
 //     VIC-20 $1001/$0401/$1201, TED $1001, C64 $0801 — and a header always wins
 //   8 D7: an annotate boundary over the machine's I/O window is met by its access sites
+//   9 a `10 SYS` stub at the VIC-20 / TED BASIC start is a BASIC segment with a SYS entry; the
+//     RAM vector pairs per machine; basic_list / basic_tokenize speak BASIC 3.5 on plus4 and V2 elsewhere
+//  10 D8: onboarding / status state the machine and ask for it; a .d64 extracted in a vic20 project
+//     renders with VIC-20 names; D9: a raw cartridge image is placed by its signature
 //
 // Hermetic: temp projects, synthetic bytes, no ROMs, no media, no daemon, no network. Needs
 // the assemblers the rebuild proof uses (KickAssembler jar, 64tass) and skips those checks
@@ -522,6 +524,158 @@ try {
   put(projA, "k_ted35z.prg", prgBytes(0x1001, [0x09, 0x10, 10, 0, 0xfd, 0xfe, 0xff, 0, 0, 0]));
   const lstZ = await call("basic_list", { prg_path: "artifacts/prg/k_ted35z.prg", platform: "plus4" });
   check(/10 WHILE\{\$FE\}π/.test(lstZ), "plus4 list: $FD = WHILE (last token), $FE is no keyword, $FF = pi", lstZ.split("\n").find((l) => /^10 /.test(l)));
+function makeD64(files) {
+  const img = Buffer.alloc(174848);
+  const spt = (t) => t <= 17 ? 21 : t <= 24 ? 19 : t <= 30 ? 18 : 17;
+  const off = (t, s) => { let o = 0; for (let i = 1; i < t; i++) o += spt(i) * 256; return o + s * 256; };
+  const bam = off(18, 0);
+  img[bam] = 18; img[bam + 1] = 1; img[bam + 2] = 0x41;
+  img.fill(0xa0, bam + 0x90, bam + 0xa2); img.write("TESTDISK", bam + 0x90, "latin1");
+  img[bam + 0xa2] = 0x30; img[bam + 0xa3] = 0x30; img[bam + 0xa5] = 0x32; img[bam + 0xa6] = 0x41;
+  let t = 1, s = 0;
+  const dir = off(18, 1);
+  img[dir] = 0; img[dir + 1] = 0xff;
+  files.forEach((f, i) => {
+    const body = f.bytes;
+    const chunks = []; for (let p = 0; p < body.length; p += 254) chunks.push(body.subarray(p, p + 254));
+    const first = [t, s];
+    chunks.forEach((c, k) => {
+      const o = off(t, s); c.copy(img, o + 2);
+      const last = k === chunks.length - 1;
+      let nt = t, ns = s + 1; if (ns >= spt(t)) { nt = t + 1; ns = 0; if (nt === 18) nt = 19; }
+      if (last) { img[o] = 0; img[o + 1] = c.length + 1; } else { img[o] = nt; img[o + 1] = ns; t = nt; s = ns; }
+      if (last) { s = ns; t = nt; }
+    });
+    const e = dir + i * 32;
+    img[e + 2] = 0x82; img[e + 3] = first[0]; img[e + 4] = first[1];
+    img.fill(0xa0, e + 5, e + 21); img.write(f.name, e + 5, "latin1");
+    img[e + 30] = chunks.length & 0xff; img[e + 31] = chunks.length >> 8;
+  });
+  return img;
+}
+
+  // ── 10 D8 the machine is asked for · D9 a raw cartridge is placed by its signature ──
+  head(10, "D8: the machine is stated and asked for; D9: a raw cartridge image is placed by its signature");
+  const mkProject = async (tag, platform) => {
+    const d = mkdtempSync(join(tmpdir(), `c64re-898-${tag}-`));
+    await call("project_init", { project_dir: d, name: `platforms-${tag}`, ...(platform ? { platform } : {}) });
+    await call("agent_onboard", { project_dir: d });
+    return d;
+  };
+  const statusOf = (d) => call("project_status", { project_dir: d });
+  const onboardOf = (d) => call("agent_onboard", { project_dir: d });
+  const machineBlock = (t) => {
+    const ls = t.split("\n"); const i = ls.findIndex((l) => /^Machine:/.test(l));
+    if (i < 0) return "";
+    let j = i + 1; while (j < ls.length && /^  (\d+ registered|- |Ask the human)/.test(ls[j])) j++;
+    return ls.slice(i, j).join("\n");
+  };
+  const ASK = /project_init/;
+
+  const pc = await mkProject("d8c");
+  for (const [what, fn] of [["agent_onboard", onboardOf], ["project_status", statusOf]]) {
+    const t = await fn(pc);
+    check(/^Machine: Commodore 64 \(c64\) — no machine recorded/m.test(t), `${what}: a project with no machine says it is assuming the C64`);
+    check(!/look like another machine/.test(t), `${what}: …and with no foreign-looking file says nothing more`);
+  }
+  put(pc, "g_1001.prg", prgBytes(0x1001, [0x0c, 0x10, 10, 0, 0x99, 0, 0, 0, 0xea, 0xea]));
+  put(pc, "g_0801.prg", prgBytes(0x0801, [0x0c, 0x08, 10, 0, 0x99, 0, 0, 0, 0xea, 0xea]));
+  await call("analyze", { project_dir: pc, path: "artifacts/prg/g_1001.prg" });
+  await call("analyze", { project_dir: pc, path: "artifacts/prg/g_0801.prg" });
+  for (const [what, fn] of [["agent_onboard", onboardOf], ["project_status", statusOf]]) {
+    const t = await fn(pc);
+    check(/1 registered file\(s\) look like another machine's/.test(t) && /g_1001\.prg: load address \$1001/.test(t), `${what}: a $1001 file is named, with the address`, machineBlock(t));
+    check(!/g_0801/.test(machineBlock(t)), `${what}: a $0801 file is not foreign`);
+    check(ASK.test(machineBlock(t)) && /platform: "vic20" or "plus4"/.test(machineBlock(t)) && /Ask the human/.test(machineBlock(t)), `${what}: …and names the one call, project_init with platform`);
+  }
+  // a cartridge signature
+  const cartVic = Buffer.alloc(0x2000, 0xea); cartVic.set([0x41, 0x30, 0xc3, 0xc2, 0xcd], 4);
+  const cartTed = Buffer.alloc(0x4000, 0xea); cartTed.set([0x43, 0x42, 0x4d], 7);
+  const pcart = await mkProject("d8cart");
+  put(pcart, "cart_vic.bin", cartVic);
+  await call("analyze", { project_dir: pcart, path: "artifacts/prg/cart_vic.bin", load_address: "A000" });
+  const tc = await onboardOf(pcart);
+  check(/cart_vic\.bin: cartridge signature A0CBM \(\$41 \$30 \$C3 \$C2 \$CD\) at offset 4/.test(tc) && ASK.test(machineBlock(tc)), "agent_onboard: a cartridge signature file is named with its signature and the call that settles it", machineBlock(tc));
+  const tcs = await statusOf(pcart);
+  check(/cart_vic\.bin: cartridge signature A0CBM/.test(tcs), "project_status: the same");
+  // a project WITH a machine states it and stays quiet about foreign files
+  put(projB, "g_1001.prg", prgBytes(0x1001, [0x0c, 0x10, 10, 0, 0x99, 0, 0, 0, 0xea, 0xea]));
+  await call("analyze", { project_dir: projB, path: "artifacts/prg/g_1001.prg" });
+  for (const [what, fn] of [["agent_onboard", onboardOf], ["project_status", statusOf]]) {
+    const t = await fn(projB);
+    check(/^Machine: VIC-20 \(vic20\) — the project default/m.test(t), `${what}: a vic20 project states its machine and where it came from`, machineBlock(t));
+    check(!/look like another machine/.test(t), `${what}: …and does not second-guess it`);
+  }
+  // a machine named later settles it: the hint is gone
+  await call("project_init", { project_dir: pc, name: "platforms-d8c", platform: "vic20" });
+  check(/^Machine: VIC-20 \(vic20\)/m.test(await onboardOf(pc)) && !/look like/.test(await onboardOf(pc)), "project_init platform settles it: the next onboarding states the machine and the hint is gone");
+
+  // .d64 → extract_disk in a vic20 project → VIC-20 names with no platform argument
+  const pd64 = await mkProject("d8d64", "vic20");
+  const vicProg = prgBytes(0x1001, [0xa9, 0xf0, 0x8d, 0x05, 0x90, 0x8d, 0x0e, 0x91, 0x60, 0xea, 0xea, 0xea]);
+  mkdirSync(join(pd64, "media"), { recursive: true });
+  writeFileSync(join(pd64, "media", "t.d64"), makeD64([{ name: "VICPROG", bytes: vicProg }]));
+  const ex = await call("extract_disk", { project_dir: pd64, image_path: "media/t.d64" });
+  const manifest = JSON.parse(readFileSync(join(pd64, "analysis/disk/t/manifest.json"), "utf8"));
+  const mf = (manifest.files ?? [])[0];
+  check(mf !== undefined, ".d64: extract_disk reads a synthetic image written for the test", ex.split("\n")[0]);
+  const extracted = mf?.relativePath;
+  const extractedAbs = extracted ? join(pd64, "analysis/disk/t", extracted) : undefined;
+  check(extractedAbs && existsSync(extractedAbs) && readFileSync(extractedAbs).equals(vicProg), ".d64: the file came out byte-identical", JSON.stringify(mf).slice(0, 300));
+  if (extractedAbs && existsSync(extractedAbs)) {
+    // the extracted file has no artifact platform: the project default is the only thing that can name it
+    await call("analyze", { project_dir: pd64, path: extractedAbs });
+    await call("disasm", { project_dir: pd64, path: extractedAbs });
+    const tas = readFileSync(extractedAbs.replace(/\.prg$/, "_disasm.tas"), "utf8");
+    const sym = kb.node("vic20", 0x9005)?.symbol;
+    check(!sym || new RegExp(`\\b${sym}\\b`).test(tas), "extracted .d64 file in a vic20 project: $9005 carries the VIC-20 name with no platform argument", sym);
+    check(names(tas).length === 0, "…and no C64-only name appears", names(tas).join(","));
+    const pcd = await mkProject("d8d64c");
+    mkdirSync(join(pcd, "media"), { recursive: true });
+    writeFileSync(join(pcd, "media", "t.d64"), makeD64([{ name: "VICPROG", bytes: vicProg }]));
+    await call("extract_disk", { project_dir: pcd, image_path: "media/t.d64" });
+    const m2 = JSON.parse(readFileSync(join(pcd, "analysis/disk/t/manifest.json"), "utf8")).files[0];
+    await call("analyze", { project_dir: pcd, path: join(pcd, "analysis/disk/t", m2.relativePath) });
+    await call("disasm", { project_dir: pcd, path: join(pcd, "analysis/disk/t", m2.relativePath) });
+    const tas2 = readFileSync(join(pcd, "analysis/disk/t", m2.relativePath.replace(/\.prg$/, "_disasm.tas")), "utf8");
+    check(!sym || !new RegExp(`\\b${sym}\\b`).test(tas2), "control: the same disk in a project with no machine renders as the C64 (no VIC-20 name)", sym);
+  }
+
+  // D9
+  const pd9 = await mkProject("d9", "vic20");
+  const hexA = (n) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
+  put(pd9, "cartv.bin", cartVic);
+  const r9 = await call("disasm", { project_dir: pd9, path: "artifacts/prg/cartv.bin" });
+  check(/A0CBM \(\$41 \$30 \$C3 \$C2 \$CD\) at offset 4/.test(r9) && /\$A000-\$BFFF/.test(r9), "vic20: A0CBM at offset 4 → raw at $A000, the signature named as evidence", r9.split("\n").find((l) => /Reading/.test(l)));
+  const a9 = await call("analyze", { project_dir: pd9, path: "artifacts/prg/cartv.bin" });
+  check(/A0CBM/.test(a9) && /\$A000-\$BFFF/.test(a9), "…the analyze door reads it the same way", a9.split("\n").find((l) => /Reading/.test(l)));
+  const r9e = await call("disasm", { project_dir: pd9, path: "artifacts/prg/cartv.bin", load_address: "9000" });
+  check(/\$9000-\$AFFF/.test(r9e) && !/A0CBM/.test(r9e), "an explicit load_address wins over the signature", r9e.split("\n").find((l) => /Reading/.test(l)));
+  const pt = await mkProject("d9ted", "plus4");
+  put(pt, "cartt.bin", cartTed);
+  const rt = await call("disasm", { project_dir: pt, path: "artifacts/prg/cartt.bin" });
+  check(/CBM \(\$43 \$42 \$4D\) at offset 7/.test(rt) && /\$8000-\$BFFF/.test(rt), "plus4: CBM at offset 7 → raw at $8000, the signature named", rt.split("\n").find((l) => /Reading/.test(l)));
+  const at = await call("analyze", { project_dir: pt, path: "artifacts/prg/cartt.bin" });
+  check(/CBM \(\$43 \$42 \$4D\) at offset 7/.test(at) && /\$8000-\$BFFF/.test(at), "…and analyze too");
+  // the wrong machine's signature does not place the image
+  const rw = await call("disasm", { project_dir: pt, path: "artifacts/prg/cartt.bin", platform: "vic20" });
+  check(!/cartridge signature/.test(rw), "a TED signature on a vic20 render places nothing", rw.split("\n").find((l) => /Reading/.test(l)));
+  // c64 unchanged: read as headed, the signature only mentioned
+  const p64 = await mkProject("d9c64");
+  put(p64, "cartv.bin", cartVic);
+  const rc = await call("disasm", { project_dir: p64, path: "artifacts/prg/cartv.bin" });
+  const rcLine = rc.split("\n").find((l) => /Reading/.test(l)) ?? "";
+  check(/read as headed/.test(rcLine) && /may be a raw VIC-20 cartridge/.test(rcLine) && /project_init/.test(rcLine), "c64: unchanged (read as headed), the signature is mentioned and project_init named", rcLine);
+  put(p64, "plain.bin", Buffer.from([0x01, 0x08, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea]));
+  const rp = await call("disasm", { project_dir: p64, path: "artifacts/prg/plain.bin" });
+  check(!/cartridge signature/.test(rp), "c64: a file without a signature has no note");
+  // no signature → the refusal with the machine's offers, $A000 for vic20
+  put(pd9, "tiny.bin", Buffer.from([0xea, 0xea]));
+  const rn = await call("disasm", { project_dir: pd9, path: "artifacts/prg/tiny.bin" });
+  check(/refused/.test(rn) && /\$1001/.test(rn) && /\$0401/.test(rn) && /\$1201/.test(rn) && /\$A000/.test(rn), "vic20 without a signature: the refusal offers $1001/$0401/$1201 and $A000", rn.split("\n").slice(0, 4).join(" | "));
+  put(p64, "tiny.bin", Buffer.from([0xea, 0xea]));
+  const rn64 = await call("disasm", { project_dir: p64, path: "artifacts/prg/tiny.bin" });
+  check(/refused/.test(rn64) && !/\$A000|\$1001/.test(rn64), "c64: the refusal is as it was, no offers");
 } finally {
   proc.kill();
 }

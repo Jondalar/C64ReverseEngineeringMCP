@@ -290,7 +290,7 @@ After relevant knowledge changes, rebuild the affected views with `build_*` tool
 At initialization, after context loss, or when entering a new project:
 
 1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions). Every other tool in this project refuses until you have. It needs `git` on PATH, and a first line of `PLEASE USE GIT TO AVOID LOSS OF DATA!` means the project is not in a repository: say so to the user and give them the command it prints.
-2. Call `project_status` for counts and paths if more detail needed.
+2. Call `project_status` for counts and paths if more detail needed. Read the `Machine:` line in either answer: it is the machine the project's code runs on. If the brief does not name the machine, ask the human — never infer it from a load address (`$1001` is the VIC-20 and the C16 alike) or a signature. A project with no machine that holds files which look foreign says so; the human's answer is recorded once with `project_init` and `platform`: `vic20` or `plus4`.
 3. List existing artifacts via `list_project_artifacts`.
 4. Inspect current knowledge:
    - `list_entities`

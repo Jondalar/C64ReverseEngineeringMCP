@@ -33,7 +33,7 @@ import { basename, dirname, join } from "node:path";
 import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { PlatformTag } from "../platform-kb/schema.js";
-import { loadAddressOffer } from "../project-knowledge/platform-default.js";
+import { cartridgeSignatureOf, loadAddressOffer } from "../project-knowledge/platform-default.js";
 
 const hex16 = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
 const both = (value: number) => `${value} ($${value.toString(16).toUpperCase()})`;
@@ -108,7 +108,37 @@ export function resolveByteReading(request: ReadingRequest): ReadingResult {
       + offerSuffix(request.platform) };
   }
 
-  const headerWord = fileSize >= 2 ? (readFileSync(sourceAbs).readUInt16LE(0)) : undefined;
+  const fileBytes = readFileSync(sourceAbs);
+  const headerWord = fileSize >= 2 ? fileBytes.readUInt16LE(0) : undefined;
+
+  // Spec 898 D9 — a headerless cartridge image is placed by the KERNAL's own autostart
+  // signature, for the machine whose KERNAL checks it. Only when nothing was said about the
+  // address or a window: an explicit load_address wins, and headed: true is the caller's word.
+  let signatureNote = "";
+  if (!given && byteOffset === undefined && byteLength === undefined && request.headed !== true) {
+    const sig = cartridgeSignatureOf(fileBytes.subarray(0, 16));
+    if (sig && sig.platform === request.platform) {
+      const last = (sig.loadAddress + fileSize - 1) & 0xffff;
+      return { ok: true, reading: {
+        kind: "raw",
+        loadAddress: sig.loadAddress,
+        lastAddress: last,
+        byteOffset: 0,
+        byteLength: fileSize,
+        ...(headerWord !== undefined ? { headerWord } : {}),
+        line:
+          `Reading: no load_address given, and ${name} carries the ${sig.platform === "vic20" ? "VIC-20" : "TED"} cartridge signature `
+          + `${sig.name} at offset ${sig.offset} — the autostart signature the KERNAL checks at ${hex16(sig.loadAddress + sig.offset)}. `
+          + `Read as raw bytes placed at ${hex16(sig.loadAddress)}, running ${hex16(sig.loadAddress)}-${hex16(last)}; `
+          + `if this is not a cartridge image, pass load_address (or headed: true).`,
+      } };
+    }
+    if (sig && request.platform === "c64") {
+      signatureNote = ` Note: its bytes carry the ${sig.platform === "vic20" ? "VIC-20" : "TED"} cartridge signature ${sig.name} at offset ${sig.offset}, `
+        + `so this may be a raw ${sig.platform === "vic20" ? "VIC-20" : "C16 / Plus/4"} cartridge image for ${hex16(sig.loadAddress)} — `
+        + `the machine is the project's to name (project_init with platform: "${sig.platform}", or platform here); nothing is inferred from bytes.`;
+    }
+  }
 
   // The caller says the bytes carry a header. So does the store, when it recorded this
   // file as a PRG and the caller named no window — then the two bytes at the front are
@@ -179,7 +209,7 @@ export function resolveByteReading(request: ReadingRequest): ReadingResult {
       ? `Reading: ${name} read as headed — its first two bytes are ${hex16(load)}, which is the load_address you passed, `
         + `so the body runs ${hex16(load)}-${hex16(last)}.`
       : `Reading: no load_address given and ${name} read as headed — the first two bytes are ${hex16(load)}, `
-        + `so the body runs ${hex16(load)}-${hex16(last)}; if that is wrong, pass load_address.`,
+        + `so the body runs ${hex16(load)}-${hex16(last)}; if that is wrong, pass load_address.${signatureNote}`,
   } };
 }
 

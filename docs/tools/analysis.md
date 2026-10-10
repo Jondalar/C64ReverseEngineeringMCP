@@ -128,6 +128,20 @@ TED address with no row, the listing stays unnamed and `c64ref_lookup` says ther
 no row — a C64 name is never borrowed. `platform: "none"` is a rendering switch, not a
 machine: no platform names at all, for code of any other machine.
 
+Nothing infers the machine from bytes: `$1001` is the unexpanded VIC-20 and the C16
+alike. `agent_onboard` and `project_status` print the project's machine and where it
+came from; a project with none that holds a registered PRG at `$1001`, `$0401` or
+`$1201`, or a file with a cartridge signature, is told so and pointed at the one call
+that settles it, `project_init` with `platform`. Files extracted from a `.d64` carry no
+machine of their own, so they take the project's. A raw cartridge image is the one
+case where the bytes place themselves: with no `load_address`, on a `vic20` project a
+file with `A0CBM` (`$41 $30 $C3 $C2 $CD`) at offset 4 is read as raw at `$A000`, and on
+a `plus4` project one with `CBM` (`$43 $42 $4D`) at offset 7 as raw at `$8000` — the
+`Reading:` line names the signature, and an explicit `load_address` wins. On the C64
+such a file is still read as headed and the line only mentions the signature. With no
+signature, a headerless file is refused as before and the refusal offers the machine's
+usual addresses (`$1001`, `$0401`, `$1201` and `$A000` on the VIC-20).
+
 Graph nodes follow the machine: a store to `$9005` in VIC-20 code is a `USES_HARDWARE`
 edge to `vic20:io:9005`, a store to `$FF19` in TED code one to `plus4:io:ff19`.
 Where a tool must pick a load address for a block with no header, the machine

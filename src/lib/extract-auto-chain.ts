@@ -57,7 +57,6 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
         title: relPath,
         path: filePath,
         role: "source-prg",
-        platform: "c64",
         internal: false,
       });
       service.saveEntity({

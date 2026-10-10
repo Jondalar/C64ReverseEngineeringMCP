@@ -10,7 +10,7 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 | Tool | Description |
 |---|---|
 | `project_init` | Initialise a project workspace (directory layout + empty knowledge files). `platform` (`c64` default, `c1541`, `vic20`, `plus4`) is the machine the project's code runs on — the fallback for every render, analysis and lookup whose call and whose file's record name none. |
-| `project_status` | Report project state, open task counts, and last checkpoint. |
+| `project_status` | Report project state, open task counts, and last checkpoint, and the project's machine (`Machine:` line; see `project_init` `platform`). |
 | `project_checkpoint` | Save a named checkpoint of the current knowledge state under `session/checkpoints/`. |
 
 ## Entities, findings, relations

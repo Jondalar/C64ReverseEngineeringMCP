@@ -4592,8 +4592,7 @@ export class ProjectKnowledgeService {
           title: basename(blobPath),
           path: blobPath,
           role: "source-prg",
-          platform: "c64",
-          internal: false,
+            internal: false,
         });
         return {
           ...row,

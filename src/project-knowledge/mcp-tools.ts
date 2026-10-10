@@ -1,3 +1,4 @@
+import { machineLines } from "./machine-report.js";
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -309,7 +310,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "project_status",
-    "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths, plus a warning line per problem in the project's `.mcp.json` (invalid JSON, wrong C64RE_PROJECT_DIR, missing command or path).",
+    "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths, the project's machine (`Machine:`, and when none is recorded, which registered files look foreign and the one call that settles it: project_init with platform), plus a warning line per problem in the project's `.mcp.json` (invalid JSON, wrong C64RE_PROJECT_DIR, missing command or path).",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
@@ -343,6 +344,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Project: ${status.project.name}`,
         `Root: ${status.project.rootPath}`,
         `Status: ${status.project.status}`,
+        ...machineLines(root, service),
         `Preferred assembler: ${status.project.preferredAssembler ?? "(not set)"}`,
         `Workflow: ${status.workflowState.summary}`,
         `Current phase: ${status.workflowState.currentPhaseId ?? "(none)"}`,

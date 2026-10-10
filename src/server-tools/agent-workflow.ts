@@ -1,3 +1,4 @@
+import { machineLines } from "../project-knowledge/machine-report.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { resetRuleDelivery } from "../project-rules/deliver.js";
@@ -384,7 +385,7 @@ function recentArtifactSummary(service: ProjectKnowledgeService, projectRoot: st
 export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_onboard",
-    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. A broken `.mcp.json` is reported as a warning (Claude Code drops the server silently when it does not parse). Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
+    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. A broken `.mcp.json` is reported as a warning (Claude Code drops the server silently when it does not parse). Returns: project metadata, the project's machine (`Machine:` — ask the human when none is recorded and files look foreign), workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
     {
       project_dir: z.string().optional().describe("Project root. Wins over C64RE_PROJECT_DIR when given; omitted, C64RE_PROJECT_DIR, then the project this session onboarded into, then process.cwd()."),
     },
@@ -576,6 +577,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`Project: ${status.project.name}`);
       lines.push(`Root: ${status.project.rootPath}`);
       lines.push(`Status: ${status.project.status}`);
+      try { lines.push(...machineLines(projectRoot, service)); } catch { /* best-effort */ }
       lines.push(`Knowledge: ${auditState.knowledge}`);
       lines.push(`Views: ${auditState.views}`);
       lines.push(`Audit: ${cached.cacheStatus}${cached.cachedAt ? ` (since ${cached.cachedAt})` : ""}`);
