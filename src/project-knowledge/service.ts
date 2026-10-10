@@ -41,6 +41,7 @@ import {
   topRankIsTied,
   SUBJECT_IDENTITY_GENERATION,
   type ArtifactLookup,
+  type TieContext,
   type TieResolutionRule,
 } from "./artifact-versions.js";
 import { deriveSubstratePosture, WorkflowStateSchema } from "./types.js";
@@ -3710,7 +3711,7 @@ export class ProjectKnowledgeService {
         .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a, lookup) === subjectId)
         .map(rankCandidate),
     );
-    return bestCandidate(ranked)?.artifact;
+    return bestCandidate(ranked, this.tieContext())?.artifact;
   }
 
   private persistArtifactVersionGroup(group: ArtifactVersionGroup): ArtifactVersionGroup {
@@ -3795,6 +3796,16 @@ export class ProjectKnowledgeService {
     return this.persistArtifactVersionGroup({ ...group, currentArtifactId, currentSource, versions: withCurrent });
   }
 
+  // What the tie rules need from the project: which candidates exist on disk and
+  // the preferred assembler the project states.
+  private tieContext(): TieContext {
+    const root = this.storage.paths.root;
+    return {
+      onDisk: (c) => existsSync(resolve(root, c.artifact.path)),
+      preferredAssembler: this.storage.loadProject()?.preferredAssembler,
+    };
+  }
+
   // Build (but do NOT persist) the version group a subject WOULD have from the
   // current artifact set. Used by setCurrent (fresh group) and by sync.
   computeArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
@@ -3808,14 +3819,15 @@ export class ProjectKnowledgeService {
     const ts = nowIso();
     // The same rule the reconciliation uses: a tie the rules settle picks the
     // stated winner, not whatever happened to sort first.
-    const currentId = bestCandidate(ranked)!.artifact.id;
+    const tieCtx = this.tieContext();
+    const currentId = bestCandidate(ranked, tieCtx)!.artifact.id;
     return {
       id: createId("version-group", subjectId),
       subjectId,
       currentArtifactId: currentId,
       currentSource: "auto",
       // Same rule as the reconciliation: a tie the rules settle is not a decision.
-      needsDecision: classifyTopRankTie(ranked).kind === "decision" ? true : undefined,
+      needsDecision: classifyTopRankTie(ranked, tieCtx).kind === "decision" ? true : undefined,
       versions: ranked.map((c) => memberFromCandidate(c, c.artifact.id === currentId)),
       createdAt: ts,
       updatedAt: ts,
@@ -3862,12 +3874,13 @@ export class ProjectKnowledgeService {
     const autoResolved: Array<{ subject: string; rule: TieResolutionRule; reason: string }> = [];
     const decisions: Array<{ subject: string; ordered: ReturnType<typeof rankCandidate>[] }> = [];
     const settled: string[] = [];
+    const tieCtx = this.tieContext();
     for (const [subject, cands] of bySubject) {
       // Yield every 20 subjects (~150ms chunks) so the loop never blocks long.
       if (++subjectsProcessed % 20 === 0) await breathe();
       const ordered = orderCandidatesBestFirst(cands);
       const existing = this.getArtifactVersionGroup(subject);
-      const verdict = classifyTopRankTie(ordered);
+      const verdict = classifyTopRankTie(ordered, tieCtx);
       const tied = verdict.kind === "decision";
       // A tie the rules settled picks a stated winner rather than whatever sorted first.
       const ruledWinnerId = verdict.kind === "resolved" ? verdict.winner.artifact.id : undefined;

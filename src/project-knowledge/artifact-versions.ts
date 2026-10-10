@@ -221,15 +221,29 @@ export function topRankIsTied(ordered: RankedCandidate[]): boolean {
 // overwrite somebody's work.
 //
 //   3. THE SAME RENDERING IN TWO DIALECTS. The renderer writes `_disasm.asm`
-//      and converts it to `_disasm.tas` beside it: one run, two files, and the
-//      KickAssembler one is what the conversion was made from. Once `.tas`
-//      joined the model these two started tying on every generated subject in
-//      every project, and "newest wins" would have quietly moved each one's
-//      current listing onto the converted copy. The file the conversion came
-//      from wins, and the answer says so.
+//      and converts it to `_disasm.tas` beside it: one run, two files. Once
+//      `.tas` joined the model these two started tying on every generated
+//      subject in every project, and "newest wins" would have quietly moved
+//      each one's current listing onto the converted copy. The project's
+//      `preferredAssembler` breaks that tie; without a preference the
+//      KickAssembler file (the one the conversion was made from) wins. The
+//      answer names the rule that decided.
+//
+//   0. BEFORE ALL OF THESE, A FILE THAT IS NOT ON DISK NEVER WINS. When the
+//      context can say which candidates exist, the tie is settled among those
+//      that do; a lone survivor wins by `on-disk`.
 const HUMAN_AUTHORED_ROLES = new Set<ArtifactVersionRole>(["final", "curated", "semantic", "manual"]);
 
-export type TieResolutionRule = "same-bytes" | "same-run-dialects" | "machine-output";
+export type TieResolutionRule = "on-disk" | "same-bytes" | "preferred-assembler" | "same-run-dialects" | "machine-output";
+
+/** What the tie rules may know about the project. Both parts are optional: a
+ *  caller without them gets the pure rank/format rules. */
+export interface TieContext {
+  /** True when the candidate's file exists. Absent: every candidate counts as present. */
+  onDisk?: (c: RankedCandidate) => boolean;
+  /** The project's `preferredAssembler`, when it states one. */
+  preferredAssembler?: "kickass" | "64tass";
+}
 
 export type TopRankTieVerdict =
   | { kind: "no-tie" }
@@ -250,10 +264,25 @@ function shortestPathFirst(cands: RankedCandidate[]): RankedCandidate {
   })[0]!;
 }
 
-export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdict {
+export function classifyTopRankTie(ordered: RankedCandidate[], ctx: TieContext = {}): TopRankTieVerdict {
   if (!topRankIsTied(ordered)) return { kind: "no-tie" };
   const top = ordered[0]!.rank;
-  const tied = ordered.filter((c) => c.rank === top);
+  const tiedAll = ordered.filter((c) => c.rank === top);
+
+  // A file that is not on disk never wins. With nothing on disk at all there is
+  // nothing to prefer, and the rules below run over the whole set.
+  const present = ctx.onDisk ? tiedAll.filter((c) => ctx.onDisk!(c)) : tiedAll;
+  const tied = present.length > 0 ? present : tiedAll;
+  if (present.length === 1 && tiedAll.length > 1) {
+    const winner = present[0]!;
+    return {
+      kind: "resolved",
+      rule: "on-disk",
+      winner,
+      tied: tiedAll,
+      reason: `${tiedAll.length} sources tie; chose ${pathOf(winner)} (the only one on disk).`,
+    };
+  }
 
   const hashes = tied.map((c) => c.artifact.contentHash);
   if (hashes.every((h) => typeof h === "string" && h.length > 0 && h === hashes[0])) {
@@ -269,17 +298,28 @@ export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdic
 
   if (!tied.some((c) => HUMAN_AUTHORED_ROLES.has(c.role))) {
     const kick = tied.filter((c) => c.format === "kickass");
-    if (kick.length === 1 && tied.some((c) => c.format === "64tass")) {
+    const tass = tied.filter((c) => c.format === "64tass");
+    if (kick.length === 1 && tass.length >= 1 && ctx.preferredAssembler) {
+      const winner = shortestPathFirst(ctx.preferredAssembler === "64tass" ? tass : kick);
+      return {
+        kind: "resolved",
+        rule: "preferred-assembler",
+        winner,
+        tied,
+        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (the project's preferred assembler is ${ctx.preferredAssembler}).`,
+      };
+    }
+    if (kick.length === 1 && tass.length >= 1) {
       const winner = kick[0]!;
       return {
         kind: "resolved",
         rule: "same-run-dialects",
         winner,
         tied,
-        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (the KickAssembler listing the 64tass one was converted from).`,
+        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (no preferred assembler is set; the KickAssembler listing the 64tass one was converted from).`,
       };
     }
-    const winner = ordered[0]!;
+    const winner = tied[0]!;
     return {
       kind: "resolved",
       rule: "machine-output",
@@ -295,9 +335,9 @@ export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdic
 /** The best candidate for a subject, with a settled tie honoured. Every
  *  resolver goes through this, so "which file is current" cannot depend on
  *  which of them was asked. */
-export function bestCandidate(ordered: RankedCandidate[]): RankedCandidate | undefined {
+export function bestCandidate(ordered: RankedCandidate[], ctx: TieContext = {}): RankedCandidate | undefined {
   if (ordered.length === 0) return undefined;
-  const verdict = classifyTopRankTie(ordered);
+  const verdict = classifyTopRankTie(ordered, ctx);
   return verdict.kind === "resolved" ? verdict.winner : ordered[0];
 }
 

@@ -14,10 +14,10 @@
 //     `project_inventory_sync` reported as 831 declared intentional. One project, two
 //     answers — the declaration was read by the sync tool and by nothing else.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -32,7 +32,7 @@ if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run buil
 const { ProjectKnowledgeService, VERSION_TIE_QUESTION_CAP, VERSION_TIE_CLASS_TITLE } =
   await import(join(ROOT, "dist/project-knowledge/service.js"));
 const { runProjectInventorySync } = await import(join(ROOT, "dist/server-tools/inventory-sync.js"));
-const { classifyTopRankTie, rankCandidate } = await import(join(ROOT, "dist/project-knowledge/artifact-versions.js"));
+const { classifyTopRankTie, rankCandidate, orderCandidatesBestFirst, subjectIdForArtifact } = await import(join(ROOT, "dist/project-knowledge/artifact-versions.js"));
 const { matchesGlob, scanRegistrationDelta } = await import(join(ROOT, "dist/lib/registration-delta.js"));
 const { readInventoryDeclaration, howToDeclare, INVENTORY_PATTERNS_FILE, suggestedKindFor } =
   await import(join(ROOT, "dist/project-knowledge/inventory-patterns.js"));
@@ -626,6 +626,49 @@ const openVersionQuestions = (svc) =>
   const r2 = await runProjectInventorySync(svc, proj);
   check(r2.registered === 0, "second sync registers 0", String(r2.registered));
   check(readJson(proj, "knowledge/artifacts.json").length === arts.length, "…and the store does not grow");
+}
+
+// ───────────────────────── 5 — the KickAssembler/64tass tie: on disk, then the preferred assembler
+{
+  head(5, "a missing file never wins a tie; the preferred assembler breaks it; the answer names the rule");
+  const scenario = async (label, { preferred, deleteExt }) => {
+    const proj = tmpProject("c64re-tie-dialect-");
+    const svc = new ProjectKnowledgeService(proj);
+    svc.initProject({ name: "Dialect", ...(preferred ? { preferredAssembler: preferred } : {}) });
+    const asmRel = "analysis/disk/D1/pack1_disasm.asm";
+    const tasRel = "analysis/disk/D1/pack1_disasm.tas";
+    write(proj, asmRel, "; kickass\n rts\n");
+    write(proj, tasRel, "; 64tass\n rts\n");
+    const asm = svc.saveArtifact({ kind: "generated-source", scope: "analysis", title: "pack1_disasm.asm", path: asmRel, format: "kickass", role: "disasm" });
+    const tas = svc.saveArtifact({ kind: "generated-source", scope: "analysis", title: "pack1_disasm.tas", path: tasRel, format: "64tass", role: "disasm-tass" });
+    if (deleteExt === "asm") rmSync(join(proj, asmRel));
+    if (deleteExt === "tas") rmSync(join(proj, tasRel));
+    await svc.reconcileArtifactVersionGroups();
+    const group = svc.getArtifactVersionGroup(subjectIdForArtifact(asm));
+    const onDisk = (c) => existsSync(resolve(proj, c.artifact.path));
+    const verdict = classifyTopRankTie(orderCandidatesBestFirst([asm, tas].map(rankCandidate)),
+      { onDisk, preferredAssembler: preferred });
+    return { asm, tas, group, verdict, label };
+  };
+
+  const a = await scenario("a", { preferred: "64tass", deleteExt: "asm" });
+  check(a.group?.currentArtifactId === a.tas.id, "(a) .asm deleted, preferred 64tass: the .tas is current", a.group?.currentArtifactId);
+  check(a.verdict.kind === "resolved" && a.verdict.rule === "on-disk" && /only one on disk/.test(a.verdict.reason),
+    "(a) and the rule that decided is named: on-disk", a.verdict.kind === "resolved" ? a.verdict.reason : a.verdict.kind);
+
+  const b = await scenario("b", { preferred: "64tass" });
+  check(b.group?.currentArtifactId === b.tas.id, "(b) both present, preferred 64tass: the .tas is current", b.group?.currentArtifactId);
+  check(b.verdict.kind === "resolved" && b.verdict.rule === "preferred-assembler" && /preferred assembler is 64tass/.test(b.verdict.reason),
+    "(b) and the answer names the preference", b.verdict.kind === "resolved" ? b.verdict.reason : b.verdict.kind);
+
+  const c = await scenario("c", {});
+  check(c.group?.currentArtifactId === c.asm.id, "(c) both present, no preference: the KickAssembler listing, as before", c.group?.currentArtifactId);
+  check(c.verdict.kind === "resolved" && c.verdict.rule === "same-run-dialects" && /converted from/.test(c.verdict.reason),
+    "(c) by the old rule, which the answer states", c.verdict.kind === "resolved" ? c.verdict.reason : c.verdict.kind);
+
+  const d = await scenario("d", { preferred: "64tass", deleteExt: "tas" });
+  check(d.group?.currentArtifactId === d.asm.id, "(d) .tas deleted, preferred 64tass: the .asm, the only one on disk", d.group?.currentArtifactId);
+  check(d.verdict.kind === "resolved" && d.verdict.rule === "on-disk", "(d) decided by on-disk, not by the preference", d.verdict.kind === "resolved" ? d.verdict.rule : d.verdict.kind);
 }
 
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e-inventory-truth: ${pass} passed, ${failCount} failed.`);
