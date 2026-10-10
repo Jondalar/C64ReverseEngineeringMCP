@@ -145,7 +145,8 @@ Durable knowledge has two surfaces:
    `save_finding`, `save_entity`, `save_open_question`, relations, payload links,
    artifact-version links.
 2. **Wiki synthesis** for human/LLM-readable project understanding:
-   Markdown in any `docs/` directory (at any depth), `docs/index.md`, and
+   Markdown in any `docs/` directory (at any depth), any document `doc_register`
+   declared (wherever it lives in the project), `docs/index.md`, and
    `knowledge/activity-log.md` (Spec 740.1, 847).
 
 No tool writes the wiki for you, and none is coming: Spec 847 answered 740.2 by

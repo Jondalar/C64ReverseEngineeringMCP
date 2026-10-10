@@ -5,15 +5,19 @@
 // docs directory (`cart_EF/docs/engine`, `editor/docs`, `cart_EF/docs/port`). So the rule
 // is any `docs/` directory in the tree, not the project's own.
 //
+// A document `doc_register` declared counts wherever it lives in the project; see
+// `listDocFiles`.
+//
 // And the number that shapes the report: no document in any project carries frontmatter
 // today. The only YAML headers in the whole corpus belong to `.claude/skills`. Every
 // existing document is therefore undeclared on day one, which a check has to present as a
 // BACKLOG — something to work through — and not as a hundred failures.
 
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
-import { join, relative, basename } from "node:path";
+import { join, relative, basename, resolve, isAbsolute, sep } from "node:path";
 import { parseFrontmatter, type Frontmatter } from "./frontmatter.js";
 import { projectSkipDirs } from "../project-knowledge/inventory-patterns.js";
+import { GraphStore } from "../knowledge-graph/store.js";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".claude", ".cache", "_archive", "dist", "build"]);
 
@@ -56,13 +60,50 @@ export function scanDocs(projectDir: string): ScannedDoc[] {
 /**
  * The document set, as absolute paths, without reading a byte of any of them.
  *
+ * Two sources, one set: every `docs/` directory in the tree, plus every document
+ * `doc_register` recorded wherever it lives inside the project (`port/v1/PATCHES.md`,
+ * `analysis/port/*.md`). A registered document that only one reader could see answered
+ * "Registered" and was then missing from the lint, the status and the contract check.
+ *
  * `scanDocs` is built on this, and so is Spec 740.3's cache fingerprint: the search asks
  * "did any document change since I was built" against exactly the files the critic and
  * the index read, never against a second walk that could disagree about what a document is.
  */
 export function listDocFiles(projectDir: string): string[] {
+  const out = new Set<string>();
+  for (const dir of findDocsDirs(projectDir, 0, projectSkipDirs(projectDir), projectDir)) {
+    for (const f of walkMarkdown(dir)) out.add(f);
+  }
+  for (const f of registeredDocFiles(projectDir)) out.add(f);
+  return [...out];
+}
+
+/** Is `abs` strictly inside `root`? */
+export function insideProject(root: string, abs: string): boolean {
+  const rel = relative(resolve(root), resolve(abs));
+  return rel !== "" && rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
+}
+
+/**
+ * The files `doc_register` recorded: the graph's `document` nodes carry the path. A
+ * placeholder (cited, never written), a file that is gone, and a path outside the project
+ * root count for nothing.
+ */
+function registeredDocFiles(projectDir: string): string[] {
+  let store: GraphStore;
+  try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return []; }
   const out: string[] = [];
-  for (const dir of findDocsDirs(projectDir, 0, projectSkipDirs(projectDir), projectDir)) out.push(...walkMarkdown(dir));
+  try {
+    const rows = store.db.prepare("SELECT attrs FROM nodes WHERE kind = 'document'").all() as Array<{ attrs: string }>;
+    for (const r of rows) {
+      let a: Record<string, unknown> = {};
+      try { a = JSON.parse(r.attrs) as Record<string, unknown>; } catch { continue; }
+      if (a.placeholder === true || typeof a.path !== "string") continue;
+      const abs = resolve(projectDir, a.path);
+      if (!insideProject(projectDir, abs) || !abs.toLowerCase().endsWith(".md") || !existsSync(abs)) continue;
+      out.push(abs);
+    }
+  } catch { /* a graph without document nodes registers nothing */ } finally { store.close(); }
   return out;
 }
 

@@ -10,9 +10,9 @@
 // it cannot sit empty for four months the way Spec 740's wiki did in both projects.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, resolve, relative } from "node:path";
 import { parseFrontmatter, renderFrontmatter, type Frontmatter } from "./frontmatter.js";
-import { scanDocs, type ScannedDoc } from "./scan.js";
+import { scanDocs, insideProject, type ScannedDoc } from "./scan.js";
 
 export class DocRegisterError extends Error {}
 
@@ -32,8 +32,10 @@ function docSlug(path: string): string {
   return s;
 }
 
-export async function registerDoc(projectDir: string, relPath: string): Promise<RegisteredDoc> {
-  const abs = join(projectDir, relPath);
+export async function registerDoc(projectDir: string, givenPath: string): Promise<RegisteredDoc> {
+  const abs = resolve(projectDir, givenPath);
+  if (!insideProject(projectDir, abs)) throw new DocRegisterError(`${givenPath} is outside the project`);
+  const relPath = relative(resolve(projectDir), abs);
   if (!existsSync(abs)) throw new DocRegisterError(`no document at ${relPath}`);
   const parsed = parseFrontmatter(readFileSync(abs, "utf8"));
 

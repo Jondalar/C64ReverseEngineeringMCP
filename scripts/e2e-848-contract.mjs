@@ -16,6 +16,8 @@ const { verdict } = await import("../dist/critic/run.js");
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
 const { DEFAULT_TOOLS } = await import("../dist/server-tools/tier-tools.js");
+const { scanDocs, lintDocs } = await import("../dist/docs/scan.js");
+const { registerDoc, DocRegisterError } = await import("../dist/docs/register.js");
 
 let failures = 0;
 const check = (name, cond, detail) => {
@@ -285,6 +287,36 @@ try {
     check("a demand that matches neither a boundary nor an artifact says so, naming both",
       /model_assert/.test(unknown) && /list_artifacts/.test(unknown), unknown);
     check("…and tells the human how to say 'this is a medium'", /artifact:/.test(unknown));
+  }
+
+  // ------------------------- a registered document counts wherever it lives in the project
+  //
+  // `doc_register` answered "Registered" for `analysis/port/X.md`, while doc_lint and
+  // project_status walked `docs/` only and the contract still said no document names the
+  // subject. One enumeration (`listDocFiles`) now serves every reader.
+  {
+    const d = newProject(); dirs.push(d);
+    mkdirSync(join(d, "analysis", "port"), { recursive: true });
+    writeFileSync(join(d, "analysis", "port", "X.md"), [
+      "---", "title: Port patches", "kind: synthesis",
+      "covers:", "  - $4300-$43FF", "sources:", "  - analysis/port/X.md", "status: current", "---", "", "Body.", "",
+    ].join("\n"));
+    saveContract(d, { goal: "port it", deliver: { slots: ["S1"], documents: [{ covers: "$4300-$43FF" }] } });
+
+    check("before registering, the document outside docs/ is not counted",
+      lintDocs(d).docs.length === 0 && (await verdict(d)).blockers.some((b) => /4300/.test(b)));
+
+    await registerDoc(d, "analysis/port/X.md");
+    check("doc_lint counts the registered document outside docs/",
+      lintDocs(d).declaredCount === 1 && lintDocs(d).docs[0]?.path === join("analysis", "port", "X.md"));
+    check("project_status lists it (same scanDocs)", scanDocs(d).some((x) => x.path.endsWith("X.md") && !x.generated));
+    const v = await verdict(d);
+    check("the contract's document demand is satisfied by it",
+      !v.blockers.some((b) => /4300/.test(b)), v.blockers.find((b) => /4300/.test(b)) ?? "(no blocker)");
+
+    let outside;
+    try { await registerDoc(d, "../outside.md"); } catch (e) { outside = e; }
+    check("a path outside the project root is still refused", outside instanceof DocRegisterError, outside?.message);
   }
 
   // ------------------------------------------------------------------- the surface
