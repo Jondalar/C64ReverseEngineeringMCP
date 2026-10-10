@@ -13,7 +13,7 @@ import type { Check, SeriesRead } from "../project-knowledge/scenario-gherkin.js
 /** What the runtime has to be, said to the caller when it is not. */
 export const PROBE_RUNTIME_NEED =
   "a TRX64 with cycle-exact input and the frame probe (session/frame_probe, `at_cycle` on key_down/key_up/" +
-  "joystick_set/joystick_clear) — released after 0.12.9. Update the runtime (c64re runtime install), or point " +
+  "joystick_set/joystick_clear) — TRX64 0.12.10 or later. Update the runtime (c64re runtime install), or point " +
   "C64RE_RUNTIME_BIN at a build that has them. Nothing was run, and nothing fell back to frame-boundary input.";
 
 type Call = <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;

@@ -6,7 +6,7 @@
 //         press with the beam at line 256 or below leaves the IRQ at line 356: dead.
 //   glitch  $D01C is held at a wrong value for 3 frames out of every 200.
 //
-// Needs a runtime with cycle-exact input and the frame probe (TRX64 after 0.12.9). Without a
+// Needs a runtime with cycle-exact input and the frame probe (TRX64 0.12.10 or later). Without a
 // runtime binary, or with one that predates them, it SKIPS LOUDLY and says why; against an
 // older runtime it also proves the refusal. Locally:
 //   C64RE_RUNTIME_BIN=../TRX64/target/release/trx64-daemon npm run e2e:899-sweep
@@ -41,7 +41,7 @@ console.log("Spec 899 — input offsets, sweeps, windows and series on real mach
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: tmpdir(), port: "0" });
 if (plan.mode === "none") {
   console.log("SKIPPED — no runtime daemon binary (set C64RE_RUNTIME_BIN, or `c64re runtime install`).");
-  console.log("          This half needs a TRX64 with cycle-exact input and the frame probe (after 0.12.9).");
+  console.log("          This half needs a TRX64 with cycle-exact input and the frame probe (0.12.10 or later).");
   process.exit(0);
 }
 let has901 = true;
@@ -73,7 +73,7 @@ try {
     check(/needs a TRX64/.test(msgSweep ?? ""), "and a sweep stops at the first run, not 4 failures that look like a bug", msgSweep?.slice(0, 100));
     const plain = await runSandbox({ budgetMs: 60_000, mediaPath: fault, steps: [step("I wait 5 frames")], screen: false });
     check(plain.inputs.length === 0 && plain.series.length === 0 && plain.endCycle > 0, "a run without any of it still works on this runtime");
-    console.log("\nSKIPPED the rest — it needs a runtime with cycle-exact input and the frame probe (TRX64 after 0.12.9).");
+    console.log("\nSKIPPED the rest — it needs a runtime with cycle-exact input and the frame probe (TRX64 0.12.10 or later).");
     console.log(`${fail === 0 ? "GREEN" : "RED"} e2e-899 sweep (refusals only): ${pass} pass, ${fail} fail.`);
     process.exit(fail === 0 ? 0 : 1);
   }

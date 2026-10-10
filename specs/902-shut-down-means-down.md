@@ -2,7 +2,7 @@
 
 **Status:** PROPOSED 2026-10-10
 **Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64:
-`../TRX64/docs/_archive/902-daemon-shutdown.md`, DONE on TRX64 main afae8f1 (not released).
+`../TRX64/docs/_archive/902-daemon-shutdown.md`, DONE on TRX64 main afae8f1, released in TRX64 0.12.10.
 `daemon/shutdown` (no params) → `{ok:true, persisted:{cartridge:path|null, disks:[path…]},
 trace:<duckdb path|null>, exitCode:0}`, then WS close, then exit 0 within 2 s. SIGTERM/SIGINT,
 Windows Ctrl-C/Break/console-close and `--idle-exit` run the same exit work once: stop the run,
