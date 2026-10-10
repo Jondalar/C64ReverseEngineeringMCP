@@ -43,6 +43,7 @@
     "!dist/platform-kb/seed.js",
     "!dist/platform-kb/abi.js",
     "!dist/platform-kb/extensions.js",
+    "!dist/platform-kb/seeds/",
     "!dist/analysis/fingerprint-extractor.js",
     "!dist/disk/d64-builder.js",
     "!dist/disk/g64-builder.js",

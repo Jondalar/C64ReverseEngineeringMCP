@@ -14,6 +14,7 @@
 // The signature producer (826 D2) reads these through `PlatformKb.abi()` as the
 // summary of a `jsr $FFD2`: CHROUT consumes A and clobbers nothing.
 
+import { seededAddresses } from "./extensions.js";
 import type { PlatformAbiRow, PlatformTag } from "./schema.js";
 
 export const ABI_SOURCE = "c64re-extension";
@@ -84,20 +85,34 @@ const C64_BASIC: AbiEntry[] = [
   { address: 0xe544, name: "CLRSCR", clobbers: ["A", "X", "Y"], note: "clear the screen (KERNAL, not on the jump table)" },
 ];
 
+// Spec 898 D3 — the VIC-20 and the TED machines publish the same KERNAL jump table (same
+// slot order, same API names), so a slot that exists in their source gets the calling
+// convention of the c64 slot at that address. The membership test is the source: an
+// address the seeded source has no row for (the VIC-20 has no CINT/IOINIT/RAMTAS slot)
+// gets no ABI row.
+const SHARED_TABLE_PLATFORMS: PlatformTag[] = ["vic20", "plus4"];
+
 export function loadAbi(): PlatformAbiRow[] {
   const rows: PlatformAbiRow[] = [];
-  const platform: PlatformTag = "c64";
-  const push = (e: AbiEntry, role: Role, locations: string[] | undefined) => {
-    for (const location of locations ?? []) rows.push({ platform, address: e.address, location, role, note: e.note ?? null, source: ABI_SOURCE });
+  const pushEntry = (platform: PlatformTag, source: string, e: AbiEntry) => {
+    const push = (role: Role, locations: string[] | undefined) => {
+      for (const location of locations ?? []) rows.push({ platform, address: e.address, location, role, note: e.note ?? null, source });
+    };
+    push("in", e.in);
+    push("out", e.out);
+    push("clobbers", e.clobbers);
+    push("preserves", e.preserves);
   };
-  for (const e of [...C64_KERNAL, ...C64_BASIC]) {
-    push(e, "in", e.in);
-    push(e, "out", e.out);
-    push(e, "clobbers", e.clobbers);
-    push(e, "preserves", e.preserves);
+  for (const e of [...C64_KERNAL, ...C64_BASIC]) pushEntry("c64", ABI_SOURCE, e);
+  for (const platform of SHARED_TABLE_PLATFORMS) {
+    const present = seededAddresses(platform);
+    for (const e of C64_KERNAL) {
+      if (present.has(e.address)) pushEntry(platform, `${ABI_SOURCE}: c64 KERNAL convention, ${platform} jump-table slot present in its source`, e);
+    }
   }
   const roleOrder: Record<Role, number> = { in: 0, out: 1, clobbers: 2, preserves: 3 };
-  return rows.sort((a, b) => a.address - b.address || roleOrder[a.role] - roleOrder[b.role] || a.location.localeCompare(b.location));
+  const byPlatform = (a: PlatformAbiRow, b: PlatformAbiRow) => (a.platform < b.platform ? -1 : a.platform > b.platform ? 1 : 0);
+  return rows.sort((a, b) => byPlatform(a, b) || a.address - b.address || roleOrder[a.role] - roleOrder[b.role] || a.location.localeCompare(b.location));
 }
 
 /** The names the table knows, for the gate: address → name. */

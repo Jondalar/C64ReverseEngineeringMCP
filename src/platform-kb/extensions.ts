@@ -5,6 +5,10 @@
 //
 //   - cartridge I/O in the $DE00 page (EasyFlash registers) — a C64 fact c64ref
 //     has no source for;
+//   - the VIC-20 and the TED machines (Plus/4, C16, C116): zero page, RAM variables,
+//     I/O registers, KERNAL jump table and ROM entry points, from the published
+//     KERNAL/BASIC source (Spec 898 D3). The rows sit in seeds/, one file per platform,
+//     and every row cites its file and label in its own source column;
 //   - the 1541 drive: its zero page, VIA registers and DOS ROM symbols. The ROM
 //     symbols come from g3sl.github.io/c1541rom.html, cached at
 //     tools/data/c1541-rom.json — that cache is the source, this file only
@@ -12,11 +16,15 @@
 //
 // Adding an address→name pair anywhere else in the repo fails
 // `npm run check:platform-kb`. Adding it here is the sanctioned way, and the
-// seeder folds it into the same store with source = "c64re-extension".
+// seeder folds it into the same store with source = "c64re-extension", or with the
+// row's own citation where it carries one (the seeds/ rows).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PlatformTag } from "./schema.js";
+import { PLUS4_REGIONS, PLUS4_ROWS } from "./seeds/plus4.js";
+import type { SeedRegion, SeedRow } from "./seeds/types.js";
+import { VIC20_REGIONS, VIC20_ROWS } from "./seeds/vic20.js";
 
 export interface ExtensionEntry {
   platform: PlatformTag;
@@ -24,6 +32,16 @@ export interface ExtensionEntry {
   symbol?: string;
   name: string;
   description?: string;
+  /** Row-level citation; absent means EXTENSION_SOURCE. */
+  source?: string;
+}
+
+export interface ExtensionRegion {
+  platform: PlatformTag;
+  startAddress: number;
+  endAddress: number;
+  name: string;
+  source: string;
 }
 
 export const EXTENSION_SOURCE = "c64re-extension";
@@ -107,9 +125,30 @@ function loadC1541RomCache(repoRoot: string): ExtensionEntry[] {
   return out;
 }
 
+function fromSeed(platform: PlatformTag, rows: SeedRow[]): ExtensionEntry[] {
+  return rows.map(([address, symbol, name, description, source]) => ({ platform, address, symbol, name, description: description ?? undefined, source }));
+}
+
+function regionsFromSeed(platform: PlatformTag, rows: SeedRegion[]): ExtensionRegion[] {
+  return rows.map(([startAddress, endAddress, name, source]) => ({ platform, startAddress, endAddress, name, source }));
+}
+
+/** The seeded platforms' address→label rows (Spec 898 D3), for the ABI table's membership test. */
+export function seededAddresses(platform: PlatformTag): Set<number> {
+  const rows = platform === "vic20" ? VIC20_ROWS : platform === "plus4" ? PLUS4_ROWS : [];
+  return new Set(rows.map((r) => r[0]));
+}
+
+export function loadExtensionRegions(): ExtensionRegion[] {
+  return [...regionsFromSeed("vic20", VIC20_REGIONS), ...regionsFromSeed("plus4", PLUS4_REGIONS)];
+}
+
 /** Later entries win on (platform, address) — the cache overrides the seed. */
 export function loadExtensions(repoRoot: string): ExtensionEntry[] {
-  const ordered = [...C64_BANKING, ...C64_CARTRIDGE_IO, ...C1541_ZP, ...C1541_IO, ...C1541_ROM_SEED, ...loadC1541RomCache(repoRoot)];
+  const ordered = [
+    ...C64_BANKING, ...C64_CARTRIDGE_IO, ...C1541_ZP, ...C1541_IO, ...C1541_ROM_SEED, ...loadC1541RomCache(repoRoot),
+    ...fromSeed("vic20", VIC20_ROWS), ...fromSeed("plus4", PLUS4_ROWS),
+  ];
   const byKey = new Map<string, ExtensionEntry>();
   for (const entry of ordered) byKey.set(`${entry.platform}:${entry.address}`, entry);
   return [...byKey.values()].sort((a, b) => (a.platform < b.platform ? -1 : a.platform > b.platform ? 1 : a.address - b.address));

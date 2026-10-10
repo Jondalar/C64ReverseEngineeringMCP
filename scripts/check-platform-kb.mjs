@@ -42,7 +42,8 @@ const ok = (msg) => notes.push(`  PASS  ${msg}`);
 // CLR) to names. Those are not addresses — nothing in that file says what lives
 // at a memory location, which is the thing this gate exists to keep in one
 // place. The literals only look like addresses to the regex below.
-const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "pipeline/src/lib/kernal-abi.ts", "pipeline/src/lib/basic-v2.ts"]);
+// Spec 898 D3: seeds/ holds the VIC-20 and TED rows the extension table folds in.
+const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "src/platform-kb/seeds/vic20.ts", "src/platform-kb/seeds/plus4.ts", "pipeline/src/lib/kernal-abi.ts", "pipeline/src/lib/basic-v2.ts"]);
 // An address literal used as a MAP KEY for a string: `0xd018: "..."` (object) or
 // `[0xd018, "..."]` (Map tuple). Hardware, ROM and zero-page ranges only. A call
 // argument like `def(0x00, "brk", …)` is an opcode table, not a name map, and
@@ -126,6 +127,21 @@ try {
     else if (want && n.symbol !== want) fail(`extension row ${platform} $${address.toString(16)} symbol ${n.symbol}, expected ${want}`);
   }
   ok("extension rows present (EasyFlash, 1541 VIA, 1541 zero page)");
+
+  // Spec 898 D3 — the VIC-20 and TED rows carry the source's own labels and cite file + label.
+  // Not asserted: a register the source never names ($FD30, $9005) must stay without a row.
+  for (const [platform, address, want, kind] of [
+    ["vic20", 0x0314, "CINV", "ram"], ["vic20", 0x9110, "D1ORB", "io"], ["vic20", 0x9120, "D2ORB", "io"], ["vic20", 0xffd2, "BSOUT", "rom"],
+    ["plus4", 0x0001, "PORT", "zp"], ["plus4", 0xff06, "TEDVCR", "io"], ["plus4", 0xff3e, "ROMON", "io"], ["plus4", 0xffd2, "BSOUT", "rom"],
+  ]) {
+    const n = kb.node(platform, address);
+    if (!n) fail(`${platform} $${address.toString(16)} missing from the store`);
+    else if (n.symbol !== want || n.kind !== kind) fail(`${platform} $${address.toString(16)} is ${n.symbol}/${n.kind}, expected ${want}/${kind}`);
+    else if (!n.source.startsWith(`${platform} `) || !n.source.includes(": ")) fail(`${platform} $${address.toString(16)} source "${n.source}" does not cite file and label`);
+  }
+  if (kb.node("vic20", 0x9005) || kb.node("plus4", 0xfd30)) fail("a register no source label names ($9005 / $FD30) has a row: names are not invented");
+  if (["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0000)?.symbol) || ["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0001)?.symbol)) fail("vic20 has no on-chip port: $00/$01 must not carry a port row");
+  ok("vic20 / plus4 seed rows cite file + label; unnamed registers stay unnamed");
 } catch (error) {
   fail(`store unreadable: ${error.message}`);
 }

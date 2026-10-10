@@ -22,7 +22,7 @@ import {
   type C64RefKnowledgeAnnotation,
   type C64RefKnowledgeEntry,
 } from "../c64ref-rom-knowledge.js";
-import { EXTENSION_SOURCE, loadExtensions } from "./extensions.js";
+import { EXTENSION_SOURCE, loadExtensionRegions, loadExtensions } from "./extensions.js";
 import { loadAbi } from "./abi.js";
 import {
   PLATFORM_KB_DDL,
@@ -136,8 +136,13 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
     nodes.set(id, {
       id, platform: ext.platform, kind, address: ext.address,
       symbol: ext.symbol ?? null, name: ext.name, description: clip(ext.description),
-      source: EXTENSION_SOURCE, layer: "generated", origin: "imported", confidence: "certain",
+      source: ext.source ?? EXTENSION_SOURCE, layer: "generated", origin: "imported", confidence: "certain",
     });
+  }
+
+  for (const ext of loadExtensionRegions()) {
+    const id = platformRegionId(ext.platform, ext.startAddress, ext.endAddress);
+    if (!regions.has(id)) regions.set(id, { id, platform: ext.platform, startAddress: ext.startAddress, endAddress: ext.endAddress, name: ext.name, source: ext.source });
   }
 
   const meta: Record<string, string> = {
