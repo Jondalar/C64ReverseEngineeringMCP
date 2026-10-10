@@ -7,7 +7,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatAddr4, formatHex4, platformNodeId, type PlatformAbi, type PlatformNodeKind, type PlatformTag } from "./schema.js";
+import { formatAddr4, formatHex4, platformKindForAddress, platformNodeId, type PlatformAbi, type PlatformNodeKind, type PlatformTag } from "./schema.js";
 import { DatabaseSync } from "./sqlite-quiet.js";
 
 export interface PlatformNode {
@@ -93,7 +93,7 @@ export class PlatformKb {
   /** The derived id for an address on a platform, whether or not a row exists. */
   idFor(platform: PlatformTag, address: number): string {
     const n = this.node(platform, address);
-    return n ? n.id : platformNodeId(platform, "ram", address);
+    return n ? n.id : platformNodeId(platform, platformKindForAddress(platform, address), address);
   }
 
   /** `$D018` → "VMCSB VIC-II Chip Memory Control Register", or undefined. */

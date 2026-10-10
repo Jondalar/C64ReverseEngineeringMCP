@@ -1,6 +1,6 @@
 # Spec 898 — The VIC-20 and the TED machines are platforms
 
-**Status:** PROPOSED 2026-10-10
+**Status:** IN BUILD 2026-10-10 (owner: build it whole)
 **Repo:** C64RE only. TRX64: no change.
 **Number:** 898 (registry: `specs/README.md`).
 **Origin:** issue #50 point 3 (split to #56, the off switch only) and issue #51 point 2
@@ -64,8 +64,16 @@ branch per tag; the address alone still derives the kind, so Spec 818 ids stay d
 
 | Tag | io | rom | zp |
 |---|---|---|---|
-| `vic20` | `$9000-$93FF` (VIC-I, VIA1, VIA2), `$9400-$97FF` colour RAM | `$8000-$8FFF` char, `$C000-$FFFF` | `$00-$FF`, no CPU port |
+| `vic20` | `$9000-$93FF` (VIC-I, VIA1, VIA2), `$9400-$97FF` colour RAM, `$9800-$9FFF` (I/O2, I/O3 — expansion port) | `$8000-$8FFF` char, `$C000-$FFFF` | `$00-$FF`, no CPU port |
 | `plus4` | `$FD00-$FF3F` (6529, keyboard latch, TED) | `$8000-$FCFF`, `$FF40-$FFFF` | `$00-$FF`, `$00/$01` = 7501 port |
+
+On the VIC-20 everything else is `ram`, including the expansion blocks `$0400-$0FFF`,
+`$2000-$7FFF` and block 5 `$A000-$BFFF`. Block 5 holds RAM or a cartridge depending on
+the machine, and the address cannot tell which; a cartridge there is the program
+being read, not platform ROM, so it gets no platform nodes. The expansion also moves
+screen and colour RAM (colour at `$9600` instead of `$9400` with 8K and up). Both
+positions lie inside the `io` range above; the platform nodes name the range, not
+the configuration.
 
 ROM banking on the TED machines (`$FF3E/$FF3F`) is an address range like the C64's
 `$01`, not a second kind; the node is `rom` and the bank stays the reader's question.
@@ -142,6 +150,12 @@ straddles I/O and RAM keeps today's rule.
   `VIC`/`CIA`/`SID` register names, C64 KERNAL names); VIA names on `$9110-$912F`, VIC-I
   names on `$9000-$900F`; VIC-20 KERNAL names on `JSR $FFxx`. 64tass rebuild
   byte-identical.
+- The same on a VIC-20 game from outside Mike's corpus that needs the 8K expansion:
+  *JETPAC* (Ultimate, 1983), using the published hand disassembly by Phillip Eaton
+  (GitHub `phillipeaton/JETPAC_VIC-20_disassembly`, no licence — read for the check,
+  never checked in). Code at `$2000-$3FFF`, colour RAM at `$9600`: the VIC-I and VIA
+  accesses carry VIC-20 names, no C64 name appears, and the 64tass rebuild is
+  byte-identical to `bin_orig/jetpac.prg`.
 - The same for a C16 file with `platform: "plus4"` (*The Magician's Curse*): TED names
   on `$FF00-$FF3F`, `$FD30` named, `$00/$01` named as the 7501 port. 64tass rebuild
   byte-identical.

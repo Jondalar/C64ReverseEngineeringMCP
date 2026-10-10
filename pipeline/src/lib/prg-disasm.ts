@@ -34,6 +34,13 @@ let activePlatform: PlatformTag | "none" = "c64";
 function platformOff(): boolean {
   return activePlatform === "none";
 }
+
+// The segment-context notes (display state, sprites, "hardware touched", the KERNAL loader
+// path, asset targets) read C64 chip and C64 KERNAL addresses. They are off for the off
+// switch and for the two foreign machines — a VIC-20 / TED listing has no VIC-II to describe.
+function c64InferenceOff(): boolean {
+  return activePlatform === "none" || activePlatform === "vic20" || activePlatform === "plus4";
+}
 import { decodeInstruction, DecodedInstruction, isBranchInstruction, isCallInstruction, isJumpInstruction } from "./mos6502";
 import { hex16, hex8 } from "./format";
 import { lookupKernalAbi, RegisterName } from "./kernal-abi";
@@ -133,7 +140,7 @@ interface PrgDisasmOptions {
   // top of the existing C64 lookups so drive disasm gets correct
   // labels. "none" writes no ROM / zero-page / I/O names or comments at all (code
   // of a machine this tool has no table for); annotation and graph names still apply.
-  platform?: "c64" | "c1541" | "none";
+  platform?: PlatformTag | "none";
   // Spec 741 (Slice A): relocated regions to render as
   // .pseudopc / .logical blocks at their runtime PC while keeping the
   // stored bytes byte-exact. Absent → rendering is unchanged.
@@ -593,7 +600,7 @@ function findOperandExpression(
   instructionOwnerByAddress: Map<number, number>,
   segmentOwnerByAddress: Map<number, number>,
 ): string | undefined {
-  if (!platformOff() && isC64IoAddress(address)) {
+  if (!platformOff() && isC64IoAddress(address, activePlatform as PlatformTag)) {
     return formatC64IoAddress(address);
   }
 
@@ -829,7 +836,7 @@ function generateInstructionComment(
   }
 
   // 13. Indexed access to non-IO addresses (table access)
-  if ((mode === "abs,x" || mode === "abs,y") && target !== undefined && (platformOff() || !isC64IoAddress(target))) {
+  if ((mode === "abs,x" || mode === "abs,y") && target !== undefined && (platformOff() || !isC64IoAddress(target, activePlatform as PlatformTag))) {
     const reg = mode === "abs,x" ? "X" : "Y";
     const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
     return `// ${desc} ${makeLabel(target)}[${reg}]`;
@@ -2051,7 +2058,7 @@ function inferLoaderFilenameCandidates(
 
 function inferSegmentPurpose(segment: Segment, context: RenderAnalysisContext): string[] {
   const notes: string[] = [];
-  if (platformOff()) {
+  if (c64InferenceOff()) {
     // every other note below reads VIC / SID / KERNAL / colour-RAM addresses
     const split = factInRange(segment, context.splitPointerFacts);
     if (split.some((fact) => classifySplitPointerFact(fact) === "jump_dispatch_table")) {
@@ -2135,7 +2142,7 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
   // With the platform off, the lines derived from VIC / SID / KERNAL knowledge (display
   // state and transfers, sprites, hardware touched, loader path, asset targets) are
   // empty; key RAM, split tables and data movement come from the bytes and stay.
-  const off = platformOff();
+  const off = c64InferenceOff();
 
   const lines: string[] = [];
   const purpose = inferSegmentPurpose(segment, context);

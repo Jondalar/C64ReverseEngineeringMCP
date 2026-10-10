@@ -9,7 +9,7 @@
 // DANGLING reference, never dropped.
 
 import { PlatformKb } from "../platform-kb/read.js";
-import { platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
+import { PLATFORM_TAGS, platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
 import { derivePlatformId, isPlatformId, parseId, type Ctx } from "./ids.js";
 import { CONTROL_FLOW_TYPES, type EdgeRow, type Layer, type NodeRow } from "./schema.js";
 import { GraphStore } from "./store.js";
@@ -224,6 +224,28 @@ export class Graph {
     return this.merge(rows) ?? dangling(id);
   }
 
+  /**
+   * The platforms whose names a query may answer with: the C64 and the 1541 always, and any other
+   * machine this project has declared an owner for. A store seeded for the VIC-20 does not make
+   * every C64 project's `$FFD2` ambiguous.
+   */
+  private platformTags(): PlatformTag[] {
+    const tags: PlatformTag[] = ["c64", "c1541"];
+    try {
+      const rows = this.store.db.prepare("SELECT DISTINCT value FROM meta WHERE key LIKE 'machine.%'").all() as Array<{ value: string }>;
+      for (const r of rows) if ((PLATFORM_TAGS as readonly string[]).includes(r.value) && !tags.includes(r.value as PlatformTag)) tags.push(r.value as PlatformTag);
+    } catch { /* a store without a meta table answers with the default pair */ }
+    return tags;
+  }
+
+  /** The machine declared for an owner, when one is. */
+  private machineOf(owner: string): PlatformTag | undefined {
+    try {
+      const v = this.store.getMeta(`machine.${owner}`);
+      return (PLATFORM_TAGS as readonly string[]).includes(v ?? "") ? v as PlatformTag : undefined;
+    } catch { return undefined; }
+  }
+
   /** Every node at an address, across contexts and both files. The ambiguity is visible. */
   nodesAt(spec: AddrSpec): ResolvedNode[] {
     const a = parseAddr(spec);
@@ -235,7 +257,7 @@ export class Graph {
     if (a.owner) out = out.filter((n) => n.owner === a.owner);
     if (a.bank !== undefined) out = out.filter((n) => n.bank === a.bank);
     if (!a.space || a.space === "io" || a.space === "rom" || a.space === "ram") {
-      for (const platform of ["c64", "c1541"] as const) {
+      for (const platform of this.platformTags()) {
         const p = this.platform?.node(platform, a.address);
         if (p && (!a.space || this.resolve(p.id).space === a.space)) out.push(this.resolve(p.id));
       }
@@ -243,7 +265,7 @@ export class Graph {
     // 826.0 T5 — zero page, I/O and ROM have a platform node by address alone
     // (818 D1's grammar); `$00FE` answers with `c64:zp:00fe` even without a
     // book line, so the writers 820 recorded there can be asked for.
-    const tag: PlatformTag = a.space === "drv" ? "c1541" : "c64";
+    const tag: PlatformTag = a.space === "drv" ? "c1541" : (a.owner ? this.machineOf(a.owner) : undefined) ?? "c64";
     const pkind = platformKindForAddress(tag, a.address);
     if (pkind !== "ram") {
       const pid = derivePlatformId(tag, a.address);
@@ -332,7 +354,7 @@ export class Graph {
     const out: ResolvedNode[] = [...byId.values()].map((rs) => ({ ...this.merge(rs)!, matched: "name" as const }));
     // exact name first, then the substring hits in id order (stable)
     out.sort((x, y) => Number((y.name ?? "").toLowerCase() === lower) - Number((x.name ?? "").toLowerCase() === lower));
-    for (const platform of ["c64", "c1541"] as const) {
+    for (const platform of this.platformTags()) {
       for (const p of this.platform?.search(platform, text, 10) ?? []) out.push({ ...this.resolve(p.id), matched: "platform" });
     }
     // 826.0 T6 — the annotations' text (822's FTS5 index), after the names:

@@ -10,7 +10,7 @@
 // pkind is Spec 817's four kinds (zp | ram | io | rom) — 818's first draft had
 // reg/rom/mem; zp and io are hardware distinctions the renderer keys on.
 
-import { formatAddr4, platformKindForAddress, type PlatformNodeKind, type PlatformTag } from "../platform-kb/schema.js";
+import { formatAddr4, PLATFORM_TAGS, platformKindForAddress, type PlatformNodeKind, type PlatformTag } from "../platform-kb/schema.js";
 
 export type Space = "ram" | "crt" | "drv";
 export type ProjectKind = "routine" | "label" | "addr";
@@ -19,6 +19,12 @@ export interface Ctx {
   space: Space;
   owner?: string;
   bank?: number;
+  /**
+   * The machine the context belongs to, where `space` alone cannot say (a vic20 owner lives in
+   * `ram` like a c64 one). Not part of the id token: project ids read the same on every machine,
+   * only the platform ids a context points at (`vic20:io:9005`) differ. Absent = by `space`.
+   */
+  platform?: PlatformTag;
 }
 
 export interface ProjectIdParts {
@@ -33,7 +39,7 @@ export type ParsedId =
   | { form: "project"; slug: string; ctx: Ctx; kind: string; address: number }
   | { form: "subsystem"; slug: string; name: string };
 
-const PLATFORMS: ReadonlySet<string> = new Set(["c64", "c1541"]);
+const PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_TAGS);
 const PKINDS: ReadonlySet<string> = new Set(["zp", "ram", "io", "rom"]);
 const OWNER = /^[a-z0-9_.\-]+$/u;
 const SLUG = /^[a-z0-9][a-z0-9\-]*$/u;
@@ -146,9 +152,9 @@ export function isPlatformId(id: string): boolean {
   return PLATFORMS.has(head);
 }
 
-/** The platform a project context belongs to: drv → c1541, everything else → c64. */
+/** The platform a project context belongs to: the one it names, else drv → c1541, everything else → c64. */
 export function platformForCtx(ctx: Ctx): PlatformTag {
-  return ctx.space === "drv" ? "c1541" : "c64";
+  return ctx.platform ?? (ctx.space === "drv" ? "c1541" : "c64");
 }
 
 /** The `space` column for indexing: the ctx's space, or the platform kind's lens. */

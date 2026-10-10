@@ -13,6 +13,7 @@ import {
   TableUsageFact,
 } from "./types";
 import { clampConfidence, formatAddress, toOffset } from "./utils";
+import { isIoAddress, type PlatformTag } from "../lib/platform-kb";
 
 const INDEXED_MODES = new Map<string, IndexedRegister>([
   ["abs,x", "x"],
@@ -34,8 +35,8 @@ function isAbsoluteIndexedAccess(instruction: InstructionFact): instruction is I
   return instruction.targetAddress !== undefined && INDEXED_MODES.has(instruction.addressingMode);
 }
 
-function isHardwareAddress(address: number): boolean {
-  return (address >= 0xd000 && address <= 0xdfff) || address === 0xdd00;
+function isHardwareAddress(platform: PlatformTag, address: number): boolean {
+  return isIoAddress(platform, address);
 }
 
 function formatByte(value: number | undefined): string {
@@ -45,12 +46,12 @@ function formatByte(value: number | undefined): string {
   return `$${value.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
-function collectTableUsages(instructions: InstructionFact[], provenance: CodeProvenance): TableUsageFact[] {
+function collectTableUsages(instructions: InstructionFact[], provenance: CodeProvenance, platform: PlatformTag): TableUsageFact[] {
   const facts: TableUsageFact[] = [];
 
   for (let index = 0; index < instructions.length; index += 1) {
     const first = instructions[index];
-    if (!isAbsoluteIndexedAccess(first) || isHardwareAddress(first.targetAddress)) {
+    if (!isAbsoluteIndexedAccess(first) || isHardwareAddress(platform, first.targetAddress)) {
       continue;
     }
 
@@ -58,7 +59,7 @@ function collectTableUsages(instructions: InstructionFact[], provenance: CodePro
     const window = [first];
     for (let cursor = index + 1; cursor < instructions.length && cursor <= index + 5; cursor += 1) {
       const candidate = instructions[cursor];
-      if (!isAbsoluteIndexedAccess(candidate) || isHardwareAddress(candidate.targetAddress)) {
+      if (!isAbsoluteIndexedAccess(candidate) || isHardwareAddress(platform, candidate.targetAddress)) {
         break;
       }
       if (INDEXED_MODES.get(candidate.addressingMode) !== indexRegister) {
@@ -108,7 +109,7 @@ function collectTableUsages(instructions: InstructionFact[], provenance: CodePro
   return facts;
 }
 
-function collectCopyRoutines(instructions: InstructionFact[], provenance: CodeProvenance): CopyRoutineFact[] {
+function collectCopyRoutines(instructions: InstructionFact[], provenance: CodeProvenance, platform: PlatformTag): CopyRoutineFact[] {
   const facts: CopyRoutineFact[] = [];
 
   for (let index = 0; index < instructions.length; index += 1) {
@@ -139,7 +140,7 @@ function collectCopyRoutines(instructions: InstructionFact[], provenance: CodePr
         instruction.mnemonic.startsWith("st") &&
         instruction.targetAddress !== undefined &&
         instruction.addressingMode === `abs,${register}` &&
-        !isHardwareAddress(instruction.targetAddress),
+        !isHardwareAddress(platform, instruction.targetAddress),
     );
     if (stores.length < 2) {
       continue;
@@ -150,7 +151,7 @@ function collectCopyRoutines(instructions: InstructionFact[], provenance: CodePr
         instruction.mnemonic === "lda" &&
         instruction.targetAddress !== undefined &&
         instruction.addressingMode === `abs,${register}` &&
-        !isHardwareAddress(instruction.targetAddress),
+        !isHardwareAddress(platform, instruction.targetAddress),
     );
     const immediateLoads = loopInstructions.filter((instruction) => instruction.mnemonic === "lda" && instruction.addressingMode === "imm");
     const mode: "copy" | "fill" = reads.length >= 1 ? "copy" : "fill";
@@ -195,7 +196,9 @@ function collectCopyRoutines(instructions: InstructionFact[], provenance: CodePr
   return facts;
 }
 
-function classifyHardwareDestination(address: number): HardwareTargetedCopyFact["destinationRole"] {
+function classifyHardwareDestination(platform: PlatformTag, address: number): HardwareTargetedCopyFact["destinationRole"] {
+  // The roles name C64 chips (VIC-II, SID, colour RAM at $D800); no other machine has them there.
+  if (platform !== "c64") return "other_hardware";
   if (address >= 0xd800 && address <= 0xdbe7) return "color_ram";
   if (address >= 0x0400 && address <= 0x07e7) return "screen_ram";
   if (address >= 0xd400 && address <= 0xd418) return "sid";
@@ -213,7 +216,7 @@ function sourceKindForRole(role: HardwareTargetedCopyFact["destinationRole"]): S
   }
 }
 
-function collectHardwareTargetedCopies(instructions: InstructionFact[], provenance: CodeProvenance): HardwareTargetedCopyFact[] {
+function collectHardwareTargetedCopies(instructions: InstructionFact[], provenance: CodeProvenance, platform: PlatformTag): HardwareTargetedCopyFact[] {
   const facts: HardwareTargetedCopyFact[] = [];
 
   for (let index = 0; index < instructions.length; index += 1) {
@@ -244,7 +247,7 @@ function collectHardwareTargetedCopies(instructions: InstructionFact[], provenan
         instruction.mnemonic.startsWith("st") &&
         instruction.targetAddress !== undefined &&
         instruction.addressingMode === `abs,${register}` &&
-        isHardwareAddress(instruction.targetAddress),
+        isHardwareAddress(platform, instruction.targetAddress),
     );
     if (hwStores.length === 0) {
       continue;
@@ -255,7 +258,7 @@ function collectHardwareTargetedCopies(instructions: InstructionFact[], provenan
         instruction.mnemonic === "lda" &&
         instruction.targetAddress !== undefined &&
         instruction.addressingMode === `abs,${register}` &&
-        !isHardwareAddress(instruction.targetAddress),
+        !isHardwareAddress(platform, instruction.targetAddress),
     );
     const immediateLoads = loopInstructions.filter((instruction) => instruction.mnemonic === "lda" && instruction.addressingMode === "imm");
     const mode: "copy" | "fill" = reads.length >= 1 ? "copy" : "fill";
@@ -264,7 +267,7 @@ function collectHardwareTargetedCopies(instructions: InstructionFact[], provenan
     const sourceBases = Array.from(new Set(reads.map((instruction) => instruction.targetAddress!))).sort((left, right) => left - right);
     const fillValue = mode === "fill" ? immediateLoads[immediateLoads.length - 1]?.operandValue : undefined;
 
-    const role = classifyHardwareDestination(destinationBases[0]);
+    const role = classifyHardwareDestination(platform, destinationBases[0]);
     const sourceClassification = sourceKindForRole(role);
 
     const confidence = clampConfidence(
@@ -300,8 +303,8 @@ function collectHardwareTargetedCopies(instructions: InstructionFact[], provenan
   return facts;
 }
 
-function isSidRegisterRange(address: number): boolean {
-  return address >= 0xd400 && address <= 0xd418;
+function isSidRegisterRange(platform: PlatformTag, address: number): boolean {
+  return platform === "c64" && address >= 0xd400 && address <= 0xd418;
 }
 
 function collectSidDataSources(
@@ -310,6 +313,7 @@ function collectSidDataSources(
   provenance: CodeProvenance,
 ): SidDataSourceFact[] {
   const facts: SidDataSourceFact[] = [];
+  const platform = context.platform ?? "c64";
 
   // Find code regions that write to SID registers
   const sidWriteAddresses = new Set<number>();
@@ -317,7 +321,7 @@ function collectSidDataSources(
     if (
       inst.mnemonic.startsWith("st") &&
       inst.targetAddress !== undefined &&
-      isSidRegisterRange(inst.targetAddress)
+      isSidRegisterRange(platform, inst.targetAddress)
     ) {
       sidWriteAddresses.add(inst.address);
     }
@@ -329,7 +333,7 @@ function collectSidDataSources(
   // Pattern 1: indexed reads near SID writes (e.g. LDA $XXXX,X ... STA $D400,Y)
   for (let index = 0; index < instructions.length; index += 1) {
     const inst = instructions[index];
-    if (!inst.mnemonic.startsWith("st") || inst.targetAddress === undefined || !isSidRegisterRange(inst.targetAddress)) {
+    if (!inst.mnemonic.startsWith("st") || inst.targetAddress === undefined || !isSidRegisterRange(platform, inst.targetAddress)) {
       continue;
     }
 
@@ -337,7 +341,7 @@ function collectSidDataSources(
     for (let back = Math.max(0, index - 8); back < index; back += 1) {
       const source = instructions[back];
       if (source.mnemonic !== "lda" || source.targetAddress === undefined) continue;
-      if (isHardwareAddress(source.targetAddress)) continue;
+      if (isHardwareAddress(platform, source.targetAddress)) continue;
 
       // Indexed read → data table being fed to SID
       if (INDEXED_MODES.has(source.addressingMode)) {
@@ -379,7 +383,7 @@ function collectSidDataSources(
       (other) =>
         other.mnemonic.startsWith("st") &&
         other.targetAddress !== undefined &&
-        isSidRegisterRange(other.targetAddress) &&
+        isSidRegisterRange(platform, other.targetAddress) &&
         Math.abs(other.address - inst.address) < 64,
     );
     if (!nearSid) continue;
@@ -489,6 +493,7 @@ function collectSplitPointerTables(
   provenance: CodeProvenance,
 ): SplitPointerTableFact[] {
   const facts: SplitPointerTableFact[] = [];
+  const platform = context.platform ?? "c64";
 
   for (let index = 0; index < instructions.length - 3; index += 1) {
     const a = instructions[index];
@@ -511,7 +516,7 @@ function collectSplitPointerTables(
     if (b.operandValue === undefined || d.operandValue === undefined || d.operandValue !== ((b.operandValue + 1) & 0xff)) {
       continue;
     }
-    if (isHardwareAddress(a.targetAddress) || isHardwareAddress(c.targetAddress)) {
+    if (isHardwareAddress(platform, a.targetAddress) || isHardwareAddress(platform, c.targetAddress)) {
       continue;
     }
     if (Math.abs(a.targetAddress - c.targetAddress) <= 1) {
@@ -582,11 +587,12 @@ export function extractCodeSemantics(context: AnalyzerContext): CodeSemantics {
   const sidDataSources: SidDataSourceFact[] = [];
   const indirectPointers: IndirectPointerConstructionFact[] = [];
   const splitPointerTables: SplitPointerTableFact[] = [];
+  const platform = context.platform ?? "c64";
 
   for (const pool of getInstructionPools(context)) {
-    tableUsages.push(...collectTableUsages(pool.instructions, pool.provenance));
-    copyRoutines.push(...collectCopyRoutines(pool.instructions, pool.provenance));
-    hardwareTargetedCopies.push(...collectHardwareTargetedCopies(pool.instructions, pool.provenance));
+    tableUsages.push(...collectTableUsages(pool.instructions, pool.provenance, platform));
+    copyRoutines.push(...collectCopyRoutines(pool.instructions, pool.provenance, platform));
+    hardwareTargetedCopies.push(...collectHardwareTargetedCopies(pool.instructions, pool.provenance, platform));
     sidDataSources.push(...collectSidDataSources(context, pool.instructions, pool.provenance));
     indirectPointers.push(...collectIndirectPointers(pool.instructions, pool.provenance));
     splitPointerTables.push(...collectSplitPointerTables(context, pool.instructions, pool.provenance));

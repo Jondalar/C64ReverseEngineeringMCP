@@ -8,6 +8,7 @@ import {
 } from "./types";
 import { clampConfidence, formatAddress } from "./utils";
 import { loadAccessEdges, type AccessEdge } from "./graph-reader";
+import { isIoAddress, type PlatformTag } from "../lib/platform-kb";
 
 export interface EvidenceGraphOptions {
   /**
@@ -20,6 +21,8 @@ export interface EvidenceGraphOptions {
   projectDir?: string;
   /** the 819/820 owner (analysis stem). Analysis-time callers have none yet. */
   owner?: string;
+  /** the machine the bytes run on; absent = c64 */
+  platform?: PlatformTag;
 }
 
 interface CopyBases {
@@ -29,8 +32,8 @@ interface CopyBases {
   note?: string;
 }
 
-function isHardwareAddress(address: number): boolean {
-  return (address >= 0xd000 && address <= 0xdfff) || address === 0xdd00;
+function isHardwareAddress(platform: PlatformTag, address: number): boolean {
+  return isIoAddress(platform, address);
 }
 
 function sameList(left: number[], right: number[]): boolean {
@@ -68,7 +71,7 @@ function copyBasesResolver(
   const edges: AccessEdge[] = lookup.edges.filter((edge) => edge.viaZp === undefined && edge.indexed);
   return (copy) => {
     const mode = `abs,${copy.indexRegister}`;
-    const inWindow = edges.filter((edge) => edge.pc >= copy.start && edge.pc <= copy.end && edge.addressingMode === mode && !isHardwareAddress(edge.target));
+    const inWindow = edges.filter((edge) => edge.pc >= copy.start && edge.pc <= copy.end && edge.addressingMode === mode && !isHardwareAddress(options.platform ?? "c64", edge.target));
     const destinationBases = Array.from(new Set(inWindow.filter((edge) => edge.type === "WRITES" && edge.mnemonic.startsWith("st")).map((edge) => edge.target))).sort((left, right) => left - right);
     const sourceBases = Array.from(new Set(inWindow.filter((edge) => edge.type === "READS" && edge.mnemonic === "lda").map((edge) => edge.target))).sort((left, right) => left - right);
     const agrees = sameList(destinationBases, copy.destinationBases) && sameList(sourceBases, copy.sourceBases);

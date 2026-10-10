@@ -22,6 +22,7 @@ export class ProbableCodeAnalyzer {
       // Spec 838 D3 — so an island that flows into confirmed code is not lost
       // just because a new seed shortened its unclaimed region.
       confirmedInstructionStarts: new Set(context.discoveredCode.instructions.map((instruction) => instruction.address)),
+      platform: context.platform ?? "c64",
     });
 
     context.probableCode = analysis;

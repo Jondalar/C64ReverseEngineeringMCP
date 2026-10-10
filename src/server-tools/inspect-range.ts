@@ -9,6 +9,10 @@ import { parseId } from "../knowledge-graph/ids.js";
 import { GraphStore, graphPath } from "../knowledge-graph/store.js";
 import { ownerFromAnalysisPath, seedControlFlow } from "../knowledge-graph/producers/control-flow.js";
 import { seedMemoryAccess } from "../knowledge-graph/producers/memory-access.js";
+import { contextForOwner } from "../knowledge-graph/producers/machine.js";
+import { platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
+import { resolvePlatform } from "../project-knowledge/platform-default.js";
+import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 
 // Spec 820.2 (D7) — the two walks of this file (VIC-register stores, xrefs into
 // the range) read the project graph's 819/820 rows. The JSON walk survives
@@ -100,8 +104,10 @@ export function resolveProjectGraph(analysisPath: string, projectDir?: string): 
     return { status: "absent", owner, edges: [], note: `Graph: ABSENT — ${existsSync(path) ? `${path} holds no rows for owner ${owner}` : `no ${path}`} and no knowledge/project.json in ${dir} to seed from (project_init); VIC program and xrefs rendered from the JSON walk.` };
   }
   try {
-    seedControlFlow({ projectDir: dir, analysisPath, owner });
-    seedMemoryAccess({ projectDir: dir, analysisPath, owner });
+    // the machine a human or a door declared for this owner counts (producers/machine.ts)
+    const { ctx } = contextForOwner(dir, owner, undefined, analysisPath);
+    seedControlFlow({ projectDir: dir, analysisPath, owner, ctx });
+    seedMemoryAccess({ projectDir: dir, analysisPath, owner, ctx });
     edges = readOwnerEdges(dir, owner);
   } catch (error) {
     return { status: "absent", owner, edges: [], note: `Graph: ABSENT — seeding owner ${owner} on demand failed (${error instanceof Error ? error.message : String(error)}); VIC program and xrefs rendered from the JSON walk.` };
@@ -151,12 +157,19 @@ interface AnalysisReport {
 // Spec 817: the 29-entry VIC register name table that lived here was the fifth
 // copy of "what is at $D018" in this repo — the gate found it the day it was
 // written. Register names come from resources/platform-kb.sqlite; what stays
-// here is the RANGE this tool reports on (VIC registers + the CIA2 bank select).
-function trackedVicRegisterName(address: number): string | undefined {
-  const tracked = (address >= 0xd000 && address <= 0xd02e) || address === 0xdd00;
-  if (!tracked) return undefined;
-  const node = platformKb().node("c64", address);
-  return node ? (node.symbol ?? node.name) : undefined;
+// here is the RANGE this tool reports on: on the C64 the VIC registers + the CIA2 bank
+// select; on any other machine its whole I/O window (Spec 898), where an address the store
+// has no row for is still reported, and says so.
+function trackedVicRegisterName(platform: PlatformTag, address: number): string | undefined {
+  if (platform === "c64") {
+    const tracked = (address >= 0xd000 && address <= 0xd02e) || address === 0xdd00;
+    if (!tracked) return undefined;
+    const node = platformKb().node("c64", address);
+    return node ? (node.symbol ?? node.name) : undefined;
+  }
+  if (platformKindForAddress(platform, address) !== "io") return undefined;
+  const node = platformKb().node(platform, address);
+  return node ? (node.symbol ?? node.name) : `$${hex16(address)} (no ${platform} row in the platform store)`;
 }
 
 function hex16(value: number): string {
@@ -224,7 +237,7 @@ function inferImmediateValueBefore(
   return undefined;
 }
 
-function collectVicWrites(report: AnalysisReport, graph?: ProjectGraphView): VicWriteEvent[] {
+function collectVicWrites(report: AnalysisReport, platform: PlatformTag, graph?: ProjectGraphView): VicWriteEvent[] {
   const all = ([] as AnalysisInstruction[]).concat(
     report.codeAnalysis?.instructions ?? [],
     report.probableCodeAnalysis?.instructions ?? [],
@@ -242,7 +255,7 @@ function collectVicWrites(report: AnalysisReport, graph?: ProjectGraphView): Vic
       .filter((e) => e.type === "WRITES" && e.viaZp === undefined && (e.mnemonic === "sta" || e.mnemonic === "stx" || e.mnemonic === "sty"))
       .sort((left, right) => left.pc - right.pc || left.target - right.target);
     for (const store of stores) {
-      const name = trackedVicRegisterName(store.target);
+      const name = trackedVicRegisterName(platform, store.target);
       if (!name) continue;
       const key = `${store.pc}:${store.target}`;
       if (seen.has(key)) continue;
@@ -263,7 +276,7 @@ function collectVicWrites(report: AnalysisReport, graph?: ProjectGraphView): Vic
   for (let index = 0; index < all.length; index += 1) {
     const inst = all[index]!;
     if (inst.targetAddress === undefined) continue;
-    const name = trackedVicRegisterName(inst.targetAddress);
+    const name = trackedVicRegisterName(platform, inst.targetAddress);
     if (!name) continue;
     if (inst.mnemonic !== "sta" && inst.mnemonic !== "stx" && inst.mnemonic !== "sty") continue;
     const reg: "a" | "x" | "y" = inst.mnemonic === "sta" ? "a" : inst.mnemonic === "stx" ? "x" : "y";
@@ -326,6 +339,8 @@ export interface InspectArgs {
   projectDir?: string;
   /** `graph` (default) reads the store; `json` is the pre-820 walk, kept for the parity gate */
   source?: "graph" | "json";
+  /** the machine the bytes run on; absent = c64 */
+  platform?: PlatformTag;
 }
 
 export function buildReport(args: InspectArgs): string {
@@ -338,9 +353,11 @@ export function buildReport(args: InspectArgs): string {
   const endAddress = args.endAddress;
   const graph = args.source === "json" ? undefined : resolveProjectGraph(analysisPath, args.projectDir);
 
+  const platform: PlatformTag = args.platform ?? "c64";
   const lines: string[] = [];
   lines.push(`# Address-range usage report`);
   lines.push(`Range: $${hex16(startAddress)}–$${hex16(endAddress)} (${endAddress - startAddress + 1} bytes)`);
+  if (platform !== "c64") lines.push(`Platform: ${platform}`);
   lines.push(`Analysis: ${analysisPath}`);
   if (graph) lines.push(graph.note);
   lines.push("");
@@ -363,10 +380,10 @@ export function buildReport(args: InspectArgs): string {
   lines.push("");
 
   // VIC writes (full register set, with decoded meaning where possible)
-  const vicEvents = collectVicWrites(report, graph);
+  const vicEvents = collectVicWrites(report, platform, graph);
   // Track most-recent $DD00 to interpret $D018 in context.
   let lastBankBase = 0x0000;
-  lines.push(`## VIC register program (${vicEvents.length} stores)`);
+  lines.push(platform === "c64" ? `## VIC register program (${vicEvents.length} stores)` : `## I/O register stores (${vicEvents.length} stores)`);
   for (const event of vicEvents) {
     const valuePart = event.inferredValue !== undefined ? `= $${hex8(event.inferredValue)}` : `(value via ${event.addressingMode})`;
     let decoded = "";
@@ -470,18 +487,22 @@ export function buildReport(args: InspectArgs): string {
 export function registerInspectRangeTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "inspect_address_range",
-    "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context. Returns: aggregated facts.",
+    "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. On a VIC-20 or TED file (platform argument, the artifact record or the project default) the register stores are the machine's whole I/O window, named from its platform rows or marked as having none. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context, optional platform. Returns: aggregated facts.",
     {
       project_dir: z.string().optional().describe("Project root. Resolved from prg_path when omitted."),
       prg_path: z.string().describe("Path to the PRG file."),
       analysis_json: z.string().optional().describe("Optional override path to the analysis JSON. Defaults to <prg-dir>/<stem>_analysis.json or analysis/<stem>_analysis.json."),
       start_address: z.string().describe("Hex C64 start address, e.g. \"C000\"."),
       end_address: z.string().describe("Hex C64 end address (inclusive), e.g. \"DF40\"."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("The machine the PRG runs on: which I/O window the register stores are read from and whose names they carry (an address the platform store has no row for is reported as such, never given a C64 name). Resolved in order: this argument, the file's artifact record, the project default, c64."),
     },
-    async ({ project_dir, prg_path, analysis_json, start_address, end_address }) => {
+    async ({ project_dir, prg_path, analysis_json, start_address, end_address, platform }) => {
       try {
         const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, true);
         const prgAbs = resolve(pd, prg_path);
+        let row: { platform?: string } | undefined;
+        try { row = new ProjectKnowledgeService(pd).listArtifacts().find((art) => art.path === prgAbs); } catch { /* best effort */ }
+        const machine = resolvePlatform({ projectDir: pd, explicit: platform, artifactPlatform: row?.platform });
         const analysisAbs = analysis_json ? resolve(pd, analysis_json) : undefined;
         const text = buildReport({
           prgPath: prgAbs,
@@ -489,6 +510,7 @@ export function registerInspectRangeTools(server: McpServer, context: ServerTool
           endAddress: parseHex(end_address),
           analysisPath: analysisAbs,
           projectDir: pd,
+          platform: machine.platform,
         });
         return { content: [{ type: "text" as const, text }] };
       } catch (error) {

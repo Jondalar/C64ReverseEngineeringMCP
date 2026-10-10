@@ -1,4 +1,5 @@
 import { decodeInstruction, hasFallthrough, isBranchInstruction, isCallInstruction, isJumpInstruction } from "../lib/mos6502";
+import { isIoAddress, type PlatformTag } from "../lib/platform-kb";
 import { analyzeIrqHandlerEvidence, isValidIrqHandler } from "./irq-analysis";
 import { CrossReference, InstructionFact, MemoryMapping, ProbableCodeAnalysis, SegmentCandidate } from "./types";
 import { clampConfidence, createCoverageMap, findUnclaimedRegions, formatAddress, segmentLength, toOffset } from "./utils";
@@ -19,6 +20,8 @@ interface DiscoverProbableCodeOptions {
    * that is control flow, not byte shape.
    */
   confirmedInstructionStarts?: Set<number>;
+  /** The machine the bytes run on; absent = c64. */
+  platform?: PlatformTag;
 }
 
 interface IslandProbe {
@@ -64,8 +67,12 @@ function knownRoutines(): Set<number> | null {
 const SUSPICIOUS_MNEMONICS = new Set(["slo", "rla", "sre", "rra", "isc", "dcp", "anc", "alr", "arr", "xaa", "ahx", "shx", "shy", "tas", "las", "lax", "sax"]);
 const ANCHOR_MNEMONICS = new Set(["lda", "ldx", "ldy", "sta", "stx", "sty", "jsr", "jmp", "cmp", "and", "ora", "inc", "dec", "nop", "sei", "cli", "clc", "sec"]);
 
-function isHardwareAddress(address: number | undefined): boolean {
-  return address !== undefined && ((address >= 0xd000 && address <= 0xd02e) || (address >= 0xd400 && address <= 0xd418) || address === 0xdd00);
+// C64: the chip registers the island heuristics were tuned on (VIC-II, SID, CIA2 bank). Any other
+// machine: its whole I/O window — there is no narrower list for it.
+function isHardwareAddress(platform: PlatformTag, address: number | undefined): boolean {
+  if (address === undefined) return false;
+  if (platform !== "c64") return isIoAddress(platform, address);
+  return (address >= 0xd000 && address <= 0xd02e) || (address >= 0xd400 && address <= 0xd418) || address === 0xdd00;
 }
 
 function isUsefulStore(mnemonic: string): boolean {
@@ -139,6 +146,7 @@ function probeIsland(
   regionEnd: number,
   support: ReferenceSupport,
   confirmedStarts?: Set<number>,
+  platform: PlatformTag = "c64",
 ): IslandProbe | undefined {
   const instructions: InstructionFact[] = [];
   const xrefs: CrossReference[] = [];
@@ -206,7 +214,7 @@ function probeIsland(
     if (isUsefulStore(fact.mnemonic)) {
       usefulStoreCount += 1;
     }
-    if (isHardwareAddress(fact.targetAddress)) {
+    if (isHardwareAddress(platform, fact.targetAddress)) {
       hardwareTouchCount += 1;
     }
     if (fact.mnemonic === "lda" && fact.addressingMode === "imm") {
@@ -261,7 +269,7 @@ function probeIsland(
     return undefined;
   }
 
-  if (last.mnemonic === "rti" && !isValidIrqHandler(instructions, support.vectorRefs >= 1)) {
+  if (last.mnemonic === "rti" && !isValidIrqHandler(instructions, support.vectorRefs >= 1, platform)) {
     return undefined;
   }
 
@@ -283,7 +291,7 @@ function probeIsland(
     return undefined;
   }
 
-  const irqEvidence = analyzeIrqHandlerEvidence(instructions, support.vectorRefs >= 1);
+  const irqEvidence = analyzeIrqHandlerEvidence(instructions, support.vectorRefs >= 1, platform);
   const score = Math.min(
     0.88,
     clampConfidence(
@@ -352,7 +360,7 @@ function overlapsExisting(candidate: SegmentCandidate, chosen: SegmentCandidate[
   return chosen.some((existing) => candidate.start <= existing.end && existing.start <= candidate.end);
 }
 
-function trimLeadingNoise(instructions: InstructionFact[], xrefs: CrossReference[]): { instructions: InstructionFact[]; xrefs: CrossReference[] } {
+function trimLeadingNoise(instructions: InstructionFact[], xrefs: CrossReference[], platform: PlatformTag): { instructions: InstructionFact[]; xrefs: CrossReference[] } {
   const headWindow = instructions.slice(0, Math.min(4, instructions.length));
   const anchoredHead =
     headWindow.length >= 3 &&
@@ -374,7 +382,7 @@ function trimLeadingNoise(instructions: InstructionFact[], xrefs: CrossReference
 
     const first = window[0];
     const suspiciousCount = window.slice(0, 3).filter((instruction) => SUSPICIOUS_MNEMONICS.has(instruction.mnemonic)).length;
-    const hardwareTouchCount = window.filter((instruction) => isHardwareAddress(instruction.targetAddress)).length;
+    const hardwareTouchCount = window.filter((instruction) => isHardwareAddress(platform, instruction.targetAddress)).length;
     const structuredCount = window.filter(
       (instruction) =>
         ANCHOR_MNEMONICS.has(instruction.mnemonic) || instruction.mnemonic.startsWith("b") || instruction.mnemonic === "rts" || instruction.mnemonic === "rti",
@@ -432,12 +440,12 @@ export function discoverProbableCode(options: DiscoverProbableCodeOptions): Prob
         branchRefs: branchRefs.get(address) ?? 0,
         wordRefs: wordRefs.get(address) ?? 0,
         vectorRefs: vectorRefs.get(address) ?? 0,
-      }, options.confirmedInstructionStarts);
+      }, options.confirmedInstructionStarts, options.platform ?? "c64");
       if (!probe) {
         continue;
       }
 
-      const trimmed = trimLeadingNoise(probe.instructions, probe.xrefs);
+      const trimmed = trimLeadingNoise(probe.instructions, probe.xrefs, options.platform ?? "c64");
       if (trimmed.instructions.length < 5) {
         continue;
       }

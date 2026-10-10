@@ -12,6 +12,9 @@ import {
   searchC64RefKnowledge,
 } from "../c64ref-rom-knowledge.js";
 import type { ServerToolContext } from "./types.js";
+import { resolvePlatform } from "../project-knowledge/platform-default.js";
+import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import type { PlatformTag } from "../platform-kb/schema.js";
 
 const C64REF_BUILD_ESTIMATE_SECONDS = 5;
 
@@ -118,6 +121,29 @@ function platformKbSearch(query: string, limit: number): string[] {
   } catch { return []; }
 }
 
+// Spec 898 D5 — a machine the C64Ref snapshot does not describe (VIC-20, TED): the answer is
+// the platform store's rows for THAT machine and nothing else, so no C64 name can leak in, and
+// a miss says which machine had no row.
+function foreignPlatformAnswer(platform: PlatformTag, address: number | undefined, query: string | undefined, limit: number): string {
+  try {
+    const kb = platformKb();
+    if (address !== undefined) {
+      const node = kb.node(platform, address);
+      if (!node) return `No ${platform} row for ${formatHexWord(address)} in the platform store (the C64Ref snapshot describes the C64 only and is not consulted for ${platform}).`;
+      const out = [`Platform KB (${platform}): ${node.symbol ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
+      if (node.description) out.push(node.description);
+      return out.join("\n");
+    }
+    const asAddress = /^(?:\$|0x)?([0-9A-F]{1,4})$/iu.exec((query ?? "").trim());
+    if (asAddress) return foreignPlatformAnswer(platform, parseInt(asAddress[1]!, 16), undefined, limit);
+    const hits = kb.search(platform, query ?? "", limit);
+    if (hits.length === 0) return `No ${platform} row matches "${query}" in the platform store (the C64Ref snapshot describes the C64 only and is not consulted for ${platform}).`;
+    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`).join("\n");
+  } catch (error) {
+    return `The platform store could not be read for ${platform}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 export function registerReferenceTools(server: McpServer, context: ServerToolContext, repoRoot: string): void {
   const c64refKnowledgePath = () => defaultC64RefKnowledgePath(repoRoot);
 
@@ -156,17 +182,33 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
 
   server.tool(
     "c64ref_lookup",
-    "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string. Returns: matching ROM entries.",
+    "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. For a VIC-20 or TED (C16/Plus/4) file pass platform (or prg_path / a project whose machine it is): the answer then comes from the platform store's rows for that machine, never the C64 snapshot, and says so when it has no row. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string, optional platform/prg_path/project_dir. Returns: matching ROM entries.",
     {
       address: z.string().optional().describe("Exact ROM/system address in hex, e.g. FFD5."),
       query: z.string().optional().describe("Search term such as LOAD, SYS, CHRGET, keyboard queue, or NMI."),
       limit: z.number().int().positive().max(20).optional().describe("Maximum number of search hits to return for query searches."),
       auto_build: z.boolean().optional().describe("When true, build the local c64ref snapshot if it does not exist yet, or rebuild it if it carries only the ROM listings and no memory map. Needs network access."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("Which machine the address belongs to. Resolved in order: this argument, the artifact record of prg_path, the project default (project_init platform), c64. vic20 and plus4 are answered from the platform store's rows for that machine only — the C64Ref snapshot describes the C64 — and a missing row is said so."),
+      prg_path: z.string().optional().describe("A file of the project; its artifact record's platform decides the machine when platform is not given."),
+      project_dir: z.string().optional().describe("Project root, for the project default platform. Resolved from prg_path when omitted; none found = c64."),
     },
-    async ({ address, query, limit, auto_build }) => {
+    async ({ address, query, limit, auto_build, platform, prg_path, project_dir }) => {
       try {
         if (!address && !query) {
           throw new Error("Provide either address or query.");
+        }
+        let pd: string | undefined;
+        try { pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, false); } catch { pd = undefined; }
+        let artifactPlatform: string | undefined;
+        if (pd && prg_path) {
+          try {
+            const abs = resolve(pd, prg_path);
+            artifactPlatform = new ProjectKnowledgeService(pd).listArtifacts().find((art) => art.path === abs)?.platform;
+          } catch { /* best effort */ }
+        }
+        const machine = resolvePlatform({ ...(pd ? { projectDir: pd } : {}), explicit: platform, artifactPlatform });
+        if (machine.platform === "vic20" || machine.platform === "plus4") {
+          return { content: [{ type: "text" as const, text: foreignPlatformAnswer(machine.platform, address ? parseHexWord(address) : undefined, query, limit ?? 5) }] };
         }
         const knowledgePath = c64refKnowledgePath();
         if (!existsSync(knowledgePath)) {

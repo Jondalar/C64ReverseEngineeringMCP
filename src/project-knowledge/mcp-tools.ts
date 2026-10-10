@@ -154,7 +154,7 @@ const evidenceSchema = z.object({
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, optional description/tags/assembler/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
@@ -162,14 +162,15 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       tags: z.array(z.string()).optional().describe("Optional project tags"),
       preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("Preferred assembler dialect for generated source and later workflow defaults."),
       machine_model: z.string().optional().describe("Which C64 the project's machine is — a model name such as c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists them all). Omitted: c64-pal for a new project; an existing project keeps its own. The runtime checks the name when it starts the machine and refuses one it cannot run, naming what it lacks."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("Which machine the project's CODE runs on — the default for every render, analysis and lookup whose call and whose file's record name none: c64 (default when omitted), c1541, vic20 (VIC-20) or plus4 (C16 / C116 / Plus/4). Not the runtime's machine (that is machine_model, always a C64). Omitted: a new project has none (= c64), an existing project keeps its own."),
     },
-    safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler, machine_model }) => {
+    safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler, machine_model, platform }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
       // A project without history loses its hand-written state on the first wrong write,
       // so no git means nothing is created — checked before anything is written.
       if (!gitAvailable()) return textContent(noGitRefusal("project_init"));
       const service = new ProjectKnowledgeService(projectRoot);
-      const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model });
+      const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model, ...(platform ? { platform } : {}) });
       // BUG-015 — sort any loose media in the project root into the canonical
       // typed input/ folders (.d64/.g64→disk, .crt→crt, .prg→prg, docs→docs)
       // and register each at its canonical path. Idempotent.
@@ -212,6 +213,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Root: ${project.rootPath}`,
         `Preferred assembler: ${project.preferredAssembler ?? "(not set)"}`,
         `Machine: ${project.machine?.model ?? "(not set — the runtime's default, PAL)"} — the workspace and sandbox runs start the C64 as this model`,
+        `Platform: ${project.platform ?? "c64 (default)"} — the machine the project's code runs on, for renders and analyses whose file's record names none`,
         `Workflow summary: ${workflow.state.summary}`,
         `Current phase: ${workflow.state.currentPhaseId ?? "(none)"}`,
         `Next recommended phase: ${workflow.state.nextRecommendedPhaseId ?? "(none)"}`,
@@ -391,7 +393,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       derived_from: z.string().optional().describe("Artifact id of the direct parent in the lineage chain (V0 if absent)."),
       version_label: z.string().optional().describe("Free-form version label. Defaults to V<rank>."),
       enable_snapshot: z.boolean().optional().describe("If true (default), record same-path content changes in versions[]. Set false for ephemeral saves."),
-      platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Spec 020 platform marker. Default c64 when absent."),
+      platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Spec 020 platform marker: the machine this file runs on. Absent = the project's default platform (c64 unless project_init set one). Read by disasm, analyze, inspect_address_range and c64ref_lookup."),
     },
     safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot, platform }) => {
       const root = resolveWorkspaceRoot(options, project_dir);

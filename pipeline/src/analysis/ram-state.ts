@@ -12,6 +12,7 @@ import {
   Segment,
 } from "./types";
 import { clampConfidence, formatAddress } from "./utils";
+import { isIoAddress, type PlatformTag } from "../lib/platform-kb";
 import { loadAccessEdges, ownerFromBinaryName, type AccessEdge } from "./graph-reader";
 
 const DIRECT_ADDRESSING_MODES = new Set(["zp", "zp,x", "zp,y", "abs", "abs,x", "abs,y"]);
@@ -61,22 +62,22 @@ function classifyRamDomain(address: number): RamAddressDomain {
   return "high_ram";
 }
 
-function isStaticRamAddress(address: number): boolean {
+function isStaticRamAddress(platform: PlatformTag, address: number): boolean {
   if (address < 0x0000 || address > 0xffff) {
     return false;
   }
-  if (address >= 0xd000 && address <= 0xdfff) {
+  if (isIoAddress(platform, address)) {
     return false;
   }
   return true;
 }
 
-function getStaticTargetAddress(instruction: InstructionFact): number | undefined {
+function getStaticTargetAddress(instruction: InstructionFact, platform: PlatformTag): number | undefined {
   if (!DIRECT_ADDRESSING_MODES.has(instruction.addressingMode)) {
     return undefined;
   }
   const address = instruction.targetAddress ?? instruction.operandValue;
-  if (address === undefined || !isStaticRamAddress(address)) {
+  if (address === undefined || !isStaticRamAddress(platform, address)) {
     return undefined;
   }
   return address;
@@ -174,7 +175,7 @@ function collectRamAccesses(context: AnalyzerContext): RamAccessFact[] {
   for (const pool of getInstructionPools(context)) {
     for (let index = 0; index < pool.instructions.length; index += 1) {
       const instruction = pool.instructions[index];
-      const address = getStaticTargetAddress(instruction);
+      const address = getStaticTargetAddress(instruction, context.platform ?? "c64");
       if (address !== undefined) {
         const aggregate = ensureAggregate(aggregates, address);
         aggregate.provenances.add(pool.provenance);
@@ -230,6 +231,7 @@ function collectRamAccesses(context: AnalyzerContext): RamAccessFact[] {
 function collectRamAccessesFromGraph(
   edges: AccessEdge[],
   pools: Array<{ provenance: CodeProvenance; instructions: InstructionFact[] }>,
+  platform: PlatformTag,
 ): RamAccessFact[] {
   const aggregates = new Map<number, AggregatedRamAccess>();
   const immediateByPc = new Map<number, number>();
@@ -256,7 +258,7 @@ function collectRamAccessesFromGraph(
       }
       continue;
     }
-    if (!isStaticRamAddress(edge.target)) continue;
+    if (!isStaticRamAddress(platform, edge.target)) continue;
     const aggregate = ensureAggregate(aggregates, edge.target);
     aggregate.provenances.add(edge.provenance);
     if (READ_MODIFY_WRITE_MNEMONICS.has(mnemonic)) {
@@ -593,6 +595,8 @@ export interface RenderRamStateOptions {
 export interface RamStateReportInput {
   binaryName: string;
   codeSemantics?: CodeSemantics;
+  /** The machine the analysis was made for; absent = c64. */
+  platform?: PlatformTag;
   codeAnalysis?: { instructions: InstructionFact[] };
   probableCodeAnalysis?: { instructions: InstructionFact[] };
 }
@@ -616,7 +620,7 @@ export function resolveRamAccesses(
   if (report.codeAnalysis?.instructions?.length) pools.push({ provenance: "confirmed_code", instructions: report.codeAnalysis.instructions });
   if (report.probableCodeAnalysis?.instructions?.length) pools.push({ provenance: "probable_code", instructions: report.probableCodeAnalysis.instructions });
   return {
-    ramAccesses: collectRamAccessesFromGraph(lookup.edges, pools),
+    ramAccesses: collectRamAccessesFromGraph(lookup.edges, pools, report.platform ?? "c64"),
     source: "graph",
     note: `Access table: knowledge graph ${lookup.path} (owner ${lookup.owner}, ${lookup.edges.length} Spec 820 access edges).`,
   };

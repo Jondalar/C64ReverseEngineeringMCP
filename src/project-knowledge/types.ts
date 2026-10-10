@@ -155,13 +155,13 @@ export const ArtifactRecordSchema = z.object({
   // Same-path history. The latest entry's snapshot lives at the
   // current path; older entries point to snapshots/<artifact-id>/<hash>.bin.
   versions: z.array(ArtifactVersionEntrySchema).default([]),
-  // Spec 020: per-artifact platform marker. Default is c64 when absent.
+  // Spec 020: per-artifact platform marker. Absent = the project default (project.json `platform`), else c64.
   // Drives ZP / I/O register / ROM symbol annotation in the renderer.
   platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
   // Which platform name tables a listing of this file may use. "none" = no ROM /
   // zero-page / I/O names or comments (code of a machine without a table); absent =
   // the machine's own tables. Set by disasm `platform: "none"`, honoured by every
-  // re-render, cleared by an explicit c64 / c1541. Not the machine: that is `platform`.
+  // re-render, cleared by an explicit machine (c64 / c1541 / vic20 / plus4). Not the machine: that is `platform`.
   symbolTables: z.enum(["none"]).optional(),
   // Spec 023: alternate load contexts beyond the on-disk PRG header.
   loadContexts: z.array(LoadContextSchema).default([]),
@@ -793,6 +793,10 @@ export const ProjectMetadataSchema = z.object({
    *  table (`c64-pal`, `c64-ntsc`, …). Stamped by project_init on a project it creates;
    *  absent on older projects (the runtime's default then). machine-model.ts. */
   machine: z.object({ model: z.string().min(1) }).optional(),
+  /** Spec 898 D5 — the machine the project's code runs on (c64 | c1541 | vic20 | plus4): what a render,
+   *  an analysis or a lookup uses when neither the call nor the file's artifact record names one.
+   *  Absent = c64. Set by project_init. platform-default.ts. */
+  platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

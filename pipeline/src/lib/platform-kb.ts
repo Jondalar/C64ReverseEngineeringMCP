@@ -13,7 +13,40 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-export type PlatformTag = "c64" | "c1541";
+export type PlatformTag = "c64" | "c1541" | "vic20" | "plus4";
+
+/**
+ * Kind is a function of the address on the platform's memory map — the CommonJS twin of
+ * `platformKindForAddress` in src/platform-kb/schema.ts (this half cannot import that
+ * ESM module; scripts/e2e-898-platforms.mjs holds the two equal over every address).
+ */
+export function platformKindForAddress(platform: PlatformTag, address: number): PlatformNodeHit["kind"] {
+  const a = address & 0xffff;
+  if (a < 0x0100) return "zp";
+  if (platform === "c1541") {
+    if (a >= 0x1800 && a <= 0x1c0f) return "io";
+    if (a >= 0xc000) return "rom";
+    return "ram";
+  }
+  if (platform === "vic20") {
+    if (a >= 0x9000 && a <= 0x9fff) return "io";
+    if ((a >= 0x8000 && a <= 0x8fff) || a >= 0xc000) return "rom";
+    return "ram";
+  }
+  if (platform === "plus4") {
+    if (a >= 0xfd00 && a <= 0xff3f) return "io";
+    if ((a >= 0x8000 && a <= 0xfcff) || a >= 0xff40) return "rom";
+    return "ram";
+  }
+  if (a >= 0xd000 && a <= 0xdfff) return "io";
+  if ((a >= 0xa000 && a <= 0xbfff) || a >= 0xe000) return "rom";
+  return "ram";
+}
+
+/** True when `address` lies in the platform's I/O window — the one question every analysis pass asks instead of its own `$D000` test. */
+export function isIoAddress(platform: PlatformTag, address: number): boolean {
+  return platformKindForAddress(platform, address) === "io";
+}
 
 export interface PlatformNodeHit {
   kind: "zp" | "ram" | "io" | "rom";

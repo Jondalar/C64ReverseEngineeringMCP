@@ -6,6 +6,7 @@ import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
+import { defaultLoadAddresses, resolvePlatform } from "../project-knowledge/platform-default.js";
 
 /**
  * BASIC V2 tooling (829 D7).
@@ -34,15 +35,20 @@ export function registerBasicTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "basic_tokenize",
-    "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list. Use to build a loader stub, or to turn an edited listing back into bytes; the round trip is byte-identical, which is what makes a listing worth trusting. Not for assembling 6502 source (use assemble_source), and not for reading a program that already exists (use basic_list). Inputs: text, output_path, optional project_dir and load_address (default $0801). Returns: the written PRG path, its load address, its byte count, and the knowledge run the PRG was registered under.",
+    "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list. Use to build a loader stub, or to turn an edited listing back into bytes; the round trip is byte-identical, which is what makes a listing worth trusting. Not for assembling 6502 source (use assemble_source), and not for reading a program that already exists (use basic_list). Inputs: text, output_path, optional project_dir, platform and load_address (default: the machine's BASIC start — $0801 on the C64, $1001 on the VIC-20 and the TED machines). Returns: the written PRG path, its load address, its byte count, and the knowledge run the PRG was registered under.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from output_path to knowledge/phase-plan.json."),
       text: z.string().describe("BASIC V2 source, one line per line, each starting with its line number (e.g. \"10 SYS 2080\"). Control codes by name: {CLR}, {RVS ON}, {CYAN}."),
       output_path: z.string().describe("Path to write the .prg to (absolute or relative to project dir)"),
-      load_address: z.string().optional().describe("Hex load address, e.g. \"0801\" or \"$0801\". Default $0801 (BASIC start)."),
+      load_address: z.string().optional().describe("Hex load address, e.g. \"0801\" or \"$0801\". Default: the BASIC start of the machine — $0801 on the C64; $1001 on the VIC-20 (unexpanded; $0401 with +3K and $1201 with +8K and up are passed explicitly) and on the TED machines."),
+      platform: z.enum(["c64", "vic20", "plus4"]).optional().describe("The machine the program is for, when load_address is omitted: c64 (default), vic20 or plus4. Resolved in order: this argument, the project default (project_init platform), c64."),
     },
-    safeHandler("basic_tokenize", async ({ project_dir, text, output_path, load_address }) => {
+    safeHandler("basic_tokenize", async ({ project_dir, text, output_path, load_address: givenLoadAddress, platform }) => {
       const pd = context.projectDir({ projectDir: project_dir, fileHint: output_path }, true);
+      // Spec 898 D6 — the BASIC start of the machine; a load_address given always wins.
+      const machine = resolvePlatform({ projectDir: pd, explicit: platform });
+      const guessed = defaultLoadAddresses(machine.platform)[0];
+      const load_address = givenLoadAddress ?? (guessed !== undefined && guessed !== 0x0801 ? `$${guessed.toString(16).toUpperCase().padStart(4, "0")}` : undefined);
       const outAbs = resolve(pd, output_path);
       // The source is passed as a FILE, never as an argv string: a listing is
       // multi-line and carries quotes, braces and PETSCII control names, none

@@ -14,7 +14,7 @@ TRXDis pipeline.
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
 | `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
 | `basic_list` | List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts. |
-| `basic_tokenize` | Tokenize BASIC V2 source text back into a `.prg` — the inverse of `basic_list`. |
+| `basic_tokenize` | Tokenize BASIC V2 source text back into a `.prg` — the inverse of `basic_list`. Starts at the machine's BASIC start (`$0801`; `$1001` for `vic20` / `plus4`) unless `load_address` is given. |
 
 ## BASIC V2
 
@@ -90,9 +90,36 @@ disasm { path: "artifacts/loader.prg" }
 disasm { path: "artifacts/overlay.bin", load_address: "$C000" }
 disasm { path: "artifacts/track18.bin", offset: "$100", length: "$200",
          load_address: "$0300", platform: "c1541" }
-disasm { path: "artifacts/vic20-original.bin", load_address: "$A000", platform: "none" }
+disasm { path: "artifacts/vic20-original.prg", platform: "vic20" }
+disasm { path: "artifacts/foreign-original.bin", load_address: "$A000", platform: "none" }
 analyze { path: "artifacts/drivecode.bin", load_address: "$0300" }
 ```
+
+### Which machine
+
+The names in a listing (zero page, I/O registers, KERNAL entries) and the I/O
+window the analysis treats as hardware depend on the machine the bytes run on.
+Four are known: `c64`, `c1541` (drive code), `vic20` and `plus4` (the TED machines:
+C16, C116, Plus/4). `disasm`, `analyze`, `inspect_address_range` and `c64ref_lookup`
+all resolve it the same way, first hit wins:
+
+1. the `platform` argument;
+2. the `platform` marker on the file's artifact record;
+3. the project's default (`project_init` with `platform`, stored in `knowledge/project.json`);
+4. `c64`.
+
+An explicitly named machine is recorded on the file, so every later call that names
+none finds it. The platform store names only what it has rows for: on a VIC-20 or a
+TED address with no row, the listing stays unnamed and `c64ref_lookup` says there is
+no row — a C64 name is never borrowed. `platform: "none"` is a rendering switch, not a
+machine: no platform names at all, for code of any other machine.
+
+Graph nodes follow the machine: a store to `$9005` in VIC-20 code is a `USES_HARDWARE`
+edge to `vic20:io:9005`, a store to `$FF19` in TED code one to `plus4:io:ff19`.
+Where a tool must pick a load address for a block with no header, the machine
+decides — `basic_tokenize` starts at `$0801` on the C64 and `$1001` on the VIC-20 and
+the TED machines (the VIC-20 with 3K or 8K expansion starts at `$0401` / `$1201`: pass
+`load_address`). A PRG header always wins.
 
 Addresses are hex with `$`/`0x` optional, and a JSON number is taken as given.
 `offset` and `length` are counted, not addressed, and follow the same rule —

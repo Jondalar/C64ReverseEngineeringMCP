@@ -1,3 +1,4 @@
+import type { PlatformTag } from "../lib/platform-kb";
 import { InstructionFact } from "./types";
 
 export interface IrqHandlerEvidence {
@@ -18,10 +19,14 @@ function isImmediateStoreToAddress(current: InstructionFact, next: InstructionFa
   );
 }
 
+// The raster, acknowledge, KERNAL-tail and direct-control signals below are VIC-II / CIA2 /
+// C64 KERNAL facts. On any other machine they do not exist, so they are never counted there.
 export function analyzeIrqHandlerEvidence(
   instructions: InstructionFact[],
   hasVectorReference: boolean,
+  platform: PlatformTag = "c64",
 ): IrqHandlerEvidence {
+  const c64 = platform === "c64";
   let touchesRasterLine = false;
   let acknowledgesVicIrq = false;
   let chainsToKernalIrqTail = false;
@@ -32,13 +37,14 @@ export function analyzeIrqHandlerEvidence(
     const instruction = instructions[index];
     const next = instructions[index + 1];
 
-    if (instruction.targetAddress === 0xd012 || isImmediateStoreToAddress(instruction, next, 0xd012)) {
+    if (c64 && (instruction.targetAddress === 0xd012 || isImmediateStoreToAddress(instruction, next, 0xd012))) {
       touchesRasterLine = true;
     }
-    if (instruction.targetAddress === 0xd019) {
+    if (c64 && instruction.targetAddress === 0xd019) {
       acknowledgesVicIrq = true;
     }
     if (
+      c64 &&
       instruction.mnemonic === "jmp" &&
       instruction.targetAddress !== undefined &&
       (instruction.targetAddress === 0xea31 || instruction.targetAddress === 0xea7e || instruction.targetAddress === 0xea81)
@@ -56,6 +62,7 @@ export function analyzeIrqHandlerEvidence(
       savesOrRestoresRegisters = true;
     }
     if (
+      c64 &&
       instruction.targetAddress !== undefined &&
       ((instruction.targetAddress >= 0xd000 && instruction.targetAddress <= 0xd02e) || instruction.targetAddress === 0xdd00)
     ) {
@@ -76,8 +83,11 @@ export function analyzeIrqHandlerEvidence(
 export function isValidIrqHandler(
   instructions: InstructionFact[],
   hasVectorReference: boolean,
+  platform: PlatformTag = "c64",
 ): boolean {
-  const evidence = analyzeIrqHandlerEvidence(instructions, hasVectorReference);
+  // The judgement is "does this look like a C64 raster IRQ"; there is no such test for another machine.
+  if (platform !== "c64") return true;
+  const evidence = analyzeIrqHandlerEvidence(instructions, hasVectorReference, platform);
   if (!evidence.hasVectorReference) {
     return false;
   }

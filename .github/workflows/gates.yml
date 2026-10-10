@@ -494,6 +494,13 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: The disassembly family
         run: npm run e2e:disasm-family
+      # Spec 898 — the VIC-20 and the TED machines as platforms: the memory map per tag,
+      # ids, the same bytes rendered on three machines (no C64 name off a C64), the graph's
+      # USES_HARDWARE, the resolution order, the lookups, the guessed load addresses.
+      # Hermetic: temp projects, synthetic bytes. The rebuild half needs KickAssembler and
+      # 64tass and skips loudly without them, like e2e:830.
+      - name: The VIC-20 and the TED machines are platforms (Spec 898)
+        run: npm run e2e:898
       # BUG-054 follow-up — the three that came back: 220 open questions from one
       # sync, leftovers that rotated between runs, and a step recorder that
       # contradicted the sync about the same files. Hermetic: temp projects, files

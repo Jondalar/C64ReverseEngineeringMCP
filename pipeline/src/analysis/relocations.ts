@@ -9,11 +9,12 @@
 // This is deliberately generic — it keys off the existing decoded
 // instruction stream, NOT any game-specific signature.
 
+import { isIoAddress, type PlatformTag } from "../lib/platform-kb";
 import { InstructionFact, IndexedRegister, MemoryMapping, RelocationProposal } from "./types";
 import { formatAddress } from "./utils";
 
-function isHardwareAddress(address: number): boolean {
-  return address >= 0xd000 && address <= 0xdfff;
+function isHardwareAddress(platform: PlatformTag, address: number): boolean {
+  return isIoAddress(platform, address);
 }
 
 // Count how many of the sorted bases form a contiguous page walk
@@ -62,7 +63,7 @@ function inferPerPage(
   return { value: 256, certain: false };
 }
 
-export function detectRelocationProposals(instructions: InstructionFact[], mapping: MemoryMapping): RelocationProposal[] {
+export function detectRelocationProposals(instructions: InstructionFact[], mapping: MemoryMapping, platform: PlatformTag = "c64"): RelocationProposal[] {
   const allSorted = [...instructions].sort((a, b) => a.address - b.address);
   const proposals: RelocationProposal[] = [];
 
@@ -83,10 +84,10 @@ export function detectRelocationProposals(instructions: InstructionFact[], mappi
 
     const mode = `abs,${register}`;
     const stores = loopInstr.filter(
-      (ins) => ins.mnemonic.startsWith("st") && ins.addressingMode === mode && ins.targetAddress !== undefined && !isHardwareAddress(ins.targetAddress),
+      (ins) => ins.mnemonic.startsWith("st") && ins.addressingMode === mode && ins.targetAddress !== undefined && !isHardwareAddress(platform, ins.targetAddress),
     );
     const reads = loopInstr.filter(
-      (ins) => ins.mnemonic === "lda" && ins.addressingMode === mode && ins.targetAddress !== undefined && !isHardwareAddress(ins.targetAddress),
+      (ins) => ins.mnemonic === "lda" && ins.addressingMode === mode && ins.targetAddress !== undefined && !isHardwareAddress(platform, ins.targetAddress),
     );
     if (stores.length < 1 || reads.length < 1) continue;
 

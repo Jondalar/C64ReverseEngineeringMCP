@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_LABEL_LENGTH } from "./naming.js";
+import type { PlatformTag } from "../platform-kb/schema.js";
 import { DEFAULT_PROJECT_MODEL, isModelName } from "./machine-model.js";
 
 /** A model name as the runtime spells its rows. Which rows exist is the runtime's answer,
@@ -482,6 +483,9 @@ export interface InitProjectInput {
    *  table). Given: set, on a new or an existing project. Omitted: a new project gets
    *  `c64-pal`, an existing one keeps what it had. */
   machineModel?: string;
+  /** Spec 898 D5 — the project's default machine. Given: set, on a new or an existing project.
+   *  Omitted: an existing project keeps what it had; a new one has none (= c64). */
+  platform?: PlatformTag;
 }
 
 // BUG-015 — result of sweeping loose root media into typed input/ folders.
@@ -879,6 +883,7 @@ export class ProjectKnowledgeService {
         : existing
           ? (existing.machine ? { machine: existing.machine } : {})
           : { machine: { model: DEFAULT_PROJECT_MODEL } }),
+      ...(input.platform ? { platform: input.platform } : existing?.platform ? { platform: existing.platform } : {}),
       createdAt,
       updatedAt,
     };
@@ -892,6 +897,7 @@ export class ProjectKnowledgeService {
         projectName: project.name,
         ...(project.preferredAssembler ? { preferredAssembler: project.preferredAssembler } : {}),
         ...(project.machine ? { machineModel: project.machine.model } : {}),
+        ...(project.platform ? { platform: project.platform } : {}),
       },
     });
     this.initializeWorkflowContract();

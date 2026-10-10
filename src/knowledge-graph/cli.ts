@@ -3,6 +3,7 @@
 // MCP tools over the same library are Spec 823.
 
 import { resolve } from "node:path";
+import { PLATFORM_TAGS, type PlatformTag } from "../platform-kb/schema.js";
 import { declareMachine, declaredMachines } from "./producers/machine.js";
 import { formatSeedProject, seedProject } from "./producers/seed-project.js";
 import { resolveAddresses } from "./producers/resolve.js";
@@ -38,7 +39,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
   seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
   resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
-  machine [<owner> <c64|c1541>] 826.0 T7: declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
+  machine [<owner> <c64|c1541|vic20|plus4>] 826.0 T7: declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
   boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze
   signature <ref>               826: a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
   args <ref>                    826: what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
@@ -130,8 +131,8 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "machine") {
     const [owner, machine] = args.positional;
     if (!owner) { const list = declaredMachines(args.project); out(list.map((m) => `${m.owner.padEnd(40)} ${m.machine}`).join("\n") || "(no machine declared — every owner seeds as c64)", list); return; }
-    if (machine !== "c64" && machine !== "c1541") throw new Error("machine needs <owner> <c64|c1541>");
-    declareMachine(args.project, owner.toLowerCase(), machine);
+    if (!(PLATFORM_TAGS as readonly string[]).includes(machine ?? "")) throw new Error("machine needs <owner> <c64|c1541|vic20|plus4>");
+    declareMachine(args.project, owner.toLowerCase(), machine as PlatformTag);
     out(`${owner.toLowerCase()} → ${machine}. Re-seed the owner (c64re graph seed --owner ${owner.toLowerCase()}) and re-import its annotations (c64re graph migrate) so its rows move to the ${machine === "c1541" ? "drv" : "ram"} space.`, { owner: owner.toLowerCase(), machine });
     return;
   }

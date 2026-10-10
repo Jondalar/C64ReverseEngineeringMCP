@@ -4,7 +4,7 @@
 // through ./platform-kb; what stays here is address arithmetic, not knowledge.
 
 import { hex16 } from "./format";
-import { platformNode, type PlatformTag } from "./platform-kb";
+import { isIoAddress, platformNode, type PlatformTag } from "./platform-kb";
 
 export interface C64IoMetadata {
   comment: string;
@@ -21,8 +21,9 @@ export function findC64IoMetadata(address: number, platform: PlatformTag = "c64"
   return { comment: hit.label };
 }
 
-export function isC64IoAddress(address: number): boolean {
-  return address >= 0xd000 && address <= 0xdfff;
+/** True inside the platform's I/O window (the c64 default: $D000-$DFFF). */
+export function isC64IoAddress(address: number, platform: PlatformTag = "c64"): boolean {
+  return isIoAddress(platform, address);
 }
 
 export function formatC64IoAddress(address: number): string {

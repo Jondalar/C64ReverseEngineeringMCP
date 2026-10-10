@@ -12,6 +12,7 @@ import { analyzeSampleBuffer } from "./analysis/sample";
 import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
 import { AnnotationsFileRefusal } from "./lib/annotations";
 import { ADDRESS_RULE, parseAddress, parseAddressList, parseCount, looksLikeAddressList } from "./lib/address-rule";
+import type { PlatformTag } from "./lib/platform-kb";
 
 // Spec 741: parse a relocation map JSON.
 //
@@ -52,9 +53,9 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|none] [--relocations <json>] [--annotations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|none] [--annotations <json>] [--relocations <json>]",
-      "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--relocations <json>] [--annotations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--annotations <json>] [--relocations <json>]",
+      "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]] [--platform c64|c1541|vic20|plus4]",
       "  node dist/cli.js basic-list <prg> [--json]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
@@ -71,9 +72,9 @@ function usage(): never {
   );
 }
 
-function checkPlatform(value: string): "c64" | "c1541" | "none" {
-  if (value === "c64" || value === "c1541" || value === "none") return value;
-  throw new Error(`--platform ${JSON.stringify(value)} is not a platform; use c64, c1541 or none`);
+function checkPlatform(value: string): PlatformTag | "none" {
+  if (value === "c64" || value === "c1541" || value === "vic20" || value === "plus4" || value === "none") return value;
+  throw new Error(`--platform ${JSON.stringify(value)} is not a platform; use c64, c1541, vic20, plus4 or none`);
 }
 
 function main(): void {
@@ -123,10 +124,10 @@ function main(): void {
   }
 
   if (command === "disasm-prg") {
-    // Spec 048: optional --platform <c64|c1541|none> flag. Strip it from
+    // Spec 048: optional --platform <c64|c1541|vic20|plus4|none> flag. Strip it from
     // the positional args before the existing arg parsing so we keep
     // the public CLI shape stable.
-    let platform: "c64" | "c1541" | "none" = "c64";
+    let platform: PlatformTag | "none" = "c64";
     // Spec 741: optional --relocations <path-to-json> with a relocation map.
     let relocationsPath: string | undefined;
     // The analysis JSON as a NAMED argument. It used to be positional slot 3, behind
@@ -243,7 +244,7 @@ function main(): void {
   // annotation handling, same pair of outputs — only the way the image is read differs,
   // and that difference is one branch inside `disassemblePrgToKickAsm`.
   if (command === "disasm-raw") {
-    let platform: "c64" | "c1541" | "none" = "c64";
+    let platform: PlatformTag | "none" = "c64";
     let loadAddress: number | undefined;
     let offset: number | undefined;
     let length: number | undefined;
@@ -347,6 +348,7 @@ function main(): void {
     let loadAddressOverride: number | undefined;
     let offset: number | undefined;
     let length: number | undefined;
+    let analysisPlatform: PlatformTag | undefined;
     const positional: string[] = [];
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index]!;
@@ -371,6 +373,12 @@ function main(): void {
         length = parseCount(take(), "--length");
         continue;
       }
+      if (flag === "--platform") {
+        const named = checkPlatform(take());
+        if (named === "none") throw new Error("--platform none is a rendering switch; an analysis is made for a machine: use c64, c1541, vic20 or plus4");
+        analysisPlatform = named;
+        continue;
+      }
       positional.push(arg);
     }
     const prgPath = positional[0];
@@ -389,11 +397,12 @@ function main(): void {
     const report = loadAddressOverride !== undefined
       ? analyzeRawFile(prgAbs, loadAddressOverride, {
         userEntryPoints: entryPoints,
+        ...(analysisPlatform ? { platform: analysisPlatform } : {}),
         ...(offset !== undefined || length !== undefined
           ? { window: { ...(offset !== undefined ? { offset } : {}), ...(length !== undefined ? { length } : {}) } }
           : {}),
       })
-      : analyzePrgFile(prgAbs, { userEntryPoints: entryPoints });
+      : analyzePrgFile(prgAbs, { userEntryPoints: entryPoints, ...(analysisPlatform ? { platform: analysisPlatform } : {}) });
     writeAnalysisReport(report, outputPath);
     registerCliArtifact({
       kind: "analysis-run",

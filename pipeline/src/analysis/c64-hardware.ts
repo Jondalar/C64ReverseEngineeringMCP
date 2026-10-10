@@ -143,6 +143,13 @@ function instructionPools(context: AnalyzerContext): Array<{ source: CodeProvena
 }
 
 export function extractVicEvidence(context: AnalyzerContext): VicEvidence {
+  // VIC-II, $DD00 and the sprite registers are C64 chips; no other machine has them at these addresses.
+  if ((context.platform ?? "c64") !== "c64") {
+    return {
+      bankBases: [], bankSelectionConfirmed: false, screenAddresses: [], charsetAddresses: [], bitmapAddresses: [],
+      spriteDataAddresses: [], bitmapModeEnabled: false, multicolorEnabled: false, spriteRegisterTouches: 0, observedWrites: [],
+    };
+  }
   const bankBases = new Set<number>();
   let bankSelectionConfirmed = false;
   const screenAddresses = new Set<number>();
@@ -307,6 +314,7 @@ export function extractVicEvidence(context: AnalyzerContext): VicEvidence {
 }
 
 export function extractSidEvidence(context: AnalyzerContext): SidEvidence {
+  if ((context.platform ?? "c64") !== "c64") return { writeInstructions: [], controlTouches: 0, observedWrites: [] };
   const writes = instructionPools(context).flatMap((pool) =>
     pool.instructions.filter(
       (instruction) =>

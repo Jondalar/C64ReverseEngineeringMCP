@@ -32,6 +32,8 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import type { PlatformTag } from "../platform-kb/schema.js";
+import { loadAddressOffer } from "../project-knowledge/platform-default.js";
 
 const hex16 = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
 const both = (value: number) => `${value} ($${value.toString(16).toUpperCase()})`;
@@ -62,6 +64,13 @@ export interface ReadingRequest {
   length?: string | number;
   /** The store's own word on what this file is — `kind` off its artifact row, when it has one. */
   registeredKind?: string;
+  /** The machine the bytes are for, when one is known — a refusal that asks for `load_address` then offers that machine's usual ones. */
+  platform?: PlatformTag;
+}
+
+function offerSuffix(platform: PlatformTag | undefined): string {
+  const offer = loadAddressOffer(platform);
+  return offer ? ` ${offer}` : "";
 }
 
 export type ReadingResult = { ok: true; reading: ByteReading } | { ok: false; refusal: string };
@@ -95,7 +104,8 @@ export function resolveByteReading(request: ReadingRequest): ReadingResult {
     return { ok: false, refusal:
       `offset/length narrow a window of ${name}, and a window's first byte is not a 2-byte load header — `
       + `so a window is raw bytes by definition. Pass load_address to say where the window's first byte runs, `
-      + `or drop offset/length to read ${name} as a headed file from its own first two bytes.` };
+      + `or drop offset/length to read ${name} as a headed file from its own first two bytes.`
+      + offerSuffix(request.platform) };
   }
 
   const headerWord = fileSize >= 2 ? (readFileSync(sourceAbs).readUInt16LE(0)) : undefined;
@@ -151,7 +161,8 @@ export function resolveByteReading(request: ReadingRequest): ReadingResult {
   if (fileSize < 3) {
     return { ok: false, refusal:
       `${name} is ${fileSize} byte${fileSize === 1 ? "" : "s"} — too short to be read as headed (2 header bytes + a body). `
-      + `If these are raw bytes, pass load_address and they are read from offset 0.` };
+      + `If these are raw bytes, pass load_address and they are read from offset 0.`
+      + offerSuffix(request.platform) };
   }
   const load = headerWord!;
   const bodyLength = fileSize - 2;

@@ -10,6 +10,9 @@ import { rebuildVerification } from "../lib/rebuild-verify.js";
 import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import type { ArtifactRecord } from "../project-knowledge/types.js";
+import { PLATFORM_TAGS, type PlatformTag } from "../platform-kb/schema.js";
+import { resolvePlatform } from "../project-knowledge/platform-default.js";
 import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
@@ -442,7 +445,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     offset?: string | number; length?: string | number;
     entry_points?: Array<string | number>;
     analysis_json?: string; no_analysis?: boolean; annotations_path?: string; import_graph?: boolean;
-    output_asm?: string; platform?: "c64" | "c1541" | "none"; cpu?: "c64" | "drive";
+    output_asm?: string; platform?: PlatformTag | "none"; cpu?: "c64" | "drive";
     bank?: number; space?: string;
     relocations?: Array<Record<string, unknown>>;
     paths?: string[];
@@ -459,6 +462,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const { sourceAbs } = located;
     let sourceArtifactId = located.artifactId;
 
+    // ── which machine (Spec 898 D5) ─────────────────────────────────────────
+    // "none" is a rendering switch, not a machine: it names no ROM / zero-page / I/O
+    // table, so it is neither recorded as the machine nor stamped on any row.
+    // The choice sticks to the file (`symbolTables` on its row): a re-render that names
+    // no platform keeps it, an explicit machine clears it.
+    const askedNone = a.platform === "none";
+    const askedMachine = a.platform === "none" ? undefined : a.platform;
+    const namedPlatform: PlatformTag | undefined = askedMachine
+      ?? (askedNone ? undefined : a.cpu === "drive" ? "c1541" : a.cpu === "c64" ? "c64" : undefined);
+    let machineRow: ArtifactRecord | undefined;
+    try { machineRow = service.listArtifacts().find((art) => art.path === sourceAbs); } catch { /* best effort */ }
+    const machine = resolvePlatform({ projectDir: pd, explicit: namedPlatform, artifactPlatform: machineRow?.platform });
+    const resolvedPlatform: PlatformTag = machine.platform;
+    const noPlatformNames = askedNone || (!namedPlatform && machineRow?.symbolTables === "none");
+
     // ── §1 the load address decides ─────────────────────────────────────────
     const read = resolveByteReading({
       sourceAbs,
@@ -467,6 +485,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ...(a.offset !== undefined ? { offset: a.offset } : {}),
       ...(a.length !== undefined ? { length: a.length } : {}),
       ...(located.registeredKind ? { registeredKind: located.registeredKind } : {}),
+      ...(noPlatformNames ? {} : { platform: resolvedPlatform }),
     });
     if (!read.ok) return refuse(read.refusal);
     const reading = read.reading;
@@ -502,28 +521,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
 
     // ── which machine ───────────────────────────────────────────────────────
-    // "none" is a rendering switch, not a machine: it names no ROM / zero-page / I/O
-    // table, so it is neither recorded as the machine nor stamped on any row.
-    // The choice sticks to the file (`symbolTables` on its row): a re-render that names
-    // no platform keeps it, an explicit c64 / c1541 clears it.
-    const askedNone = a.platform === "none";
-    const askedMachine = a.platform === "none" ? undefined : a.platform;
-    const namedPlatform: "c64" | "c1541" | undefined = askedMachine
-      ?? (askedNone ? undefined : a.cpu === "drive" ? "c1541" : a.cpu === "c64" ? "c64" : undefined);
-    let resolvedPlatform: "c64" | "c1541" = namedPlatform ?? "c64";
-    let noPlatformNames = askedNone;
-    if (!namedPlatform) {
-      try {
-        const row = service.listArtifacts().find((art) => art.path === sourceAbs);
-        if (row?.platform === "c1541") resolvedPlatform = "c1541";
-        if (!askedNone && row?.symbolTables === "none") noPlatformNames = true;
-      } catch { /* best effort */ }
-    }
+    // Resolved above (the byte reading offers load addresses per machine): the platform
+    // argument, then the file's artifact record, then the project default, then the C64.
     // An explicitly named platform is RECORDED, not merely used for this render: the
     // three readers that decide a node's space look at the artifact record and at the
     // declared machine, and a render that knew the answer used to tell neither.
     const importGraph = a.import_graph !== false;
-    if (namedPlatform && importGraph) {
+    if (importGraph && !noPlatformNames && (namedPlatform || resolvedPlatform === "vic20" || resolvedPlatform === "plus4")) {
       try {
         const { declareMachine } = await import("../knowledge-graph/producers/machine.js");
         const { normStem } = await import("../knowledge-graph/migrate/classify.js");
@@ -851,6 +855,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     load_address?: string | number; headed?: boolean;
     offset?: string | number; length?: string | number;
     entry_points?: Array<string | number>; output_json?: string;
+    platform?: PlatformTag;
     paths?: string[];
   }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
     const pd = context.projectDir({ projectDir: a.project_dir, fileHint: a.path ?? a.prg_path }, true);
@@ -864,6 +869,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (!located.ok) return refuse(located.refusal);
     const { sourceAbs } = located;
 
+    // Spec 898 D5 — the machine: the argument, the file's record, the project default, c64.
+    let machineRow: ArtifactRecord | undefined;
+    try { machineRow = service.listArtifacts().find((art) => art.path === sourceAbs); } catch { /* best effort */ }
+    const machine = resolvePlatform({ projectDir: pd, explicit: a.platform, artifactPlatform: machineRow?.platform });
+
     const read = resolveByteReading({
       sourceAbs,
       ...(a.load_address !== undefined ? { loadAddress: a.load_address } : {}),
@@ -871,6 +881,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ...(a.offset !== undefined ? { offset: a.offset } : {}),
       ...(a.length !== undefined ? { length: a.length } : {}),
       ...(located.registeredKind ? { registeredKind: located.registeredKind } : {}),
+      platform: machine.platform,
     });
     if (!read.ok) return refuse(read.refusal);
     const reading = read.reading;
@@ -893,11 +904,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     // layer of job mode would hand back a job_id per path and turn one call back
     // into N polls, which is the round-trip arithmetic this door exists to end.
     if (outcome) {
-      return runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [] }, outcome);
+      return runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [], machine, named: a.platform !== undefined }, outcome);
     }
 
     const job = startAnalysisJob(invokedAs, outAbs, () =>
-      runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [] }));
+      runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [], machine, named: a.platform !== undefined }));
     const settled = await waitForJob(job, ANALYZE_JOB_GRACE_MS);
     if (!settled) {
       return { content: [{ type: "text" as const, text: [
@@ -934,11 +945,15 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   async function runAnalyzeBody(a: {
     invokedAs: string; pd: string; sourceAbs: string; outAbs: string;
     reading: ByteReading; entries: string; entryPoints: Array<string | number>;
+    /** Spec 898 D5 — the machine the bytes are analysed as, and whether the caller named it. */
+    machine: { platform: PlatformTag }; named: boolean;
   }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
     const { invokedAs, pd, sourceAbs, outAbs, reading, entries } = a;
+    const platform = a.machine.platform;
     const asHex = (value: number) => `$${value.toString(16).toUpperCase()}`;
     const args: string[] = [sourceAbs, outAbs];
     if (entries) args.push(entries);
+    if (platform !== "c64") args.push("--platform", platform);
     if (reading.kind === "raw") {
       args.push("--load-address", asHex(reading.loadAddress));
       if (reading.byteOffset !== 0) args.push("--offset", asHex(reading.byteOffset));
@@ -967,6 +982,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         length: reading.byteLength,
         output_json: outAbs,
         entry_points: a.entryPoints.map(String),
+        ...(platform !== "c64" ? { platform } : {}),
       },
       inputs: [{
         path: sourceAbs,
@@ -984,6 +1000,23 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         producedByTool: invokedAs,
       }],
     });
+    // The machine is declared for the owner before the analysis is imported, so the graph
+    // seeds it under that machine; a machine the caller NAMED is also recorded on the file's
+    // own row, which is where a later render without the argument finds it.
+    if (platform !== "c64" && platform !== "c1541") {
+      try {
+        const { declareMachine } = await import("../knowledge-graph/producers/machine.js");
+        const { normStem } = await import("../knowledge-graph/migrate/classify.js");
+        declareMachine(pd, normStem(basename(sourceAbs)), platform);
+      } catch { /* the analysis stands without the declaration */ }
+    }
+    if (a.named) {
+      try {
+        const svc = new ProjectKnowledgeService(pd);
+        const row = svc.listArtifacts().find((x) => x.path === sourceAbs);
+        if (row && row.platform !== platform) svc.saveArtifact({ ...row, path: sourceAbs, platform });
+      } catch { /* the analysis stands without the stamp */ }
+    }
     result.stdout = `${reading.line}\n\n` + (result.stdout || "Analysis complete.")
       + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}`;
     result.stdout += describeCodeSeeds(outAbs);
@@ -1162,7 +1195,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm",
-    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof (assembled by the project's preferredAssembler when it is installed, else KickAssembler, else 64tass; the verdict names which). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild. In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/platform/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, and the rebuild verdict — or, for `paths`, one line per path and the failures named.",
+    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof (assembled by the project's preferredAssembler when it is installed, else KickAssembler, else 64tass; the verdict names which). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild. In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/platform (c64, c1541, vic20, plus4, none — resolved: argument, the file's artifact record, the project default, c64)/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, and the rebuild verdict — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Named and present, it is the analysis rendered and is never swapped. Named and absent, or omitted, the project store is asked which analysis is registered for these bytes; only then the file beside them."),
@@ -1170,7 +1203,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it a <stem>_annotations.json beside the bytes, the output or the analysis is picked up. Whatever is applied is imported into the knowledge graph."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration) — the graph is left exactly as it was. Use for scratch or draft renders you do not mean to keep. Default true."),
       output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm."),
-      platform: z.enum(["c64", "c1541", "none"]).optional().describe("Target machine for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side code. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file\'s machine. The choice sticks to the file: every later render of this file that names no platform (a re-render after annotations included) keeps it, and an explicit c64 or c1541 clears it. Naming c64 or c1541 RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the bytes run on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's own artifact record, the project's default (project_init platform), c64. c1541 is drive-side code; vic20 the VIC-20 (VIC-I, VIA1/VIA2, its KERNAL); plus4 the TED machines (C16, C116, Plus/4). Naming a machine RECORDS it for this file, so every later render and analysis of the file knows it; its graph nodes are indexed under that machine (a 1541 file in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share, e.g. $0300-$07FF, actually contains them; a VIC-20 file's hardware accesses point at vic20:io:... nodes). The store names only what it has rows for: a machine with no row for an address leaves that address unnamed, it never borrows a C64 name. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file's machine. none sticks to the file: every later render that names no platform keeps it, and an explicit machine clears it."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
       space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
       relocations: z.array(z.object({
@@ -1216,10 +1249,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "analyze",
-    "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). MANY FILES AT ONCE: pass `paths` instead of `path` and one call analyses every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest are still analysed; the answer is one line per path, and you leave output_json out because one name cannot hold N analyses. Inputs: path or paths or artifact_id, optional load_address/headed/offset/length/entry_points/output_json. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused — or, for `paths`, one line per path and the failures named.",
+    "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). MANY FILES AT ONCE: pass `paths` instead of `path` and one call analyses every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest are still analysed; the answer is one line per path, and you leave output_json out because one name cannot hold N analyses. The machine matters: pass platform (c64, c1541, vic20, plus4), or let the file's artifact record or the project default (project_init platform) decide — its I/O window is what counts as hardware, and the VIC-II / SID / CIA heuristics run for the C64 only. Inputs: path or paths or artifact_id, optional load_address/headed/offset/length/entry_points/output_json/platform. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       output_json: z.string().optional().describe("Output path for the analysis JSON. Default for a headed file: <stem>_analysis.json next to it; for raw bytes: analysis/raw-analysis/<stem>[_<window>]_<address>_analysis.json."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("The machine the bytes run on: its I/O window decides which stores are hardware accesses, and the VIC-II / SID / CIA heuristics run only for c64. Resolved in order: this argument, the file's artifact record, the project default (project_init platform), c64. Naming a machine RECORDS it for this file, so the disassembly door and the graph agree with the analysis."),
     },
     safeHandler("analyze", async (args) => {
       const a = args as Parameters<typeof runAnalyze>[1] & { paths?: string[] };
@@ -1311,7 +1345,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
       annotations_path: z.string().optional().describe("Path to an annotations file, instead of the <stem>_annotations.json found beside the PRG, the output or the analysis."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration) — the graph is left exactly as it was. Use for scratch or draft renders you do not mean to keep. Default true."),
-      platform: z.enum(["c64", "c1541", "none"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly. Use none for code of any other machine: no ROM / zero-page / I/O names or comments from the platform tables, annotation and graph names still apply, nothing recorded as the machine; the choice sticks to the file until an explicit c64 or c1541 clears it. Naming c64 or c1541 RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
+      platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the PRG runs on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's artifact record, the project default, c64. c1541 is drive-side code, vic20 the VIC-20, plus4 the TED machines. Naming a machine RECORDS it for this file. none renders code of any other machine without platform names; it sticks to the file until an explicit machine clears it."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),

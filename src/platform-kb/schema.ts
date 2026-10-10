@@ -11,7 +11,10 @@
 
 export const PLATFORM_KB_SCHEMA_VERSION = 2; // 2: Spec 826 D4 adds platform_abi
 
-export type PlatformTag = "c64" | "c1541";
+export type PlatformTag = "c64" | "c1541" | "vic20" | "plus4";
+
+/** Every tag, in the order the store lists them. The one list — readers iterate it instead of retyping the set. */
+export const PLATFORM_TAGS: readonly PlatformTag[] = ["c64", "c1541", "vic20", "plus4"];
 export type PlatformNodeKind = "zp" | "ram" | "io" | "rom";
 
 export interface PlatformNodeRow {
@@ -55,7 +58,7 @@ export function formatAddr4(address: number): string {
  * 817's four kinds as pkind — `zp` and `io` carry hardware distinctions the
  * renderer keys on, which 818's first draft (`reg`/`mem`) folded away (818 OQ3):
  *
- *   c64:io:d018     c64:rom:ffd2     c64:zp:0001     c64:ram:0400     c1541:io:1800
+ *   c64:io:d018     c64:rom:ffd2     c64:zp:0001     c64:ram:0400     c1541:io:1800     vic20:io:9005
  */
 export function platformNodeId(platform: PlatformTag, kind: PlatformNodeKind, address: number): string {
   return `${platform}:${kind}:${formatAddr4(address)}`;
@@ -77,6 +80,19 @@ export function platformKindForAddress(platform: PlatformTag, address: number): 
   if (platform === "c1541") {
     if (a >= 0x1800 && a <= 0x1c0f) return "io";
     if (a >= 0xc000) return "rom";
+    return "ram";
+  }
+  if (platform === "vic20") {
+    // VIC-I, VIA1, VIA2, colour RAM and the expansion port's I/O2/I/O3 are one window.
+    // Block 5 ($A000-$BFFF) is RAM or a cartridge — the address cannot tell, and a
+    // cartridge there is the program being read, so it is not platform ROM.
+    if (a >= 0x9000 && a <= 0x9fff) return "io";
+    if ((a >= 0x8000 && a <= 0x8fff) || a >= 0xc000) return "rom";
+    return "ram";
+  }
+  if (platform === "plus4") {
+    if (a >= 0xfd00 && a <= 0xff3f) return "io";
+    if ((a >= 0x8000 && a <= 0xfcff) || a >= 0xff40) return "rom";
     return "ram";
   }
   if (a >= 0xd000 && a <= 0xdfff) return "io";

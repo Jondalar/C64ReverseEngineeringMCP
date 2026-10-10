@@ -1,3 +1,5 @@
+import type { PlatformTag } from "../lib/platform-kb";
+
 export type SegmentKind =
   | "basic_stub"
   // Spec 829 D6 — the tokenized BASIC V2 program itself, proven by walking its
@@ -255,6 +257,8 @@ export interface AnalyzerContext {
   discoveredCode?: CodeAnalysis;
   probableCode?: ProbableCodeAnalysis;
   symbols: SymbolInfo[];
+  /** The machine the bytes run on. Absent = c64. The I/O window and the chip-specific passes ask this. */
+  platform?: PlatformTag;
 }
 
 export interface AnalyzerResult {
@@ -508,6 +512,8 @@ export interface AnalysisReport {
   binaryName: string;
   mapping: MemoryMapping;
   entryPoints: EntryPoint[];
+  /** The machine the bytes were analysed as; absent = c64. */
+  platform?: PlatformTag;
   symbols: SymbolInfo[];
   hardwareEvidence?: HardwareEvidence;
   codeSemantics?: CodeSemantics;
@@ -558,6 +564,8 @@ export interface AnalysisOptions {
   projectDir?: string;
   /** Spec 838 D3b — set to skip the graph-seed pass entirely (measurement / A-B). */
   noGraphSeeds?: boolean;
+  /** Spec 898 — the machine the bytes run on; absent = c64. */
+  platform?: PlatformTag;
 }
 
 export interface SegmentAnalyzer {

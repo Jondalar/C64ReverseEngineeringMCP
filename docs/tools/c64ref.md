@@ -19,7 +19,9 @@ why it exists — the four hand-typed tables it replaced could not be shared and
 drifted apart (Spec 817 §1–2).
 
 Node ids are derived, never assigned: `c64:io:d018`, `c64:rom:ffd2`,
-`c64:zp:0001`, `c1541:io:1800` (Spec 818 D1 grammar). Re-seeding is idempotent; the gate proves it.
+`c64:zp:0001`, `c1541:io:1800`, `vic20:io:9005`, `plus4:io:ff19` (Spec 818 D1 grammar). The
+kind is a function of the address on each machine's memory map (`platformKindForAddress`,
+kept in both halves): VIC-20 I/O is `$9000-$9FFF`, TED I/O `$FD00-$FF3F`. Re-seeding is idempotent; the gate proves it.
 
 ## Adding or correcting a name
 
@@ -34,7 +36,7 @@ Node ids are derived, never assigned: `c64:io:d018`, `c64:rom:ffd2`,
 | Tool | Description |
 |---|---|
 | `c64ref_build_rom_knowledge` | Fetch and rebuild the local snapshot from `mist64/c64ref`. |
-| `c64ref_lookup` | Look up by exact address or search term over the snapshot (every source's annotation, not just the chosen name). |
+| `c64ref_lookup` | Look up by exact address or search term over the snapshot (every source's annotation, not just the chosen name). `platform: "vic20"` / `"plus4"` (or a `prg_path` / project whose machine is one) answers from the platform store's rows for that machine only — the snapshot describes the C64 — and says so when it has no row. |
 
 ## Gate
 

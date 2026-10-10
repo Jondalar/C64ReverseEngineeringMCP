@@ -419,7 +419,7 @@ try {
   }
   ok(/ROUTINE CONTEXT/.test(defTxt) && /ROUTINE CONTEXT/.test(readFileSync(noneOut, "utf8")) && /key RAM: \$0001, \$007A/.test(readFileSync(noneOut, "utf8")),
     "none: the platform-neutral ROUTINE CONTEXT line (key RAM) is kept");
-  const bad = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg, join(work, "foreign_bad.asm"), "C000", "--platform", "vic20"], { cwd: work, encoding: "utf8" });
+  const bad = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg, join(work, "foreign_bad.asm"), "C000", "--platform", "c128"], { cwd: work, encoding: "utf8" });
   ok(bad.status !== 0 && /not a platform/.test(bad.stderr + bad.stdout), "none: an unknown --platform is refused with a message");
   await assertByteExact("none", noneOut, "kickassembler", prg);
   await assertByteExact("none", noneOut.replace(/\.asm$/, ".tas"), "64tass", prg);

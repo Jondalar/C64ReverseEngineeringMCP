@@ -16,9 +16,10 @@
 
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import type { Ctx } from "../ids.js";
+import { PLATFORM_TAGS, type PlatformTag } from "../../platform-kb/schema.js";
 import { GraphStore } from "../store.js";
 
-export type Machine = "c64" | "c1541";
+export type Machine = PlatformTag;
 export type MachineSource = "artifact" | "declared" | "default";
 
 export interface OwnerContext {
@@ -34,6 +35,18 @@ export function contextForArtifact(artifact: Pick<ArtifactRecord, "platform" | "
   const bank = artifact.loadContexts?.find((c) => typeof c.bank === "number")?.bank;
   if (bank !== undefined) return { space: "crt", bank };
   if (artifact.platform === "c1541") return { space: "drv", owner };
+  if (artifact.platform === "vic20" || artifact.platform === "plus4") return { space: "ram", owner, platform: artifact.platform };
+  return { space: "ram", owner };
+}
+
+/** The machine an artifact record names, when it is one of the tags the store knows (c128 / other are not). */
+function artifactMachine(artifact: Pick<ArtifactRecord, "platform">): Machine | undefined {
+  return (PLATFORM_TAGS as readonly string[]).includes(artifact.platform ?? "") ? artifact.platform as Machine : undefined;
+}
+
+function ctxForMachine(machine: Machine, owner: string): Ctx {
+  if (machine === "c1541") return { space: "drv", owner };
+  if (machine === "vic20" || machine === "plus4") return { space: "ram", owner, platform: machine };
   return { space: "ram", owner };
 }
 
@@ -44,7 +57,7 @@ export function declaredMachine(projectDir: string, owner: string): Machine | un
   try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return undefined; }
   try {
     const v = store.getMeta(MACHINE_META(owner));
-    return v === "c1541" || v === "c64" ? v : undefined;
+    return (PLATFORM_TAGS as readonly string[]).includes(v ?? "") ? v as Machine : undefined;
   } finally { store.close(); }
 }
 
@@ -71,11 +84,11 @@ export function looksLikeDriveCode(owner: string, analysisPath?: string): boolea
 export function contextForOwner(projectDir: string, owner: string, artifact?: Pick<ArtifactRecord, "platform" | "loadContexts"> | undefined, analysisPath?: string): OwnerContext {
   if (artifact) {
     const ctx = contextForArtifact(artifact, owner);
-    if (ctx.space === "crt" || artifact.platform === "c1541") return { ctx, machine: artifact.platform === "c1541" ? "c1541" : "c64", source: "artifact" };
+    const named = artifactMachine(artifact);
+    if (ctx.space === "crt" || (named !== undefined && named !== "c64")) return { ctx, machine: named ?? "c64", source: "artifact" };
   }
   const declared = declaredMachine(projectDir, owner);
-  if (declared === "c1541") return { ctx: { space: "drv", owner }, machine: "c1541", source: "declared" };
-  if (declared === "c64") return { ctx: { space: "ram", owner }, machine: "c64", source: "declared" };
+  if (declared) return { ctx: ctxForMachine(declared, owner), machine: declared, source: "declared" };
   const out: OwnerContext = { ctx: { space: "ram", owner }, machine: "c64", source: "default" };
   if (looksLikeDriveCode(owner, analysisPath)) {
     out.hint = `owner ${owner} looks like drive code (${analysisPath ?? owner}) but no machine is declared — if it runs on the 1541: c64re graph machine ${owner} c1541, then re-seed and re-import its annotations`;

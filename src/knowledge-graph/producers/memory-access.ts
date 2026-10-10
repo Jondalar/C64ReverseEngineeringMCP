@@ -204,7 +204,7 @@ export function seedMemoryAccess(options: SeedMemoryAccessOptions): SeedMemoryAc
       if (target < 0x100) {
         classified.zp += 1;
         addEdge({ from, type: "USES_ZP", to: derivePlatformId(platformTag, target), evidenceKey: key, origin: "static", confidence, evidence: { ...evidence, role: c.indexed ? "indexed_base" : "direct" } });
-      } else if (platformTag === "c64" ? target >= 0xd000 && target <= 0xdfff : target >= 0x1800 && target <= 0x1c0f) {
+      } else if (platformKindForAddress(platformTag, target) === "io") {
         classified.hardware += 1;
         addEdge({ from, type: "USES_HARDWARE", to: derivePlatformId(platformTag, target), evidenceKey: key, origin: "static", confidence, evidence });
       }

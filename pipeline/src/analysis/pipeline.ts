@@ -558,6 +558,7 @@ export function analyzeMappedBuffer(
   mapping: AnalyzerContext["mapping"],
   options: AnalysisOptions = {},
 ): AnalysisReport {
+  const platform = options.platform ?? "c64";
   const graph = collectGraphSeeds(binaryName, mapping, options);
   const derivationRejections: EntryPointRejection[] = [];
   const entryPoints = deriveEntryPoints(mapping, buffer, options.userEntryPoints, graph.entries, derivationRejections);
@@ -574,6 +575,7 @@ export function analyzeMappedBuffer(
       },
     ],
     symbols: [],
+    platform,
   };
 
   const analyzerResults: AnalyzerResult[] = [];
@@ -651,6 +653,7 @@ export function analyzeMappedBuffer(
   const evidenceGraph = buildEvidenceGraph(codeSemantics, vicEvidence, segments, {
     projectDir: process.env.C64RE_PROJECT_DIR,
     owner: binaryName.replace(/\.(prg|bin)$/iu, "").toLowerCase(),
+    platform,
   });
   const stats = calculateStats(mapping, segments);
 
@@ -660,12 +663,14 @@ export function analyzeMappedBuffer(
     ...(context.discoveredCode?.instructions ?? []),
     ...(context.probableCode?.instructions ?? []),
   ];
-  const relocationProposals = detectRelocationProposals(relocationInstructions, mapping);
+  const relocationProposals = detectRelocationProposals(relocationInstructions, mapping, platform);
 
   return {
     binaryName,
     mapping,
     entryPoints,
+    // Recorded only when it is not the default, so a c64 analysis stays byte-identical.
+    ...(platform !== "c64" ? { platform } : {}),
     symbols: context.symbols,
     hardwareEvidence: {
       vicWrites: vicEvidence.observedWrites,
