@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { insideProject } from "../lib/inside-project.js";
 import { basename, extname, resolve } from "node:path";
 import { ProjectKnowledgeService } from "./service.js";
 import type { ArtifactKind, ArtifactScope, JsonValue } from "./types.js";
@@ -71,12 +72,25 @@ export function registerToolKnowledge(projectRoot: string, input: ToolKnowledgeI
   inputArtifacts: string[];
   outputArtifacts: string[];
   runPath: string;
+  /** Files that exist but lie outside the project root: written, not registered. */
+  notRegistered: string[];
 } {
   const service = new ProjectKnowledgeService(projectRoot);
 
+  // A path outside the project root is never registered (it would be a row whose
+  // "relative" path is absolute and goes missing with its directory). The tool's file
+  // is on disk either way; the answer says it was not registered.
+  const notRegistered: string[] = [];
+  const underRoot = <T extends { absolutePath: string }>(entry: T): boolean => {
+    if (insideProject(projectRoot, entry.absolutePath)) return true;
+    notRegistered.push(entry.absolutePath);
+    return false;
+  };
+
   const resolvedInputs = (input.inputs ?? [])
     .map((artifact) => ({ descriptor: artifact, absolutePath: resolve(projectRoot, artifact.path) }))
-    .filter((entry) => existsSync(entry.absolutePath));
+    .filter((entry) => existsSync(entry.absolutePath))
+    .filter(underRoot);
 
   const savedInputs = resolvedInputs
     .map(({ descriptor, absolutePath }) =>
@@ -94,7 +108,8 @@ export function registerToolKnowledge(projectRoot: string, input: ToolKnowledgeI
 
   const resolvedOutputs = (input.outputs ?? [])
     .map((artifact) => ({ descriptor: artifact, absolutePath: resolve(projectRoot, artifact.path) }))
-    .filter((entry) => existsSync(entry.absolutePath));
+    .filter((entry) => existsSync(entry.absolutePath))
+    .filter(underRoot);
 
   const savedOutputs = resolvedOutputs
     .map(({ descriptor, absolutePath }) =>
@@ -124,6 +139,7 @@ export function registerToolKnowledge(projectRoot: string, input: ToolKnowledgeI
     inputArtifacts: savedInputs.map((artifact) => artifact.id),
     outputArtifacts: savedOutputs.map((artifact) => artifact.id),
     runPath,
+    notRegistered,
   };
 }
 

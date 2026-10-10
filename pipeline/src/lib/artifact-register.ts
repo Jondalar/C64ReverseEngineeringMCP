@@ -28,7 +28,7 @@
 //     loudly, because the file the row was about is already on disk.
 
 import { appendFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { withJsonStoreLock, writeJsonStoreAtomic } from "./json-store-lock";
 
 export interface CliArtifactInput {
@@ -177,6 +177,13 @@ export function registerCliArtifact(input: CliArtifactInput): void {
   // The skip below compares by `===`, so a file the server had registered was registered a
   // second time here, in the other spelling (issue #28).
   const relativePath = relative(canonical(projectRoot), absolutePath).replace(/\\/g, "/");
+  // An output outside the project root (a scratch dir, another drive) is not the
+  // project's: `relative` answers `../…` or, across drives, an absolute path, and either
+  // becomes a missing record once that directory is gone.
+  if (relativePath === "" || relativePath === ".." || relativePath.startsWith("../") || relativePath.startsWith("..\\") || isAbsolute(relativePath) || /^[A-Za-z]:/.test(relativePath)) {
+    process.stderr.write(`[c64re] ${absolutePath}: written, not registered, because it lies outside the project (${projectRoot}).\n`);
+    return;
+  }
 
   try {
     // Load, check and write inside ONE lock. Splitting them is what turns two

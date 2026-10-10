@@ -110,7 +110,11 @@ function tryRegisterKnowledgeArtifacts(
 ): KnowledgeRegistrationResult {
   try {
     const registration = registerToolKnowledge(projectRoot, input);
-    return registration;
+    if (registration.notRegistered.length === 0) return registration;
+    const message = registration.notRegistered
+      .map((p) => `${p}: written, not registered, because it lies outside the project (${projectRoot}).`)
+      .join("\n");
+    return { ...registration, message };
   } catch (error) {
     // Not "skipped" — skipping is a decision. This is the run's bookkeeping
     // failing while its files are already on disk, and it used to arrive as one

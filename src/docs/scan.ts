@@ -14,9 +14,10 @@
 // BACKLOG — something to work through — and not as a hundred failures.
 
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
-import { join, relative, basename, resolve, isAbsolute, sep } from "node:path";
+import { join, relative, basename, resolve } from "node:path";
 import { parseFrontmatter, type Frontmatter } from "./frontmatter.js";
 import { projectSkipDirs } from "../project-knowledge/inventory-patterns.js";
+import { insideProject } from "../lib/inside-project.js";
 import { GraphStore } from "../knowledge-graph/store.js";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".claude", ".cache", "_archive", "dist", "build"]);
@@ -78,11 +79,7 @@ export function listDocFiles(projectDir: string): string[] {
   return [...out];
 }
 
-/** Is `abs` strictly inside `root`? */
-export function insideProject(root: string, abs: string): boolean {
-  const rel = relative(resolve(root), resolve(abs));
-  return rel !== "" && rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
-}
+export { insideProject };
 
 /**
  * The files `doc_register` recorded: the graph's `document` nodes carry the path. A

@@ -722,5 +722,38 @@ const openVersionQuestions = (svc) =>
   check(d.verdict.kind === "resolved" && d.verdict.rule === "on-disk", "(d) decided by on-disk, not by the preference", d.verdict.kind === "resolved" ? d.verdict.rule : d.verdict.kind);
 }
 
+// ───────────────────────────────── 5 — an output outside the project is never registered
+{
+  head(5, "a file outside the project root is written, not registered, and the answer says so");
+  const { registerToolKnowledge } = await import(join(ROOT, "dist/project-knowledge/integration.js"));
+  const { insideProject } = await import(join(ROOT, "dist/lib/inside-project.js"));
+  const proj = tmpProject("c64re-outside-proj-");
+  const elsewhere = mkdtempSync(join(tmpdir(), "c64re-outside-scratch-"));
+  write(proj, "artifacts/inside.gif", "GIF89a");
+  writeFileSync(join(elsewhere, "outside.gif"), "GIF89a");
+  const svc = new ProjectKnowledgeService(proj);
+
+  let threw = null;
+  try { svc.saveArtifact({ kind: "preview", scope: "generated", title: "outside", path: join(elsewhere, "outside.gif"), producedByTool: "t" }); }
+  catch (e) { threw = e; }
+  check(threw && /outside the project/.test(threw.message), "saveArtifact refuses a path outside the root", threw?.message);
+  check(!svc.listArtifacts().some((a) => a.path.includes("outside.gif")), "and no row was written");
+
+  const reg = registerToolKnowledge(proj, { toolName: "t", title: "t", outputs: [
+    { path: join(elsewhere, "outside.gif"), kind: "preview", scope: "generated", format: "gif" },
+    { path: "artifacts/inside.gif", kind: "preview", scope: "generated", format: "gif" },
+  ] });
+  check(reg.notRegistered.length === 1 && reg.notRegistered[0].endsWith("outside.gif"), "the tool door reports the outside file as not registered");
+  check(reg.outputArtifacts.length === 1, "the inside file in the same call still registers");
+  const rows = svc.listArtifacts();
+  check(rows.some((a) => a.relativePath === "artifacts/inside.gif"), "inside row is project-relative");
+  check(rows.every((a) => !/^(\/|[A-Za-z]:|\.\.)/.test(a.relativePath)), "no row holds an absolute or ../ relativePath");
+
+  check(insideProject(proj, join(proj, "a", "..", "b.bin")), "insideProject: dotted path that stays inside");
+  check(!insideProject(proj, join(proj, "..", "x.bin")), "insideProject: sibling via ..");
+  check(!insideProject(proj, proj), "insideProject: the root itself is not inside");
+  rmSync(proj, { recursive: true, force: true }); rmSync(elsewhere, { recursive: true, force: true });
+}
+
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e-inventory-truth: ${pass} passed, ${failCount} failed.`);
 process.exit(failCount === 0 ? 0 : 1);

@@ -47,6 +47,7 @@ import {
 import { deriveSubstratePosture, WorkflowStateSchema } from "./types.js";
 import { generatedFrontmatter } from "../docs/register.js";
 import { isPayloadEntity } from "./payload-kinds.js";
+import { insideProject } from "../lib/inside-project.js";
 import type {
   AnnotatedListingView,
   AntiPattern,
@@ -823,6 +824,14 @@ export interface BuildAllViewsResult {
   annotatedListing: { path: string; view: AnnotatedListingView };
 }
 
+/** `saveArtifact` refused a path that is not under the project root. */
+export class ArtifactOutsideProjectError extends Error {
+  constructor(readonly absPath: string, readonly projectRoot: string) {
+    super(`${absPath} lies outside the project (${projectRoot})`);
+    this.name = "ArtifactOutsideProjectError";
+  }
+}
+
 export class ProjectKnowledgeService {
   readonly storage: ProjectKnowledgeStorage;
   /** Spec 822.2 — the graph is the store for findings, entities, relations, open questions and user labels. */
@@ -1021,6 +1030,14 @@ export class ProjectKnowledgeService {
    * one lock — the same lock the pipeline takes, by the same protocol.
    */
   saveArtifact(input: SaveArtifactInput): ArtifactRecord {
+    // The one choke point: a row's identity is a path under the project root. A file
+    // outside it (a session scratch dir, another drive) would be stored with its
+    // ABSOLUTE path as `relativePath` and become a missing record the moment that
+    // directory goes away. Callers that register tool outputs catch this and say so.
+    const absInput = resolve(this.storage.paths.root, input.path);
+    if (!insideProject(this.storage.paths.root, absInput)) {
+      throw new ArtifactOutsideProjectError(absInput, this.storage.paths.root);
+    }
     return withJsonStoreLock(
       this.storage.paths.knowledgeArtifacts,
       () => this.saveArtifactUnderLock(input),
