@@ -101,6 +101,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_keep_alive",
   // Spec 889 — which runtime the runtime_* tools drive (emulator by default, a C64 Ultimate by choice).
   "runtime_backend",
+  // Spec 902 — the owner's shutdown. It has to be on the surface for the owner to be able to say
+  // "shut it down" to a session; its description says it is not for the agent's own initiative.
+  "runtime_down",
 
   // retired-name-ok: an alias missing from DEFAULT_TOOLS is not callable at all
   "analyze_prg", "disasm_prg", "disasm_raw",

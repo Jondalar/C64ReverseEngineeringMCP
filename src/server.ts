@@ -42,6 +42,7 @@ import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSceneReelTool } from "./server-tools/scene-reel.js";
 import { registerRuntimeSandboxTool } from "./server-tools/runtime-sandbox.js";
 import { registerRuntimeBackendTool } from "./server-tools/runtime-backend.js";
+import { registerRuntimeDownTool } from "./server-tools/runtime-down.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
@@ -306,6 +307,7 @@ function createServer(): McpServer {
   registerSceneReelTool(server, toolContext);
   registerRuntimeSandboxTool(server, toolContext);
   registerRuntimeBackendTool(server, toolContext);
+  registerRuntimeDownTool(server, toolContext);
   registerSandboxDepackTool(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
 
@@ -376,6 +378,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/scene-reel.ts", () => registerSceneReelTool(server, toolContext));
   group("server-tools/runtime-sandbox.ts", () => registerRuntimeSandboxTool(server, toolContext));
   group("server-tools/runtime-backend.ts", () => registerRuntimeBackendTool(server, toolContext));
+  group("server-tools/runtime-down.ts", () => registerRuntimeDownTool(server, toolContext));
   group("server-tools/sandbox-depack.ts", () => registerSandboxDepackTool(server, toolContext));
   group("project-knowledge/mcp-tools.ts", () => registerProjectKnowledgeTools(server, { repoDir: repoDir() }));
   return inv;

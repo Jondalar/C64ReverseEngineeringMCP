@@ -4,7 +4,8 @@
 // It speaks WS JSON-RPC 2.0 on `--port` and accepts `--project` (ADR-066: the drop-in
 // boundary is the daemon PROCESS, not an in-process core swap).
 //
-//   - `C64RE_RUNTIME_BIN=<path>`  → launch a specific external daemon binary (highest).
+//   - `C64RE_RUNTIME_BIN=<path>`  → launch a specific external daemon binary (highest);
+//                                   a `.js`/`.mjs` path is a script, run by node.
 //   - `C64RE_TRX64_BIN=<path>`    → a TRX64 daemon elsewhere than the sibling default.
 //
 // Spec 806: there is no second tier. The in-repo TypeScript daemon is gone, so a missing
@@ -89,6 +90,11 @@ export function resolveDaemonSpawn(opts: {
       .split(/\s+/)
       .filter(Boolean);
     const m = modelArgs(opts.model, projectDir, extra);
+    // A script (`.js`/`.mjs`/`.cjs`) is run by the Node that runs this: a stand-in daemon for a test
+    // is a script, and a copy of node.exe cannot be handed `--project` as the daemon's own arguments.
+    if (/\.(?:mjs|cjs|js)$/i.test(bin)) {
+      return { cmd: process.execPath, args: [bin, ...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
+    }
     return { cmd: bin, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
   }
 
