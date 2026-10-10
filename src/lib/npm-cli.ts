@@ -2,7 +2,7 @@
 //
 // `execFile("npm", …)` works on macOS and Linux and fails on Windows: there npm is `npm.cmd`,
 // a batch file, and Node refuses to spawn a batch file without a shell (the BatBadBut fix,
-// EINVAL). `shell: true` would trade that for quoting, and a path with a space breaks
+// EINVAL). Starting it through a shell would trade that for quoting, and a path with a space breaks
 // silently. So npm is run as what it is underneath: npm-cli.js, run by this Node.
 //
 // Where npm-cli.js is:
