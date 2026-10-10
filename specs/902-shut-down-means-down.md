@@ -1,8 +1,10 @@
 # Spec 902 — Shutting down means everything is down, and stays down
 
 **Status:** PROPOSED 2026-10-10
-**Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64: a
-`daemon/shutdown` request if it has none (D6: Windows has no SIGTERM).
+**Repo:** C64RE (the ledger, the command, autostart, the platform layer). TRX64:
+`../TRX64/docs/902-daemon-shutdown.md` — `daemon/shutdown`, and SIGTERM/SIGINT (+ Windows
+ctrl events) running the same exit work. Today the daemon handles no signal at all: a kill
+loses unpersisted cartridge/disk writes on every OS; only `--idle-exit` persists.
 **Number:** 902 (registry: `specs/README.md`).
 **Origin:** owner, 2026-10-10: "fahre das UI und den Dämon runter" leaves remains every time.
 
