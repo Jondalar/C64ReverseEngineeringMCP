@@ -346,6 +346,14 @@ when something **moved** — cleared or newly owed — so a repeated write that 
 nothing stays silent. Neither repeats itself to fill space; if one speaks, something is
 different.
 
+A contract `annotate` demand resolves to a model boundary (`model_assert`), and the boundary
+is met when the routines, tables and data segments inside it carry human names. A boundary
+that lies wholly inside the machine's I/O window (`$D000-$DFFF` on the C64, `$9000-$9FFF`
+on the VIC-20, `$FD00-$FF3F` on the TED machines, `$1800-$1C0F` on the 1541) holds no code,
+so it is met by its **access sites** instead: the routines that read or write a register in
+the range. They must exist and carry human names; with none the blocker reads "no code
+references `$9000-$912F`". A boundary that straddles I/O and RAM keeps the first rule.
+
 `project_critique` carries the proof behind any blocker, and `project_slots` says which
 of the fifteen are filled, which are a hypothesis, and which the contract does not ask
 for at all. A slot filled from reading alone stays a **hypothesis** where the slot says a

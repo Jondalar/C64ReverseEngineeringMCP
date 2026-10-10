@@ -39,6 +39,15 @@ const ANNOTATABLE_DATA_SEGMENTS = [
 import type { SlotReport } from "../slots/state.js";
 import { SLOTS } from "../slots/schema.js";
 import type { ProjectContract } from "./contract.js";
+import { platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
+import { ownerPlatformTag } from "../knowledge-graph/producers/machine.js";
+
+/** Does every address of start..end sit in the platform's `io` kind? */
+function rangeIsWhollyIo(tag: PlatformTag, start: number, end: number): boolean {
+  if (end < start || end > 0xffff) return false;
+  for (let a = start; a <= end; a++) if (platformKindForAddress(tag, a) !== "io") return false;
+  return true;
+}
 
 /** The ids of the two per-name promise families — one place builds them, both readers use it. */
 export const annotatePromiseId = (want: string): string => `annotate:${want}`;
@@ -165,9 +174,35 @@ export async function contractPromises(
         continue;
       }
       let named = 0, total = 0;
+      let ioTag: PlatformTag | undefined;
       try {
         const store = GraphStore.open(projectDir, { readOnly: true });
         try {
+          // Spec 898 D7 — a region lying wholly inside the machine's I/O window holds no
+          // routine, table or data segment, ever: the chips are not code. It is annotated
+          // where code TOUCHES them, so it is met by its access sites, the routines with a
+          // USES_HARDWARE edge into the range.
+          const tag = ownerPlatformTag(store.db, projectDir, boundary.owner);
+          if (rangeIsWhollyIo(tag, boundary.start, boundary.end)) {
+            ioTag = tag;
+            const starts = humanNamedStarts(store.db);
+            const sites = store.db.prepare(
+              `SELECT n.id, MAX(CASE WHEN n.layer='human' THEN n.name END) AS hn, MAX(n.name) AS an,
+                      MIN(n.address) AS address, MAX(n.owner) AS owner, MAX(n.space) AS space, MAX(n.bank) AS bank
+               FROM nodes n WHERE n.kind = 'routine' AND n.id IN (
+                 SELECT from_id FROM edges WHERE type = 'USES_HARDWARE' AND to_id LIKE ? ${boundary.owner ? "AND owner = ?" : ""})
+               GROUP BY n.id`,
+            ).all(...[`${tag}:io:%`, ...(boundary.owner ? [boundary.owner] : [])]) as Array<{ id: string; hn: string | null; an: string | null; address: number; owner: string | null; space: string | null; bank: number | null }>;
+            const hit = store.db.prepare(
+              `SELECT DISTINCT from_id, to_id FROM edges WHERE type = 'USES_HARDWARE' AND to_id LIKE ? ${boundary.owner ? "AND owner = ?" : ""}`,
+            ).all(...[`${tag}:io:%`, ...(boundary.owner ? [boundary.owner] : [])]) as Array<{ from_id: string; to_id: string }>;
+            const inRange = new Set(hit.filter((e) => { const a = parseInt(e.to_id.slice(e.to_id.lastIndexOf(":") + 1), 16); return a >= boundary.start && a <= boundary.end; }).map((e) => e.from_id));
+            for (const r of sites) {
+              if (!inRange.has(r.id)) continue;
+              total++;
+              if (isNodeNamed({ human_name: r.hn, any_name: r.an, owner: r.owner, space: r.space, bank: r.bank, address: r.address }, starts)) named++;
+            }
+          } else {
           const rows = store.db.prepare(
             `SELECT id, MAX(CASE WHEN layer='human' THEN name END) AS hn, MAX(name) AS an,
                     MIN(address) AS address, MAX(owner) AS owner,
@@ -183,6 +218,7 @@ export async function contractPromises(
             total++;
             if (isNodeNamed({ human_name: r.hn, any_name: r.an, owner: r.owner, space: r.space, bank: r.bank, address: r.address }, starts)) named++;
           }
+          }
         } finally { store.close(); }
       } catch { /* no graph — reported as unnamed below */ }
 
@@ -191,7 +227,15 @@ export async function contractPromises(
         asks: `"${want}" is semantically annotated, not merely disassembled`,
         askedValue: want,
       };
-      if (total === 0) {
+      const rangeText = `$${boundary.start.toString(16).toUpperCase().padStart(4, "0")}-$${boundary.end.toString(16).toUpperCase().padStart(4, "0")}`;
+      if (ioTag && total === 0) {
+        out.push({
+          ...base,
+          now: `"${boundary.name}" is the ${ioTag} I/O window ${rangeText} and no code references ${rangeText}`,
+          clearBy: `an I/O window is annotated by the routines that touch it — \`disasm\` the code that reads or writes ${rangeText}, then name those routines; if the range is wrong, correct the asserted boundary for "${boundary.name}"`,
+          blocker: `"${boundary.name}" (asked for as "${want}") is an I/O window and no code references ${rangeText}`,
+        });
+      } else if (total === 0) {
         out.push({
           ...base,
           now: `"${boundary.name}" holds no routine, table or data segment at all`,
@@ -201,9 +245,9 @@ export async function contractPromises(
       } else if (named === 0) {
         out.push({
           ...base,
-          now: `"${boundary.name}" holds ${total} routines/tables/data segments and not one carries a human name`,
+          now: `"${boundary.name}" ${ioTag ? `is touched by ${total} routines` : `holds ${total} routines/tables/data segments`} and not one carries a human name`,
           clearBy: `name them — \`write_annotations\` → \`disasm\`, or \`save_finding\` tags=["routine"] per routine`,
-          blocker: `"${boundary.name}" (asked for as "${want}") holds ${total} routines/tables/data segments and not one carries a human name`,
+          blocker: `"${boundary.name}" (asked for as "${want}") ${ioTag ? `is touched by ${total} routines` : `holds ${total} routines/tables/data segments`} and not one carries a human name`,
         });
       } else if (named / total < (d.namedRatio ?? 0.5)) {
         out.push({

@@ -12,6 +12,7 @@
 //   6 inspect_address_range and c64ref_lookup take the same resolution, and say so on a miss
 //   7 where a tool guesses a load address for a block with no header, the machine decides:
 //     VIC-20 $1001/$0401/$1201, TED $1001, C64 $0801 — and a header always wins
+//   8 D7: an annotate boundary over the machine's I/O window is met by its access sites
 //
 // Hermetic: temp projects, synthetic bytes, no ROMs, no media, no daemon, no network. Needs
 // the assemblers the rebuild proof uses (KickAssembler jar, 64tass) and skips those checks
@@ -361,6 +362,58 @@ try {
   put(projA, "hdr.prg", prgBytes(0xc000, [0xa9, 0x00, 0x60, 0xea]));
   await call("disasm", { path: "artifacts/prg/hdr.prg", platform: "vic20" });
   check(/\* = \$C000/.test(readFileSync(join(projA, "artifacts/prg/hdr_disasm.tas"), "utf8")), "a PRG header wins over any machine's default ($C000 stays $C000 on the VIC-20)");
+
+  // ── 8 D7: an annotate region over an I/O window is met by its access sites ──
+  head(8, "an annotate boundary over the I/O window is satisfied by its sites");
+  {
+    const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
+    const { assertBoundary } = await import(join(ROOT, "dist/model/store.js"));
+    const { saveContract } = await import(join(ROOT, "dist/contract/contract.js"));
+    const { verdict } = await import(join(ROOT, "dist/critic/run.js"));
+    const SLUG = "d7";
+    // sites: [{ at, stores: [addr…], human?: name }]; the boundary asks for `want` over [start, end]
+    async function scenario({ tag, owner, sites, start, end }) {
+      const d = mkdtempSync(join(tmpdir(), "c64re-898d7-"));
+      mkdirSync(join(d, "knowledge"), { recursive: true });
+      writeFileSync(join(d, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG, ...(tag === "c64" ? {} : { platform: tag }) }));
+      const rid = (a) => `${SLUG}:ram/${owner}:routine:${a.toString(16).padStart(4, "0")}`;
+      const store = GraphStore.open(d);
+      const nodes = sites.map((s) => ({ id: rid(s.at), kind: "routine", name: `sub_${s.at.toString(16)}`, endAddress: s.at + 8, origin: "static", confidence: "certain" }));
+      const edges = sites.flatMap((s) => s.stores.map((a) => ({ from: rid(s.at), type: "USES_HARDWARE", to: ids.derivePlatformId(tag, a), evidenceKey: `${s.at}:${a}`, origin: "static", confidence: "certain" })));
+      store.replaceGenerated("test", owner, nodes, edges);
+      for (const s of sites) if (s.human) store.upsertHuman({ id: rid(s.at), kind: "routine", name: s.human, origin: "user", confidence: "user_asserted" });
+      store.close();
+      await assertBoundary(d, { name: "io window", level: "container", start, end, description: "io", evidence: ["map"], owner });
+      saveContract(d, { goal: "annotate the io window wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["io window"] } });
+      return (await verdict(d)).blockers.find((b) => /"io window"/.test(b));
+    }
+    const vicSites = (h1, h2) => [{ at: 0x1200, stores: [0x9005], human: h1 }, { at: 0x1300, stores: [0x9110], human: h2 }];
+    const b1 = await scenario({ tag: "vic20", owner: "vic", sites: vicSites(), start: 0x9000, end: 0x912f });
+    check(/touched by 2 routines and not one carries a human name/.test(b1 ?? ""), "vic20 $9000-$912F: sites that are machine-named only block", b1);
+    const b2 = await scenario({ tag: "vic20", owner: "vic", sites: vicSites("irq_music", "key_scan"), start: 0x9000, end: 0x912f });
+    check(b2 === undefined, "…and met once the sites carry human names", b2);
+    const b3 = await scenario({ tag: "vic20", owner: "vic", sites: vicSites("irq_music", undefined), start: 0x9000, end: 0x912f });
+    check(b3 === undefined, "…half named meets the default 50 % ratio, as for any region", b3);
+    const b3b = await scenario({ tag: "vic20", owner: "vic", sites: [...vicSites("irq_music", undefined), { at: 0x1400, stores: [0x9111] }], start: 0x9000, end: 0x912f });
+    check(/is 33 % named — 1 of 3/.test(b3b ?? ""), "…one in three keeps the ratio rule", b3b);
+    const b4 = await scenario({ tag: "vic20", owner: "vic", sites: [{ at: 0x1200, stores: [0x900f], human: "x" }], start: 0x9000, end: 0x912f });
+    check(b4 === undefined, "…any store anywhere in the window counts as a site", b4);
+    const b5 = await scenario({ tag: "vic20", owner: "vic", sites: [], start: 0x9000, end: 0x912f });
+    check(/no code references \$9000-\$912F/.test(b5 ?? ""), "a vic20 file with no access: no code references $9000-$912F", b5);
+    const b6 = await scenario({ tag: "vic20", owner: "vic", sites: [{ at: 0x1200, stores: [0x9400], human: "x" }], start: 0x9000, end: 0x912f });
+    check(/no code references \$9000-\$912F/.test(b6 ?? ""), "a store outside the range ($9400) is not a site", b6);
+    const b7 = await scenario({ tag: "vic20", owner: "vic", sites: vicSites("a", "b"), start: 0x8f00, end: 0x912f });
+    check(/holds no routine, table or data segment to annotate/.test(b7 ?? ""), "a boundary straddling ram and io keeps the old rule (nodes inside it)", b7);
+    const b8 = await scenario({ tag: "c64", owner: "c64o", sites: [{ at: 0xc000, stores: [0xd020], human: undefined }], start: 0xd000, end: 0xd02e });
+    check(/touched by 1 routines and not one carries a human name/.test(b8 ?? ""), "c64 $D000-$D02E: machine-named sites block", b8);
+    const b9 = await scenario({ tag: "c64", owner: "c64o", sites: [{ at: 0xc000, stores: [0xd020], human: "border_flash" }], start: 0xd000, end: 0xd02e });
+    check(b9 === undefined, "…and are met once named", b9);
+    const b10 = await scenario({ tag: "c64", owner: "c64o", sites: [], start: 0xd000, end: 0xd02e });
+    check(/no code references \$D000-\$D02E/.test(b10 ?? ""), "c64 with no access: no code references $D000-$D02E", b10);
+    // the same range is NOT io on the C64 only by tag: $9000 on a c64 owner is ram, old rule
+    const b11 = await scenario({ tag: "c64", owner: "c64o", sites: [], start: 0x9000, end: 0x912f });
+    check(/holds no routine, table or data segment to annotate/.test(b11 ?? ""), "$9000-$912F on a c64 owner is RAM: the old rule", b11);
+  }
 } finally {
   proc.kill();
 }

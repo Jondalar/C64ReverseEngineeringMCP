@@ -16,6 +16,7 @@
 
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import type { Ctx } from "../ids.js";
+import { resolvePlatform } from "../../project-knowledge/platform-default.js";
 import { PLATFORM_TAGS, type PlatformTag } from "../../platform-kb/schema.js";
 import { GraphStore } from "../store.js";
 
@@ -94,4 +95,27 @@ export function contextForOwner(projectDir: string, owner: string, artifact?: Pi
     out.hint = `owner ${owner} looks like drive code (${analysisPath ?? owner}) but no machine is declared — if it runs on the 1541: c64re graph machine ${owner} c1541, then re-seed and re-import its annotations`;
   }
   return out;
+}
+
+/**
+ * The machine an owner's code runs on, as the graph knows it (Spec 898 D7): the platform tag
+ * its seeded USES_ZP / USES_HARDWARE edges point at (that is the machine it was SEEDED under,
+ * whatever the artifact record or a declaration said at the time); else the declared machine;
+ * else the project's default; else the C64. An ownerless boundary takes the project default.
+ */
+export function ownerPlatformTag(
+  db: { prepare(sql: string): { all(...p: unknown[]): unknown[] } },
+  projectDir: string,
+  owner: string | null,
+): PlatformTag {
+  if (owner) {
+    const rows = db.prepare(
+      "SELECT DISTINCT substr(to_id, 1, instr(to_id, ':') - 1) AS tag FROM edges WHERE owner = ? AND type IN ('USES_ZP','USES_HARDWARE')",
+    ).all(owner) as Array<{ tag: string }>;
+    const tags = rows.map((r) => r.tag).filter((t): t is PlatformTag => (PLATFORM_TAGS as readonly string[]).includes(t));
+    if (tags.length === 1) return tags[0]!;
+    const declared = declaredMachine(projectDir, owner);
+    if (declared) return declared;
+  }
+  return resolvePlatform({ projectDir }).platform;
 }

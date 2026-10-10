@@ -128,7 +128,7 @@ export const KICKOFF_QUESTIONS: ReadonlyArray<{ field: string; ask: string; note
   {
     field: "deliver.annotate",
     ask: "Which parts must be semantically annotated, not merely disassembled?",
-    note: "Naming is where meaning enters the graph. Name the payloads whose routines must carry names.",
+    note: "Naming is where meaning enters the graph. Name the payloads whose routines must carry names. A range over the machine's I/O window is met by the routines that touch it.",
   },
   {
     field: "deliver.documents",
