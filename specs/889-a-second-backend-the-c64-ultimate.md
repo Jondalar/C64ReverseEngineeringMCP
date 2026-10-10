@@ -1,6 +1,6 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** BUILT AS A DAEMON OF ITS OWN (2026-10-08, §12) — open until the owner's hardware test. The first build (§8–§10) held the facade in each C64RE process, which broke co-drive; §11 moved it into `c64re c64u-bridge`.
+**Status:** BUILT AS A DAEMON OF ITS OWN (2026-10-08, §12); hardware test passed (owner, 2026-10-09). Ships in C64RE 0.8.0. Open until a real debugging session on the hardware, after that release. The first build (§8–§10) held the facade in each C64RE process, which broke co-drive; §11 moved it into `c64re c64u-bridge`.
 **Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
 `integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
 slice is what exists there today (§5). TRX64 itself is unchanged.
