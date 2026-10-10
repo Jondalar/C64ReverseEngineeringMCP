@@ -75,11 +75,20 @@ registers, KERNAL jump table and ROM entry points per tag go into
 `resources/platform-kb.sqlite` through `src/platform-kb/extensions.ts` (or a seed file
 per platform beside it), each row with its source. No literal name map anywhere else —
 `check:platform-kb` keeps guarding that. The rows are taken from published references
-for each machine, not typed from memory; the seed names its sources. Candidates:
-*VIC-20 Programmer's Reference Guide* (Commodore, 1982) and *Mapping the VIC*
-(COMPUTE! Books, 1984) for the VIC-20; the *Commodore 16 / Plus/4* programmer's
-reference material and the commented TED ROM disassemblies for the `plus4` tag. The
-final list is fixed when the seed is written.
+for each machine, not typed from memory; every seed row names its source file and
+label. The sources are fixed (owner, 2026-10-10) — the zimmers.net CBM archive,
+`pub/cbm/src/`:
+
+| Tag | Authority (names) | Cross-check (addresses, comments) |
+|---|---|---|
+| `vic20` | `vic20/vic_src.tar.gz` and `vic20/firmware.zip` — Commodore's KERNAL + BASIC source | `vic20/vic20_rom_disassembly.txt` (Lee Davison) |
+| `plus4` | `plus4/ted_kernal_basic_src.tar.gz` — the TED KERNAL + BASIC source | `plus4/plus4_rom_disassembly.txt` (Mike Dailly) |
+
+The original source's own labels win; a disassembly only checks an address or fills a
+comment. Only the seed rows (address, name, kind, source) enter the repo — the source
+trees and disassemblies are Commodore material and are read when seeding, never checked
+in (the same line as the ROMs). A row neither source carries (e.g. a VIA register the
+KERNAL never names) is left unnamed rather than invented.
 
 **D4 — One question asks the I/O window.** Every hard-coded `$D000-$DFFF` test listed
 in §1 is replaced by `platformKindForAddress(tag, a) === "io"` (or a register lookup for
