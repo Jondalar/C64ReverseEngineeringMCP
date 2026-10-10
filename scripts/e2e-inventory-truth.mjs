@@ -722,6 +722,66 @@ const openVersionQuestions = (svc) =>
   check(d.verdict.kind === "resolved" && d.verdict.rule === "on-disk", "(d) decided by on-disk, not by the preference", d.verdict.kind === "resolved" ? d.verdict.rule : d.verdict.kind);
 }
 
+// ───────────────────── 5 — unregister_files and a multi-version subject whose file is gone
+{
+  head(5, "a row whose file is gone leaves a multi-version subject while a sibling survives; the last one stays");
+  const { unregisterProjectFiles } = await import(join(ROOT, "dist/server-tools/registration.js"));
+  const { auditProject } = await import(join(ROOT, "dist/project-knowledge/audit.js"));
+  const setup = async (name) => {
+    const proj = tmpProject("c64re-unreg-versions-");
+    const svc = new ProjectKnowledgeService(proj);
+    svc.initProject({ name });
+    const asmRel = "analysis/prg/X_disasm.asm";
+    const tasRel = "analysis/prg/X_disasm.tas";
+    write(proj, asmRel, "; kickass\n rts\n");
+    write(proj, tasRel, "; 64tass\n rts\n");
+    const asm = svc.saveArtifact({ kind: "generated-source", scope: "analysis", title: "X_disasm.asm", path: asmRel, format: "kickass", role: "disasm" });
+    const tas = svc.saveArtifact({ kind: "generated-source", scope: "analysis", title: "X_disasm.tas", path: tasRel, format: "64tass", role: "disasm-tass" });
+    await svc.reconcileArtifactVersionGroups();
+    // the .asm is the pinned current version
+    svc.setCurrentArtifactVersion(subjectIdForArtifact(asm), asm.id);
+    return { proj, svc, asm, tas, asmRel, tasRel, subject: subjectIdForArtifact(asm) };
+  };
+  const glob = "analysis/prg/*_disasm.asm";
+
+  {
+    const t = await setup("OneGone");
+    check(unregisterProjectFiles(t.svc, t.proj, { glob }).kept.some((k) => k.artifactId === t.asm.id),
+      "(a) both files present: the multi-version row is kept, as before");
+    rmSync(join(t.proj, t.asmRel));
+    const missing = () => auditProject(t.proj).findings.filter((f) => /missing/i.test(f.id)).flatMap((f) => f.paths ?? []);
+    check(missing().some((p) => /X_disasm\.asm/.test(p)), "(a) the audit reports the deleted .asm as missing before", JSON.stringify(missing()));
+    const dry = unregisterProjectFiles(t.svc, t.proj, { glob, dryRun: true });
+    check(dry.removed === 1 && dry.removedPaths[0] === t.asmRel && dry.kept.length === 0, "(a) dry run: the .asm row would go", JSON.stringify(dry));
+    check(t.svc.listArtifacts().some((a) => a.id === t.asm.id), "(a) …and nothing was written");
+    const real = unregisterProjectFiles(t.svc, t.proj, { glob });
+    check(real.removed === 1 && real.kept.length === 0, "(a) real run: the .asm row is removed", JSON.stringify(real));
+    check(!t.svc.listArtifacts().some((a) => a.id === t.asm.id) && t.svc.listArtifacts().some((a) => a.id === t.tas.id),
+      "(a) the .tas row remains");
+    const group = t.svc.getArtifactVersionGroup(t.subject) ?? t.svc.listArtifactVersionGroups().find((g) => g.versions.some((v) => v.artifactId === t.tas.id));
+    check(group?.currentArtifactId === t.tas.id && group.versions.every((v) => v.artifactId !== t.asm.id),
+      "(a) the .tas is the current version and no pin dangles", group?.currentArtifactId);
+    check(!missing().some((p) => /X_disasm\.asm/.test(p)), "(a) the audit no longer lists the .asm as missing", JSON.stringify(missing()));
+  }
+
+  {
+    const t = await setup("BothGone");
+    rmSync(join(t.proj, t.asmRel)); rmSync(join(t.proj, t.tasRel));
+    const r = unregisterProjectFiles(t.svc, t.proj, { glob });
+    check(r.removed === 0 && r.kept.length === 1 && /no version of its subject is left on disk/.test(r.kept[0].reason),
+      "(b) both files gone: the row stays, with the reason", JSON.stringify(r.kept));
+  }
+
+  {
+    const t = await setup("Cited");
+    t.svc.saveFinding({ kind: "observation", title: "Cites the listing", summary: "x", artifactIds: [t.asm.id], confidence: 0.5, status: "proposed", evidence: [] });
+    rmSync(join(t.proj, t.asmRel));
+    const r = unregisterProjectFiles(t.svc, t.proj, { glob });
+    check(r.removed === 0 && r.kept.length === 1 && /a finding cites it \("Cites the listing"\)/.test(r.kept[0].reason),
+      "(c) .asm gone but cited: kept, the citation is named", JSON.stringify(r.kept));
+  }
+}
+
 // ───────────────────────────────── 5 — an output outside the project is never registered
 {
   head(5, "a file outside the project root is written, not registered, and the answer says so");

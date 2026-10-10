@@ -3727,10 +3727,24 @@ export class ProjectKnowledgeService {
           // A group whose CURRENT row went with the removal falls back to whatever is
           // left; an empty group is dropped below. `currentArtifactId` is required, so
           // it can never be left pointing at a row that is gone.
-          const currentArtifactId = wanted.has(group.currentArtifactId)
-            ? (versions[0]?.artifactId ?? group.currentArtifactId)
-            : group.currentArtifactId;
-          return { ...group, versions, currentArtifactId };
+          if (!wanted.has(group.currentArtifactId)) return { ...group, versions, currentArtifactId: group.currentArtifactId };
+          // The pin went with the row, so it goes too: the survivor is picked by the
+          // same rank + tie rules the sync uses (on disk, preferred assembler), never
+          // by a manual pin that no longer exists.
+          const live = orderCandidatesBestFirst(versions
+            .filter((v) => v.status !== "stale" && v.status !== "missing")
+            .map((v) => keep.find((item) => item.id === v.artifactId))
+            .filter((a): a is ArtifactRecord => a !== undefined)
+            .map(rankCandidate));
+          const currentArtifactId = bestCandidate(live, this.tieContext())?.artifact.id
+            ?? versions[0]?.artifactId ?? group.currentArtifactId;
+          return {
+            ...group,
+            versions: versions.map((v) => ({ ...v, status: v.status === "stale" || v.status === "missing" ? v.status : (v.artifactId === currentArtifactId ? "current" as const : "available" as const) })),
+            currentArtifactId,
+            currentSource: "auto" as const,
+            needsDecision: undefined,
+          };
         })
         .filter((group) => group.versions.length > 0);
       if (nextGroups.length !== groups.items.length

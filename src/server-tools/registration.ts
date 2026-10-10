@@ -223,9 +223,11 @@ export interface UnregisterFilesResult {
  * / flow / open question references it, when it names entities of its own, when it sits
  * in a lineage (derived from something, something derived from it, or it carries a
  * version history of a file that is still there), or when its version group holds more
- * than one member. A row whose file is gone and whose only history is same-path
- * versions is retired unless something cites its id (then the citation is named).
- * Everything
+ * than one member AND its own file is still on disk. A row whose file is gone and whose
+ * only history is same-path versions is retired unless something cites its id (then the
+ * citation is named). A row whose file is gone inside a multi-version group is retired
+ * only while another member of that group still has a file on disk; when no member does,
+ * it stays, because retiring it would drop the subject. Everything
  * else is just a path the store knows about, and the store can forget it.
  *
  * It never deletes a FILE. The bulk it exists for is a tool's output, and the tool will
@@ -260,10 +262,24 @@ export function unregisterProjectFiles(
     note(a.derivedFrom, "another artifact is derived from it");
     for (const id of a.sourceArtifactIds ?? []) note(id, "another artifact names it as a source");
   }
-  const multiVersionSubjects = new Set<string>();
+  // artifact id -> the ids of the other members of its (multi-version) group.
+  const groupMates = new Map<string, string[]>();
   for (const group of service.listArtifactVersionGroups()) {
-    if (group.versions.length > 1) for (const v of group.versions) multiVersionSubjects.add(v.artifactId);
+    if (group.versions.length > 1) {
+      for (const v of group.versions) groupMates.set(v.artifactId, group.versions.map((m) => m.artifactId).filter((id) => id !== v.artifactId));
+    }
   }
+  const byId = new Map(artifacts.map((x) => [x.id, x]));
+  const versionReason = (a: (typeof artifacts)[number]): string | undefined => {
+    const mates = groupMates.get(a.id);
+    if (!mates) return undefined;
+    if (existsSync(a.path)) return "its subject holds more than one version";
+    const sibling = mates.some((id) => {
+      const m = byId.get(id);
+      return m !== undefined && existsSync(m.path);
+    });
+    return sibling ? undefined : "no version of its subject is left on disk — retiring it would drop the subject";
+  };
 
   const kept: UnregisterFilesResult["kept"] = [];
   const removable: string[] = [];
@@ -272,7 +288,7 @@ export function unregisterProjectFiles(
       ?? (a.derivedFrom ? "it is derived from another artifact" : undefined)
       ?? ((a.versions ?? []).length > 0 && existsSync(a.path) ? "it carries a version history" : undefined)
       ?? ((a.entityIds ?? []).length > 0 ? "it names entities of its own" : undefined)
-      ?? (multiVersionSubjects.has(a.id) ? "its subject holds more than one version" : undefined);
+      ?? versionReason(a);
     if (reason) kept.push({ artifactId: a.id, relativePath: a.relativePath ?? "", reason });
     else removable.push(a.id);
   }
@@ -471,7 +487,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
 
   server.tool(
     "unregister_files",
-    "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose subject holds more than one version — naming each refusal and why. dry_run=true previews. A row whose file is gone and whose only history is same-path versions is taken out too, unless something cites it (the citation is named). With move_to the glob must match exactly one row and that row is REPOINTED at the new project-relative path instead (the file must already exist there, inside the project, with the registered bytes unless bytes_changed=true): the id, lineage, same-path versions and every citation stay. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
+    "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose file is on disk and whose subject holds more than one version — naming each refusal and why. dry_run=true previews. A row whose file is gone is taken out too, unless something cites it (the citation is named): when its only history is same-path versions, or when its subject holds other versions and at least one of them is still on disk (the survivor becomes the current version). If no version of the subject is left on disk the row stays, since retiring it would drop the subject. With move_to the glob must match exactly one row and that row is REPOINTED at the new project-relative path instead (the file must already exist there, inside the project, with the registered bytes unless bytes_changed=true): the id, lineage, same-path versions and every citation stay. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
     {
       project_dir: z.string().optional(),
       glob: z.string().describe("Glob for the rows to take out, relative to the project root, e.g. 'analysis/g64/**/*.bin'."),
