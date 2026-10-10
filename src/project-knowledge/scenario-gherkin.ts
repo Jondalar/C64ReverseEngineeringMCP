@@ -78,6 +78,13 @@ export type Check =
       readonly op: "is" | "isNot" | "oneOf";
       /** `is`: the bytes from `address` on, in order. `isNot`: one byte. `oneOf`: the choices. */
       readonly values: readonly number[];
+      /**
+       * Spec 899 D3 — set when the line says `throughout the next N frames` (or `at every
+       * frame for N frames`): the value must hold at EVERY frame of the window, sampled by
+       * the runtime's frame probe, not only where the step before it ended. `line` is the
+       * raster line the sample is taken at; absent, the line after the visible area.
+       */
+      readonly window?: { readonly frames: number; readonly line?: number };
     }
   | { readonly kind: "pc"; readonly address: number }
   | { readonly kind: "screenShows"; readonly needle: string };
@@ -105,8 +112,41 @@ function checkNumber(tok: string): number | undefined {
  * typo must not quietly become prose that nobody reads.
  */
 export function parseCheck(text: string): { check: Check } | { error: string } | undefined {
-  const t = text.trim();
+  const whole = text.trim();
+  // Spec 899 D3 — `… throughout the next 600 frames [at raster line 250]`. Cut off first, so
+  // the rest is read as the plain check it always was; the window is added to a memory check
+  // and refused on any other, because a CPU position or a screen is not sampled by the probe.
+  const win = whole.match(WINDOW_SUFFIX);
+  if (win) {
+    const frames = Number(win[1].replace(/_/g, ""));
+    const line = win[2] === undefined ? undefined : Number(win[2]);
+    const base = parseCheck(whole.slice(0, win.index).trim());
+    if (base === undefined) return undefined;
+    if ("error" in base) return base;
+    if (base.check.kind !== "memory") {
+      return { error: `"${whole}": a window is for a memory check — "$ADDR is $VV throughout the next N frames". The CPU position and the screen are decided where the step before them ended` };
+    }
+    if (!Number.isInteger(frames) || frames < 1 || frames > MAX_WINDOW_FRAMES) {
+      return { error: `"${whole}": a window is 1 to ${MAX_WINDOW_FRAMES} frames` };
+    }
+    if (line !== undefined && line > MAX_RASTER_LINE) return { error: `"${whole}": raster line ${line} is not a line of any C64` };
+    const bytes = base.check.op === "is" ? base.check.values.length : 1;
+    if (bytes > MAX_PROBE_BYTES) return { error: `"${whole}": a window samples at most ${MAX_PROBE_BYTES} bytes per frame` };
+    return { check: { ...base.check, window: { frames, ...(line === undefined ? {} : { line }) } } };
+  }
+  if (/^\$[0-9a-f]/i.test(whole) && /\bthroughout\b|\bat every frame\b/i.test(whole)) {
+    return { error: `"${whole}": a window is "$ADDR is $VV throughout the next N frames" or "$ADDR is $VV at every frame for N frames", optionally followed by "at raster line L"` };
+  }
+  return parseCheckHere(whole);
+}
 
+/** Spec 899 — the longest window a probe takes, and the most bytes it samples per frame. */
+export const MAX_WINDOW_FRAMES = 50_000;
+export const MAX_PROBE_BYTES = 256;
+const MAX_RASTER_LINE = 1023;
+const WINDOW_SUFFIX = /\s+(?:throughout the next|at every frame for)\s+([\d_]+)\s*frames?(?:\s+at raster line\s+(\d+))?\s*$/i;
+
+function parseCheckHere(t: string): { check: Check } | { error: string } | undefined {
   const pc = t.match(/^the CPU is at\s+(\S+)$/i);
   if (pc) {
     const a = checkNumber(pc[1]);
@@ -228,7 +268,64 @@ export type Step =
    * A recording writes it where the switch happened; every frame counted after it is the
    * new model's.
    */
-  | { readonly kind: "model"; readonly model: string; readonly text: string };
+  | { readonly kind: "model"; readonly model: string; readonly text: string }
+  /**
+   * Spec 899 D4 — a sample series: these addresses, read once per `everyFrames` frames over a
+   * window of `frames` frames at one raster line, and only the rows where a value changed are
+   * kept. The window is run by the runtime's frame probe, so the machine advances by it.
+   */
+  | {
+      readonly kind: "series";
+      readonly reads: readonly SeriesRead[];
+      readonly everyFrames: number;
+      readonly frames: number;
+      readonly line?: number;
+      readonly text: string;
+    };
+
+/** Spec 899 D4 — one address range of a series: `$D01C:1@io`. */
+export interface SeriesRead {
+  readonly addr: number;
+  readonly len: number;
+  readonly lens: "cpu" | "ram" | "io" | "rom" | "cart";
+  /** As written, for the table header. */
+  readonly label: string;
+}
+
+/**
+ * `$D01C:1@io`, `$D029@io`, `$C000:16` — an address, an optional length in DECIMAL (a `$`
+ * makes it hex), an optional lens. Unlike `read_memory`'s dump spec, whose length is hex: a
+ * series is about a few bytes, and `:16` there would be 22.
+ */
+export function parseSeriesRead(spec: string): { read: SeriesRead } | { error: string } {
+  const t = spec.trim();
+  const m = t.match(/^(\$[0-9a-f]+|0x[0-9a-f]+)(?::(\$[0-9a-f]+|\d+))?(?:@([a-z]+))?$/i);
+  const form = `"${spec}": a series read is ADDRESS[:LENGTH][@lens], e.g. "$D01C:1@io" (length in decimal, or $hex; lens ${CHECK_LENSES.join(", ")})`;
+  if (!m) return { error: form };
+  const addr = checkNumber(m[1]);
+  if (addr === undefined || addr > 0xffff) return { error: `"${spec}": ${m[1]} is not an address` };
+  const len = m[2] === undefined ? 1 : checkNumber(m[2]);
+  if (len === undefined || len < 1) return { error: `"${spec}": ${m[2]} is not a length` };
+  if (len > MAX_PROBE_BYTES) return { error: `"${spec}": ${len} bytes — a series samples at most ${MAX_PROBE_BYTES} bytes per frame` };
+  if (addr + len > 0x10000) return { error: `"${spec}": runs past $FFFF` };
+  const lens = (m[3]?.toLowerCase() ?? "cpu") as (typeof CHECK_LENSES)[number];
+  if (!CHECK_LENSES.includes(lens)) return { error: `"${spec}": ${m[3]} is not a lens (${CHECK_LENSES.join(", ")})` };
+  return { read: { addr, len, lens, label: t } };
+}
+
+/** Several series reads at once; the total per frame is capped like one. */
+export function parseSeriesReads(specs: readonly string[]): { reads: SeriesRead[] } | { error: string } {
+  if (specs.length === 0) return { error: "a series names at least one address" };
+  const reads: SeriesRead[] = [];
+  for (const spec of specs) {
+    const r = parseSeriesRead(spec);
+    if ("error" in r) return r;
+    reads.push(r.read);
+  }
+  const total = reads.reduce((n, r) => n + r.len, 0);
+  if (total > MAX_PROBE_BYTES) return { error: `a series samples ${total} bytes per frame, ${MAX_PROBE_BYTES} is the most` };
+  return { reads };
+}
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
@@ -246,7 +343,7 @@ export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
  */
 export const STEP_KINDS = [
   "wait", "type", "key", "joystick", "keyDown", "keyUp", "joystickDown", "joystickUp",
-  "waitUntil", "capture", "insert", "model",
+  "waitUntil", "capture", "insert", "model", "series",
 ] as const;
 export const PREDICATE_KINDS = [
   "driveIdle",
@@ -762,6 +859,29 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   if (sw) return { step: { kind: "model", model: sw[1], text: t } };
   if (/^the machine switches\b/i.test(t)) {
     return { error: `"${t}": a switch names the model — e.g. \`the machine switches to c64-ntsc\`` };
+  }
+
+  // I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames [at raster line 250]
+  const ser = t.match(/^I read the series\s+(.+?)\s+every\s+(frame|[\d_]+\s*frames?)\s+for\s+([\d_]+)\s*frames?(?:\s+at raster line\s+(\d+))?$/i);
+  if (ser) {
+    const quoted = [...ser[1].matchAll(/"([^"]*)"/g)].map((q) => q[1]);
+    const rest = ser[1].replace(/"[^"]*"/g, "").replace(/\s*(?:,|and)\s*/gi, "").trim();
+    if (quoted.length === 0 || rest) {
+      return { error: `"${t}": a series names its reads in quotes — I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames` };
+    }
+    const parsed = parseSeriesReads(quoted);
+    if ("error" in parsed) return parsed;
+    const every = /^frame$/i.test(ser[2]) ? 1 : Number(ser[2].replace(/[^\d]/g, ""));
+    const frames = Number(ser[3].replace(/_/g, ""));
+    if (every < 1) return { error: `"${t}": every N frames is at least 1` };
+    if (frames < 1 || frames > MAX_WINDOW_FRAMES) return { error: `"${t}": a window is 1 to ${MAX_WINDOW_FRAMES} frames` };
+    if (every > frames) return { error: `"${t}": every ${every} frames is longer than the ${frames}-frame window` };
+    const line = ser[4] === undefined ? undefined : Number(ser[4]);
+    if (line !== undefined && line > MAX_RASTER_LINE) return { error: `"${t}": raster line ${line} is not a line of any C64` };
+    return { step: { kind: "series", reads: parsed.reads, everyFrames: every, frames, ...(line === undefined ? {} : { line }), text: t } };
+  }
+  if (/^I read the series\b/i.test(t)) {
+    return { error: `"${t}": a series is I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames — optionally "at raster line 250"` };
   }
 
   // I capture "title"
