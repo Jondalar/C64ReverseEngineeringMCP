@@ -130,6 +130,34 @@ ROM images are yours to supply — they are Commodore's property and are in no p
 Full setup, including a source checkout, Codex, Windows, WSL2 and containers, plus what to
 do when it does not work: **[INSTALL.md](INSTALL.md)**.
 
+## Starting and stopping
+
+C64RE starts what it needs by itself: the runtime when a runtime tool first needs it, the
+C64 Ultimate bridge when you select a device, a private machine for a sandbox run. Every
+process it starts is entered in a ledger under `~/.c64re/processes/`, with its start time
+and command line, so nothing is hunted by hand.
+
+```bash
+c64re status     # what runs: kind, pid, port, project, who started it, uptime, idle deadline,
+                 # the selected runtime and the hold
+c64re down       # shut everything down: the workbench, the bridges, the sandboxes, the runtime
+c64re up         # start the runtime again (`c64re ui` starts the workbench)
+```
+
+`down` ends the processes in the ledger in that order, each one only if it is still the
+process that was recorded (a pid the system has since handed to something else is never
+touched), removes the runtime selection, and checks that nothing of C64RE is left running
+or listening. A process on a C64RE port that C64RE did not start is named in the report and
+left alone, and the exit code is then non-zero. It also leaves a *hold*: until `c64re up`,
+`c64re ui`, `runtime_session_start` or selecting a C64 Ultimate, nothing is started again
+by itself — not by the MCP server, not by a tool call, not by the workbench's dev server.
+`down --project <dir>` ends only that project's processes; `down --keep daemon` leaves one
+kind running; neither writes a hold. The same function is the `runtime_down` tool, which is
+for you to ask for, not for the assistant to decide.
+
+On Windows the same commands apply: C64RE asks each process to end first, and uses
+`taskkill /T /F` only after five seconds.
+
 ## The workbench
 
 ```bash
@@ -183,7 +211,7 @@ assistant "give me the UI starters" (the `project_launchers` tool), or run
 
 | | Double-click | From a shell |
 |---|---|---|
-| Linux | **ui-start.desktop** / **ui-stop.desktop** / **ui-restart.desktop** (start and restart open the browser) | `./ui.sh start` · `restart` · `stop` · `status` · `logs` · `build-ui`; add `--open` to open the browser |
+| Linux | **ui-start.desktop** / **ui-stop.desktop** / **ui-restart.desktop** (start and restart open the browser; stop is `c64re down`) | `./ui.sh start` · `restart` · `stop` · `status` · `logs` · `build-ui`; add `--open` to open the browser |
 | macOS | **ui-start.command** / **ui-stop.command** / **ui-restart.command** | the same `./ui.sh` |
 | Windows | **ui-start.cmd** / **ui-stop.cmd** / **ui-restart.cmd** | `powershell -ExecutionPolicy Bypass -File .\ui.ps1 <action>` |
 
