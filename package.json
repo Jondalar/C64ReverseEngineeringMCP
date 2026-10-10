@@ -90,6 +90,7 @@
     "e2e:store-concurrency": "npm run build && node scripts/e2e-store-concurrency.mjs",
     "check:address-rule": "npm run build && node scripts/check-address-rule.mjs",
     "e2e:disasm-family": "npm run build && node scripts/e2e-disasm-family.mjs",
+    "e2e:zp-labels": "npm run build && node scripts/e2e-zp-labels.mjs",
     "e2e:898": "npm run build && node scripts/e2e-898-platforms.mjs",
     "e2e:inventory-truth": "npm run build:mcp && node scripts/e2e-inventory-truth.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",

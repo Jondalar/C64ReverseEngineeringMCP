@@ -494,6 +494,11 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: The disassembly family
         run: npm run e2e:disasm-family
+      # A label on a zero-page address names the operand in every zero-page mode, gets
+      # one equate before first use, and the rebuild stays byte-identical in KickAssembler
+      # and 64tass (an abs-encoded zero-page operand stays absolute). Hermetic.
+      - name: Zero-page labels
+        run: npm run e2e:zp-labels
       # Spec 898 — the VIC-20 and the TED machines as platforms: the memory map per tag,
       # ids, the same bytes rendered on three machines (no C64 name off a C64), the graph's
       # USES_HARDWARE, the resolution order, the lookups, the guessed load addresses.

@@ -200,6 +200,14 @@ verification rebuild stays byte-identical.
 }
 ```
 
+A label on a zero-page address (`"address": "FB", "label": "ptrLo"`) names the
+operand in every zero-page form — `lda ptrLo`, `lda ptrLo,x`, `lda (ptrLo),y`,
+`lda (ptrLo,x)` — and in an absolute-encoded access to that address
+(`lda.abs ptrLo`, kept absolute so the rebuild stays byte-identical). The
+listing defines it once, before first use (`.label ptrLo = $FB` in the `.asm`,
+`ptrLo = $FB` in the `.tas`). The platform's own name for the address stays in
+the line comment as a hint behind yours.
+
 **Segment kinds:** `code`, `basic` (a tokenized BASIC V2 program — not 6502),
 `basic_stub` (machine code entered from a BASIC `SYS`), `text`, `petscii_text`,
 `screen_code_text`, `sprite`, `charset`, `charset_source`, `screen_ram`,
