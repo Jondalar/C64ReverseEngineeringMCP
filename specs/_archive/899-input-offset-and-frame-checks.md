@@ -1,6 +1,6 @@
 # Spec 899 — A scripted run can press a key anywhere in the frame and watch every frame
 
-**Status:** IN BUILD 2026-10-10 — the TRX64 half (Spec 901) is on TRX64 main (e0ac127), not released
+**Status:** DONE (2026-10-10). The runtime half (Spec 901) is on TRX64 main (e0ac127) and not released yet: the live gate runs against a build of it, and every new option refuses by name on a runtime without it.
 **Repo:** C64RE (the step notation and its report). TRX64: Spec 901 (cycle-exact input, the frame probe).
 **Number:** 899 (registry: `specs/README.md`).
 **Origin:** issues #67 and #68 (Mike, the Mega Vault VIC-20 → C64 port, 2026-10-10). Owner
@@ -74,3 +74,31 @@ and `docs/` describe them.
   The same PRG with the glitch removed passes.
 - `read_series` over 600 frames of that PRG returns only the changing rows.
 - Runs without D1–D4 replay byte-identical to before (existing scenario e2e).
+
+---
+
+## §5 What was decided while building it
+
+- **Where an offset counts from.** From the point the step would have pressed at — the schedule's
+  own clock, which is a whole number of frames on from where the steps began. A sweep needs only
+  that the offsets cover one frame, not that the clock sits at the VIC's frame start.
+- **`I type`** has no cycle of its own in the runtime. An offset runs the machine that far first,
+  and in the sandbox the step's own duration gives it back, so later steps keep their place. A
+  reel's `I type` has no duration, so there the later steps move by the offset.
+- **A hold of N frames** schedules its release too, `N` frames after the press, before the run:
+  a release called after the run could find the clock already past it.
+- **A seeded offset** depends on the seed and the step's index only (a 32-bit mix), never on the
+  other steps.
+- **The default sample line** is the line after the model's visible window (288 on PAL, 12 on
+  NTSC), read from `session/models`, not kept here.
+- **`is not` / `is one of` over a window** read the probe's series (it holds every change, and
+  between changes the value does not move) instead of assert mode, which can only say `is`.
+- **`every N frames`** is read from the per-frame change rows; nothing runs twice.
+- **A probe stopped by a breakpoint or watchpoint** is an undecided check, not a failure; the
+  scenario runner reports it as ERROR, with the stop in words.
+- **A green run with the input moved** is not recorded as the emulator's pass for the C64
+  Ultimate gate: it is a probe, not the run of record.
+- **The reel** takes the offset options and refuses a series step (it reports pictures); its
+  `Then` lines stay as they were.
+- **`read_memory`'s length is hex, a series read's is decimal** (`$` makes it hex). `read_memory`
+  was left alone.
