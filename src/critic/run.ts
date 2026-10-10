@@ -28,6 +28,12 @@ export interface Verdict {
   ready: boolean;
   /** Everything that would have to change for `ready` to become true. Never empty when not ready. */
   blockers: string[];
+  /**
+   * Promises the human waived and that still hold — NOT blockers, listed apart so the
+   * release is visible. Every reader of the contract's state (this verdict, `contract_show`,
+   * the status footer, the doors) sorts waivers through the same `activeWaivers`.
+   */
+  waived: Array<{ promise: string; blocker: string; by: string; at: string; reason: string }>;
 }
 
 /**
@@ -353,12 +359,20 @@ export async function verdict(projectDir: string): Promise<Verdict> {
   // footer quotes and what `e2e:848-contract` asserts.
   const d = contract.deliver ?? {};
   const { contractPromises } = await import("../contract/promises.js");
-  for (const p of await contractPromises(projectDir, { slots })) blockers.push(p.blocker);
-
-  void present;
-  for (const s of slots.missing) {
-    blockers.push(`slot ${s.slot.id} ${s.slot.name}: ${s.detail}`);
+  // Owed slots are promises too (contract/promises.ts), so a waiver can name them; the
+  // waivers that hold are applied here, the same way the doors apply them.
+  const promises = await contractPromises(projectDir, { slots });
+  const { activeWaivers } = await import("../contract/standing.js");
+  const waivedBy = new Map(activeWaivers(projectDir, promises).map((w) => [w.promise, w]));
+  const waived: Verdict["waived"] = [];
+  for (const p of promises) {
+    const w = waivedBy.get(p.id);
+    if (w) waived.push({ promise: p.id, blocker: p.blocker, by: w.by, at: w.at, reason: w.reason });
+    else blockers.push(p.blocker);
   }
+
+  // Without a contract nothing is promised and nothing can be waived: the open slots block as ever.
+  if (!present) for (const m of slots.missing) blockers.push(`slot ${m.slot.id} ${m.slot.name}: ${m.detail}`);
   // A contract that states its own coverage number produced the line above; this is the
   // default threshold speaking for a project whose human never named one.
   if (d.coverageRatio === undefined && slots.coverage.total > 0 && slots.coverage.ratio < slots.coverage.threshold) {
@@ -377,7 +391,7 @@ export async function verdict(projectDir: string): Promise<Verdict> {
     blockers.push(`${f.check}: ${f.title}\n      settle by: ${f.settleBy}`);
   }
 
-  return { ready: blockers.length === 0, blockers };
+  return { ready: blockers.length === 0, blockers, waived };
 }
 
 export function formatCritique(r: CriticReport): string {

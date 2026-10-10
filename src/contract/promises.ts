@@ -25,6 +25,7 @@
 // the writer.
 
 import type { SlotReport } from "../slots/state.js";
+import { SLOTS } from "../slots/schema.js";
 import type { ProjectContract } from "./contract.js";
 
 /** The ids of the two per-name promise families — one place builds them, both readers use it. */
@@ -44,6 +45,8 @@ export function statedPromiseIds(contract: ProjectContract): Set<string> {
   if (d.coverageRatio !== undefined) ids.add("coverageRatio");
   for (const want of d.annotate ?? []) ids.add(annotatePromiseId(want));
   for (const want of d.documents ?? []) ids.add(documentPromiseId(want.covers));
+  // The slots the project owes: the contract's own list, or the full default set.
+  for (const s of d.slots ?? SLOTS.map((x) => x.id)) ids.add(s);
   return ids;
 }
 
@@ -58,6 +61,11 @@ export interface ContractPromise {
   now: string;
   /** The shortest path to clearing it — never advice that cannot be followed. */
   clearBy: string;
+  /**
+   * "slot" for an owed Spec 844 slot. The publishing doors leave those to 844's own
+   * per-slot teeth (`slots/gate.ts`); the verdict and the waiver see them like any other.
+   */
+  kind?: "slot";
   /** The one-line form the verdict and the 849 footer speak in. Unchanged since 848. */
   blocker: string;
 }
@@ -65,8 +73,9 @@ export interface ContractPromise {
 /**
  * Every deliverable the contract states that is NOT met right now.
  *
- * Waivers are not applied here: the verdict has to keep measuring the truth, or a waiver
- * would launder the number into "met". 877 D2 releases the DOOR, not the measurement.
+ * Waivers are not applied here: this list keeps measuring the truth, or a waiver would
+ * launder the number into "met". Every reader that decides (the verdict, the doors) sorts
+ * waivers off this list with `activeWaivers`; the measurement itself never changes.
  */
 export async function contractPromises(
   projectDir: string,
@@ -229,6 +238,24 @@ export async function contractPromises(
         blocker: documentDemandBlocker(demand, want.why),
       });
     }
+  }
+
+  // An owed slot is a promise like the rest: the contract lists the slots a project owes
+  // (or the default set does), so the critique's "slot S11 …" blocker must be something a
+  // waiver can name, by the slot id. Before this the critique built these blockers from
+  // `slots.missing` on its own and `contract_set waive` could not see them.
+  for (const m of slots.missing) {
+    out.push({
+      id: m.slot.id,
+      kind: "slot",
+      asks: `slot ${m.slot.id} ${m.slot.name} is answered — ${m.slot.fills}`,
+      askedValue: "answered",
+      now: m.detail,
+      clearBy: m.status === "hypothesis"
+        ? `confirm it with an instrument that settles it (a run), then \`slot_record\` slot="${m.slot.id}"`
+        : `\`slot_record\` slot="${m.slot.id}" — ${m.slot.fills}`,
+      blocker: `slot ${m.slot.id} ${m.slot.name}: ${m.detail}`,
+    });
   }
 
   return out;

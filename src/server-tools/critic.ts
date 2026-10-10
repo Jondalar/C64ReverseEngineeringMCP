@@ -41,14 +41,18 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
       const pd = context.projectDir({ projectDir: project_dir });
       const v = await verdict(pd);
 
+      const waivedNote = v.waived.length
+        ? `\n\nWaived, not blocking: ${v.waived.map((w) => `${w.promise} (by ${w.by}, ${w.at.slice(0, 10)}: ${w.reason})`).join("; ")}`
+        : "";
       if (verdict_only) {
         return {
           content: [{
             type: "text" as const,
             text: v.ready
-              ? "READY — every required slot is filled, no blocking critic finding stands, coverage is at threshold."
+              ? `READY — every required slot is filled or waived, no blocking critic finding stands, coverage is at threshold.${waivedNote}`
               : `NOT READY — ${v.blockers.length} blocker(s):\n${v.blockers.map((b) => `  - ${b}`).join("\n")}`
-                + "\n\nEach line says what settles it. `critic_checks` explains why a check ranks the way it does.",
+                + "\n\nEach line says what settles it. `critic_checks` explains why a check ranks the way it does."
+                + waivedNote,
           }],
         };
       }
@@ -64,8 +68,8 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
         formatCritique(filtered),
         "",
         v.ready
-          ? "Verdict: READY."
-          : `Verdict: NOT READY — ${v.blockers.length} blocker(s):\n${v.blockers.map((b) => `  - ${b}`).join("\n")}`,
+          ? `Verdict: READY.${waivedNote}`
+          : `Verdict: NOT READY — ${v.blockers.length} blocker(s):\n${v.blockers.map((b) => `  - ${b}`).join("\n")}${waivedNote}`,
       ].join("\n");
 
       return {

@@ -331,6 +331,42 @@ try {
     check("(D9) a scope change retires nothing by itself", activeWaivers(dir, await contractPromises(dir)).length === 1);
   }
 
+  // ---- (#57) a waived promise is not owed in project_status's footer
+  {
+    const dir = newProject();
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9, slots: ["S11"] } });
+    const { standingFooter } = await import("../dist/contract/standing.js");
+    const before = await standingFooter(dir, "project_status");
+    check("(#57) before the waiver the footer lists namedRatio as owed", /still owed/.test(before) && /named /.test(before), before);
+    await tools(dir).set({ waive: ["namedRatio"], waive_reason: "demo tonight", waived_by: "Alex" });
+    const after = await standingFooter(dir, "project_status");
+    check("(#57) after the waiver the footer no longer lists it as owed, and shows it apart",
+      !/named \d/.test(after.split("Waived")[0]) && /Waived, not owed: namedRatio \(by Alex, /.test(after), after);
+  }
+
+  // ---- (#61) the contract and the critique see the same slot promise
+  {
+    const dir = newProject();
+    const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
+    const { verdict } = await import("../dist/critic/run.js");
+    new KnowledgeRecords(dir).saveFinding({ kind: "memory-map", title: "$C000-$CFFF is free", tags: ["slot:S11", "method:read"] });
+    saveContract(dir, { goal: GOAL, deliver: { slots: ["S11"] } });
+    const tt = tools(dir);
+    await tt.set({ goal: GOAL, scope: ["game.prg"], slots: ["S11"] });
+    const v0 = await verdict(dir);
+    const s11 = v0.blockers.find((b) => /^slot S11 /.test(b));
+    check("(#61) the critique blocks on the read-derived S11", !!s11, v0.blockers.join(" | "));
+    const owed = (await contractPromises(dir)).map((p) => p.id);
+    check("(#61) the same slot is owed per the contract, by the id the critique names", owed.includes("S11"), owed.join(","));
+    const w = await tt.set({ waive: ["S11"], waive_reason: "no run possible on this medium", waived_by: "Alex" });
+    check("(#61) contract_set accepts the waiver", /Waived by Alex: S11/.test(w), w.split("\n")[0]);
+    const v1 = await verdict(dir);
+    check("(#61) the critique then does not block on S11 and lists it as waived",
+      !v1.blockers.some((b) => /^slot S11 /.test(b)) && v1.waived.some((x) => x.promise === "S11"),
+      JSON.stringify(v1));
+    check("(#61) contract_show lists the slot waiver as holding", /Waived — the human overruled/.test(await tt.show()) && !/Lapsed/.test(await tt.show()));
+  }
+
   check("the kickoff asks about the scope, as a deliverable", KICKOFF_QUESTIONS.some((q) => q.field === "deliver.scope"));
 } finally {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });

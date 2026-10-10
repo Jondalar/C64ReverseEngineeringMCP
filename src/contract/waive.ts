@@ -24,9 +24,10 @@
 //      server records the string verbatim and claims nothing about it.
 //   2. It records the CHANNEL it actually came through (`via: "contract_set"`), so no
 //      later reader can infer a provenance the server never saw.
-//   3. It does not launder the number. `project_critique` and the 849 footer keep
-//      measuring and keep reporting the shortfall; a waiver releases the DOOR, not the
-//      measurement. And while any other promise is owed, the refusal itself names every
+//   3. It does not launder the number. The measurement (`now`) is unchanged and
+//      `contract_show` keeps printing it; the verdict, the 849 footer and the doors all
+//      stop counting the promise as owed and list it apart as waived, with who and when.
+//      And while any other promise is owed, the refusal itself names every
 //      waiver already granted — a waiver cannot make itself invisible.
 //   4. It lapses when the human moves the bar (`activeWaivers`, standing.ts). Waive at
 //      90 % and then quietly ask for 95 %, and the door refuses again rather than
@@ -143,8 +144,8 @@ export async function waivePromises(projectDir: string, req: WaiveRequest): Prom
       "",
       ...written.map((w) => `  ${w.promise} — contract asks ${w.askedValue}, shipped at ${w.wasAt ?? "(not measured)"}`),
       "",
-      "The doors open. The measurement does not change: `project_critique` keeps reporting",
-      "the shortfall, and this waiver is in the timeline and in `knowledge/contract-standing.json`",
+      "The doors open and `project_critique` stops blocking on it. The measurement does not",
+      "change: `contract_show` keeps the shortfall in view, and this waiver is in the timeline and in `knowledge/contract-standing.json`",
       "with your name on it. It lapses by itself if the contract's number changes.",
     ].join("\n"),
   };

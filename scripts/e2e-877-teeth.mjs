@@ -248,7 +248,8 @@ try {
     seedGraph(d, 3);
     saveContract(d, { goal: "name enough of it to judge the port", deliver: { slots: ["S1"], namedRatio: 0.9 } });
 
-    const owed = await contractPromises(d);
+    // the open S1 is a slot promise: the verdict and the waiver see it, the doors leave it to 844
+    const owed = (await contractPromises(d)).filter((p) => p.kind !== "slot");
     check("with the promise met nothing is owed", owed.length === 0, owed.map((p) => p.id).join(", "));
     const g = await checkContractTeeth("render_docs", d);
     check("and the door opens with no further action", g.allowed, (g.refusal ?? "").split("\n")[0]);
@@ -348,9 +349,9 @@ try {
 
     // nothing is laundered
     const v = await verdict(d);
-    check("the VERDICT still measures the shortfall — a waiver releases the door, not the number",
-      v.blockers.some((b) => /named 33\.3 %.*below the 90 %/.test(b)),
-      v.blockers.find((b) => /named/.test(b)) ?? "(gone)");
+    check("the VERDICT does not count the waived promise as a blocker, and still carries the measured shortfall apart",
+      !v.blockers.some((b) => /named/.test(b)) && v.waived.some((w) => w.promise === "namedRatio" && /named 33\.3 %.*below the 90 %/.test(w.blocker)),
+      v.blockers.find((b) => /named/.test(b)) ?? JSON.stringify(v.waived));
     check("contract_show has something to print", /Alex \(owner\)/.test(formatWaivers(d)), formatWaivers(d));
 
     // the survivor rule: onboarding forgets what it SAID, never what the human DECIDED

@@ -151,7 +151,10 @@ export async function checkContractTeeth(
     if (slots.records === 0 && slots.coverage.total === 0) return OK;
 
     const { contractPromises } = await import("./promises.js");
-    const all = await contractPromises(projectDir, { slots });
+    // Owed slots are promises for the verdict and the waiver, but the doors they close
+    // are 844's per-slot teeth (`slots/gate.ts`): refusing here too would shut every
+    // publishing door on a slot that is, by its own definition, report-only.
+    const all = (await contractPromises(projectDir, { slots })).filter((p) => p.kind !== "slot");
     const { activeWaivers } = await import("./standing.js");
     waived = activeWaivers(projectDir, all);
     const waivedIds = new Set(waived.map((w) => w.promise));

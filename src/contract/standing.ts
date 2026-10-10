@@ -295,10 +295,16 @@ export async function standingFooter(
   if (!existsSync(join(projectDir, "knowledge", "contract.json"))) return undefined;
 
   let blockers: string[];
+  let waived: Array<{ promise: string; by: string; at: string }> = [];
   try {
     const { verdict } = await import("../critic/run.js");
-    blockers = (await verdict(projectDir)).blockers;
+    const v = await verdict(projectDir);
+    blockers = v.blockers;
+    waived = v.waived;
   } catch { return undefined; }
+  const waivedLine = waived.length
+    ? `Waived, not owed: ${waived.map((w) => `${w.promise} (by ${w.by}, ${w.at.slice(0, 10)})`).join("; ")}`
+    : "";
 
   const prev = read(projectDir);
   write(projectDir, { blockers, at: new Date().toISOString() });
@@ -309,12 +315,13 @@ export async function standingFooter(
 
   // A summary tool always answers the question it was asked.
   if (isSummary) {
-    if (blockers.length === 0) return ["", "---", "**Contract: every stated deliverable is met.**"].join("\n");
+    if (blockers.length === 0) return ["", "---", `**Contract: every stated deliverable is met${waived.length ? " or waived" : ""}.**`, ...(waivedLine ? [waivedLine] : [])].join("\n");
     return [
       "",
       "---",
       `**Contract — ${blockers.length} deliverable${blockers.length === 1 ? "" : "s"} still owed:**`,
       ...blockers.flatMap((b) => b.split("\n").map((l, i) => (i === 0 ? `- ${l}` : `  ${l.trim()}`))),
+      ...(waivedLine ? ["", waivedLine] : []),
       "",
       "These are the human's stated expectations, not defaults. `project_critique` carries the proof.",
     ].join("\n");

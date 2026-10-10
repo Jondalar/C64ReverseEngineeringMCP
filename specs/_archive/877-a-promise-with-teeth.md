@@ -308,3 +308,20 @@ is closed elsewhere — but it is a dependency, not an independent guarantee.
 that goes stale in a file outside that set is not caught. The wider sweep the same audit
 found — retired names emitted in live text across the source, and graph usage nowhere
 enforced — is not in this spec.
+
+## §7 Amendment — 2026-10-10 (issues #57, #61)
+
+D2 said a waiver releases the doors and the verdict still measures the shortfall. In use that
+read as three views of one state: `project_status` listed waived items as "still owed",
+`project_critique` stayed NOT READY on them, and an owed slot (S11 read-derived) blocked the
+critique while `contract_set waive=["S11"]` refused it as "not owed" — slots were blockers but
+not promises.
+
+Now one view: an owed slot is a contract promise (id = the slot id, `kind: "slot"`), so it can
+be waived by the id the critique names. `verdict()` applies `activeWaivers` like the doors do:
+a waived promise leaves `blockers` and is listed in `Verdict.waived` with its measured text, who
+and when. The status footer and `project_critique` print it as "Waived, not owed" / "Waived, not
+blocking". The number stays visible there and in `contract_show`; a waiver still lapses when the
+bar moves. Without a contract nothing is promised, and open slots block as before. The
+publishing doors leave slot promises to the per-slot gate (`slots/gate.ts`). Gates:
+`e2e:897-scope`, `e2e:877-teeth` (the old "verdict still measures" assertion changed).
