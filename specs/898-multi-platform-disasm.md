@@ -141,6 +141,24 @@ those routines exist and carry human names, the same test as today's `named`. No
 → the same blocker as now, worded "no code references `$9000-$912F`". A boundary that
 straddles I/O and RAM keeps today's rule.
 
+**D8 — The machine is asked for at the start, not guessed later** (owner, 2026-10-10: "I
+drop a .d64 or a VIC-20 / C16 image and the pipeline runs the same way"). A load address
+cannot tell the machines apart — `$1001` is the unexpanded VIC-20 and the C16 alike — so
+nothing infers the platform from bytes. Instead: `project_init` takes `platform` (built
+with D5), `agent_onboard` and `project_status` print the project's machine, and when a
+project has no default but holds media whose load addresses are a foreign BASIC start
+(`$1001`, `$0401`, `$1201`) or a cartridge signature (D9), they say so and name the one
+call that settles it. The doctrine's onboarding step asks the human for the machine when
+the brief does not name it. A `.d64` is read the same for all three machines (the 1540 /
+1541 / 1551 share the format); the extracted files take the project default by D5.
+
+**D9 — A raw cartridge image is placed by its own signature.** A headerless image whose
+bytes carry the KERNAL's autostart signature gets the load address the KERNAL checks:
+VIC-20 `A0CBM` at offset 4 → `$A000` (block 5; `kernal.src` tests `$A004-$A008`);
+TED `CBM` at offset 7 → `$8000` (`banking.src` tests `$8007`). The signature is
+evidence, so it is stated in the tool output, and an explicit `load_address` still wins.
+No signature → the D6 refusal with the machine's offers, `$A000` added for `vic20`.
+
 **Skills this builds on (by name):** `vic20-to-c64`, `c16-to-c64`, `c64-tape`,
 `c64-pal-ntsc`.
 
@@ -183,5 +201,11 @@ straddles I/O and RAM keeps today's rule.
 - A contract `annotate` boundary `$9000-$912F` on the *Mickey The Bricky* project is met
   once the referencing routines carry human names, and blocks with "no code references"
   on a file that never touches it.
+- A project started with `project_init platform: vic20` renders an extracted `.d64` file
+  with VIC-20 names without any further argument; a project with no machine and a `$1001`
+  file says so in `agent_onboard` / `project_status` and names `project_init platform`.
+- A raw VIC-20 cartridge image with `A0CBM` at offset 4 disassembles at `$A000`, a TED
+  one with `CBM` at offset 7 at `$8000`, each naming the signature; without one the
+  refusal offers the machine's addresses.
 - `inspect_address_range` and `c64ref_lookup` on a `vic20` artifact return VIC-20
   names, and say so when the store has no row.
