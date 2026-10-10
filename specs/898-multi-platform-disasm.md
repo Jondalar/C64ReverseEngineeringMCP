@@ -95,8 +95,21 @@ label. The sources are fixed (owner, 2026-10-10) — the zimmers.net CBM archive
 The original source's own labels win; a disassembly only checks an address or fills a
 comment. Only the seed rows (address, name, kind, source) enter the repo — the source
 trees and disassemblies are Commodore material and are read when seeding, never checked
-in (the same line as the ROMs). A row neither source carries (e.g. a VIA register the
-KERNAL never names) is left unnamed rather than invented.
+in (the same line as the ROMs).
+
+**Second source (owner, 2026-10-10).** A register the ROM source never names (the VIC-I
+is only `vicreg+N`, the TED only `ted+N`, the keyboard latch a bare `$FD30`) is not left
+unnamed: the gap is filled from Commodore's own published reference material — the
+*VIC-20 Programmer's Reference Guide*, the *MOS 6560/6561 VIC data sheet*, and the
+*Commodore Plus/4 Hardware Manual* with its *7360 TED data sheet*. These rows are marked
+secondary — `source` starts with `secondary: ` and cites document and page — and never
+shadow a ROM-source label: a secondary row fills only an address that has no source row.
+Symbols follow one rule: the reference's own mnemonic when it gives one (the data sheet's
+`CR0`..`CRF` → `VIC_CR5`; the PLA output `KEYPORT` for `$FD3X`), otherwise chip prefix +
+the register number as the reference numbers it (the 7360 sheet counts in decimal:
+`$FF14` is `TED_R20`). The description is the reference's wording. A row no source of
+either kind carries (the hardware vectors `$FFFA-$FFFF`, TED `$FF20-$FF3D`) is left
+unnamed rather than invented. Rows: `src/platform-kb/seeds/secondary.ts`.
 
 **D4 — One question asks the I/O window.** Every hard-coded `$D000-$DFFF` test listed
 in §1 is replaced by `platformKindForAddress(tag, a) === "io"` (or a register lookup for

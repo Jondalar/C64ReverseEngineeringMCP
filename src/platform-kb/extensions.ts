@@ -8,7 +8,9 @@
 //   - the VIC-20 and the TED machines (Plus/4, C16, C116): zero page, RAM variables,
 //     I/O registers, KERNAL jump table and ROM entry points, from the published
 //     KERNAL/BASIC source (Spec 898 D3). The rows sit in seeds/, one file per platform,
-//     and every row cites its file and label in its own source column;
+//     and every row cites its file and label in its own source column. Registers the
+//     source never names are filled from Commodore's published references, rows marked
+//     "secondary: " (seeds/secondary.ts), and never shadow a source label;
 //   - the 1541 drive: its zero page, VIA registers and DOS ROM symbols. The ROM
 //     symbols come from g3sl.github.io/c1541rom.html, cached at
 //     tools/data/c1541-rom.json — that cache is the source, this file only
@@ -24,6 +26,7 @@ import { join } from "node:path";
 import type { PlatformTag } from "./schema.js";
 import { PLUS4_REGIONS, PLUS4_ROWS } from "./seeds/plus4.js";
 import type { SeedRegion, SeedRow } from "./seeds/types.js";
+import { PLUS4_SECONDARY_ROWS, VIC20_SECONDARY_ROWS } from "./seeds/secondary.js";
 import { VIC20_REGIONS, VIC20_ROWS } from "./seeds/vic20.js";
 
 export interface ExtensionEntry {
@@ -143,10 +146,16 @@ export function loadExtensionRegions(): ExtensionRegion[] {
   return [...regionsFromSeed("vic20", VIC20_REGIONS), ...regionsFromSeed("plus4", PLUS4_REGIONS)];
 }
 
+/** Spec 898 D3: names from a second, marked source. Always listed BEFORE the source rows, so a source label wins. */
+export function secondaryRows(platform: PlatformTag): SeedRow[] {
+  return platform === "vic20" ? VIC20_SECONDARY_ROWS : platform === "plus4" ? PLUS4_SECONDARY_ROWS : [];
+}
+
 /** Later entries win on (platform, address) — the cache overrides the seed. */
 export function loadExtensions(repoRoot: string): ExtensionEntry[] {
   const ordered = [
     ...C64_BANKING, ...C64_CARTRIDGE_IO, ...C1541_ZP, ...C1541_IO, ...C1541_ROM_SEED, ...loadC1541RomCache(repoRoot),
+    ...fromSeed("vic20", VIC20_SECONDARY_ROWS), ...fromSeed("plus4", PLUS4_SECONDARY_ROWS),
     ...fromSeed("vic20", VIC20_ROWS), ...fromSeed("plus4", PLUS4_ROWS),
   ];
   const byKey = new Map<string, ExtensionEntry>();

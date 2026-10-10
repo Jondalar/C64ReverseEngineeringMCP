@@ -43,7 +43,7 @@ const ok = (msg) => notes.push(`  PASS  ${msg}`);
 // at a memory location, which is the thing this gate exists to keep in one
 // place. The literals only look like addresses to the regex below.
 // Spec 898 D3: seeds/ holds the VIC-20 and TED rows the extension table folds in.
-const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "src/platform-kb/seeds/vic20.ts", "src/platform-kb/seeds/plus4.ts", "pipeline/src/lib/kernal-abi.ts", "pipeline/src/lib/basic-v2.ts"]);
+const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "src/platform-kb/seeds/vic20.ts", "src/platform-kb/seeds/plus4.ts", "src/platform-kb/seeds/secondary.ts", "pipeline/src/lib/kernal-abi.ts", "pipeline/src/lib/basic-v2.ts"]);
 // An address literal used as a MAP KEY for a string: `0xd018: "..."` (object) or
 // `[0xd018, "..."]` (Map tuple). Hardware, ROM and zero-page ranges only. A call
 // argument like `def(0x00, "brk", …)` is an opcode table, not a name map, and
@@ -129,7 +129,6 @@ try {
   ok("extension rows present (EasyFlash, 1541 VIA, 1541 zero page)");
 
   // Spec 898 D3 — the VIC-20 and TED rows carry the source's own labels and cite file + label.
-  // Not asserted: a register the source never names ($FD30, $9005) must stay without a row.
   for (const [platform, address, want, kind] of [
     ["vic20", 0x0314, "CINV", "ram"], ["vic20", 0x9110, "D1ORB", "io"], ["vic20", 0x9120, "D2ORB", "io"], ["vic20", 0xffd2, "BSOUT", "rom"],
     ["plus4", 0x0001, "PORT", "zp"], ["plus4", 0xff06, "TEDVCR", "io"], ["plus4", 0xff3e, "ROMON", "io"], ["plus4", 0xffd2, "BSOUT", "rom"],
@@ -139,9 +138,38 @@ try {
     else if (n.symbol !== want || n.kind !== kind) fail(`${platform} $${address.toString(16)} is ${n.symbol}/${n.kind}, expected ${want}/${kind}`);
     else if (!n.source.startsWith(`${platform} `) || !n.source.includes(": ")) fail(`${platform} $${address.toString(16)} source "${n.source}" does not cite file and label`);
   }
-  if (kb.node("vic20", 0x9005) || kb.node("plus4", 0xfd30)) fail("a register no source label names ($9005 / $FD30) has a row: names are not invented");
+  // Spec 898 D3, second source: registers the ROM source never names ($9005, $FD30, a TED register)
+  // carry a row from Commodore's own reference, marked "secondary: ", with a page cite.
+  for (const [platform, address, want] of [["vic20", 0x9005, "VIC_CR5"], ["plus4", 0xfd30, "KEYPORT"], ["plus4", 0xff14, "TED_R20"], ["plus4", 0xff07, "TED_R07"]]) {
+    const n = kb.node(platform, address);
+    if (!n) fail(`${platform} $${address.toString(16)} (secondary-sourced) missing from the store`);
+    else if (n.symbol !== want || n.kind !== "io") fail(`${platform} $${address.toString(16)} is ${n.symbol}/${n.kind}, expected ${want}/io`);
+    else if (!n.source.startsWith("secondary: ")) fail(`${platform} $${address.toString(16)} source "${n.source}" is not marked secondary`);
+  }
+  {
+    const { VIC20_SECONDARY_ROWS, PLUS4_SECONDARY_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/secondary.js"));
+    const { VIC20_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/vic20.js"));
+    const { PLUS4_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/plus4.js"));
+    for (const [platform, secondary, primary] of [["vic20", VIC20_SECONDARY_ROWS, VIC20_ROWS], ["plus4", PLUS4_SECONDARY_ROWS, PLUS4_ROWS]]) {
+      const taken = new Set(primary.map((r) => r[0]));
+      for (const row of secondary) {
+        const at = `${platform} $${row[0].toString(16)}`;
+        if (taken.has(row[0])) fail(`${at}: a secondary row shadows a ROM-source row`);
+        if (!/^secondary: \S/.test(row[4]) || !/(\bp\.\d+|\bsheet \d+)/.test(row[4])) fail(`${at}: secondary source "${row[4]}" lacks the "secondary: " marker or a page cite`);
+        const n = kb.node(platform, row[0]);
+        if (!n || n.source !== row[4] || n.kind !== "io") fail(`${at}: store row is not the secondary row as io (${n?.source}/${n?.kind})`);
+      }
+    }
+    // Source rows are never marked secondary, and every secondary row in the store comes from the table.
+    for (const platform of ["vic20", "plus4"]) {
+      const n = kb.node(platform, platform === "vic20" ? 0x9110 : 0xff06);
+      if (!n || n.source.startsWith("secondary")) fail(`${platform}: a ROM-source row carries a secondary marker`);
+    }
+  }
+  // Still unnamed: the hardware vectors, which no Commodore reference names ($FFFA-$FFFF).
+  for (const platform of ["vic20", "plus4"]) for (const a of [0xfffa, 0xfffc, 0xfffe]) if (kb.node(platform, a)) fail(`${platform} $${a.toString(16)} has a row but no reference names the hardware vectors`);
   if (["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0000)?.symbol) || ["PDIR", "PORT", "D6510", "R6510"].includes(kb.node("vic20", 0x0001)?.symbol)) fail("vic20 has no on-chip port: $00/$01 must not carry a port row");
-  ok("vic20 / plus4 seed rows cite file + label; unnamed registers stay unnamed");
+  ok("vic20 / plus4 seed rows cite file + label; gaps carry marked secondary rows");
 } catch (error) {
   fail(`store unreadable: ${error.message}`);
 }

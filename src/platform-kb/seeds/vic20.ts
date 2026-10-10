@@ -1,7 +1,7 @@
 // Spec 898 D3 -- vic20 names, address -> label rows taken from the published ROM source.
 // Row = [address, symbol, name, description, source]. Generated once from the assembled
 // listings; the source files themselves are not in this repo. A register the source never
-// names has no row here.
+// names has no row here; seeds/secondary.ts fills those from Commodore's own references, marked.
 import type { SeedRegion, SeedRow } from "./types.js";
 
 export const VIC20_ROWS: SeedRow[] = [
