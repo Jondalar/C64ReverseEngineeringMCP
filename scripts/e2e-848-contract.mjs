@@ -216,7 +216,7 @@ try {
       description: "the resident loader", evidence: ["header"], owner: "game" });
     const vB = await verdict(d);
     check("with the boundary asserted it reports how much of it carries names",
-      vB.blockers.some((b) => /"stage 2 loader" \(asked for as "loader"\) holds 2 routines\/tables and not one carries a human name/.test(b)),
+      vB.blockers.some((b) => /"stage 2 loader" \(asked for as "loader"\) holds 2 routines\/tables\/data segments and not one carries a human name/.test(b)),
       vB.blockers.find((b) => /stage 2 loader/.test(b)));
 
     saveContract(d, { goal: "x and then some more words", deliver: { slots: ["S1"], documents: [{ covers: "$2000-$2040", why: "the loader" }] } });
@@ -317,6 +317,39 @@ try {
     let outside;
     try { await registerDoc(d, "../outside.md"); } catch (e) { outside = e; }
     check("a path outside the project root is still refused", outside instanceof DocRegisterError, outside?.message);
+  }
+
+  // ------------------------------- annotate: a data region is annotated by naming its data
+  //
+  // A charset or a music block has no routine start. A region holding only such a segment
+  // (plus a label) used to be blocked as "holds no routine or table", though its boundary
+  // was right. Data segment kinds satisfy the region the way a table does; an empty region
+  // still blocks, and so does a region whose only segment is code-less non-data (unknown).
+  {
+    const { assertBoundary } = await import("../dist/model/store.js");
+    const mk = async (segKind, labelled) => {
+      const d = newProject(); dirs.push(d);
+      const store = GraphStore.open(d);
+      const rid = (k, a) => `${SLUG}:ram/game:${k}:${a.toString(16).padStart(4, "0")}`;
+      const nodes = segKind
+        ? [{ id: rid("segment", 0x3000), kind: "segment", name: "unknown_3000_30ff", endAddress: 0x30ff, origin: "static", confidence: "certain", attrs: { segment_kind: segKind } }]
+        : [];
+      store.replaceGenerated("test", null, nodes, []);
+      if (segKind && labelled) store.upsertHuman({ id: rid("label", 0x3000), kind: "label", name: "the_data", origin: "user", confidence: "user_asserted" });
+      store.close();
+      await assertBoundary(d, { name: "data block", level: "container", start: 0x3000, end: 0x30ff, description: "data", evidence: ["header"], owner: "game" });
+      saveContract(d, { goal: "annotate the data wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["data"] } });
+      return (await verdict(d)).blockers.find((b) => /asked for as "data"|asserted for "data"/.test(b));
+    };
+    check("a region holding only a named charset segment is satisfied", (await mk("charset", true)) === undefined, await mk("charset", true));
+    check("a region holding only a named music_data segment is satisfied", (await mk("music_data", true)) === undefined, await mk("music_data", true));
+    const unnamed = await mk("charset", false);
+    check("an unnamed charset segment is counted and asks for its name, not for a routine",
+      /holds 1 routines\/tables\/data segments and not one carries a human name/.test(unnamed ?? ""), unnamed);
+    const empty = await mk(null, false);
+    check("a region holding nothing still blocks", /holds no routine, table or data segment to annotate/.test(empty ?? ""), empty);
+    const unk = await mk("unknown", true);
+    check("a region holding only an unknown segment still blocks (unknown is not data)", /holds no routine, table or data segment to annotate/.test(unk ?? ""), unk);
   }
 
   // ------------------------------------------------------------------- the surface

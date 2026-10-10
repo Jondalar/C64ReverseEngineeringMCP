@@ -24,6 +24,18 @@
 // retired name in any of these strings, and on a naming remedy that does not point at
 // the writer.
 
+/**
+ * Segment kinds that are data. A region whose content is one of these is annotated by
+ * naming it, the same way a table is: there is no routine start to look for in a charset
+ * or a music block. Everything else (code, basic, sid_driver, dead_code, padding,
+ * unknown) says nothing about data and is not accepted here.
+ */
+const ANNOTATABLE_DATA_SEGMENTS = [
+  "text", "screen_code_text", "petscii_text", "sprite", "charset", "charset_source",
+  "screen_ram", "screen_source", "bitmap", "hires_bitmap", "multicolor_bitmap", "bitmap_source",
+  "color_source", "music_data", "pointer_table", "lookup_table", "state_variable", "compressed_data",
+];
+
 import type { SlotReport } from "../slots/state.js";
 import { SLOTS } from "../slots/schema.js";
 import type { ProjectContract } from "./contract.js";
@@ -160,8 +172,9 @@ export async function contractPromises(
             `SELECT id, MAX(CASE WHEN layer='human' THEN name END) AS hn, MAX(name) AS an,
                     MIN(address) AS address, MAX(owner) AS owner,
                     MAX(space) AS space, MAX(bank) AS bank
-             FROM nodes WHERE kind IN ('routine','data_block','lookup_table','pointer_table')
-             GROUP BY id`,
+             FROM nodes WHERE kind IN ('routine','data_block','lookup_table','pointer_table','segment')
+             GROUP BY id
+             HAVING MAX(kind) <> 'segment' OR MAX(json_extract(attrs, '$.segment_kind')) IN (${ANNOTATABLE_DATA_SEGMENTS.map((k) => `'${k}'`).join(",")})`,
           ).all() as Array<{ hn: string | null; an: string | null; address: number; owner: string | null; space: string | null; bank: number | null }>;
           const starts = humanNamedStarts(store.db);
           for (const r of rows) {
@@ -181,16 +194,16 @@ export async function contractPromises(
       if (total === 0) {
         out.push({
           ...base,
-          now: `"${boundary.name}" holds no routine or table at all`,
+          now: `"${boundary.name}" holds no routine, table or data segment at all`,
           clearBy: `either the asserted range for "${boundary.name}" is wrong, or nothing in it has been disassembled yet — \`disasm\` it and re-check`,
-          blocker: `"${boundary.name}" is asserted for "${want}" but holds no routine or table to annotate — either the range is wrong or nothing in it has been disassembled`,
+          blocker: `"${boundary.name}" is asserted for "${want}" but holds no routine, table or data segment to annotate — either the range is wrong or nothing in it has been disassembled`,
         });
       } else if (named === 0) {
         out.push({
           ...base,
-          now: `"${boundary.name}" holds ${total} routines/tables and not one carries a human name`,
+          now: `"${boundary.name}" holds ${total} routines/tables/data segments and not one carries a human name`,
           clearBy: `name them — \`write_annotations\` → \`disasm\`, or \`save_finding\` tags=["routine"] per routine`,
-          blocker: `"${boundary.name}" (asked for as "${want}") holds ${total} routines/tables and not one carries a human name`,
+          blocker: `"${boundary.name}" (asked for as "${want}") holds ${total} routines/tables/data segments and not one carries a human name`,
         });
       } else if (named / total < (d.namedRatio ?? 0.5)) {
         out.push({

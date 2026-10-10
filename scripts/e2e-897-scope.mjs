@@ -211,14 +211,14 @@ try {
     saveContract(dir, { goal: GOAL, deliver: { coverageRatio: 0.9 } });
     const unscoped = await slotReport(dir);
     check("(D6) no scope: the identical pair is one content, measured against both owners' ranges",
-      unscoped.coverage.total === 5000 && unscoped.coverage.covered === 768 && unscoped.coverage.artifacts === 2,
+      unscoped.coverage.total === 5000 && unscoped.coverage.covered === 800 && unscoped.coverage.artifacts === 2,
       `${unscoped.coverage.covered}/${unscoped.coverage.total}, artifacts ${unscoped.coverage.artifacts}`);
 
     // D6 — the entry names the file the tools read; the names live under its twin.
     saveContract(dir,{ goal: GOAL, deliver: { scope: ["mc_orig_unpacked.prg"], coverageRatio: 0.9, namedRatio: 0.9 } });
     const mc = await slotReport(dir);
     check("(D6) scope = the file the tools read counts its twin's ranges, once",
-      mc.coverage.total === 1000 && mc.coverage.covered === 768 && mc.coverage.artifacts === 1,
+      mc.coverage.total === 1000 && mc.coverage.covered === 800 && mc.coverage.artifacts === 1,
       `${mc.coverage.covered}/${mc.coverage.total}, artifacts ${mc.coverage.artifacts}`);
     check("(D6) the twin's owner is in scope, named by its link",
       (mc.scope?.pulledIn ?? []).some((p) => p.owner === "mc_game" && /^same bytes as mc_orig_unpacked\.prg/.test(p.link)),
@@ -248,6 +248,54 @@ try {
       !(await (await import("../dist/contract/scope.js")).resolveScope(dir, ["reference.prg"])).owners.has("mc_lowram"));
     void aRaw;
     check("(D6/D7) contract_show prints the links", /also in scope — brought in by a recorded link/.test(await tools(dir).show()));
+  }
+
+  // ---- (#59) a payload stored in the scoped file counts toward its coverage; a payload is a scope target
+  {
+    const dir = mkdtempSync(join(tmpdir(), "c64re-897-pl-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "knowledge"), { recursive: true });
+    writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
+    writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+      { id: "a-mickey", kind: "prg", title: "mickey.prg", path: "mickey.prg", relativePath: "mickey.prg", scope: "input", fileSize: 3585, tags: [] },
+    ] }, null, 2));
+    const rid = (owner, kind, a) => `${SLUG}:ram/${owner}:${kind}:${a.toString(16).padStart(4, "0")}`;
+    const store = GraphStore.open(dir);
+    store.replaceGenerated("test", null, [
+      { id: rid("mickey_the_bricky_vic20", "payload", 0x1001), kind: "payload", name: "mickey_the_bricky_vic20", endAddress: 0x1dff, origin: "static", confidence: "certain", attrs: { payload: { source_artifact_id: "a-mickey" } } },
+      { id: rid("mickey_the_bricky_vic20", "segment", 0x1001), kind: "segment", name: "S1001", endAddress: 0x13ff, origin: "static", confidence: "certain", attrs: { segment_kind: "code" } },
+      { id: rid("mickey_the_bricky_vic20", "segment", 0x1400), kind: "segment", name: "S1400", endAddress: 0x1dff, origin: "static", confidence: "certain", attrs: { segment_kind: "sprite" } },
+    ], []);
+    store.close();
+
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["mickey.prg"], coverageRatio: 0.9 } });
+    const viaPrg = await slotReport(dir);
+    check("(#59) scope = the PRG: the payload stored in it covers it in full",
+      viaPrg.coverage.total === 3583 && viaPrg.coverage.covered === 3583 && viaPrg.coverage.ratio === 1,
+      `${viaPrg.coverage.covered}/${viaPrg.coverage.total}`);
+    saveContract(dir, { goal: GOAL, deliver: { coverageRatio: 0.9 } });
+    const unscoped = await slotReport(dir);
+    check("(#59) the same without a scope: the stored payload's segments count for its file",
+      unscoped.coverage.covered === 3583 && unscoped.coverage.total === 3583, `${unscoped.coverage.covered}/${unscoped.coverage.total}`);
+
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["mickey_the_bricky_vic20"], coverageRatio: 0.9 } });
+    const viaPayload = await slotReport(dir);
+    check("(#59) scope = the payload: measurable, its bytes the denominator, its segments the numerator",
+      viaPayload.coverage.total === 3583 && viaPayload.coverage.covered === 3583 && viaPayload.coverage.artifacts === 1,
+      `${viaPayload.coverage.covered}/${viaPayload.coverage.total}`);
+    check("(#59) the payload scope no longer reports nothing measurable",
+      !/nothing measurable/.test(formatSlotReport(viaPayload)));
+
+    // half covered: drop the second segment's reach
+    const store2 = GraphStore.open(dir);
+    store2.replaceGenerated("test", null, [
+      { id: rid("mickey_the_bricky_vic20", "payload", 0x1001), kind: "payload", name: "mickey_the_bricky_vic20", endAddress: 0x1dff, origin: "static", confidence: "certain", attrs: { payload: { source_artifact_id: "a-mickey" } } },
+      { id: rid("mickey_the_bricky_vic20", "segment", 0x1001), kind: "segment", name: "S1001", endAddress: 0x13ff, origin: "static", confidence: "certain", attrs: { segment_kind: "code" } },
+    ], []);
+    store2.close();
+    const part = await slotReport(dir);
+    check("(#59) the payload's own node does not count itself as covered",
+      part.coverage.covered === 0x3ff && part.coverage.total === 3583, `${part.coverage.covered}/${part.coverage.total}`);
   }
 
   // ---- (D8) a waiver whose number moved is listed as lapsed, never under Waived

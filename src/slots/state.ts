@@ -317,6 +317,10 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const artifacts = visible.filter((a) => MEASURABLE_KINDS.has(a.kind));
 
   const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  // The same, minus the payload nodes' own extents: a payload scoped on its own is
+  // measured against its bytes, and its own node must not count itself as covered.
+  const bodyByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  const payloadExtent = new Map<string, { start: number; end: number }>();
   // The same union, for the two buckets a range can fall into instead. They are
   // reported, never counted: a reader who sees 41 % must be able to see where the
   // other 59 % is and what would move it.
@@ -360,6 +364,12 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           const list = into.get(r.owner) ?? [];
           list.push({ start: r.address, end: r.end_address });
           into.set(r.owner, list);
+          if (r.kind === "payload") payloadExtent.set(r.owner, { start: r.address, end: r.end_address });
+          else if (verdict === "counts") {
+            const body = bodyByOwner.get(r.owner) ?? [];
+            body.push({ start: r.address, end: r.end_address });
+            bodyByOwner.set(r.owner, body);
+          }
         }
         if (!NAMED_KINDS.has(r.kind)) continue;
         if (!inScope(r.owner)) {
@@ -406,6 +416,21 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   }
   const rangesOf = (m: Map<string, Array<{ start: number; end: number }>>, own: string, id: string) =>
     (classOwners.get(id) ?? [own]).flatMap((o) => m.get(o) ?? []);
+  // A payload recorded as stored in a counted file: its segments are bytes of that file
+  // (the graph keys them under the payload's own owner, not the file's stem).
+  const { payloadsStoredIn } = await import("../contract/scope.js");
+  const storedIn = await payloadsStoredIn(projectDir);
+  const hostedByIdentity = new Map<string, string[]>();
+  for (const a of artifacts) {
+    const owners = storedIn.get(a.id);
+    if (!owners) continue;
+    const key = identityOf(a);
+    hostedByIdentity.set(key, [...new Set([...(hostedByIdentity.get(key) ?? []), ...owners])]);
+  }
+  const fileOwners = new Set(artifacts.map((a) => normStem(stemOf(a.relativePath ?? a.path ?? a.title))));
+  const hostedOwners = (own: string, id: string): string[] =>
+    (hostedByIdentity.get(id) ?? []).filter((o) => inScope(o) && !fileOwners.has(o) && o !== own);
+  const countedHosted = new Set<string>();
   const seen = new Set<string>();
   let total = 0;
   let covered = 0;
@@ -443,7 +468,20 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const clip = (list: Array<{ start: number; end: number }> | undefined) =>
       list ? Math.min(unionSize(list), size) : 0;
     const cls = identityOf(a);
-    covered += clip(rangesOf(rangesByOwner, own, cls));
+    const hosted = hostedOwners(own, cls);
+    for (const h of hosted) countedHosted.add(h);
+    // A payload that sits at the file's own addresses is the same bytes seen twice: union
+    // it with the file's ranges. One loaded elsewhere is a different address space: add it.
+    const ownRanges = rangesOf(rangesByOwner, own, cls) ?? [];
+    const fileSpan = a.addressRange;
+    const sameSpace: Array<{ start: number; end: number }> = [];
+    const elsewhere: Array<{ start: number; end: number }> = [];
+    for (const h of hosted) {
+      const ext = payloadExtent.get(h);
+      const inFile = !!fileSpan && !!ext && ext.start >= fileSpan.start && ext.end <= fileSpan.end;
+      (inFile ? sameSpace : elsewhere).push(...(rangesByOwner.get(h) ?? []));
+    }
+    covered += Math.min(unionSize([...ownRanges, ...sameSpace]) + unionSize(elsewhere), size);
     // "Not counted" names only bytes no counted range covers (issue #46). A byte both
     // declared unknown and machine-named is reported once, as unknown: the declaration
     // is a deliberate statement, the machine name is only the absence of one.
@@ -451,6 +489,28 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const unknownRanges = rangesOf(unknownByOwner, own, cls);
     declaredUnknown += Math.min(differenceSize(unknownRanges, countedRanges), size);
     machineOnly += Math.min(differenceSize(rangesOf(machineByOwner, own, cls), [...countedRanges, ...unknownRanges]), size);
+  }
+
+  // A payload named as a scope target has no file of its own to measure: its bytes are
+  // the denominator (its recorded extent, else the file it is stored in), its segments and
+  // routines the numerator. Payloads already counted through their file are not repeated.
+  if (scope) {
+    const byId = new Map(rec.listArtifacts().map((x) => [x.id, x]));
+    const sourceOf = new Map<string, string>();
+    for (const [srcId, owners] of storedIn) for (const o of owners) sourceOf.set(o, srcId);
+    for (const o of scope.owners) {
+      if (fileOwners.has(o) || countedHosted.has(o) || (!payloadExtent.has(o) && !sourceOf.has(o))) continue;
+      const ext = payloadExtent.get(o);
+      let size = ext ? ext.end - ext.start + 1 : 0;
+      if (size <= 1) {
+        const src = byId.get(sourceOf.get(o) ?? "");
+        size = src?.addressRange ? src.addressRange.end - src.addressRange.start + 1 : src?.fileSize && src.fileSize > 2 ? src.fileSize - 2 : size;
+      }
+      if (size <= 0) { unmeasured.push(o); continue; }
+      total += size;
+      counted += 1;
+      covered += Math.min(unionSize(bodyByOwner.get(o) ?? []), size);
+    }
   }
 
   const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);

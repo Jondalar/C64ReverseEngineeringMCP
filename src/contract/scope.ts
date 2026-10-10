@@ -150,6 +150,23 @@ async function payloadOwners(projectDir: string): Promise<PayloadRef[]> {
 }
 
 /**
+ * Payload owners by the artifact they are recorded as stored in (`source_artifact_id`).
+ * Independent of any scope: the bytes of a payload stored in a file are bytes of that
+ * file, so S12 counts the payload's segments toward the file's coverage whether or not
+ * the contract states a scope. Only the recorded link counts, never a fitting address.
+ */
+export async function payloadsStoredIn(projectDir: string): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const p of await payloadOwners(projectDir)) {
+    if (!p.sourceArtifactId) continue;
+    const list = out.get(p.sourceArtifactId) ?? [];
+    if (!list.includes(p.owner)) list.push(p.owner);
+    out.set(p.sourceArtifactId, list);
+  }
+  return out;
+}
+
+/**
  * Resolve each entry to an owner: a loadable artifact's name, path or id, a payload node's
  * name, or the owner key itself. Compared on normal forms, never by substring — a substring
  * rule on one-letter disk file names ("a", "i", "p") matches everything (see documents.ts).
