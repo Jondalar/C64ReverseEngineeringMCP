@@ -718,10 +718,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // shape as the joystick) — the queue can be played out in MACHINE time.
   server.tool(
     "runtime_type",
-    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Without `settle` the text is only QUEUED: the daemon plays it out as the machine runs, and since the live session free-runs in real time between calls, your next tool call can land in the middle of the typing and read a half-typed line. With `settle: true` the tool pauses the machine, advances exactly the machine time the queue needs, and restores whether it was running — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
+    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines, and to press keys that print nothing. Not for joystick (use runtime_joystick). KEY TOKENS: {RETURN} {RUN/STOP} {HOME} {CLR} {DEL} {INST} {CRSR UP} {CRSR DOWN} {CRSR LEFT} {CRSR RIGHT} {F1}..{F8} {SPACE} {QUOTE}, modifiers {SHIFT} {C=} {CTRL}, and combos with + such as {SHIFT+RETURN}, {C=+1}, {CTRL+3}. They are pressed in the CIA1 matrix, so a game that scans $DC00/$DC01 sees them, not only the KERNAL's GETIN (F2/F4/F6/F8, CRSR UP/LEFT, CLR and INST are SHIFT plus the neighbouring key, as on the real keyboard). An unknown {...} token is refused with the list, never typed; the C64 has no brace keys, so there is no literal-brace escape. RESTORE is not on the matrix and is not available. A text with tokens is always played out in machine time (as with settle), because the held keys must be released at a known cycle. Without `settle` (and without tokens) the text is only QUEUED: the daemon plays it out as the machine runs, and since the live session free-runs in real time between calls, your next tool call can land in the middle of the typing and read a half-typed line. With `settle: true` the tool pauses the machine, advances exactly the machine time the queue needs, and restores whether it was running — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). A machine that is still booting (KERNAL init / memory test, BASIC not yet at its input loop) would lose the keys: with settle the tool first advances it, bounded to about 3 s of machine time, until BASIC is waiting for input, and refuses (typing nothing) if it never gets there; a program that took the machine over is not held up; without settle the answer carries a warning. Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
     {
       session_id: z.string(),
-      text: z.string().describe("Text to type. Use \\r or \\n for RETURN."),
+      text: z.string().describe("Text to type. Use \\r or \\n for RETURN. {TOKEN} presses a non-printing key (e.g. {F5}, {RUN/STOP}, {CRSR DOWN}, {SHIFT+RETURN})."),
       hold_cycles: z.number().int().min(1000).max(2_000_000).optional(),
       gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
       settle: z.boolean().optional().describe("Play the whole queue out before returning: the machine is paused and advanced by exactly the cycles the queue needs, so the text is typed when the call returns. Default false (queue and return)."),
@@ -731,16 +731,25 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const decoded = text.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
       const hold = hold_cycles ?? 33000;
       const gap = gap_cycles ?? 33000;
+      const { parseTypedText, hasKeyTokens } = await import("../runtime/key-tokens.js");
+      const { bootState, waitForBasic, bootRefusal } = await import("../runtime/boot-wait.js");
+      const parsed = parseTypedText(decoded);
+      if ("error" in parsed) throw new Error(`runtime_type: ${parsed.error} Nothing was typed.`);
+      const parts = parsed.parts;
+      const tokens = hasKeyTokens(parts);
       // BUG-028 — type into the SHARED daemon session (the machine the human drives),
       // not a private in-process session. Read tools were routed; this write tool
       // was not, so the LLM could see but not type. Now uniform.
       const { runtimeDaemon } = await import("../runtime/backend.js");
 
-      if (!settle) {
+      if (!settle && !tokens) {
+        const st = await runtimeDaemon.state(session_id) as { c64Cycles?: number; cpu?: { pc: number } };
+        const booting = bootState(st.cpu?.pc ?? 0, st.c64Cycles ?? 0) === "booting";
         await runtimeDaemon.typeText(session_id, decoded, hold, gap);
         return { content: [{ type: "text" as const, text: [
           `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
           `Hold cycles: ${hold}  Gap cycles: ${gap}`,
+          ...(booting ? [`WARNING: the machine is still booting (cycle ${st.c64Cycles}, PC $${(st.cpu?.pc ?? 0).toString(16).toUpperCase()}); BASIC is not at its input loop yet, so this line will probably be lost. Use settle: true, which waits for READY first.`] : []),
           `Queued only. The machine free-runs between calls, so your next call may read a half-typed line —`,
           `pass settle: true when what you do next depends on the typing having finished.`,
         ].join("\n") }] };
@@ -754,22 +763,51 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const extra = extra_frames ?? 2;
       const before = await runtimeDaemon.state(session_id) as { runState?: string; c64Cycles?: number };
       const F = machineIdentity(before).cyclesPerFrame;
-      const need = decoded.length * (hold + gap) + extra * F;
       const wasRunning = before?.runState === "running";
       await runtimeDaemon.pause(session_id);
+      const advance = async (cycles: number) => {
+        let remaining = cycles;
+        while (remaining > 0) {
+          const step = Math.min(F * 50, remaining);
+          await runtimeDaemon.run(session_id, step);
+          remaining -= step;
+        }
+      };
+      const settleBack = async () => { if (wasRunning) await runtimeDaemon.resume(session_id); };
+      // Keys typed into a machine that has not reached BASIC's input loop are lost (#64): wait for it,
+      // by reading the PC, or refuse. Nothing has been queued yet, so a refusal leaves no half line.
+      const boot = await waitForBasic(runtimeDaemon, session_id);
+      if (boot.result === "timeout") {
+        await settleBack();
+        throw new Error(`runtime_type: ${bootRefusal(boot.pc, boot.cycles)}`);
+      }
       const from = (await runtimeDaemon.state(session_id) as { c64Cycles?: number })?.c64Cycles ?? 0;
-      await runtimeDaemon.typeText(session_id, decoded, hold, gap);
-      let remaining = need;
-      while (remaining > 0) {
-        const step = Math.min(F * 50, remaining);
-        await runtimeDaemon.run(session_id, step);
-        remaining -= step;
+      let typedChars = 0;
+      try {
+        for (const part of parts) {
+          if (part.kind === "text") {
+            await runtimeDaemon.typeText(session_id, part.text, hold, gap);
+            typedChars += part.text.length;
+            await advance(part.text.length * (hold + gap));
+          } else {
+            // Held keys: down together, held `hold` cycles of machine time, released, then the gap.
+            for (const k of part.keys) await runtimeDaemon.keyDown(session_id, k);
+            try { await advance(hold); }
+            finally { for (const k of part.keys) await runtimeDaemon.keyUp(session_id, k); }
+            await advance(gap);
+            typedChars += 1;
+          }
+        }
+        await advance(extra * F);
+      } finally {
+        await settleBack();
       }
       const to = (await runtimeDaemon.state(session_id) as { c64Cycles?: number })?.c64Cycles ?? 0;
-      // Leave the machine as it was found — the human co-drives this session.
-      if (wasRunning) await runtimeDaemon.resume(session_id);
+      const keyList = parts.filter((p) => p.kind === "keys").map((p) => (p as { token: string }).token);
       return { content: [{ type: "text" as const, text: [
-        `Typed ${decoded.length} chars on session ${session_id} and played the queue out.`,
+        `Typed ${typedChars} ${tokens ? "keys/chars" : "chars"} on session ${session_id} and played the queue out.`,
+        ...(keyList.length ? [`Key tokens pressed in the CIA1 matrix: ${keyList.join(" ")}`] : []),
+        ...(boot.advanced > 0 ? [`The machine was still booting: advanced ${boot.advanced} cycles to BASIC's input loop first.`] : []),
         `Hold cycles: ${hold}  Gap cycles: ${gap}  Extra frames: ${extra}`,
         `cycles ${from} → ${to} (${to - from}), machine paused for the typing and ${wasRunning ? "resumed" : "left paused"} after it`,
         `The text is typed now — this is not a queue you have to wait for.`,

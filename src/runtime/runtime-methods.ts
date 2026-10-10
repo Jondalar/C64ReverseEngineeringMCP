@@ -241,6 +241,13 @@ export abstract class RuntimeMethods {
   typeText<T = unknown>(sessionId: string, text: string, holdCycles?: number, gapCycles?: number) {
     return this.call<T>("session/type", { session_id: sessionId, text, hold_cycles: holdCycles, gap_cycles: gapCycles, source: "llm" });
   }
+  /** Hold / release one matrix key by the daemon's key name ("F1", "L_SHIFT", "RUN_STOP", ...). */
+  keyDown<T = unknown>(sessionId: string, key: string) {
+    return this.call<T>("session/key_down", { session_id: sessionId, key, source: "llm" });
+  }
+  keyUp<T = unknown>(sessionId: string, key: string) {
+    return this.call<T>("session/key_up", { session_id: sessionId, key, source: "llm" });
+  }
   joystickSet<T = unknown>(sessionId: string, port: number, state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean }) {
     return this.call<T>("session/joystick_set", { session_id: sessionId, port, ...state, source: "llm" });
   }

@@ -4425,7 +4425,7 @@
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
-      "useWhen": "Type text/commands into the live machine, e.g. LOAD\"*\",8,1\\rRUN\\r.",
+      "useWhen": "Type text/commands and press non-printing keys ({F1}-{F8}, {RUN/STOP}, {CRSR DOWN}, {SHIFT+RETURN}) in the live machine, e.g. LOAD\"*\",8,1\\rRUN\\r.",
       "notFor": "Joystick/fire — use runtime_joystick.",
       "adjacentTools": [
         "runtime_joystick",

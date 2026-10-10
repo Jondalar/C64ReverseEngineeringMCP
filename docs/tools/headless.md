@@ -86,6 +86,22 @@ the picture size (384×272 PAL, 384×247 NTSC). A recorded scenario carries a
 `# model:` line; it runs on that model by default and is refused, naming both, when
 asked to run on another — its inputs are timed in that machine's frames.
 
+**Typing keys that print nothing.** `runtime_type` reads `{NAME}` tokens: `{RETURN}`,
+`{RUN/STOP}`, `{HOME}`, `{CLR}`, `{DEL}`, `{INST}`, `{CRSR UP}` / `DOWN` / `LEFT` / `RIGHT`,
+`{F1}`–`{F8}`, `{SPACE}`, `{QUOTE}`, the modifiers `{SHIFT}`, `{C=}`, `{CTRL}`, and combos
+with `+` (`{SHIFT+RETURN}`, `{C=+1}`). They are pressed in the CIA1 matrix, so a game that
+scans `$DC00`/`$DC01` sees them as well as the KERNAL's GETIN; F2/F4/F6/F8, CRSR UP/LEFT,
+CLR and INST are SHIFT plus the neighbouring key, as on the real keyboard. An unknown token
+is refused with the list and nothing is typed; the C64 has no brace keys, so there is no
+escape for a literal `{`. RESTORE is not on the matrix and cannot be pressed. A text with
+tokens is always played out in machine time.
+
+**Typing waits for READY.** Keys sent while the KERNAL is still in its memory test or BASIC's
+cold start are lost. With `settle`, `runtime_type` first advances a machine that is still
+booting (at most about 3 s of machine time) until BASIC waits for input, and refuses without
+typing if it never gets there. A program that has taken the machine over is not held up.
+Without `settle` the text is queued as before and the answer carries a warning.
+
 The VIC view and the line strip take their geometry from the frame they show: 63
 cycles × 312 lines on PAL, 65 × 263 on NTSC. The NTSC picture wraps: its bottom
 twelve rows are raster lines 0–11, drawn below line 262, and the view draws them
