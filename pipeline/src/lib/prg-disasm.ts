@@ -25,8 +25,15 @@ import { listingEquates } from "./graph-equates";
 import { platformNode, type PlatformTag } from "./platform-kb";
 
 // Spec 048: per-render platform override. Set at the top of
-// disassemblePrgToKickAsm; consulted by the comment generators.
-let activePlatform: PlatformTag = "c64";
+// disassemblePrgToKickAsm; consulted by the comment generators. "none" is the
+// off switch: the listing carries no name or comment derived from the platform
+// knowledge base (KERNAL / zero-page / I/O tables, C64 hardware inference);
+// names from annotations and the graph still apply.
+let activePlatform: PlatformTag | "none" = "c64";
+
+function platformOff(): boolean {
+  return activePlatform === "none";
+}
 import { decodeInstruction, DecodedInstruction, isBranchInstruction, isCallInstruction, isJumpInstruction } from "./mos6502";
 import { hex16, hex8 } from "./format";
 import { lookupKernalAbi, RegisterName } from "./kernal-abi";
@@ -124,8 +131,9 @@ interface PrgDisasmOptions {
   // Spec 048: optional platform tag. Default is "c64". When
   // "c1541", renderer overlays the c1541 ZP / IO / ROM tables on
   // top of the existing C64 lookups so drive disasm gets correct
-  // labels.
-  platform?: "c64" | "c1541";
+  // labels. "none" writes no ROM / zero-page / I/O names or comments at all (code
+  // of a machine this tool has no table for); annotation and graph names still apply.
+  platform?: "c64" | "c1541" | "none";
   // Spec 741 (Slice A): relocated regions to render as
   // .pseudopc / .logical blocks at their runtime PC while keeping the
   // stored bytes byte-exact. Absent → rendering is unchanged.
@@ -585,7 +593,7 @@ function findOperandExpression(
   instructionOwnerByAddress: Map<number, number>,
   segmentOwnerByAddress: Map<number, number>,
 ): string | undefined {
-  if (isC64IoAddress(address)) {
+  if (!platformOff() && isC64IoAddress(address)) {
     return formatC64IoAddress(address);
   }
 
@@ -657,7 +665,8 @@ function commentTextFromTarget(targetAddress: number | undefined): string {
     return "";
   }
 
-  const metadata = findC64IoMetadata(targetAddress, activePlatform);
+  if (platformOff()) return "";
+  const metadata = findC64IoMetadata(targetAddress, activePlatform as PlatformTag);
   if (!metadata) {
     return "";
   }
@@ -706,7 +715,7 @@ function generateInstructionComment(
 
   // 1. IO register comment (existing behavior, but we extend it)
   if (target !== undefined) {
-    const ioMeta = findC64IoMetadata(target, activePlatform);
+    const ioMeta = platformOff() ? undefined : findC64IoMetadata(target, activePlatform as PlatformTag);
     if (ioMeta) {
       // For stores: try to include the value being written
       if (mnem.startsWith("st") && prevInstruction) {
@@ -727,7 +736,7 @@ function generateInstructionComment(
 
   // 2. KERNAL call (or platform-specific ROM symbol — Spec 048)
   if ((mnem === "jsr" || mnem === "jmp") && target !== undefined) {
-    const rom = platformNode(activePlatform, target);
+    const rom = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, target);
     if (rom && rom.kind === "rom") {
       return `// ${rom.label}`;
     }
@@ -751,7 +760,7 @@ function generateInstructionComment(
 
   // 3. Zero-page stores/loads with known meaning (platform overlay first)
   if (mode === "zp" && operand !== undefined) {
-    const zp = platformNode(activePlatform, operand);
+    const zp = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, operand);
     if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
       return `// ${desc} ${zp.label}`;
@@ -820,7 +829,7 @@ function generateInstructionComment(
   }
 
   // 13. Indexed access to non-IO addresses (table access)
-  if ((mode === "abs,x" || mode === "abs,y") && target !== undefined && !isC64IoAddress(target)) {
+  if ((mode === "abs,x" || mode === "abs,y") && target !== undefined && (platformOff() || !isC64IoAddress(target))) {
     const reg = mode === "abs,x" ? "X" : "Y";
     const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
     return `// ${desc} ${makeLabel(target)}[${reg}]`;
@@ -1234,7 +1243,7 @@ function resolveRoutineAbi(address: number, context: RenderAnalysisContext): Res
   if (annotated?.abi?.pointerPairs && annotated.abi.pointerPairs.length > 0) {
     return { pointerPairs: annotated.abi.pointerPairs.map((pair) => ({ low: pair.low, high: pair.high })) };
   }
-  const kernal = lookupKernalAbi(address);
+  const kernal = platformOff() ? undefined : lookupKernalAbi(address);
   if (kernal?.pointerPairs && kernal.pointerPairs.length > 0) {
     return { pointerPairs: kernal.pointerPairs.map((pair) => ({ low: pair.low, high: pair.high })) };
   }
@@ -2042,6 +2051,14 @@ function inferLoaderFilenameCandidates(
 
 function inferSegmentPurpose(segment: Segment, context: RenderAnalysisContext): string[] {
   const notes: string[] = [];
+  if (platformOff()) {
+    // every other note below reads VIC / SID / KERNAL / colour-RAM addresses
+    const split = factInRange(segment, context.splitPointerFacts);
+    if (split.some((fact) => classifySplitPointerFact(fact) === "jump_dispatch_table")) {
+      notes.push("state/command dispatcher using indirect JMP");
+    }
+    return notes;
+  }
   const instructions = segmentInstructions(segment, context);
   const splitFacts = factInRange(segment, context.splitPointerFacts);
   const copyFacts = factInRange(segment, context.copyFacts);
@@ -2115,21 +2132,25 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
   if (!(segment.kind === "code" || segment.kind === "basic_stub")) {
     return [];
   }
+  // With the platform off, the lines derived from VIC / SID / KERNAL knowledge (display
+  // state and transfers, sprites, hardware touched, loader path, asset targets) are
+  // empty; key RAM, split tables and data movement come from the bytes and stay.
+  const off = platformOff();
 
   const lines: string[] = [];
   const purpose = inferSegmentPurpose(segment, context);
   const ram = summarizeRamTouches(segment, context);
   const splitFacts = factInRange(segment, context.splitPointerFacts);
   const copyFacts = factInRange(segment, context.copyFacts);
-  const displayState = displayStateForSegment(segment, context);
-  const displayTransfers = displayTransfersForSegment(segment, context);
-  const spritePointerSeeds = summarizeSpritePointerSeeds(segment, context);
-  const spriteStateTables = summarizeSpriteStateTables(segment, context);
-  const spritePageSelection = spritePointerPageSelection(segment, context);
-  const hardware = summarizeHardwareTargets(segment, context);
-  const kernalLoader = findKernalLoaderCallSequence(segment, context);
+  const displayState = off ? undefined : displayStateForSegment(segment, context);
+  const displayTransfers = off ? [] : displayTransfersForSegment(segment, context);
+  const spritePointerSeeds = off ? [] : summarizeSpritePointerSeeds(segment, context);
+  const spriteStateTables = off ? [] : summarizeSpriteStateTables(segment, context);
+  const spritePageSelection = off ? undefined : spritePointerPageSelection(segment, context);
+  const hardware = off ? [] : summarizeHardwareTargets(segment, context);
+  const kernalLoader = off ? undefined : findKernalLoaderCallSequence(segment, context);
   const loaderFilenames = kernalLoader ? inferLoaderFilenameCandidates(segment, kernalLoader.setnamAddress, context) : [];
-  const pointerTargets = segmentPointerTargets(segment, context);
+  const pointerTargets = off ? [] : segmentPointerTargets(segment, context);
   const vicTargets = inferVicTargetsFromHardware(context);
 
   if (

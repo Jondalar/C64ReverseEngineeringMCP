@@ -372,6 +372,26 @@ try {
     check(/try_depack|sandbox_depack/.test(out), "…and the other way on: depack first, then disassemble");
   }
 
+  // ── 7 platform none sticks to the file ────────────────────────────────────
+  head(7, "platform none sticks: a re-render without the parameter keeps it");
+  {
+    const prgPath = join(proj, "artifacts", "foreign.prg");
+    writeFileSync(prgPath, Buffer.from([0x00, 0xc0, ...KNOWN_CODE]));
+    const names = /EXTCOL|CHROUT|Border/i;
+    const first = await call("disasm", { path: "artifacts/foreign.prg", platform: "none", import_graph: false });
+    const where = /([^\s"]*foreign[^\s"]*_disasm\.asm)/.exec(first)?.[1];
+    const read = () => readFileSync(where.startsWith("/") ? where : join(proj, where), "utf8");
+    check(!!where && !names.test(read()), "render with none: no C64 names", where ?? first.slice(0, 200));
+    await call("disasm_prg", { prg_path: "artifacts/foreign.prg", import_graph: false });
+    check(!names.test(read()), "re-render without platform (disasm_prg): still no C64 names");
+    await call("disasm", { path: "artifacts/foreign.prg", import_graph: false });
+    check(!names.test(read()), "re-render without platform (disasm): still no C64 names");
+    await call("disasm", { path: "artifacts/foreign.prg", platform: "c64", import_graph: false });
+    check(names.test(read()), "an explicit c64 brings the names back");
+    await call("disasm", { path: "artifacts/foreign.prg", import_graph: false });
+    check(names.test(read()), "…and clears the choice: the next plain render keeps them");
+  }
+
   // ── the surface ───────────────────────────────────────────────────────────
   head("S", "the surface says what it does");
   {

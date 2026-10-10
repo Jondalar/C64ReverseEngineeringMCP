@@ -158,6 +158,11 @@ export const ArtifactRecordSchema = z.object({
   // Spec 020: per-artifact platform marker. Default is c64 when absent.
   // Drives ZP / I/O register / ROM symbol annotation in the renderer.
   platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional(),
+  // Which platform name tables a listing of this file may use. "none" = no ROM /
+  // zero-page / I/O names or comments (code of a machine without a table); absent =
+  // the machine's own tables. Set by disasm `platform: "none"`, honoured by every
+  // re-render, cleared by an explicit c64 / c1541. Not the machine: that is `platform`.
+  symbolTables: z.enum(["none"]).optional(),
   // Spec 023: alternate load contexts beyond the on-disk PRG header.
   loadContexts: z.array(LoadContextSchema).default([]),
   // Spec 034: current phase in the seven-phase RE workflow. Default 1

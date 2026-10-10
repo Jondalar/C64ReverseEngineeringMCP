@@ -442,7 +442,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     offset?: string | number; length?: string | number;
     entry_points?: Array<string | number>;
     analysis_json?: string; no_analysis?: boolean; annotations_path?: string; import_graph?: boolean;
-    output_asm?: string; platform?: "c64" | "c1541"; cpu?: "c64" | "drive";
+    output_asm?: string; platform?: "c64" | "c1541" | "none"; cpu?: "c64" | "drive";
     bank?: number; space?: string;
     relocations?: Array<Record<string, unknown>>;
     paths?: string[];
@@ -502,12 +502,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
 
     // ── which machine ───────────────────────────────────────────────────────
-    const namedPlatform: "c64" | "c1541" | undefined = a.platform ?? (a.cpu === "drive" ? "c1541" : a.cpu === "c64" ? "c64" : undefined);
+    // "none" is a rendering switch, not a machine: it names no ROM / zero-page / I/O
+    // table, so it is neither recorded as the machine nor stamped on any row.
+    // The choice sticks to the file (`symbolTables` on its row): a re-render that names
+    // no platform keeps it, an explicit c64 / c1541 clears it.
+    const askedNone = a.platform === "none";
+    const askedMachine = a.platform === "none" ? undefined : a.platform;
+    const namedPlatform: "c64" | "c1541" | undefined = askedMachine
+      ?? (askedNone ? undefined : a.cpu === "drive" ? "c1541" : a.cpu === "c64" ? "c64" : undefined);
     let resolvedPlatform: "c64" | "c1541" = namedPlatform ?? "c64";
+    let noPlatformNames = askedNone;
     if (!namedPlatform) {
       try {
         const row = service.listArtifacts().find((art) => art.path === sourceAbs);
         if (row?.platform === "c1541") resolvedPlatform = "c1541";
+        if (!askedNone && row?.symbolTables === "none") noPlatformNames = true;
       } catch { /* best effort */ }
     }
     // An explicitly named platform is RECORDED, not merely used for this render: the
@@ -582,7 +591,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       if (reading.byteOffset !== 0) cliArgs.push("--offset", asHex(reading.byteOffset));
       cliArgs.push("--length", asHex(reading.byteLength));
     }
-    if (resolvedPlatform !== "c64") cliArgs.push("--platform", resolvedPlatform);
+    if (noPlatformNames) cliArgs.push("--platform", "none");
+    else if (resolvedPlatform !== "c64") cliArgs.push("--platform", resolvedPlatform);
     if (relocationsFile) cliArgs.push("--relocations", relocationsFile);
     if (annotationsAbs) cliArgs.push("--annotations", annotationsAbs);
     if (choice.path) cliArgs.push("--analysis", choice.path);
@@ -633,7 +643,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         offset: reading.byteOffset,
         length: reading.byteLength,
         entry_points: seeds.map(hex),
-        platform: resolvedPlatform,
+        platform: noPlatformNames ? "none" : resolvedPlatform,
         bank: a.bank ?? null,
         space: a.space ?? null,
         analysis_json: choice.path ?? null,
@@ -688,7 +698,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           format: "asm",
           role: listing.role ?? "disasm",
           producedByTool: invokedAs,
-          platform: resolvedPlatform,
+          ...(noPlatformNames ? {} : { platform: resolvedPlatform }),
           sourceArtifactIds: listing.sourceArtifactIds,
           tags: [...new Set([...(listing.tags ?? []), invokedAs, ...(reading.kind === "raw" ? ["raw-block"] : [])])],
         });
@@ -699,11 +709,20 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     })();
     // The PRG's own row carries the machine too — the other half of the loop this
     // door resolves the platform from when the caller names none.
-    if (namedPlatform) {
+    if (namedPlatform || askedNone) {
       try {
         const row = service.listArtifacts().find((x) => x.path === sourceAbs);
-        if (row && row.platform !== resolvedPlatform) {
-          service.saveArtifact({ ...row, path: sourceAbs, platform: resolvedPlatform });
+        if (row) {
+          const platformChanged = namedPlatform !== undefined && row.platform !== resolvedPlatform;
+          const tablesChanged = askedNone ? row.symbolTables !== "none" : row.symbolTables === "none";
+          if (platformChanged || tablesChanged) {
+            service.saveArtifact({
+              ...row,
+              path: sourceAbs,
+              ...(platformChanged ? { platform: resolvedPlatform } : {}),
+              ...(tablesChanged ? { symbolTables: askedNone ? "none" as const : "default" as const } : {}),
+            });
+          }
         }
       } catch { /* the listing stands without the stamp */ }
     }
@@ -1151,7 +1170,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it a <stem>_annotations.json beside the bytes, the output or the analysis is picked up. Whatever is applied is imported into the knowledge graph."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration) — the graph is left exactly as it was. Use for scratch or draft renders you do not mean to keep. Default true."),
       output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm."),
-      platform: z.enum(["c64", "c1541"]).optional().describe("Target machine for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side code. Naming it RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
+      platform: z.enum(["c64", "c1541", "none"]).optional().describe("Target machine for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side code. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file\'s machine. The choice sticks to the file: every later render that names no platform (disasm_prg, a re-render after annotations) keeps it, and an explicit c64 or c1541 clears it. Naming c64 or c1541 RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
       space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
       relocations: z.array(z.object({
@@ -1292,7 +1311,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
       annotations_path: z.string().optional().describe("Path to an annotations file, instead of the <stem>_annotations.json found beside the PRG, the output or the analysis."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration) — the graph is left exactly as it was. Use for scratch or draft renders you do not mean to keep. Default true."),
-      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly. Naming it RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
+      platform: z.enum(["c64", "c1541", "none"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly. Use none for code of any other machine: no ROM / zero-page / I/O names or comments from the platform tables, annotation and graph names still apply, nothing recorded as the machine; the choice sticks to the file until an explicit c64 or c1541 clears it. Naming c64 or c1541 RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),

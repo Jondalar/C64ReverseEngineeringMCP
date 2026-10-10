@@ -387,5 +387,45 @@ try {
   ok(false, "issue43 registry unit", e.message);
 }
 
+// platform none — the off switch: no ROM / zero-page / I/O names or comments from the
+// platform tables, annotation names still apply, the rebuild stays byte-exact, and the
+// default (c64) is unchanged.
+try {
+  // lda $01 / jsr $FFD2 / sta $D020 / lda $7A / rts, at $C000
+  const prg = writePrg("foreign.prg", 0xc000, [0xa5, 0x01, 0x20, 0xd2, 0xff, 0x8d, 0x20, 0xd0, 0xa5, 0x7a, 0x60]);
+  const json = join(work, "foreign_analysis.json");
+  analyze(prg, json, "C000");
+  const ann = join(work, "foreign_annotations.json");
+  writeFileSync(ann, JSON.stringify({ version: 1, binary: "foreign.prg", segments: [], labels: [{ address: "C000", label: "foreign_entry" }], routines: [] }));
+  const render = (tag, platform) => {
+    const out = join(work, `foreign_${tag}.asm`);
+    const args = ["disasm-prg", prg, out, "C000", json, "--no-register", "--annotations", ann];
+    if (platform) args.push("--platform", platform);
+    const r = spawnSync(process.execPath, [cliCjs, ...args], { cwd: work, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`disasm-prg failed: ${r.stderr || r.stdout}`);
+    return out;
+  };
+  const platformNames = /R6510|CHROUT|TXTPTR|border|KERNAL/i;
+  const defOut = render("default", undefined);
+  const defTxt = readFileSync(defOut, "utf8");
+  ok(/R6510/.test(defTxt) && /CHROUT/.test(defTxt) && /TXTPTR/.test(defTxt) && /border/i.test(defTxt),
+    "none: the default platform still names R6510 / CHROUT / TXTPTR / border");
+  const noneOut = render("none", "none");
+  for (const [dialect, file] of [["kick", noneOut], ["tass", noneOut.replace(/\.asm$/, ".tas")]]) {
+    const txt = readFileSync(file, "utf8");
+    const hit = txt.split("\n").filter((l) => platformNames.test(l));
+    ok(hit.length === 0, `none: no platform names or comments in the ${dialect} listing`, hit[0] ?? "");
+    ok(/foreign_entry/.test(txt), `none: the annotation label still appears in the ${dialect} listing`);
+  }
+  ok(/ROUTINE CONTEXT/.test(defTxt) && /ROUTINE CONTEXT/.test(readFileSync(noneOut, "utf8")) && /key RAM: \$0001, \$007A/.test(readFileSync(noneOut, "utf8")),
+    "none: the platform-neutral ROUTINE CONTEXT line (key RAM) is kept");
+  const bad = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg, join(work, "foreign_bad.asm"), "C000", "--platform", "vic20"], { cwd: work, encoding: "utf8" });
+  ok(bad.status !== 0 && /not a platform/.test(bad.stderr + bad.stdout), "none: an unknown --platform is refused with a message");
+  await assertByteExact("none", noneOut, "kickassembler", prg);
+  await assertByteExact("none", noneOut.replace(/\.asm$/, ".tas"), "64tass", prg);
+} catch (e) {
+  ok(false, "platform none harness", e.message);
+}
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} smoke-741: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

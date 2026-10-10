@@ -52,8 +52,8 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--relocations <json>] [--annotations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--annotations <json>] [--relocations <json>]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|none] [--relocations <json>] [--annotations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|none] [--annotations <json>] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]]",
       "  node dist/cli.js basic-list <prg> [--json]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
@@ -69,6 +69,11 @@ function usage(): never {
       "and the store has one writer.",
     ].join("\n"),
   );
+}
+
+function checkPlatform(value: string): "c64" | "c1541" | "none" {
+  if (value === "c64" || value === "c1541" || value === "none") return value;
+  throw new Error(`--platform ${JSON.stringify(value)} is not a platform; use c64, c1541 or none`);
 }
 
 function main(): void {
@@ -118,10 +123,10 @@ function main(): void {
   }
 
   if (command === "disasm-prg") {
-    // Spec 048: optional --platform <c64|c1541> flag. Strip it from
+    // Spec 048: optional --platform <c64|c1541|none> flag. Strip it from
     // the positional args before the existing arg parsing so we keep
     // the public CLI shape stable.
-    let platform: "c64" | "c1541" = "c64";
+    let platform: "c64" | "c1541" | "none" = "c64";
     // Spec 741: optional --relocations <path-to-json> with a relocation map.
     let relocationsPath: string | undefined;
     // The analysis JSON as a NAMED argument. It used to be positional slot 3, behind
@@ -139,10 +144,10 @@ function main(): void {
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
       if (args[i] === "--platform" && args[i + 1]) {
-        platform = args[i + 1] as "c64" | "c1541";
+        platform = checkPlatform(args[i + 1]);
         i += 1;
       } else if (args[i].startsWith("--platform=")) {
-        platform = args[i].slice("--platform=".length) as "c64" | "c1541";
+        platform = checkPlatform(args[i].slice("--platform=".length));
       } else if (args[i] === "--relocations" && args[i + 1]) {
         relocationsPath = args[i + 1];
         i += 1;
@@ -238,7 +243,7 @@ function main(): void {
   // annotation handling, same pair of outputs — only the way the image is read differs,
   // and that difference is one branch inside `disassemblePrgToKickAsm`.
   if (command === "disasm-raw") {
-    let platform: "c64" | "c1541" = "c64";
+    let platform: "c64" | "c1541" | "none" = "c64";
     let loadAddress: number | undefined;
     let offset: number | undefined;
     let length: number | undefined;
@@ -258,7 +263,7 @@ function main(): void {
         ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)]
         : [arg, undefined];
       if (flag === "--platform") {
-        platform = takeValue(flag, inline, args[i + 1]) as "c64" | "c1541";
+        platform = checkPlatform(takeValue(flag, inline, args[i + 1]));
         if (inline === undefined) i += 1;
       } else if (flag === "--load-address" || flag === "--loadAddress") {
         loadAddress = parseAddress(takeValue(flag, inline, args[i + 1]), "--load-address");

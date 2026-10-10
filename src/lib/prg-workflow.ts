@@ -195,6 +195,11 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     // made an explicit analysis lose to the stem-matched sidecar (BUG-055).
     if (entries) disasmArgs.push(entries);
     if (existsSync(analysisPath)) disasmArgs.push("--analysis", analysisPath);
+    // A file whose listing was chosen without platform names keeps that choice here.
+    try {
+      const row = new ProjectKnowledgeService(projectRoot).listArtifacts().find((art) => art.path === prgAbs);
+      if (row?.symbolTables === "none") disasmArgs.push("--platform", "none");
+    } catch { /* the listing renders with the machine's tables */ }
     const disasmRun = await runCli("disasm-prg", disasmArgs, { projectDir: projectRoot });
     if (disasmRun.exitCode !== 0) {
       phases.push({ phase: "disasm", status: "blocked", reason: disasmRun.stderr || "disasm-prg failed", log: disasmRun.stdout });

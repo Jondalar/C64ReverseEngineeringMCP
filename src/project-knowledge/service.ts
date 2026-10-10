@@ -241,6 +241,7 @@ function mergeArtifactInto<T extends ArtifactRecord>(
     format: survivor.format ?? pickFirst(merged.map((m) => m.format)),
     producedByTool: survivor.producedByTool ?? pickFirst(merged.map((m) => m.producedByTool)),
     platform: survivor.platform ?? pickFirst(merged.map((m) => m.platform)),
+    symbolTables: survivor.symbolTables ?? pickFirst(merged.map((m) => m.symbolTables)),
     relevance: survivor.relevance ?? pickFirst(merged.map((m) => m.relevance)),
     phase: survivor.phase ?? pickFirst(merged.map((m) => m.phase)),
     internal: survivor.internal ?? pickFirst(merged.map((m) => m.internal)),
@@ -531,6 +532,8 @@ export interface SaveArtifactInput {
   enableSnapshot?: boolean;
   // Spec 020: per-artifact platform marker. Default c64 when absent.
   platform?: ArtifactRecord["platform"];
+  // "none" sets, "default" clears, absent keeps what the row holds.
+  symbolTables?: "none" | "default";
   // Bug 26 / Spec 058: explicit override for the auto-classified
   // internal flag. Auto-classification kicks in when this is undefined.
   internal?: boolean;
@@ -1158,6 +1161,7 @@ export class ProjectKnowledgeService {
       versionRank,
       versions,
       platform: input.platform ?? existing?.platform,
+      symbolTables: input.symbolTables === "default" ? undefined : (input.symbolTables ?? existing?.symbolTables),
       internal: internal ? true : undefined,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
