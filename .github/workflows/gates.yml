@@ -700,6 +700,10 @@ jobs:
       - name: The leak step fails on a leaking smoke (Spec 902)
         run: npm run e2e:902-leak
 
+      # build_tools runs npm without a shell: npm-cli.js by this Node, never a batch file.
+      - name: npm without a shell
+        run: npm run smoke:npm-cli
+
       # Spec 902 D5 — LAST: after every smoke above, nothing a smoke started is still running. Names the
       # step that left something behind.
       - name: Nothing a smoke started is still running (Spec 902)
@@ -774,6 +778,10 @@ jobs:
 
       - name: The leak step, on Windows (Spec 902)
         run: npm run e2e:902-leak
+
+      # On Windows npm is npm.cmd, which Node refuses to start without a shell (EINVAL).
+      - name: npm without a shell, on Windows
+        run: npm run smoke:npm-cli
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — WSL2, which turns out to be testable after all.

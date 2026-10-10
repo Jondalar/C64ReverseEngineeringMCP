@@ -80,9 +80,14 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
         return { content: [{ type: "text" as const, text:
           `build_tools: nothing to compile in ${td} — it has no tsconfig.json, which is what an installed package looks like; the pipeline there is already built. Set C64RE_TOOLS_DIR to a source tree to rebuild one.` }] };
       }
+      // Not `execFile("npm", …)`: on Windows npm is a batch file, which Node will not start
+      // without a shell. npm-cli.js run by this Node works everywhere.
+      const { findNpmCli, NPM_NOT_FOUND } = await import("../lib/npm-cli.js");
+      const npm = findNpmCli();
+      if (!npm) return { content: [{ type: "text" as const, text: `build_tools: ${NPM_NOT_FOUND}` }] };
       const { execFile } = await import("node:child_process");
       return new Promise((resolveResult) => {
-        execFile("npm", ["run", "build"], { cwd: td, timeout: 30_000 }, (error, stdout, stderr) => {
+        execFile(npm.cmd, [...npm.prefix, "run", "build"], { cwd: td, timeout: 30_000, windowsHide: true }, (error, stdout, stderr) => {
           resolveResult(context.cliResultToContent({
             stdout: stdout ?? "",
             stderr: stderr ?? "",
