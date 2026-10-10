@@ -1,5 +1,6 @@
 import { decodeInstruction, hasFallthrough, isBranchInstruction, isCallInstruction, isJumpInstruction } from "../lib/mos6502";
 import { hex16 } from "../lib/format";
+import type { PlatformTag } from "../lib/platform-kb";
 import { BasicProgramInfo, detectBasicProgram } from "./prg";
 import { BasicBlock, CodeAnalysis, CrossReference, EntryPoint, EntryPointRejection, InstructionFact, MemoryMapping, SegmentCandidate } from "./types";
 import { clampConfidence, createCoverageMap, findUnclaimedRegions, formatAddress, segmentLength, toOffset } from "./utils";
@@ -9,6 +10,7 @@ interface DiscoverCodeOptions {
   buffer: Buffer;
   mapping: MemoryMapping;
   entryPoints: EntryPoint[];
+  platform?: PlatformTag;
 }
 
 function controlFlowReferenceType(mnemonic: string): CrossReference["type"] {
@@ -144,7 +146,7 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
   // recursive descent starts, so descent can be kept out of it. The ML the
   // program SYSes into sits AFTER the program's terminator and is still
   // discovered normally: the entry point for it came from the SYS itself.
-  const basicProgram = detectBasicProgram(options.buffer, options.mapping);
+  const basicProgram = detectBasicProgram(options.buffer, options.mapping, options.platform ?? "c64");
   const insideBasic = (address: number): boolean =>
     basicProgram !== undefined && address >= basicProgram.start && address < basicProgram.firstAddressAfter;
 

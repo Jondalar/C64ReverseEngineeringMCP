@@ -10,6 +10,8 @@
 //     vic20:io:… / plus4:io:… nodes — and the C64's still go to c64:io:…
 //   5 the render's machine is resolved argument > artifact record > project default > c64
 //   6 inspect_address_range and c64ref_lookup take the same resolution, and say so on a miss
+//   8 a `10 SYS` stub at the VIC-20 / TED BASIC start is a BASIC segment with a SYS entry; the
+//     RAM vector pairs per machine; basic_list shows a BASIC 3.5 token as {$xx}
 //   7 where a tool guesses a load address for a block with no header, the machine decides:
 //     VIC-20 $1001/$0401/$1201, TED $1001, C64 $0801 — and a header always wins
 //   8 D7: an annotate boundary over the machine's I/O window is met by its access sites
@@ -414,6 +416,80 @@ try {
     const b11 = await scenario({ tag: "c64", owner: "c64o", sites: [], start: 0x9000, end: 0x912f });
     check(/holds no routine, table or data segment to annotate/.test(b11 ?? ""), "$9000-$912F on a c64 owner is RAM: the old rule", b11);
   }
+  // ── 9 the BASIC stub at the machine's BASIC start ──────────────────────────
+  head(9, "a `10 SYS` stub at the VIC-20 / TED BASIC start is a BASIC segment with a SYS entry");
+  // load → `10 SYS<target>`, then machine code at target: lda #$F0 ; sta $9005 ; rts ; filler
+  const stubPrg = (load, tail) => {
+    const progLen = 2 + 2 + (1 + 4 + 1) + 2;                    // link, line no., SYS + 4 digits + $00, end link
+    const target = load + progLen;
+    const next = load + 2 + 2 + 1 + 4 + 1;
+    return { target, prg: prgBytes(load, [next & 0xff, next >> 8, 10, 0, 0x9e, ...Buffer.from(String(target)), 0, 0, 0, ...tail]) };
+  };
+  const TAIL = [0xa9, 0xf0, 0x8d, 0x05, 0x90, 0x60, 0xea, 0xea];
+  const basicFacts = (dir, stem) => {
+    const a = JSON.parse(readFileSync(join(dir, "artifacts/prg", `${stem}_analysis.json`), "utf8"));
+    return {
+      basicSegs: (a.segments ?? []).filter((s) => s.kind === "basic"),
+      sysEntries: (a.entryPoints ?? []).filter((e) => e.source === "basic_sys").map((e) => e.address),
+    };
+  };
+  const cases = [
+    { stem: "k_vic1001", platform: "vic20", load: 0x1001 },
+    { stem: "k_vic1201", platform: "vic20", load: 0x1201 },
+    { stem: "k_vic0401", platform: "vic20", load: 0x0401 },
+    { stem: "k_ted1001", platform: "plus4", load: 0x1001 },
+  ];
+  for (const c of cases) {
+    const { target, prg } = stubPrg(c.load, TAIL);
+    put(projA, `${c.stem}.prg`, prg);
+    await call("analyze", { path: `artifacts/prg/${c.stem}.prg`, platform: c.platform });
+    const f = basicFacts(projA, c.stem);
+    const hex = (n) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
+    check(f.basicSegs.length === 1 && f.basicSegs[0].start === c.load, `${c.platform} ${hex(c.load)}: one BASIC segment from the load address`, JSON.stringify(f.basicSegs.map((s) => [s.start, s.end])));
+    check(f.sysEntries.length === 1 && f.sysEntries[0] === target, `${c.platform} ${hex(c.load)}: the SYS entry is ${hex(target)}`, f.sysEntries.join(","));
+    const out = await call("disasm", { path: `artifacts/prg/${c.stem}.prg`, platform: c.platform });
+    check(/rebuild verified byte-identical/.test(out) || !HAVE_KICKASS, `${c.platform} ${hex(c.load)}: the door's own rebuild proof is byte-identical`, out.split("\n").find((l) => /rebuild/.test(l)));
+    await rebuild(projA, c.stem, join(projA, "artifacts/prg", `${c.stem}.prg`), `${c.platform} ${hex(c.load)}`);
+  }
+  // the same $1001 bytes as a C64 are what they were: no BASIC start there, no segment, no SYS entry
+  const sameAsC64 = stubPrg(0x1001, TAIL);
+  put(projA, "k_c64_1001.prg", sameAsC64.prg);
+  await call("analyze", { path: "artifacts/prg/k_c64_1001.prg" });
+  const f64 = basicFacts(projA, "k_c64_1001");
+  check(f64.basicSegs.length === 0 && f64.sysEntries.length === 0, "c64 at $1001: no BASIC segment, no SYS entry (today's behaviour)", JSON.stringify(f64));
+  // …and a VIC-20 program at a C64 BASIC start is not a BASIC stub either; the C64 start is the C64's
+  const atC64Start = stubPrg(0x0801, TAIL);
+  put(projA, "k_vic_0801.prg", atC64Start.prg);
+  await call("analyze", { path: "artifacts/prg/k_vic_0801.prg", platform: "vic20" });
+  const fV0801 = basicFacts(projA, "k_vic_0801");
+  check(fV0801.basicSegs.length === 0 && fV0801.sysEntries.length === 0, "vic20 at $0801: not a BASIC start of that machine → no BASIC segment");
+  put(projA, "k_c64_0801.prg", atC64Start.prg);
+  await call("analyze", { path: "artifacts/prg/k_c64_0801.prg" });
+  const f0801 = basicFacts(projA, "k_c64_0801");
+  check(f0801.basicSegs.length === 1 && f0801.sysEntries[0] === atC64Start.target, "c64 at $0801: BASIC segment and SYS entry, as before", JSON.stringify(f0801));
+  // the pipeline's start set is the store-side default list, one for one
+  const { defaultLoadAddresses: dla } = await import(join(ROOT, "dist/project-knowledge/platform-default.js"));
+  for (const tag of ["c64", "c1541", "vic20", "plus4"]) {
+    check(JSON.stringify(twin.basicStartAddresses(tag)) === JSON.stringify(dla(tag)), `basicStartAddresses(${tag}) equals defaultLoadAddresses(${tag})`, JSON.stringify(twin.basicStartAddresses(tag)));
+  }
+  // RAM vectors: $0318 is NMINV on the VIC-20 and IOPEN on the TED machines
+  const vecCode = (lo) => [0xa9, 0x80, 0x8d, lo, 0x03, 0xa9, 0x0f, 0x8d, lo + 1, 0x03, 0x60];   // handler at $0F80
+  const vecEntry = async (stem, platform, lo) => {
+    put(projA, `${stem}.prg`, prgBytes(0x0f00, [...vecCode(lo), ...new Array(0x100 - 11 - 1).fill(0xea), 0x60]));
+    await call("analyze", { path: `artifacts/prg/${stem}.prg`, ...(platform ? { platform } : {}) });
+    const a = JSON.parse(readFileSync(join(projA, "artifacts/prg", `${stem}_analysis.json`), "utf8"));
+    return (a.entryPoints ?? []).filter((e) => e.source === "vector").map((e) => e.symbol);
+  };
+  check((await vecEntry("k_v_c64", undefined, 0x18)).includes("nmi_vector_ram"), "c64: a store to $0318/$0319 is the NMI vector");
+  check((await vecEntry("k_v_vic", "vic20", 0x18)).includes("nmi_vector_ram"), "vic20: a store to $0318/$0319 is the NMI vector (NMINV)");
+  check(!(await vecEntry("k_v_ted", "plus4", 0x18)).includes("nmi_vector_ram"), "plus4: $0318/$0319 is IOPEN, not an NMI vector");
+  check((await vecEntry("k_v_ted14", "plus4", 0x14)).includes("irq_vector_ram"), "plus4: $0314/$0315 is still CINV, the IRQ vector");
+  check((await vecEntry("k_v_vic14", "vic20", 0x14)).includes("irq_vector_ram"), "vic20: $0314/$0315 is CINV, the IRQ vector");
+  // basic_list reads a program at the machine's start; a TED BASIC 3.5 token ($CC+) is shown as {$xx}, not named
+  const ted35 = prgBytes(0x1001, [0x0c, 0x10, 10, 0, 0x99, 0x22, 0x41, 0x22, 0x3a, 0xcc, 0, 0, 0]);   // 10 PRINT"A":<$CC>
+  put(projA, "k_ted35.prg", ted35);
+  const lst = await call("basic_list", { prg_path: "artifacts/prg/k_ted35.prg" });
+  check(/10 PRINT"A":\{\$CC\}/.test(lst), "basic_list at $1001: V2 tokens named, a BASIC 3.5 token above $CB shown as {$CC} (no names invented)", lst.split("\n").find((l) => /^10 /.test(l)));
 } finally {
   proc.kill();
 }

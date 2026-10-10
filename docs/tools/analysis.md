@@ -42,6 +42,14 @@ ending at a `$0000` pointer. Only a clean walk yields a listing. A machine-code
 PRG that merely happens to load at `$0801` is reported as **not BASIC**, with
 the byte offset where the chain broke; it is never half-rendered.
 
+The analysis (`analyze`, `disasm`) takes the same walk to the machine's own BASIC
+start: `$0801` on the C64, `$1001` / `$0401` / `$1201` on the VIC-20 (bare, +3K,
++8K and up) and `$1001` on the C16 / C116 / Plus/4. A `10 SYS` stub there gets the
+BASIC segment and the SYS entry exactly as a C64 `$0801` PRG does; the same bytes
+analysed as another machine are not a stub. `basic_list` walks any load address
+but knows only the V2 token table: a TED BASIC 3.5 token (`$CC` and up) is shown
+as `{$CC}`, never given a name.
+
 Each fact carries `site` — the absolute address of the keyword's token byte —
 next to the resolved `value`, so the jump from a BASIC line into the machine
 code it starts can be recorded as an address-to-address link rather than a

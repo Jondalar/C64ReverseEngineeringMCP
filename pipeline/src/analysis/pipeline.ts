@@ -561,7 +561,7 @@ export function analyzeMappedBuffer(
   const platform = options.platform ?? "c64";
   const graph = collectGraphSeeds(binaryName, mapping, options);
   const derivationRejections: EntryPointRejection[] = [];
-  const entryPoints = deriveEntryPoints(mapping, buffer, options.userEntryPoints, graph.entries, derivationRejections);
+  const entryPoints = deriveEntryPoints(mapping, buffer, options.userEntryPoints, graph.entries, derivationRejections, platform);
   const context: AnalyzerContext = {
     binaryName,
     buffer,

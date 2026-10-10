@@ -10,6 +10,7 @@ export class CodeAnalyzer {
       buffer: context.buffer,
       mapping: context.mapping,
       entryPoints: context.entryPoints,
+      platform: context.platform,
     });
 
     context.discoveredCode = analysis;

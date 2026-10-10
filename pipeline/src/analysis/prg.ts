@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { analyzeBasicProgram, BasicFact } from "../lib/basic-v2";
 import { formatAddress } from "./utils";
+import { basicStartAddresses, type PlatformTag } from "../lib/platform-kb";
 import { MemoryMapping, EntryPoint, EntryPointRejection } from "./types";
 
 export interface LoadedPrg {
@@ -136,11 +137,18 @@ export interface BasicProgramInfo {
  * when the chain breaks — a half-walk is never reported as a partial success,
  * because half-rendering is how issue #11 became a bug.
  */
-export function detectBasicProgram(buffer: Buffer, mapping: MemoryMapping): BasicProgramInfo | undefined {
-  // Same gate as before: only an image that loads at (or below) the BASIC
-  // start can be a BASIC program. The 24-byte window and the digits-only
-  // parse are gone — the walk decides, over the whole image (Spec 829 D2).
-  if (mapping.startAddress > 0x0801) {
+export function detectBasicProgram(buffer: Buffer, mapping: MemoryMapping, platform: PlatformTag = "c64"): BasicProgramInfo | undefined {
+  // Only an image that loads where the machine's BASIC starts can be a BASIC
+  // program. The C64 keeps its gate as it was (at or below $0801); the VIC-20
+  // and the TED machines name their start set, because their BASIC start moves
+  // with the memory configuration and `<=` would let any lower image through.
+  // The 24-byte window and the digits-only parse are gone — the walk decides,
+  // over the whole image (Spec 829 D2).
+  if (platform === "c64") {
+    if (mapping.startAddress > 0x0801) {
+      return undefined;
+    }
+  } else if (!basicStartAddresses(platform).includes(mapping.startAddress)) {
     return undefined;
   }
 
@@ -178,8 +186,8 @@ export function detectBasicProgram(buffer: Buffer, mapping: MemoryMapping): Basi
  * address only); a note about a different line would be a claim filed under
  * the wrong address.
  */
-export function detectBasicSysEntry(buffer: Buffer, mapping: MemoryMapping): EntryPoint[] {
-  const program = detectBasicProgram(buffer, mapping);
+export function detectBasicSysEntry(buffer: Buffer, mapping: MemoryMapping, platform: PlatformTag = "c64"): EntryPoint[] {
+  const program = detectBasicProgram(buffer, mapping, platform);
   if (!program) {
     return [];
   }
@@ -243,7 +251,19 @@ function mappedByte(address: number, buffer: Buffer, mapping: MemoryMapping): nu
   return buffer[address - mapping.startAddress];
 }
 
-export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping): EntryPoint[] {
+/**
+ * The RAM vectors CINV/CBINV/NMINV sit at $0314/$0316/$0318 on the C64 and the VIC-20 alike
+ * (the platform store: c64 and vic20 rows at 788/790/792). The TED KERNAL keeps CINV and
+ * CBINV there too, but its $0318 is IOPEN, a file-open vector — a store of a code address
+ * to it is not an NMI handler, so the TED machines drop that pair. The 6502's own vectors
+ * at $FFFA-$FFFF are the CPU's, the same everywhere.
+ */
+function vectorPairsFor(platform: PlatformTag): VectorPair[] {
+  return platform === "plus4" ? VECTOR_PAIRS.filter((pair) => pair.low !== 0x0318) : VECTOR_PAIRS;
+}
+
+export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping, platform: PlatformTag = "c64"): EntryPoint[] {
+  const vectorPairs = vectorPairsFor(platform);
   const entries: EntryPoint[] = [];
 
   for (let offset = 0; offset <= buffer.length - 10; offset += 1) {
@@ -252,7 +272,7 @@ export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping): Ent
       continue;
     }
 
-    for (const pair of VECTOR_PAIRS) {
+    for (const pair of vectorPairs) {
       const lowStoreMatches =
         buffer[offset + 2] === 0x8d &&
         buffer[offset + 3] === (pair.low & 0xff) &&
@@ -281,7 +301,7 @@ export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping): Ent
     }
   }
 
-  for (const pair of VECTOR_PAIRS) {
+  for (const pair of vectorPairs) {
     const low = mappedByte(pair.low, buffer, mapping);
     const high = mappedByte(pair.high, buffer, mapping);
     if (low === undefined || high === undefined) {
@@ -317,6 +337,7 @@ export function deriveEntryPoints(
   userEntryPoints: number[] = [],
   graphSeeds: EntryPoint[] = [],
   rejected?: EntryPointRejection[],
+  platform: PlatformTag = "c64",
 ): EntryPoint[] {
   const entryPoints: EntryPoint[] = [];
 
@@ -337,8 +358,8 @@ export function deriveEntryPoints(
     }
   }
 
-  entryPoints.push(...detectBasicSysEntry(buffer, mapping));
-  entryPoints.push(...detectVectorEntries(buffer, mapping));
+  entryPoints.push(...detectBasicSysEntry(buffer, mapping, platform));
+  entryPoints.push(...detectVectorEntries(buffer, mapping, platform));
 
   if (entryPoints.length === 0) {
     const firstOpcode = buffer[0];

@@ -114,7 +114,11 @@ same resolution instead of assuming `c64`.
 
 **D6 — Default load address per tag.** Where a tool guesses a load address for a
 headerless block, `vic20` offers `$1001`, `$0401`, `$1201` (the three memory
-configurations) and `plus4` offers `$1001`. A PRG header always wins.
+configurations) and `plus4` offers `$1001`. A PRG header always wins. The same set is the
+machine's BASIC start in the analysis: a `10 SYS` stub at one of them is a `basic` segment
+with a SYS entry (`c64` `$0801` unchanged, `c1541` none). The RAM vector pairs at `$0314`,
+`$0316` are CINV/CBINV on all three machines and `$0318` is NMINV on the C64 and VIC-20 —
+on the TED machines it is IOPEN, so `plus4` drops that pair.
 
 **D7 — An annotate region over an I/O window is satisfied by its sites.** When a
 contract `annotate` boundary lies wholly inside the platform's `io` kind (D2), the

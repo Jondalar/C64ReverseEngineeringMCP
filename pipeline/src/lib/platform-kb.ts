@@ -43,6 +43,23 @@ export function platformKindForAddress(platform: PlatformTag, address: number): 
   return "ram";
 }
 
+/**
+ * Where the machine's BASIC program text starts: the address a tokenized program's first
+ * line-link sits at. The VIC-20 moves it with the RAM expansion ($1001 bare, $0401 with
+ * +3K, $1201 with +8K and up); the TED machines start at $1001; the C64 at $0801. The
+ * 1541 runs no BASIC. The CommonJS twin of `defaultLoadAddresses` in
+ * src/project-knowledge/platform-default.ts (this half cannot import it;
+ * scripts/e2e-898-platforms.mjs holds the two equal).
+ */
+export function basicStartAddresses(platform: PlatformTag): number[] {
+  switch (platform) {
+    case "vic20": return [0x1001, 0x0401, 0x1201];
+    case "plus4": return [0x1001];
+    case "c1541": return [];
+    default: return [0x0801];
+  }
+}
+
 /** True when `address` lies in the platform's I/O window — the one question every analysis pass asks instead of its own `$D000` test. */
 export function isIoAddress(platform: PlatformTag, address: number): boolean {
   return platformKindForAddress(platform, address) === "io";
