@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 299,
-  "defaultCount": 194,
+  "total": 307,
+  "defaultCount": 202,
   "advancedCount": 105,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -2935,6 +2935,78 @@
       "pathMode": "no-path"
     },
     {
+      "name": "runtime_anchor_drop",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/anchor-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_anchor_goto",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/anchor-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_anchor_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/anchor-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_anchor_set",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/anchor-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_backend",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime-backend.ts",
@@ -3040,9 +3112,27 @@
       "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
     },
     {
+      "name": "runtime_candidate_choose",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/candidate-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_candidate_create",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3060,7 +3150,7 @@
     {
       "name": "runtime_candidate_delete",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3078,7 +3168,7 @@
     {
       "name": "runtime_candidate_derive_delta",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3096,7 +3186,7 @@
     {
       "name": "runtime_candidate_export",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3114,7 +3204,7 @@
     {
       "name": "runtime_candidate_list",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3132,7 +3222,7 @@
     {
       "name": "runtime_candidate_patch",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3150,7 +3240,7 @@
     {
       "name": "runtime_candidate_remove_patch",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3168,7 +3258,43 @@
     {
       "name": "runtime_candidate_run",
       "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
+      "sourceFile": "server-tools/candidate-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_candidate_variant",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/candidate-tools.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_candidate_verify_build",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",
@@ -3306,6 +3432,24 @@
       ],
       "e2eUseCases": [
         "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_down",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime-down.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"

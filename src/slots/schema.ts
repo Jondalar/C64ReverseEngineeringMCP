@@ -127,7 +127,7 @@ export const SLOTS: readonly SlotDef[] = [
     question: "Which RAM is actually free — and HOW was that established?",
     fills: "a memory-map finding tagged with its method: `method:run` (a run confirmed it) or `method:read` (a hypothesis, and it stays one)",
     required: "always", teeth: "refuse",
-    doors: ["runtime_inject_range", "runtime_candidate_patch", "runtime_overlay_run"],
+    doors: ["runtime_inject_range", "runtime_candidate_variant", "runtime_overlay_run"],
     because: "The single most repeated failure in the corpus: four projects claimed free RAM from reading and all four were corrected by running. Read-derived fills this slot only as a HYPOTHESIS.",
   },
   {

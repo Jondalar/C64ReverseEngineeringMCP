@@ -99,14 +99,14 @@ try {
     check("read-derived free RAM is a HYPOTHESIS, not a fill", statusOf(r, "S11") === "hypothesis",
       r.states.find((s) => s.slot.id === "S11")?.detail);
 
-    const g = await checkSlotGate("runtime_candidate_patch", d);
+    const g = await checkSlotGate("runtime_candidate_variant", d);
     check("a hypothesis does NOT open the allocating door", !g.allowed,
       (g.refusal ?? "").split("\n")[0] ?? "(allowed)");
 
     rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF confirmed free by run", tags: ["slot:S11", "method:run"] });
     r = await slotReport(d);
     check("a run settles S11", statusOf(r, "S11") === "filled", r.states.find((s) => s.slot.id === "S11")?.detail);
-    check("the allocating door opens", (await checkSlotGate("runtime_candidate_patch", d)).allowed);
+    check("the allocating door opens", (await checkSlotGate("runtime_candidate_variant", d)).allowed);
   }
 
   // ------------------------------------------ S15: the BAM is a hypothesis, chains settle it

@@ -84,7 +84,7 @@ const REFUSALS: readonly RefusalRule[] = [
     wayOut: SANDBOX_WAY_OUT,
   },
   {
-    match: (m) => startsWithAny(m, ["sandbox/", "runtime/candidate_", "runtime/scenario_", "runtime/promote_branch",
+    match: (m) => startsWithAny(m, ["sandbox/", "runtime/scenario_", "runtime/promote_branch",
       "runtime/snapshot_tree", "runtime/find_cheat", "runtime/component_diff", "runtime/diff_checkpoints",
       "batch/", "recorder/", "vic/", "vsf/", "audio/", "session/model", "session/set_pacing", "session/turbo",
       "session/warp", "session/tick", "session/advance_to_frame"]),

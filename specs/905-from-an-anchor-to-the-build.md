@@ -1,6 +1,6 @@
 # Spec 905 — From an anchor to the build: try variants in parallel, keep the one that works
 
-**Status:** PROPOSED (2026-10-11).
+**Status:** C64RE half BUILT on `spec/905` (2026-10-11), green against the TRX64 half on its main (e2f5d72 + 87f9f03); waits on the TRX64 minor release (the `REQUIRED_TRX64_VERSION` pin moves with it), the merge, and the owner's by-hand loop on a real project.
 **Repo:** both. TRX64: a sandbox run plays inputs; the candidate RPCs go. C64RE: anchors as
 doors and in the workbench, the candidate as project memory, the parallel loop, the way into
 the build.
@@ -198,4 +198,59 @@ Scenario: S8 refusals are the daemon's, verbatim
 
 ## §5 Decisions taken while building
 
-(filled in at the end)
+Where the spec was silent, or where measuring the code showed the decision could not hold as written.
+
+- **An anchor is only set at the head of the ring.** `mark/set` names the checkpoint under the transport
+  cursor, and a second name on a checkpoint *replaces* the first (measured on the daemon: after a goto, a
+  new `runtime_anchor_set` silently renamed the anchor just gone to). So `runtime_anchor_set` asks
+  `transport/status` first and refuses while the machine stands in replay, naming the way out
+  (`runtime_monitor goto <last frame>`, measured to return the transport to the head). The workbench's
+  `setAnchor` follows the same rule, and names a clicked frame by putting the cursor on it first and
+  refusing a frame that already carries a name.
+- **D1, unpin.** The ring resolves a name for pin, restore, overlay_run, `sandbox/*` and `component_diff`
+  (each measured in `e2e:905`), but `checkpoint/unpin` refuses a name by design — an anchor holds its own
+  pin, released with `runtime_anchor_drop`. The unpin description says so; it is not made to accept names.
+- **The graph record.** Subsystem-form ids (they carry no address): anchor `<slug>:sub:anchor.<name>`, candidate
+  `<slug>:sub:candidate.<id>`, kinds `anchor` / `candidate`, a human-layer `STARTS_FROM` edge candidate →
+  anchor. Names are fitted to the id grammar (hash suffix when changed). Both kinds are left out of the
+  entity/routine listings (three queries in `records.ts`), because every entity counts as a knowledge record
+  and an anchor was enough to engage the S11 slot gate on an otherwise empty project. A dropped anchor keeps
+  its node, marked dropped (candidates link to it).
+- **Delta ↔ candidate link.** An artifact id is not a graph id, so there is no edge to it: the candidate file
+  and node carry the artifact ids, and the artifacts carry the tag `candidate:<id>` (+ `variant:<name>`).
+  A target given as bytes (no source) is written to the delta as `* = $addr` + `.byte` lines.
+- **Verdicts mask the variant's own bytes.** A patch always differs from the baseline in RAM where it was put;
+  counting that makes "same as baseline" unreachable. `component_diff` is called with the variant's RAM
+  targets as exclusion ranges (plus the equivalence preset), so the verdict is about what the code caused.
+  Cartridge targets cannot be masked this way (the runtime's range spaces are RAM and drive memory).
+- **A run with inputs on a runtime that does not play them is refused, not stored.** Detected by the absence
+  of `inputsPlayed` in the baseline's answer. The table reports inputs played/skipped.
+- **A variant** is its whole target set: setting a name again replaces it and clears its verdict (unless the
+  targets are unchanged). A source's own `* =` must equal the target address or the call is refused — the
+  delta and the build use the source's org. Inline source and assembled PRGs live in
+  `knowledge/candidates/<id>.build/`.
+- **`runtime_candidate_verify_build`.** Image: `image`, else the first of `profile.build.outputs` (tried
+  relative to the build's cwd, then the project). Format from content (CRT header) or `.prg`, else raw with
+  `raw_load_address`. `skip_build` checks an image already built. The command runs through a new
+  `ProjectKnowledgeService.runProfileBuild()` — the one file allowed a shell. A failed build is reported as
+  failed and the image is not checked.
+- **Aliases** (`_patch`, `_remove_patch`, `_export`) answer one line and do nothing; they are not in the
+  disasm alias ledger (`ALIAS_SUCCESSOR`), whose once-per-session notice is specific to that rename.
+- **Default surface 195 → 202** (cap raised with the reason in `tier-tools.ts`); the three aliases leave
+  after a release and it goes back to 199. `runtime_inject_range` is rewritten onto a variant target
+  (`candidate_id`, `variant?`, default `inject`); the S11 slot gate moved from `runtime_candidate_patch` to
+  `runtime_candidate_variant`.
+- **Candidate tools take no `session_id`:** a run talks to the shared daemon, nothing else is session-bound.
+  Ids default to `cand-N`.
+- **Workbench.** Anchors on the filmstrip (badge on the frame, chips to go to / drop, set on the selected
+  frame or on the present instant, the transport line with the nearest anchor), polled every 2 s, so an
+  anchor set over MCP appears without a reload. The Trace tab's bookmark panel (and its component) is
+  replaced by the anchor list; the dead `listBookmarks` call is gone.
+- **Tests.** `e2e:905` runs S6, the descriptions and the aliases on any runner (a build script in node;
+  the real KickAssembler case skips loudly) and S1–S5, S7, S8 against a daemon of its own (skips loudly
+  without one; checks that need T1/T2 are labelled and fail against an older runtime). `smoke:905` is the
+  workbench smoke. Both are in the Linux job of `gates.yml`; the Windows job is not given them — the build
+  script and paths are not verified there.
+- **Left as it was:** `src/runtime/c64u/routing.ts` still lists the `runtime/candidate_` prefix among the
+  methods the C64U bridge refuses; with the RPCs gone it is a harmless leftover. `REQUIRED_TRX64_VERSION`
+  stays 0.12.10 until the TRX64 release exists.

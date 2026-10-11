@@ -68,7 +68,7 @@ export async function startFakeUltimate(opts = {}) {
     stop: sim.runState === "paused" ? (sim.stop ?? null) : null, controlOwner: "human",
   });
   const NOT_OFFERED = [
-    [["sandbox/", "runtime/candidate_", "runtime/scenario_", "runtime/overlay_run", "runtime/promote_branch", "runtime/snapshot_tree", "vic/", "recorder/", "vsf/", "session/model", "audio/", "batch/", "session/set_pacing", "session/turbo", "runtime/find_cheat", "runtime/component_diff"], ": not on C64 Ultimate hardware; use a local TRX64 sandbox"],
+    [["sandbox/", "runtime/scenario_", "runtime/overlay_run", "runtime/promote_branch", "runtime/snapshot_tree", "vic/", "recorder/", "vsf/", "session/model", "audio/", "batch/", "session/set_pacing", "session/turbo", "runtime/find_cheat", "runtime/component_diff"], ": not on C64 Ultimate hardware; use a local TRX64 sandbox"],
     [["media/", "session/load_prg", "runtime/run_prg", "session/type", "session/key_down", "session/key_up", "session/release_keys", "session/joystick_", "session/pot_", "session/screenshot", "session/frame_indices", "session/reset", "session/power", "session/drive", "device/", "runtime/swap_disk_and_continue", "runtime/render_screen"], ": media, machine and input are the Ultimate's REST API (/v1/...), not trxmon"],
     [["trace/", "debug/memory_access_map"], ": the trace store and its analyses are host-side"],
   ];

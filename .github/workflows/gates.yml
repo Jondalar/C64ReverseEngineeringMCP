@@ -420,6 +420,20 @@ jobs:
       - name: Input offsets, sweeps, windows and series on real machines (Spec 899)
         run: npm run e2e:899-sweep
 
+      # Spec 905 — from an anchor to the build. The doors and their descriptions, the retired
+      # names, and the winner into the build (a chosen variant, the project's build command, the
+      # built PRG/CRT compared byte by byte: GREEN, and RED naming the first differing address)
+      # run on any runner; the real KickAssembler case skips loudly without a jar. The runtime
+      # half — anchors, a candidate run on clones with inputs, the daemon restart — starts a
+      # trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
+      - name: Anchors, candidates and the build (Spec 905)
+        run: npm run e2e:905
+
+      # Spec 905 — the workbench's anchor code (the page's own, bundled with its WsClient) against a
+      # daemon of this run's own beside an MCP session; the source and bundle checks run everywhere.
+      - name: Anchors in the workbench (Spec 905)
+        run: npm run smoke:905
+
       # Spec 889 — the C64 Ultimate backend against a fake Ultimate in this process: every
       # socket on 127.0.0.1 (REST, the app's WebSocket, the UDP ident), no device, no
       # daemon. Routing, discovery, probe, select/start, the one connection, the gate by

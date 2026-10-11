@@ -290,7 +290,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Spec 726 — trace marks + finalize (default capture-workflow tools).
   server.tool(
     "runtime_mark",
-    "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
+    "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). This is a LABEL in a trace, not an anchor: it cannot be returned to. For a named instant you can come back to and start sandbox runs from, use runtime_anchor_set. Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
     {
       session_id: z.string(),
       label: z.string().describe("Phase label, e.g. boot-complete / title / scene-1."),
@@ -961,7 +961,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_pin",
-    "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. The id may be an anchor's name. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id or anchor name. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_pin", async ({ session_id, id }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
@@ -972,7 +972,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_unpin",
-    "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Takes the checkpoint id only: an anchor's name is refused, because an anchor holds its own pin — release that with runtime_anchor_drop. Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_unpin", async ({ session_id, id }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
@@ -983,7 +983,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_restore",
-    "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id. Returns: restored ref + new machine state.",
+    "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. The id may be an anchor's name (runtime_anchor_goto does the same for an anchor and says what it moved). Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id or anchor name. Returns: restored ref + new machine state.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_restore", async ({ session_id, id }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
@@ -1066,7 +1066,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_overlay_run",
-    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. This MOVES the shared machine the human watches (it restores into it and runs there); for several variants side by side on clones that leave it where it is, use runtime_candidate_run. anchor_id may be an anchor's name. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
     {
       session_id: z.string(),
       anchor_cycle: z.number().optional(),

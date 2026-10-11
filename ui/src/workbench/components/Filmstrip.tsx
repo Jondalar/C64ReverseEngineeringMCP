@@ -5,11 +5,16 @@
 // or Dump (.c64re). SHIFT-click a second frame to mark a RANGE [a..b]; "Build trace"
 // then carves a `.c64retrace` for EXACTLY those cycles out of the always-on delta
 // ring (trace/build_from_ring, Phase 1c) — readable via swimlane/map/taint.
+// Anchors: the ring's named instants sit on their frames with their name, "Set anchor" names the
+// selected frame, a chip goes to one (that MOVES the shared machine) and ✕ drops it; the transport
+// line under the strip says which anchor is nearest. Nothing is kept here — the ring is the owner,
+// so an anchor set over MCP appears within a poll and one set here is listed over MCP.
 // FUNCTIONAL first pass — the look is refined via the annotate loop.
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
 import { api } from "../rest-client.js";
+import { dropAnchor, gotoAnchor, listAnchors, setAnchor, transportLine, type Anchor } from "../anchors.js";
 
 interface Thumb {
   id: string; cycles: number; frame: number; pinned: boolean;
@@ -24,8 +29,8 @@ function b64ToU8(s: string): Uint8Array {
 }
 
 function ThumbCanvas(
-  { t, selected, inRange, onClick }:
-  { t: Thumb; selected: boolean; inRange: boolean; onClick: (shift: boolean) => void },
+  { t, selected, inRange, anchor, onClick }:
+  { t: Thumb; selected: boolean; inRange: boolean; anchor?: string; onClick: (shift: boolean) => void },
 ): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
@@ -43,8 +48,8 @@ function ThumbCanvas(
   return (
     <canvas
       ref={ref}
-      className={`wb-film-thumb${selected ? " sel" : ""}${inRange ? " in-range" : ""}${t.pinned ? " pin" : ""}`}
-      title={`cycle ${t.cycles}${selected ? " — selected (shift-click another for a range)" : ""}`}
+      className={`wb-film-thumb${selected ? " sel" : ""}${inRange ? " in-range" : ""}${t.pinned ? " pin" : ""}${anchor ? " anchor" : ""}`}
+      title={`${anchor ? `⚓ ${anchor} · ` : ""}cycle ${t.cycles}${selected ? " — selected (shift-click another for a range)" : ""}`}
       onClick={(e) => onClick(e.shiftKey || e.metaKey || e.ctrlKey)}
       style={{ imageRendering: "pixelated", ...(inRange && !selected ? { outline: "2px solid #5bd6ff", outlineOffset: "-2px" } : {}) }}
     />
@@ -59,6 +64,22 @@ export function Filmstrip(
   const [selB, setSelB] = useState<string | null>(null); // range end (b) — set by shift-click
   const [busy, setBusy] = useState(false);
   const [built, setBuilt] = useState<string | null>(null);
+  const [anchors, setAnchors] = useState<Anchor[]>([]);
+  const [anchorName, setAnchorName] = useState("");
+  const [anchorMsg, setAnchorMsg] = useState<{ text: string; bad: boolean } | null>(null);
+  const [line, setLine] = useState<string>("");
+
+  // The ring owns the anchors: ask it on open, after every action here, and every 2 s (an anchor the
+  // assistant sets over MCP shows up without a reload).
+  const refreshAnchors = async () => {
+    try { setAnchors((await listAnchors(getClient())).anchors); } catch { /* no ring yet */ }
+    try { setLine(await transportLine(getClient())); } catch { /* no transport */ }
+  };
+  useEffect(() => {
+    void refreshAnchors();
+    const t = setInterval(() => void refreshAnchors(), 2000);
+    return () => clearInterval(t);
+  }, [sessionId]);
 
   // Load the strip when it opens (on pause). One-shot — the ring is static while paused.
   useEffect(() => {
@@ -112,6 +133,33 @@ export function Filmstrip(
     void restore(id, "pause");
   };
 
+  const anchorOf = (id: string) => anchors.find((a) => a.anchorId === id)?.name;
+  const setAnchorHere = async () => {
+    setBusy(true);
+    try {
+      const a = await setAnchor(getClient(), sessionId, anchorName, { frameId: sel ?? undefined });
+      setAnchorMsg({ text: `⚓ ${a.name} — cycle ${a.cycle}`, bad: false });
+      setAnchorName("");
+    } catch (e) {
+      setAnchorMsg({ text: e instanceof Error ? e.message : String(e), bad: true }); // the runtime's own refusal
+    } finally { setBusy(false); void refreshAnchors(); }
+  };
+  const goAnchor = async (name: string) => {
+    setBusy(true);
+    try {
+      await gotoAnchor(getClient(), name);
+      window.dispatchEvent(new CustomEvent("c64re:machine-moved", { detail: { anchor: name } }));
+      setAnchorMsg({ text: `the shared machine is at ${name}`, bad: false });
+    } catch (e) {
+      setAnchorMsg({ text: e instanceof Error ? e.message : String(e), bad: true });
+    } finally { setBusy(false); void refreshAnchors(); }
+  };
+  const dropOne = async (name: string) => {
+    try { await dropAnchor(getClient(), name); setAnchorMsg({ text: `dropped ${name}`, bad: false }); }
+    catch (e) { setAnchorMsg({ text: e instanceof Error ? e.message : String(e), bad: true }); }
+    void refreshAnchors();
+  };
+
   const cycOf = (id: string | null) => (id ? thumbs.find((x) => x.id === id)?.cycles ?? null : null);
   const cA = cycOf(sel), cB = cycOf(selB);
   const lo = cA != null && cB != null ? Math.min(cA, cB) : null;
@@ -143,6 +191,7 @@ export function Filmstrip(
             t={t}
             selected={sel === t.id || selB === t.id}
             inRange={inRange(t)}
+            anchor={anchorOf(t.id)}
             onClick={(shift) => handleClick(t.id, shift)}
           />
         ))}
@@ -163,6 +212,18 @@ export function Filmstrip(
           </>
         )}
       </div>
+      <div className="wb-film-anchors">
+        <input value={anchorName} placeholder="anchor name" onChange={(e) => setAnchorName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && anchorName.trim()) void setAnchorHere(); }} />
+        <button disabled={busy || anchorName.trim() === ""} onClick={() => void setAnchorHere()} title={sel ? "Name the selected frame" : "Capture the machine as it is now and name it"}>⚓ Set anchor{sel ? " on frame" : ""}</button>
+        {anchors.map((a) => (
+          <span key={a.anchorId} className="wb-film-chip" title={`cycle ${a.cycle}, frame ${a.frame ?? "?"}`}>
+            <button disabled={busy} onClick={() => void goAnchor(a.name)} title="Go to this anchor — this MOVES the shared machine and pauses it there">⚓ {a.name}</button>
+            <button disabled={busy} onClick={() => void dropOne(a.name)} title="Drop the name (the checkpoint ages out as usual)">✕</button>
+          </span>
+        ))}
+        {anchorMsg ? <span className={anchorMsg.bad ? "wb-dump-msg wb-dump-bad" : "wb-dump-msg"} onClick={() => setAnchorMsg(null)}>{anchorMsg.text}</span> : null}
+      </div>
+      {line ? <div className="wb-film-transport" title="the transport line, with the nearest anchor">{line}</div> : null}
       {built && <div className="wb-film-built">{built}</div>}
     </div>
   );

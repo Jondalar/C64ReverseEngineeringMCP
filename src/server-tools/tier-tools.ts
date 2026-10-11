@@ -283,10 +283,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_recorder_dump", "runtime_recorder_list", "runtime_recorder_status",
   "runtime_snapshot_tree", "runtime_promote_branch", "runtime_diff_snapshots",
   "runtime_component_diff",
-  // Candidate model (Spec 796) — live scenario-bound overlay branches.
-  "runtime_candidate_create", "runtime_candidate_patch", "runtime_candidate_run",
-  "runtime_candidate_remove_patch", "runtime_candidate_list", "runtime_candidate_delete",
-  "runtime_candidate_export", "runtime_candidate_derive_delta",
+  // Anchors and candidates (Spec 905) — name an instant, try several variants from it at once,
+  // take the one that works into the build. The three retired names stay callable for a release:
+  // a name missing from this set is not callable at all.
+  "runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_drop", "runtime_anchor_goto",
+  "runtime_candidate_create", "runtime_candidate_variant", "runtime_candidate_run",
+  "runtime_candidate_list", "runtime_candidate_choose", "runtime_candidate_derive_delta",
+  "runtime_candidate_verify_build", "runtime_candidate_delete",
+  "runtime_candidate_patch", "runtime_candidate_remove_patch", "runtime_candidate_export",
   "runtime_find_cheat",
   // Runtime export + input-config: render the live session's audio; load/save the
   // c64re keyboard/joystick config. `runtime_input_load_vicerc` is deliberately
@@ -403,8 +407,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * cartridge landed on `sandbox_6502_run`, a CPU sandbox with no machine in it.
  * 200 leaves room for the verbs the workbench UI can reach and the tool
  * surface cannot (measured 2026-09-10: fifteen, `media/unmount` among them)
- * without pretending the number is free. */
-export const DEFAULT_TIER_CAP = 200;
+ * without pretending the number is free.
+ *
+ * 2026-10-11, raised to 202 for the anchor and candidate doors: the eight old candidate tools
+ * become eight doors (create, variant, run, list, choose, derive_delta, verify_build, delete),
+ * plus four anchor doors, plus three retired names kept callable for one release (a name outside
+ * this set is not callable at all): 195 - 8 + 15 = 202. The three aliases leave after a release
+ * and the surface goes back to 199. */
+export const DEFAULT_TIER_CAP = 202;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

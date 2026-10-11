@@ -1,9 +1,9 @@
 {
-  "total": 300,
+  "total": 307,
   "specCount": 41,
   "advancedCandidate": 105,
   "byNamespace": {
-    "runtime": 90,
+    "runtime": 97,
     "list": 20,
     "project": 14,
     "save": 10,
@@ -1162,7 +1162,7 @@
       "ns": "optimisation",
       "hasSpec": false,
       "firstSentence": "Where this code could be faster, with a deterministic verdict on every suggestion.",
-      "desc": "Where this code could be faster, with a deterministic verdict on every suggestion. Each rule — a `jsr`+`rts` that could be a `jmp`, a load nothing needs, a `clc` where the carry is already what it would set, a `jmp` to a `jmp`, a table read that pays for crossing a page, a variable that belongs in zero page, a loop that could count down — is a heuristic that may be wrong about whether it applies, so nothing is shown without the answer beside it: both versions executed symbolically and compared over the registers, the flags that are still live there, every memory cell either writes and every access to $D000-$DFFF in order. A suggestion that comes back NOT EQUIVALENT has proposed nothing and is dropped and counted, so a rule that is often wrong is visible as such. Code whose purpose IS its timing is refused outright and listed with the reason — delay loops, raster waits, drive and fastloader handshakes, self-modified bytes, an indirect jump. With a trace the list is ranked by cycles saved per frame; without one by what each change saves once, and the report says which. Undocumented opcodes are a class of their own and are off until you ask for them. Nothing is applied: turning a candidate into a patch is runtime_candidate_patch, on purpose. Use it to find what is worth speeding up in a routine, a payload or a whole program. Not for pricing code you have already chosen (use code_cost) and not for what a change would break (use change_impact). Inputs: prg_path or payload, optional ref / address_start / address_end, trace_path, classes. Returns: where it looked, what it left alone, the ranked candidates with their verdicts and assumptions, and a counter per rule.",
+      "desc": "Where this code could be faster, with a deterministic verdict on every suggestion. Each rule — a `jsr`+`rts` that could be a `jmp`, a load nothing needs, a `clc` where the carry is already what it would set, a `jmp` to a `jmp`, a table read that pays for crossing a page, a variable that belongs in zero page, a loop that could count down — is a heuristic that may be wrong about whether it applies, so nothing is shown without the answer beside it: both versions executed symbolically and compared over the registers, the flags that are still live there, every memory cell either writes and every access to $D000-$DFFF in order. A suggestion that comes back NOT EQUIVALENT has proposed nothing and is dropped and counted, so a rule that is often wrong is visible as such. Code whose purpose IS its timing is refused outright and listed with the reason — delay loops, raster waits, drive and fastloader handshakes, self-modified bytes, an indirect jump. With a trace the list is ranked by cycles saved per frame; without one by what each change saves once, and the report says which. Undocumented opcodes are a class of their own and are off until you ask for them. Nothing is applied: turning a candidate into a patch is runtime_candidate_variant, on purpose. Use it to find what is worth speeding up in a routine, a payload or a whole program. Not for pricing code you have already chosen (use code_cost) and not for what a change would break (use change_impact). Inputs: prg_path or payload, optional ref / address_start / address_end, trace_path, classes. Returns: where it looked, what it left alone, the ranked candidates with their verdicts and assumptions, and a counter per rule.",
       "tier": "default?"
     },
     {
@@ -1598,6 +1598,42 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_anchor_drop",
+      "file": "server-tools/anchor-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual.",
+      "desc": "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual. Does not touch the machine. In an open project the recorded anchor stays, marked dropped, because candidates link to it. Not for removing a checkpoint pin (use runtime_checkpoint_unpin). Inputs: name, session_id?, project_dir?. Returns: what was dropped, or the runtime's refusal.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_anchor_goto",
+      "file": "server-tools/anchor-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump.",
+      "desc": "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump. Use to return to a named instant and inspect it or continue from it. Not for starting sandbox runs (a candidate or runtime_sandbox_run starts from an anchor without moving anything). An anchor the ring no longer holds is said to be gone, with the cycle recorded for it. Inputs: name, session_id?, project_dir?. Returns: the transport line after the jump, or the runtime's refusal.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_anchor_list",
+      "file": "server-tools/anchor-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "List the named anchors of the shared machine: name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them.",
+      "desc": "List the named anchors of the shared machine: name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them. Reads only — nothing moves. Use to see what you can start a candidate or a goto from. Not the full checkpoint list (use runtime_checkpoint_list). Inputs: session_id?, project_dir?. Returns: the anchors, the 32-slot use, and the anchors recorded in the project but gone from the ring.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_anchor_set",
+      "file": "server-tools/anchor-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Name the instant the shared machine is at NOW, so you can come back to it and start sandbox runs from it.",
+      "desc": "Name the instant the shared machine is at NOW, so you can come back to it and start sandbox runs from it. Captures a fresh checkpoint of the shared session and puts the name on it (so the anchor is the instant you saw, not an auto-capture up to 20 ms old). Does not move, pause or change the machine. Only at the head of the ring: after a goto (replay) it is refused until the transport is back at the head, because the runtime would name the older checkpoint under the cursor and replace its name. 32 anchors at most; a 33rd, or a name already taken, is refused with the runtime's own text. In an open project the anchor is also recorded in the graph (name, cycle, frame, why) and outlives the ring. Use before the interesting thing happens: just before a level loads, the frame before a sprite goes wrong. Not a trace label (use runtime_mark) and not a plain checkpoint (use runtime_checkpoint_capture). Inputs: name, why?, session_id?, project_dir?. Returns: the anchor with its cycle and frame, and how many of the 32 are used.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_backend",
       "file": "server-tools/runtime-backend.ts",
       "ns": "runtime",
@@ -1652,75 +1688,102 @@
       "tier": "advanced?"
     },
     {
-      "name": "runtime_candidate_create",
-      "file": "server-tools/runtime.ts",
+      "name": "runtime_candidate_choose",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set.",
-      "desc": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Use when you want to iterate your own code against a fixed baseline. Not for a single patched run (use runtime_overlay_run). Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+      "firstSentence": "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks.",
+      "desc": "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks. The verdicts say what each variant changed; which change is right is your call. Use once a run shows the variant doing what you want. Not for running anything. Inputs: id, variant (or clear:true to un-choose), project_dir?. Returns: the choice.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_create",
+      "file": "server-tools/candidate-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try.",
+      "desc": "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try. Saved in the project (knowledge/candidates), linked to the anchor in the graph, and still there after a daemon restart. Does not run anything and does not touch the machine. Use after runtime_anchor_set, when you have several fixes to try from the same instant. Not a single quick try (use runtime_overlay_run). Inputs: anchor (an anchor name, or a checkpoint id), cycle_budget, inputs? ([{atCycle, kind: keyboard|joystick1|joystick2|model, payload}], atCycle relative to the anchor), title?, id?, project_dir?. Returns: the candidate id and what to do next.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_delete",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Delete a candidate from the session store.",
-      "desc": "Delete a candidate from the session store. Use when a candidate is finished with. Not for dropping one patch and keeping the candidate (use runtime_candidate_remove_patch). Inputs: session_id, id. Returns: {id, deleted}.",
+      "firstSentence": "Delete a candidate from the project: its file, its scratch folder and its graph node.",
+      "desc": "Delete a candidate from the project: its file, its scratch folder and its graph node. The delta files already written stay where they are. Use when the iteration is finished with. Not for dropping one variant (use runtime_candidate_variant with remove:true). Inputs: id, project_dir?. Returns: what was deleted.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_derive_delta",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md.",
-      "desc": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Use once the candidate is proven. Not for the raw patch-set (use runtime_candidate_export). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+      "firstSentence": "Write the CHOSEN variant as a build-ready delta: one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md in <project>/delta-<id>, and register the files as artifacts linked to the candidate.",
+      "desc": "Write the CHOSEN variant as a build-ready delta: one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md in <project>/delta-<id>, and register the files as artifacts linked to the candidate. The delta is written beside the project's own source, never into it; wiring it into the build is the project's. Use after runtime_candidate_choose; then runtime_candidate_verify_build proves the build holds it. Not for the raw patch set of a variant that has not been chosen. Inputs: id, out_dir?, project_dir?. Returns: the folder, the files and the artifact ids.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_export",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step).",
-      "desc": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Use to hand the patch-set on as it stands. Not for build-ready files (use runtime_candidate_derive_delta). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+      "firstSentence": "Retired name, kept for one release: now runtime_candidate_list — it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta.",
+      "desc": "Retired name, kept for one release: now runtime_candidate_list — it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta. Use runtime_candidate_list. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_list.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_list",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "List candidates (id omitted) or show one candidate's patches + last verdict.",
-      "desc": "List candidates (id omitted) or show one candidate's patches + last verdict. Use to see what exists and how the last run judged it. Not for running one (use runtime_candidate_run). Inputs: session_id, id?. Returns: candidate(s).",
+      "firstSentence": "List the project's candidates, or show one in full: anchor, inputs, budget, each variant's targets and last verdict, the chosen variant, the delta written and the last build check.",
+      "desc": "List the project's candidates, or show one in full: anchor, inputs, budget, each variant's targets and last verdict, the chosen variant, the delta written and the last build check. Reads the project's files, so it answers the same after a daemon restart. Use to see what has been tried and what it did. Not for running (use runtime_candidate_run). Inputs: id?, project_dir?. Returns: the candidate(s).",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_patch",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step).",
-      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Use to add or replace one patch on a candidate. Not for writing bytes into the live machine (use runtime_inject_range). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+      "firstSentence": "Retired name, kept for one release: now runtime_candidate_variant — variants hold the patches now, per name.",
+      "desc": "Retired name, kept for one release: now runtime_candidate_variant — variants hold the patches now, per name. Use runtime_candidate_variant. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_variant.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_remove_patch",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Remove the overlay patch at (space, bank, addr) from a candidate.",
-      "desc": "Remove the overlay patch at (space, bank, addr) from a candidate. Use to drop one patch and keep the candidate. Not for the whole candidate (use runtime_candidate_delete). Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+      "firstSentence": "Retired name, kept for one release: now runtime_candidate_variant — remove a variant with remove:true, or set it again with the targets you want.",
+      "desc": "Retired name, kept for one release: now runtime_candidate_variant — remove a variant with remove:true, or set it again with the targets you want. Use runtime_candidate_variant. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_variant.",
       "tier": "default?"
     },
     {
       "name": "runtime_candidate_run",
-      "file": "server-tools/runtime.ts",
+      "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'.",
-      "desc": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Use after every patch. Not for a run on the shared session the human co-drives (use runtime_session_run). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+      "firstSentence": "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked).",
+      "desc": "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked). The shared machine the human watches is not moved, paused or changed; only a snapshot of the anchor is taken. Verdicts are saved in the candidate. Use after adding or changing variants. Not for stepping a patch on the shared machine (use runtime_overlay_run, which moves it). Inputs: id, project_dir?. Returns: a table — variant, cycles, final PC, verdict, what changed.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_variant",
+      "file": "server-tools/candidate-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Add, replace or remove one variant of a candidate: a name and, per target, the code it puts in the machine — source (a file or inline text, assembled here with the project's assembler, its own org equal to the target) or bytes.",
+      "desc": "Add, replace or remove one variant of a candidate: a name and, per target, the code it puts in the machine — source (a file or inline text, assembled here with the project's assembler, its own org equal to the target) or bytes. Setting a variant replaces its whole target set and clears its last verdict; the bytes are kept in the candidate. Use to try another fix from the same anchor. Not for running (use runtime_candidate_run) and not for bytes from a file (runtime_inject_range). Inputs: id, name, targets? ([{addr, space?, bank?, source_path?|source?|bytes?}]), remove? (true removes the variant), project_dir?. Returns: the variant as stored.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_verify_build",
+      "file": "server-tools/candidate-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Prove the project's build contains the chosen variant: run the project's own build command (profile.build), read the image it built (a PRG with its load address, a cartridge image bank by bank, or raw bytes from an address you give) and compare the bytes at every delta target with the variant's.",
+      "desc": "Prove the project's build contains the chosen variant: run the project's own build command (profile.build), read the image it built (a PRG with its load address, a cartridge image bank by bank, or raw bytes from an address you give) and compare the bytes at every delta target with the variant's. Green names each target; red names the FIRST differing address. The build command is the project's own line and runs in the project folder. Use after the delta is wired into the build. Not for running the built image (use runtime_run_prg / runtime_session_start). Inputs: id, image? (default: the first of profile.build.outputs), format? (prg|crt|raw; default from content/extension), raw_load_address?, skip_build? (check an image already built), project_dir?. Returns: GREEN or RED with the addresses.",
       "tier": "default?"
     },
     {
@@ -1747,7 +1810,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window).",
-      "desc": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+      "desc": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. The id may be an anchor's name. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id or anchor name. Returns: ref + stats.",
       "tier": "default?"
     },
     {
@@ -1756,7 +1819,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses.",
-      "desc": "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id. Returns: restored ref + new machine state.",
+      "desc": "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. The id may be an anchor's name (runtime_anchor_goto does the same for an anchor and says what it moved). Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id or anchor name. Returns: restored ref + new machine state.",
       "tier": "default?"
     },
     {
@@ -1765,7 +1828,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Unpin a checkpoint (let the ring reclaim it under the byte budget again).",
-      "desc": "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+      "desc": "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Takes the checkpoint id only: an anchor's name is refused, because an anchor holds its own pin — release that with runtime_anchor_drop. Inputs: session_id, checkpoint id. Returns: ref + stats.",
       "tier": "default?"
     },
     {
@@ -1801,7 +1864,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first.",
-      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a candidate variant with that addr as a target holding its original value, runtime_candidate_variant) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
       "tier": "default?"
     },
     {
@@ -1818,8 +1881,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything.",
-      "desc": "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything. The bytes land in a candidate's patch set, so the original medium is untouched and a reset drops the layer rather than the change becoming permanent. Re-injecting the same address REPLACES the previous patch. Use it with runtime_rip_range to close the loop: rip, edit, inject. Not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: session_id, candidate_id, addr, bin_path, optional space and bank. Returns: the candidate.",
+      "firstSentence": "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything.",
+      "desc": "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are an OVERLAY, applied in sandbox runs (runtime_candidate_run) on clones and never written to the medium or the shared machine: every run starts fresh, so a reset drops the layer rather than the change becoming permanent. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
       "tier": "default?"
     },
     {
@@ -1909,7 +1972,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay').",
-      "desc": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
+      "desc": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). This is a LABEL in a trace, not an anchor: it cannot be returned to. For a named instant you can come back to and start sandbox runs from, use runtime_anchor_set. Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
       "tier": "default?"
     },
     {
@@ -2017,7 +2080,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable.",
-      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. This MOVES the shared machine the human watches (it restores into it and runs there); for several variants side by side on clones that leave it where it is, use runtime_candidate_run. anchor_id may be an anchor's name. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
       "tier": "default?"
     },
     {

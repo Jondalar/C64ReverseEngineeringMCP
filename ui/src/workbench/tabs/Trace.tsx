@@ -1,6 +1,6 @@
 // Spec 267 — Trace viewer tab.
 //
-// Swimlane (Spec 234) + bookmarks (Spec 242) + filter UI.
+// Swimlane (Spec 234) + the ring's anchors + filter UI.
 // Backend calls via WS runtime/call, falling back to stubs when
 // the session is unavailable.
 
@@ -13,7 +13,8 @@ import {
   type TraceFilterState,
 } from "../components/TraceFilters.js";
 import { SwimlaneTable, type SwimlaneRow } from "../components/SwimlaneTable.js";
-import { BookmarkOverlay, type Bookmark } from "../components/BookmarkOverlay.js";
+import { AnchorList } from "../components/AnchorList.js";
+import { gotoAnchor, listAnchors, setAnchor, type Anchor } from "../anchors.js";
 import { TraceSearch, type SearchResult } from "../components/TraceSearch.js";
 
 // ── Markdown swimlane parser (no external deps) ───────────────────────────────
@@ -133,7 +134,9 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
   const [filters, setFilters] = useState<TraceFilterState>(defaultFilterState());
   const [rows, setRows] = useState<SwimlaneRow[]>([]);
   const [totalRows, setTotalRows] = useState(0);
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [anchors, setAnchors] = useState<Anchor[]>([]);
+  const [anchorNote, setAnchorNote] = useState<string | null>(null);
+  const [anchorName, setAnchorName] = useState("");
   const [selectedCycle, setSelectedCycle] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -187,23 +190,16 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
     }
   }, [sessionId, runId, filters.cycleStart, filters.cycleEnd, filters.pcStart, filters.pcEnd]);
 
-  // ── Fetch bookmarks ─────────────────────────────────────────────────────────
+  // ── Fetch anchors ───────────────────────────────────────────────────────────
 
-  const fetchBookmarks = useCallback(async () => {
-    if (!sessionId) { setBookmarks([]); return; }
+  const fetchAnchors = useCallback(async () => {
+    if (!sessionId) { setAnchors([]); return; }
     try {
-      const client = getClient();
-      // No bookmark store exists anywhere today: the daemon has no `listBookmarks` op, and
-      // the MCP pair that wrote into the retired TS trace store went with it (Spec 883).
-      // This call therefore always lands in the catch and the panel is always empty.
-      const result = await client.runtime<Bookmark[]>(sessionId, "listBookmarks", runId).catch(
-        () => [] as Bookmark[],
-      );
-      setBookmarks(Array.isArray(result) ? result : []);
+      setAnchors((await listAnchors(getClient())).anchors);
     } catch {
-      setBookmarks([]); // stub — backend wiring later
+      setAnchors([]); // no runtime yet — the list is empty, not an error
     }
-  }, [sessionId, runId]);
+  }, [sessionId]);
 
   // ── Auto-fetch on filter change ─────────────────────────────────────────────
 
@@ -213,12 +209,12 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
     if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
     fetchTimerRef.current = setTimeout(() => {
       fetchSwimlane();
-      fetchBookmarks();
+      fetchAnchors();
     }, 300);
     return () => {
       if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
     };
-  }, [fetchSwimlane, fetchBookmarks]);
+  }, [fetchSwimlane, fetchAnchors]);
 
   // ── Search ──────────────────────────────────────────────────────────────────
 
@@ -249,16 +245,27 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
     });
   }, []);
 
-  // ── Add bookmark (stub — placeholder button) ────────────────────────────────
+  // ── Set / go to an anchor ───────────────────────────────────────────────────
 
-  const handleAddBookmark = useCallback(async () => {
-    if (selectedCycle === null) {
-      alert("Select a row first.");
-      return;
+  const handleSetAnchor = useCallback(async () => {
+    try {
+      const a = await setAnchor(getClient(), sessionId, anchorName, {});
+      setAnchorNote(`⚓ ${a.name} — cycle ${a.cycle}`);
+      setAnchorName("");
+      await fetchAnchors();
+    } catch (e: any) {
+      setAnchorNote(e?.message ?? String(e)); // the runtime's own refusal, as it came
     }
-    // TODO: wire to runtime addBookmark op when backend exposes it via WS.
-    alert(`Add bookmark at cycle ${selectedCycle} — backend wiring coming in a later sprint.`);
-  }, [selectedCycle]);
+  }, [sessionId, anchorName, fetchAnchors]);
+
+  const handleGoAnchor = useCallback(async (name: string) => {
+    try {
+      await gotoAnchor(getClient(), name);
+      setAnchorNote(`the shared machine is at ${name}`);
+    } catch (e: any) {
+      setAnchorNote(e?.message ?? String(e));
+    }
+  }, []);
 
   // ── Export JSONL ────────────────────────────────────────────────────────────
 
@@ -280,14 +287,9 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
         <TraceFilters state={filters} onChange={setFilters} onSearch={handleSearch} />
       </section>
 
-      {/* Bookmark overlay */}
+      {/* Anchors — the ring's named instants */}
       <section className="trace-section">
-        <BookmarkOverlay
-          bookmarks={bookmarks}
-          visibleCycleStart={filters.cycleStart}
-          visibleCycleEnd={filters.cycleEnd}
-          onJump={handleJump}
-        />
+        <AnchorList anchors={anchors} onShow={handleJump} onGo={handleGoAnchor} />
       </section>
 
       {/* Search results */}
@@ -313,14 +315,22 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
 
       {/* Footer actions */}
       <section className="trace-section trace-actions">
+        <input
+          className="trace-input"
+          value={anchorName}
+          placeholder="anchor name"
+          onChange={(e) => setAnchorName(e.target.value)}
+          title="Names the machine's present instant"
+        />
         <button
           className="trace-btn"
-          onClick={handleAddBookmark}
-          disabled={selectedCycle === null}
-          title={selectedCycle !== null ? `Add bookmark at cycle ${selectedCycle}` : "Select a row first"}
+          onClick={() => void handleSetAnchor()}
+          disabled={anchorName.trim() === ""}
+          title="Capture the shared machine as it is now and name it — the machine is not moved"
         >
-          Add bookmark @ selected
+          ⚓ Set anchor
         </button>
+        {anchorNote && <span className="trace-selected-info">{anchorNote}</span>}
         <button className="trace-btn" onClick={handleExport} disabled={rows.length === 0}>
           Export JSONL
         </button>
