@@ -394,6 +394,17 @@ jobs:
       - name: A Then a runner can decide (Spec 900)
         run: npm run e2e:900-checks
 
+      # Spec 903 — split low/high tables are declared, and a found one must be decided. One
+      # synthetic PRG assembled from a listing here, one MCP session: the detector's three
+      # shapes and their hints, the open list on analyze/disasm, the phase gate, the critic
+      # and the recommender, the listing in both dialects, the graph edges, every refusal by
+      # name at the writing door and at the loader, a wrong adjust, merge by (lo, hi), and
+      # probable code that is listed but binds nothing. No ROMs, no game bytes, no runtime.
+      # The two rebuild checks need KickAssembler / 64tass and skip loudly without them,
+      # like e2e:830.
+      - name: Split low/high tables are declared, and a found one is decided (Spec 903)
+        run: npm run e2e:903
+
       # Spec 899 — hermetic: the window check and the series in the scenario notation, the
       # input offset, the jitter seed and the sweep's offsets as pure functions, a runtime
       # that cannot place input refused by name, a stopped probe reported as a stop, and the
