@@ -1,9 +1,9 @@
 # Spec 811 — The hardware bus stream as a second evidence source
 
-**Status:** WEIRD IDEA — deliberately not PROPOSED. Nothing here is scheduled, nothing is
-designed to the point of being buildable, and one load-bearing fact is still unknown (§6).
-It is written down because the reasoning is worth keeping and because the idea collides
-with binding doctrine in a way that deserves a considered answer rather than a reflex.
+**Status:** WON'T-DO (owner, 2026-10-11). Overtaken: C64RE now drives a real C64 Ultimate /
+Ultimate 64 Elite II through its own core and the bridge (Spec 889), which speaks the TRX64 wire
+protocol. Real hardware is reached directly; a bus-stream ingest as a second evidence source is
+not needed. The text below is kept as written.
 **Repos:** would be both — the capability (capture, ingest, emit) is TRX64's, the meaning
 (the comparison, the first divergence, the acceptance) is C64RE's. Leitregel unchanged.
 **Prerequisite:** a physical Ultimate 64. There is none here. Everything below is derived
