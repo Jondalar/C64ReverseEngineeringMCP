@@ -3,7 +3,7 @@
 **Status:** DONE (2026-06-02) — option D shipped; gate `e2e:751` 27/27.
 **Closes:** BUG-034. **Lineage:** Spec 055 (effective-segments overlay) hardening.
 **Doc anchor:** `pipeline/src/lib/effective-segments.ts:72` (`buildEffectiveSegments`);
-non-destructive gate `specs/720-disasm-output-quality.md:109`.
+non-destructive gate `specs/_archive/720-disasm-output-quality.md:109`.
 
 ## 0. Goal
 An annotation that reclassifies a segment (`SegmentAnnotation`, e.g. a mis-disassembled

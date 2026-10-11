@@ -1,6 +1,10 @@
 # Spec 720 — Disassembly Output Quality (Heuristic Auto-Labels + Box Headers)
 
-**Status:** DRAFT (2026-05-20)
+**Status:** CLOSED (owner, 2026-10-11). Re-assessed against the code: nothing of it was built,
+§4 is meanwhile covered by 759/830/817 for known owners, §5/§7/§9 are dropped, and what still
+holds (§3 role labels, §6 pointer names, §8 as a `vec_` role, the last gap of §4) is carried
+into Spec 904 — together with a trap this draft did not know: the quality score counts every
+non-`W` label as named. Text below kept as written (DRAFT 2026-05-20).
 **Scope:** `pipeline/src/lib/prg-disasm.ts` renderer + `pipeline/src/analysis/*` label/role derivation. The heuristic (phase-1) disassembly output — the `.asm` produced BEFORE any LLM semantic-annotation pass.
 **Filed:** after the 700-series runtime/snapshot specs, per user request 2026-05-20.
 
