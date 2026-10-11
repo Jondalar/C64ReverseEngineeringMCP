@@ -525,7 +525,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "runtime_inject_range",
-    "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are tried in sandbox runs (runtime_candidate_run) and never written to the medium or the shared machine. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
+    "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are an OVERLAY, applied in sandbox runs (runtime_candidate_run) on clones and never written to the medium or the shared machine: every run starts fresh, so a reset drops the layer rather than the change becoming permanent. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
     {
       session_id: z.string().optional().describe("Unused; kept so earlier callers still work"),
       candidate_id: z.string().describe("Candidate to put the bytes in — from runtime_candidate_create"),
@@ -534,7 +534,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
       bin_path: z.string().describe("The .bin to write, absolute or relative to the project"),
       space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the target is: ram, or a cartridge window (roml/romh)"),
       bank: z.number().int().optional().describe("Cartridge bank, when space is roml or romh"),
-      project_dir: z.string().optional(),
+      project_dir: z.string().optional().describe("Project root holding the candidate; default: the session's project"),
     },
     safeHandler("runtime_inject_range", async ({ candidate_id, variant, addr, bin_path, space, bank, project_dir }) => {
       const { readFileSync } = await import("node:fs");
