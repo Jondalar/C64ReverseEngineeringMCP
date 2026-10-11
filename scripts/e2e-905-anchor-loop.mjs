@@ -48,6 +48,7 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 const { ProjectKnowledgeService } = await load("project-knowledge/service.js");
 const store = await load("candidates/store.js");
 const anchorsGraph = await load("anchors/graph.js");
+const { resolveDaemonSpawn: resolveDaemonSpawnFor905 } = await load("runtime/resolve-daemon-spawn.js");
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-905-"));
 const cleanups = [];
@@ -218,8 +219,17 @@ if (w.crt) {
 // The runtime half
 // ───────────────────────────────────────────────────────────────────────────────────────────────
 const siblingExe = join(ROOT, "..", "TRX64", "target", "release", process.platform === "win32" ? "trx64-daemon.exe" : "trx64-daemon");
-const DAEMON = process.env.C64RE_RUNTIME_BIN && !/\.m?js$/.test(process.env.C64RE_RUNTIME_BIN) ? process.env.C64RE_RUNTIME_BIN : existsSync(siblingExe) ? siblingExe : undefined;
+// The environment, then the sibling build, then whatever the product's own resolver finds — the
+// pinned install a user (and CI, after `c64re runtime install`) has.
+const resolved = (() => {
+  try {
+    const p = resolveDaemonSpawnFor905({ repoRoot: ROOT, projectDir: tmpdir(), port: "0" });
+    return p && !/\.m?js$/.test(p.cmd) && existsSync(p.cmd) ? p.cmd : undefined;
+  } catch { return undefined; }
+})();
+const DAEMON = process.env.C64RE_RUNTIME_BIN && !/\.m?js$/.test(process.env.C64RE_RUNTIME_BIN) ? process.env.C64RE_RUNTIME_BIN : existsSync(siblingExe) ? siblingExe : resolved;
 if (!DAEMON) {
+  if (process.env.C64RE_REQUIRE_RUNTIME === "1") { console.log("FAIL — C64RE_REQUIRE_RUNTIME=1 and no trx64-daemon was found: this run must not skip."); process.exit(1); }
   console.log("\nSKIPPED the runtime half (S1–S5, S7 with a daemon, S8) — no trx64-daemon binary (set C64RE_RUNTIME_BIN, or `c64re runtime install`). Skipped, NOT passed.");
   console.log(`\n${fail === 0 ? "GREEN" : "RED"} e2e-905 (no-daemon half only): ${pass} pass, ${fail} fail.`);
   process.exit(fail === 0 ? 0 : 1);

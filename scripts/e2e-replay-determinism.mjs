@@ -56,6 +56,7 @@ console.log("Replay across fresh starts — identical arguments, a new daemon ev
 
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: tmpdir(), port: "0" });
 if (plan.mode === "none") {
+  if (process.env.C64RE_REQUIRE_RUNTIME === "1") { console.log("FAIL — C64RE_REQUIRE_RUNTIME=1 and no trx64-daemon was found: this run must not skip."); process.exit(1); }
   console.log("SKIPPED — no runtime daemon binary (set C64RE_RUNTIME_BIN to an absolute path, or `c64re runtime install`).");
   process.exit(0);
 }
