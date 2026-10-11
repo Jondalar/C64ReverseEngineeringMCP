@@ -9,21 +9,44 @@ const OPS = {
   AND: { imm: 0x29 }, ORA: { imm: 0x09 }, EOR: { imm: 0x49 },
   CMP: { imm: 0xc9, zp: 0xc5, abs: 0xcd }, SBC: { imm: 0xe9 },
   LDX: { imm: 0xa2 }, LDY: { imm: 0xa0 }, CPY: { imm: 0xc0 },
-  INC: { abs: 0xee, zp: 0xe6 }, JMP: { abs: 0x4c },
+  INC: { abs: 0xee, zp: 0xe6 }, JMP: { abs: 0x4c, ind: 0x6c },
   BNE: { rel: 0xd0 }, BEQ: { rel: 0xf0 }, BCC: { rel: 0x90 },
+  // Spec 903: indexed loads/stores, subroutines and the compare the split-table programs use.
+  RTS: { imp: 0x60 }, JSR: { abs: 0x20 }, BCS: { rel: 0xb0 }, CPX: { imm: 0xe0 },
 };
+// `LDA tbl,X` / `LDA tbl,Y` / `STA tbl,X` — absolute indexed, which the table programs need
+const INDEXED = { LDA: { X: 0xbd, Y: 0xb9 }, STA: { X: 0x9d, Y: 0x99 } };
+
+/** The same assembly, with the label addresses it settled on — a test that must point at its own code. */
+export function assembleWithLabels(origin, prog) {
+  const labels = new Map();
+  const bytes = assemble(origin, prog, labels);
+  return { bytes, labels: Object.fromEntries(labels) };
+}
 
 /** `prog`: lines like "LDA #$7F", "STA $D011", "loop:", "BNE loop", "LDA #<irq". Returns the bytes. */
-export function assemble(origin, prog) {
-  const labels = new Map();
+export function assemble(origin, prog, labels = new Map()) {
   const value = (tok, here) => {
     if (/^\$[0-9a-f]+$/i.test(tok)) return parseInt(tok.slice(1), 16);
     if (/^\d+$/.test(tok)) return Number(tok);
     if (tok.startsWith("<")) return (value(tok.slice(1), here) ?? 0) & 0xff;
     if (tok.startsWith(">")) return ((value(tok.slice(1), here) ?? 0) >> 8) & 0xff;
+    const off = tok.match(/^([A-Za-z_]\w*)([+-])(\d+)$/);
+    if (off) {
+      const base = labels.get(off[1]);
+      return base === undefined ? undefined : base + (off[2] === "+" ? 1 : -1) * Number(off[3]);
+    }
     return labels.get(tok);
   };
   const encode = (line, pc, final) => {
+    // `.byte a, <b, >c` — data, each item a value as above (an unresolved forward label is 0 on the first pass)
+    if (line.trim().startsWith(".byte")) {
+      return line.trim().slice(5).split(",").map((t) => {
+        const v = value(t.trim(), pc);
+        if (v === undefined && final) throw new Error(`no label in "${line}"`);
+        return (v ?? 0) & 0xff;
+      });
+    }
     const m = line.trim().match(/^([A-Z]{3})(?:\s+(.+))?$/);
     if (!m) throw new Error(`cannot assemble "${line}"`);
     const op = OPS[m[1]];
@@ -31,6 +54,17 @@ export function assemble(origin, prog) {
     const arg = m[2]?.trim();
     if (arg === undefined) return [op.imp];
     if (arg.startsWith("#")) return [op.imm, value(arg.slice(1), pc) ?? 0];
+    const indexed = arg.match(/^(.+),\s*([XY])$/i);
+    if (indexed && INDEXED[m[1]]) {
+      const v = value(indexed[1].trim(), pc);
+      if (v === undefined) { if (final) throw new Error(`no label ${indexed[1]}`); return [INDEXED[m[1]][indexed[2].toUpperCase()], 0, 0]; }
+      return [INDEXED[m[1]][indexed[2].toUpperCase()], v & 0xff, v >> 8];
+    }
+    const ind = arg.match(/^\((.+)\)$/);
+    if (ind && op.ind !== undefined) {
+      const v = value(ind[1].trim(), pc) ?? 0;
+      return [op.ind, v & 0xff, v >> 8];
+    }
     if (op.rel !== undefined) {
       const t = value(arg, pc);
       if (t === undefined) { if (final) throw new Error(`no label ${arg}`); return [op.rel, 0]; }

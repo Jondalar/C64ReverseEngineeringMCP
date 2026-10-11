@@ -92,6 +92,22 @@ export interface JumpTableAnnotation {
   comment?: string;
 }
 
+/**
+ * Two parallel one-byte tables, one holding the low bytes and one the high bytes of
+ * `count` addresses (`LDA lo,X / STA zp / LDA hi,X / STA zp+1`). The interleaved
+ * `pointerTables` cannot say this; without it the listing prints raw `.byte`s where
+ * every entry has a target with a name.
+ */
+export interface SplitTableAnnotation {
+  lo: string;           // hex address of the low-byte table
+  hi: string;           // hex address of the high-byte table
+  count?: number;       // entries; both tables are `count` bytes. Required unless `reject` is given.
+  adjust?: number;      // stored = target - adjust. An RTS dispatch stores target-1, so adjust: 1. Default 0.
+  base?: string;        // a name from labels[] / routines[] / a segment label: every entry renders as <(base+off) / >(base+off)
+  comment?: string;
+  reject?: string;      // "this is not a pointer table, because …" — closes the finding without declaring anything
+}
+
 export type ImmediateRewriteKind = "lo-of" | "hi-of";
 
 export interface ImmediateAnnotation {
@@ -109,6 +125,7 @@ export interface AnnotationsFile {
   routines: RoutineAnnotation[];
   pointerTables?: PointerTableAnnotation[];
   jumpTables?: JumpTableAnnotation[];
+  splitTables?: SplitTableAnnotation[];
   immediates?: ImmediateAnnotation[];
 }
 
@@ -127,6 +144,18 @@ export interface JumpTableIndexEntry {
   annotation: JumpTableAnnotation;
 }
 
+export interface SplitTableIndexEntry {
+  lo: number;
+  hi: number;
+  count: number;
+  adjust: number;
+  /** the name `base` carries, with the address the loader found it at */
+  base?: { name: string; address: number };
+  /** set = a rejection: it declares nothing and renders nothing */
+  rejected?: string;
+  annotation: SplitTableAnnotation;
+}
+
 export interface ImmediateIndexEntry {
   address: number;
   kind: ImmediateRewriteKind;
@@ -138,7 +167,7 @@ export interface ImmediateIndexEntry {
 // apply). `hint` names the likely fix (e.g. a mistyped field key) so the drop is
 // actionable in the tool output instead of silently lost.
 export interface SkippedAnnotation {
-  section: "segment" | "label" | "routine" | "pointerTable" | "jumpTable" | "immediate";
+  section: "segment" | "label" | "routine" | "pointerTable" | "jumpTable" | "splitTable" | "immediate";
   reason: string;
   hint?: string;
 }
@@ -150,6 +179,7 @@ export interface AnnotationsIndex {
   routinesByAddress: Map<number, RoutineAnnotation>;
   pointerTables: PointerTableIndexEntry[];
   jumpTables: JumpTableIndexEntry[];
+  splitTables: SplitTableIndexEntry[];
   immediatesByAddress: Map<number, ImmediateIndexEntry>;
   // Entries dropped during indexing (tolerant skip). Surfaced by disasm_prg so a
   // mistyped field key (`addr`/`name`) is visible, not silently lost.
@@ -190,6 +220,7 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
   const routinesByAddress = new Map<number, RoutineAnnotation>();
   const pointerTables: PointerTableIndexEntry[] = [];
   const jumpTables: JumpTableIndexEntry[] = [];
+  const splitTables: SplitTableIndexEntry[] = [];
   const immediatesByAddress = new Map<number, ImmediateIndexEntry>();
   const skipped: SkippedAnnotation[] = [];
   // Collect only; the caller (prg-disasm) prints one ordered summary so the drop is
@@ -354,6 +385,34 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
       annotation: jt,
     });
   }
+  // A split table is validated as a whole file (`splitTableProblems`) and REFUSED there; what
+  // reaches this loop is well-formed except for what only an index can answer, so an entry that
+  // still fails (a name nothing defines) is skipped by name like every other section.
+  for (const st of annotations.splitTables ?? []) {
+    const lo = parseHex(st.lo);
+    const hi = parseHex(st.hi);
+    if (Number.isNaN(lo) || Number.isNaN(hi)) {
+      noteSkip({ section: "splitTable", reason: `unparseable lo=${st.lo} hi=${st.hi}` });
+      continue;
+    }
+    if (st.reject !== undefined) {
+      if (typeof st.reject !== "string" || st.reject.trim() === "") { noteSkip({ section: "splitTable", reason: `$${hex4(lo)}/$${hex4(hi)}: reject is empty` }); continue; }
+      splitTables.push({ lo, hi, count: 0, adjust: 0, rejected: st.reject.trim(), annotation: st });
+      continue;
+    }
+    let base: SplitTableIndexEntry["base"];
+    if (st.base !== undefined) {
+      const named = [...labelsByAddress.entries()].find(([, l]) => l.label === st.base);
+      const seg = segmentAnnotations.find((s) => s.annotation.label === st.base || (s.annotation.label && toLabelIdent(s.annotation.label) === st.base));
+      const address = named?.[0] ?? seg?.start;
+      if (address === undefined) {
+        noteSkip({ section: "splitTable", reason: `$${hex4(lo)}/$${hex4(hi)}: base "${st.base}" names no label, routine or segment label in this file` });
+        continue;
+      }
+      base = { name: named?.[1].label ?? toLabelIdent(st.base) ?? st.base, address };
+    }
+    splitTables.push({ lo, hi, count: st.count as number, adjust: st.adjust ?? 0, ...(base ? { base } : {}), annotation: st });
+  }
   for (const imm of annotations.immediates ?? []) {
     const address = parseHex(imm.address);
     if (Number.isNaN(address)) {
@@ -377,6 +436,7 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     routinesByAddress,
     pointerTables,
     jumpTables,
+    splitTables,
     immediatesByAddress,
     skipped,
   };
@@ -397,6 +457,7 @@ function normalizeAnnotationsFile(raw: unknown): AnnotationsFile {
     routines: arr(obj.routines) as RoutineAnnotation[],
     pointerTables: arr(obj.pointerTables) as PointerTableAnnotation[],
     jumpTables: arr(obj.jumpTables) as JumpTableAnnotation[],
+    splitTables: arr(obj.splitTables) as SplitTableAnnotation[],
     immediates: arr(obj.immediates) as ImmediateAnnotation[],
   };
 }
@@ -467,10 +528,125 @@ export function assertNoDuplicateSegmentStarts(file: AnnotationsFile, path: stri
   throw new AnnotationsFileRefusal(lines.join("\n"));
 }
 
+const hex4 = (n: number): string => n.toString(16).toUpperCase().padStart(4, "0");
+const STRICT_HEX = /^(?:\$|0x)?[0-9a-fA-F]{1,4}$/;
+const CODE_SEGMENT_KINDS = new Set(["code", "basic_stub"]);
+
+export interface SplitTableProblem {
+  /** `splitTables[2]`, the entry as the file wrote it */
+  where: string;
+  reason: string;
+}
+
+/**
+ * Every reason a `splitTables[]` entry cannot be taken, naming the entry.
+ *
+ * Refused, not skipped: the entry is what closes a found table (an obligation), so
+ * one that is silently dropped would leave a table "decided" in the file and
+ * undecided in the listing. The checks that need the analysis (a `code` segment
+ * under the range) are made by the renderer, which has it; this function holds
+ * everything the FILE and the image can answer.
+ *
+ * `src/server-tools/annotation-file.ts` states the same rules for the writing
+ * doors (`src/` is ESM, this is CommonJS, neither imports the other);
+ * `scripts/e2e-903-split-tables.mjs` runs one corpus through both.
+ */
+export function splitTableProblems(file: AnnotationsFile, image?: { start: number; end: number }): SplitTableProblem[] {
+  const problems: SplitTableProblem[] = [];
+  const entries = file.splitTables ?? [];
+  const names = new Set<string>();
+  for (const l of file.labels ?? []) if (l?.label) names.add(l.label);
+  for (const r of file.routines ?? []) if (r?.name) { const id = toLabelIdent(r.name); if (id) names.add(id); names.add(r.name); }
+  for (const s of file.segments ?? []) if (s?.label) { names.add(s.label); const id = toLabelIdent(s.label); if (id) names.add(id); }
+
+  const taken: Array<{ where: string; ranges: Array<[number, number]> }> = [];
+  (file.pointerTables ?? []).forEach((pt, i) => {
+    const a = parseHex(pt?.start), b = parseHex(pt?.end);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) taken.push({ where: `pointerTables[${i}]`, ranges: [[a, b]] });
+  });
+  (file.jumpTables ?? []).forEach((jt, i) => {
+    const a = parseHex(jt?.start), b = parseHex(jt?.end);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) taken.push({ where: `jumpTables[${i}]`, ranges: [[a, b]] });
+  });
+  (file.segments ?? []).forEach((seg, i) => {
+    if (!CODE_SEGMENT_KINDS.has(String(seg?.kind))) return;
+    const a = parseHex(seg.start), b = parseHex(seg.end);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) taken.push({ where: `segments[${i}] (${seg.kind})`, ranges: [[a, b]] });
+  });
+
+  const seenPairs = new Map<string, string>();
+  entries.forEach((e, i) => {
+    const where = `splitTables[${i}]`;
+    const bad = (reason: string): void => { problems.push({ where, reason }); };
+    if (!e || typeof e !== "object") { bad("is not an object"); return; }
+    const loOk = typeof e.lo === "string" && STRICT_HEX.test(e.lo.trim());
+    const hiOk = typeof e.hi === "string" && STRICT_HEX.test(e.hi.trim());
+    if (!loOk) { bad(`lo=${JSON.stringify(e.lo)} is not a hex address`); return; }
+    if (!hiOk) { bad(`hi=${JSON.stringify(e.hi)} is not a hex address`); return; }
+    const lo = parseHex(e.lo.trim()), hi = parseHex(e.hi.trim());
+    const id = `$${hex4(lo)}/$${hex4(hi)}`;
+    const pair = `${lo}:${hi}`;
+    const first = seenPairs.get(pair);
+    if (first) { bad(`${id} is already decided by ${first} — one entry per (lo, hi)`); return; }
+    seenPairs.set(pair, where);
+
+    if (e.reject !== undefined) {
+      if (typeof e.reject !== "string" || e.reject.trim() === "") {
+        bad(`${id}: reject is empty — say why this is not a pointer table (a rejection with no reason is not a decision)`);
+      }
+      return;
+    }
+    if (typeof e.count !== "number" || !Number.isInteger(e.count) || e.count < 1) {
+      bad(`${id}: count must be a whole number of at least 1 (got ${JSON.stringify(e.count)})`);
+      return;
+    }
+    if (e.adjust !== undefined && (typeof e.adjust !== "number" || !Number.isInteger(e.adjust) || Math.abs(e.adjust) > 0xffff)) {
+      bad(`${id}: adjust must be a whole number (an RTS dispatch stores target-1, so adjust: 1), got ${JSON.stringify(e.adjust)}`);
+      return;
+    }
+    if (e.base !== undefined && (typeof e.base !== "string" || !names.has(e.base))) {
+      bad(`${id}: base ${JSON.stringify(e.base)} names no label, routine or segment label in this file`);
+      return;
+    }
+    const loEnd = lo + e.count - 1, hiEnd = hi + e.count - 1;
+    if (loEnd > 0xffff || hiEnd > 0xffff) { bad(`${id}: count ${e.count} runs a table past $FFFF`); return; }
+    if (image) {
+      for (const [name, a, b] of [["low", lo, loEnd], ["high", hi, hiEnd]] as const) {
+        if (a < image.start || b > image.end) {
+          bad(`${id}: the ${name} table $${hex4(a)}-$${hex4(b)} is outside the image $${hex4(image.start)}-$${hex4(image.end)}`);
+          return;
+        }
+      }
+    }
+    if (lo <= hiEnd && hi <= loEnd) { bad(`${id}: the low table $${hex4(lo)}-$${hex4(loEnd)} and the high table $${hex4(hi)}-$${hex4(hiEnd)} overlap`); return; }
+    for (const t of taken) {
+      for (const [a, b] of t.ranges) {
+        if ((lo <= b && loEnd >= a) || (hi <= b && hiEnd >= a)) {
+          bad(`${id}: overlaps ${t.where} $${hex4(a)}-$${hex4(b)}${t.where.startsWith("segments") ? " — a split table is data, never code" : ""}`);
+          return;
+        }
+      }
+    }
+    taken.push({ where, ranges: [[lo, loEnd], [hi, hiEnd]] });
+  });
+  return problems;
+}
+
+/** The file contradicts itself about its split tables: refuse it, naming every entry. */
+export function assertSplitTablesValid(file: AnnotationsFile, path: string, image?: { start: number; end: number }): void {
+  const problems = splitTableProblems(file, image);
+  if (problems.length === 0) return;
+  const lines = [`${path}`, "", `${problems.length} splitTables ${problems.length === 1 ? "entry" : "entries"} refused:`];
+  for (const p of problems) lines.push(`  ${p.where}  ${p.reason}`);
+  lines.push("", "A split-table entry closes a found table, so one that is dropped quietly would leave it decided in the file and undecided in the listing. Fix the entries; nothing was rendered.");
+  throw new AnnotationsFileRefusal(lines.join("\n"));
+}
+
 export function loadAnnotations(prgPath: string, explicitPath?: string): AnnotationsFile | undefined {
   const read = (p: string): AnnotationsFile => {
     const file = normalizeAnnotationsFile(JSON.parse(readFileSync(p, "utf8")));
     assertNoDuplicateSegmentStarts(file, p);
+    assertSplitTablesValid(file, p);
     return file;
   };
 

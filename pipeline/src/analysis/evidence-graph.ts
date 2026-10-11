@@ -361,6 +361,7 @@ export function buildEvidenceGraph(
         lowTableBase: split.lowTableBase,
         highTableBase: split.highTableBase,
         pointerBase: split.pointerBase,
+        shape: split.shape,
         sampleTargets: split.sampleTargets,
       },
     });

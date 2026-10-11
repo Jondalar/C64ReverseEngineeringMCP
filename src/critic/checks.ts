@@ -25,7 +25,8 @@ export type CheckId =
   | "orphan-ratio"
   | "unreachable-routine"
   | "dangling-citation"
-  | "stale-render";
+  | "stale-render"
+  | "split-table-undecided";
 
 export interface CheckDef {
   id: CheckId;
@@ -52,6 +53,13 @@ export const CHECKS: readonly CheckDef[] = [
     finds: "a refutation that invalidated nothing — no `amends:` tag and no superseded finding",
     settleBy: "give the refutation finding a literal tag `amends:<name>` — save_finding(id=<the refutation>, tags=[\"amends:A_loader_model\"]) — or archive the claim it refutes with save_finding(id=<that claim>, status=\"archived\", archived_by=<the refutation>)",
     because: "Ultima VI's `amended` list records which documents a refutation forced to be rewritten. A refutation with no casualty either was never acted on, or the thing it refutes is still being believed somewhere — both are the state this arc exists to prevent.",
+  },
+  {
+    id: "split-table-undecided",
+    severity: "blocking",
+    finds: "a split low/high table the analysis found in confirmed code that no splitTables[] entry has declared or rejected",
+    settleBy: "write the splitTables[] entry — declare it ({ lo, hi, count, adjust?, base? }) or reject it ({ lo, hi, reject: \"why this is not a pointer table\" }) — with write_annotations / merge_annotations, then run disasm",
+    because: "A table the code provably indexes is understanding the listing does not yet carry: the targets print as raw .byte, moving a routine breaks the table silently, and nothing records that anybody looked. The decision is cheap and the cost of not having made it is a wrong port.",
   },
   {
     id: "finding-without-evidence",

@@ -487,44 +487,42 @@ function sampleSplitPointerTargets(
   return targets;
 }
 
+/** `n` of the nearest `CPX/CPY #n` on the table's index register around the loads, if any. */
+function findCountHint(instructions: InstructionFact[], from: number, to: number, indexRegister: IndexedRegister): number | undefined {
+  const mnemonic = indexRegister === "x" ? "cpx" : "cpy";
+  let best: { distance: number; value: number } | undefined;
+  for (let at = Math.max(0, from - 6); at <= Math.min(instructions.length - 1, to + 6); at += 1) {
+    if (at >= from && at <= to) continue;
+    const candidate = instructions[at];
+    if (candidate.mnemonic !== mnemonic || candidate.addressingMode !== "imm" || candidate.operandValue === undefined) continue;
+    if (candidate.operandValue < 1 || candidate.operandValue > 0xff) continue;
+    const distance = at < from ? from - at : at - to;
+    if (!best || distance < best.distance) best = { distance, value: candidate.operandValue };
+  }
+  return best?.value;
+}
+
 function collectSplitPointerTables(
   context: AnalyzerContext,
   instructions: InstructionFact[],
   provenance: CodeProvenance,
+  operandBytes: Set<number>,
 ): SplitPointerTableFact[] {
   const facts: SplitPointerTableFact[] = [];
   const platform = context.platform ?? "c64";
 
-  for (let index = 0; index < instructions.length - 3; index += 1) {
-    const a = instructions[index];
-    const b = instructions[index + 1];
-    const c = instructions[index + 2];
-    const d = instructions[index + 3];
-
-    if (a.mnemonic !== "lda" || c.mnemonic !== "lda" || b.mnemonic !== "sta" || d.mnemonic !== "sta") {
-      continue;
-    }
-    if (a.targetAddress === undefined || c.targetAddress === undefined) {
-      continue;
-    }
-    if (!INDEXED_MODES.has(a.addressingMode) || a.addressingMode !== c.addressingMode) {
-      continue;
-    }
-    if (b.addressingMode !== "zp" || d.addressingMode !== "zp") {
-      continue;
-    }
-    if (b.operandValue === undefined || d.operandValue === undefined || d.operandValue !== ((b.operandValue + 1) & 0xff)) {
-      continue;
-    }
-    if (isHardwareAddress(platform, a.targetAddress) || isHardwareAddress(platform, c.targetAddress)) {
-      continue;
-    }
-    if (Math.abs(a.targetAddress - c.targetAddress) <= 1) {
-      continue;
-    }
-
-    const indexRegister = INDEXED_MODES.get(a.addressingMode)!;
-    const sampleTargets = sampleSplitPointerTargets(context, a.targetAddress, c.targetAddress);
+  const build = (
+    first: number,
+    last: number,
+    low: number,
+    high: number,
+    indexRegister: IndexedRegister,
+    shape: SplitPointerTableFact["shape"],
+    pointerBase: number | undefined,
+    adjustHint: number | undefined,
+    what: string,
+  ): void => {
+    const sampleTargets = sampleSplitPointerTargets(context, low, high).map((target) => (adjustHint ? (target + adjustHint) & 0xffff : target));
     const inRangeRatio =
       sampleTargets.length > 0
         ? sampleTargets.filter((target) => target >= context.mapping.startAddress && target <= context.mapping.endAddress).length / sampleTargets.length
@@ -537,19 +535,24 @@ function collectSplitPointerTables(
         Math.min(0.14, inRangeRatio * 0.14) +
         Math.min(0.08, uniqueRatio * 0.08),
     );
+    const countHint = findCountHint(instructions, first, last, indexRegister);
+    const lastInstruction = instructions[last];
 
     facts.push({
-      start: a.address,
-      end: d.address + d.size - 1,
-      lowTableBase: a.targetAddress,
-      highTableBase: c.targetAddress,
-      pointerBase: b.operandValue,
+      start: instructions[first].address,
+      end: lastInstruction.address + lastInstruction.size - 1,
+      lowTableBase: low,
+      highTableBase: high,
+      ...(pointerBase !== undefined ? { pointerBase } : {}),
       indexRegister,
+      shape,
+      ...(countHint !== undefined ? { countHint } : {}),
+      ...(adjustHint !== undefined ? { adjustHint } : {}),
       provenance,
       confidence,
       sampleTargets,
       reasons: [
-        `Code builds zero-page pointer ${formatAddress(b.operandValue)}-${formatAddress(d.operandValue)} from indexed tables ${formatAddress(a.targetAddress)} and ${formatAddress(c.targetAddress)}.`,
+        what,
         `Both loads use ${indexRegister.toUpperCase()} as the shared index register.`,
         sampleTargets.length > 0
           ? `${Math.round(inRangeRatio * 100)}% of the first ${sampleTargets.length} reconstructed targets fall inside the mapped binary.`
@@ -559,11 +562,99 @@ function collectSplitPointerTables(
           : "Pattern comes from a probable code island and should be validated manually.",
       ],
     });
+  };
 
-    index += 3;
+  const usable = (low: InstructionFact, high: InstructionFact): boolean => {
+    if (low.targetAddress === undefined || high.targetAddress === undefined) return false;
+    if (!INDEXED_MODES.has(low.addressingMode) || low.addressingMode !== high.addressingMode) return false;
+    if (isHardwareAddress(platform, low.targetAddress) || isHardwareAddress(platform, high.targetAddress)) return false;
+    if (Math.abs(low.targetAddress - high.targetAddress) <= 1) return false;
+    return true;
+  };
+
+  for (let index = 0; index < instructions.length - 3; index += 1) {
+    const a = instructions[index];
+    const b = instructions[index + 1];
+    const c = instructions[index + 2];
+    const d = instructions[index + 3];
+
+    // RTS dispatch: LDA hi,X / PHA / LDA lo,X / PHA / RTS — the table stores target-1.
+    const e = instructions[index + 4];
+    if (
+      e && a.mnemonic === "lda" && b.mnemonic === "pha" && c.mnemonic === "lda" && d.mnemonic === "pha" && e.mnemonic === "rts" &&
+      usable(c, a)
+    ) {
+      const indexRegister = INDEXED_MODES.get(a.addressingMode)!;
+      build(
+        index, index + 4, c.targetAddress!, a.targetAddress!, indexRegister, "rts_dispatch", undefined, 1,
+        `Code pushes the high byte from ${formatAddress(a.targetAddress!)} and the low byte from ${formatAddress(c.targetAddress!)} and returns through them: a dispatch table of target-1.`,
+      );
+      index += 4;
+      continue;
+    }
+
+    if (a.mnemonic !== "lda" || c.mnemonic !== "lda" || b.mnemonic !== "sta" || d.mnemonic !== "sta") {
+      continue;
+    }
+    if (!usable(a, c)) {
+      continue;
+    }
+    const indexRegister = INDEXED_MODES.get(a.addressingMode)!;
+
+    if (b.addressingMode === "zp" && d.addressingMode === "zp") {
+      if (b.operandValue === undefined || d.operandValue === undefined || d.operandValue !== ((b.operandValue + 1) & 0xff)) {
+        continue;
+      }
+      build(
+        index, index + 3, a.targetAddress!, c.targetAddress!, indexRegister, "zp_pointer", b.operandValue, undefined,
+        `Code builds zero-page pointer ${formatAddress(b.operandValue)}-${formatAddress(d.operandValue)} from indexed tables ${formatAddress(a.targetAddress!)} and ${formatAddress(c.targetAddress!)}.`,
+      );
+      index += 3;
+      continue;
+    }
+
+    // Self-modifying operand: LDA lo,X / STA abs / LDA hi,X / STA abs+1, abs being an operand
+    // of an instruction in the image.
+    if (b.addressingMode === "abs" && d.addressingMode === "abs") {
+      const patched = b.targetAddress;
+      if (patched === undefined || d.targetAddress !== ((patched + 1) & 0xffff)) {
+        continue;
+      }
+      if (!operandBytes.has(patched) || !operandBytes.has(patched + 1)) {
+        continue;
+      }
+      build(
+        index, index + 3, a.targetAddress!, c.targetAddress!, indexRegister, "self_mod_operand", patched, undefined,
+        `Code patches the operand at ${formatAddress(patched)}-${formatAddress(patched + 1)} from indexed tables ${formatAddress(a.targetAddress!)} and ${formatAddress(c.targetAddress!)}.`,
+      );
+      index += 3;
+    }
   }
 
   return facts;
+}
+
+/**
+ * One fact per (lowTableBase, highTableBase). The confirmed reading wins over a probable
+ * one, then the earlier site; a count hint any of them found is kept.
+ */
+function dedupeSplitTables(facts: SplitPointerTableFact[]): SplitPointerTableFact[] {
+  const byPair = new Map<string, SplitPointerTableFact>();
+  for (const fact of facts) {
+    const key = `${fact.lowTableBase}:${fact.highTableBase}`;
+    const seen = byPair.get(key);
+    if (!seen) {
+      byPair.set(key, fact);
+      continue;
+    }
+    const better =
+      (fact.provenance === "confirmed_code" && seen.provenance !== "confirmed_code") ||
+      (fact.provenance === seen.provenance && fact.start < seen.start);
+    const winner = better ? fact : seen;
+    const other = better ? seen : fact;
+    byPair.set(key, winner.countHint === undefined && other.countHint !== undefined ? { ...winner, countHint: other.countHint } : winner);
+  }
+  return [...byPair.values()].sort((left, right) => left.start - right.start);
 }
 
 function dedupeByRange<T extends { start: number; end: number }>(facts: T[]): T[] {
@@ -589,13 +680,22 @@ export function extractCodeSemantics(context: AnalyzerContext): CodeSemantics {
   const splitPointerTables: SplitPointerTableFact[] = [];
   const platform = context.platform ?? "c64";
 
+  // Every byte of an instruction past its opcode, from both pools: a store into one of these
+  // patches code (the self-modifying operand shape).
+  const operandBytes = new Set<number>();
+  for (const pool of getInstructionPools(context)) {
+    for (const instruction of pool.instructions) {
+      for (let at = 1; at < instruction.size; at += 1) operandBytes.add(instruction.address + at);
+    }
+  }
+
   for (const pool of getInstructionPools(context)) {
     tableUsages.push(...collectTableUsages(pool.instructions, pool.provenance, platform));
     copyRoutines.push(...collectCopyRoutines(pool.instructions, pool.provenance, platform));
     hardwareTargetedCopies.push(...collectHardwareTargetedCopies(pool.instructions, pool.provenance, platform));
     sidDataSources.push(...collectSidDataSources(context, pool.instructions, pool.provenance));
     indirectPointers.push(...collectIndirectPointers(pool.instructions, pool.provenance));
-    splitPointerTables.push(...collectSplitPointerTables(context, pool.instructions, pool.provenance));
+    splitPointerTables.push(...collectSplitPointerTables(context, pool.instructions, pool.provenance, operandBytes));
   }
 
   return {
@@ -604,7 +704,7 @@ export function extractCodeSemantics(context: AnalyzerContext): CodeSemantics {
     hardwareTargetedCopies: dedupeByRange(hardwareTargetedCopies),
     sidDataSources,
     indirectPointers: dedupeByRange(indirectPointers),
-    splitPointerTables: dedupeByRange(splitPointerTables),
+    splitPointerTables: dedupeSplitTables(splitPointerTables),
     displayStates: [],
     displayTransfers: [],
     ramAccesses: [],

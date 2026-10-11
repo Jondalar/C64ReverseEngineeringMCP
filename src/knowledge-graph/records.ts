@@ -84,6 +84,7 @@ function entityKindOf(nodeKind: string, attrs: Record<string, unknown>): EntityR
     case "bank": return "cartridge-bank";
     case "region": return "memory-region";
     case "data_block": return "data-table";
+    case "split_table": return "pointer-table";
     case "stage": return "loader-stage";
     case "track": return "disk-track";
     default: return "other";

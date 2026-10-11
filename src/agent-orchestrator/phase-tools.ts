@@ -19,7 +19,7 @@ export const PHASE_NARRATIVES: Record<PhaseNumber, string> = {
   2: "Understand how the title actually loads. A bootable disk ALWAYS starts at the stock DOS directory (track 18) — the first KERNAL-loadable file is the loader stub; it uploads custom drive-code + the $dd00 handshake before any custom-GCR is read. Disassemble the loader files at full function breadth and semantically annotate them HERE (the drivecode track→payload tables are byte tables, meaningless until the indexing code is read) — loader RE belongs to Discovery, not deferred to phase 3. KERNAL or custom fastloader? Container with sub-entries? Where do bytes land at runtime vs on disk? Done when the load chain is documented as a flow with loader entry points and load contexts, and the loader files are disassembled + annotated.",
   3: "Run the deterministic Phase-1 analysis and a non-semantic first-pass disasm per relevant artifact. No LLM annotations yet. Done when every artifact has *_analysis.json + *_disasm.asm and rebuild verification has been attempted.",
   4: "Inspect every non-trivial segment by hand. Classify, hypothesize, look up hardware references. Open questions welcome. Done when every non-trivial segment is either understood or tracked in an open question.",
-  5: "Merge the inspection findings into entities, write annotations, re-disassemble. Done when the disasm rebuilds byte-identical with annotations and ≥1 finding references the artifact.",
+  5: "Merge the inspection findings into entities, write annotations, re-disassemble. Every split low/high table the analysis found in confirmed code must be decided — declared in `splitTables` (`lo`, `hi`, `count`, `adjust` 1 for an RTS dispatch) or rejected with a reason — before the artifact leaves this phase; agent_advance_phase refuses otherwise. Done when the disasm rebuilds byte-identical with annotations, no found split table is open and ≥1 finding references the artifact.",
   6: "Step back from a single artifact. Cross-link entities across artifacts. Build flows. Spot meta-patterns. Done when cross-artifact relations + flows exist and anti-patterns / refuted hypotheses are recorded.",
   7: "Refine the V1 listings under meta-context. Lock in rebuild verification. Render docs. Done when the per-artifact status checklist is at 100% for the active role and the doc render has run.",
 };
@@ -85,6 +85,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
   5: [
     "save_finding", "save_entity", "save_relation",
     "link_entities", "link_cart_chunk_to_asm",
+    "write_annotations", "merge_annotations",
     // retired-name-ok: the aliases belong in the phase list too, or an alias call reads as out-of-phase
     "disasm", "disasm_prg", "assemble_source",
     "snapshot_artifact_before_overwrite",
@@ -189,6 +190,7 @@ export function buildWorkerPrompt(args: { phase: PhaseNumber; artifactId: string
       break;
     case 5:
       lines.push("- Annotations file written; `disasm` re-run with annotations; rebuild verified byte-identical.");
+      lines.push("- Every split table the analysis found in confirmed code has a `splitTables` entry (declared, or rejected with a reason).");
       lines.push("- ≥1 `save_finding` references the artifact.");
       break;
     case 6:

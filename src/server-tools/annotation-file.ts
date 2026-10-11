@@ -50,6 +50,15 @@ export interface LabelEntry { address: string; label: string; comment?: string }
 export interface RoutineEntry { address: string; name: string; comment?: string }
 export interface PointerTableEntry { start: string; end: string; stride?: number; endian?: "little" | "big"; comment?: string }
 export interface JumpTableEntry { start: string; end: string; kind: "jmp" | "jsr" | "word"; comment?: string }
+export interface SplitTableEntry {
+  lo: string;
+  hi: string;
+  count?: number;
+  adjust?: number;
+  base?: string;
+  comment?: string;
+  reject?: string;
+}
 export interface ImmediateEntry { address: string; kind: "lo-of" | "hi-of"; label: string; comment?: string }
 
 export interface AnnotationsDocument {
@@ -60,6 +69,7 @@ export interface AnnotationsDocument {
   routines: RoutineEntry[];
   pointerTables?: PointerTableEntry[];
   jumpTables?: JumpTableEntry[];
+  splitTables?: SplitTableEntry[];
   immediates?: ImmediateEntry[];
 }
 
@@ -78,6 +88,7 @@ export interface RawSections {
   routines?: unknown[];
   pointerTables?: unknown[];
   jumpTables?: unknown[];
+  splitTables?: unknown[];
   immediates?: unknown[];
 }
 
@@ -142,7 +153,7 @@ export interface BuildResult {
  * reason it could not instead of stopping at the first one. `problems` empty means the
  * document is safe to write; anything else and the caller gets all of it at once.
  */
-export function buildAnnotationsDocument(sections: RawSections, binary: string): BuildResult {
+export function buildAnnotationsDocument(sections: RawSections, binary: string, image?: { start: number; end: number }): BuildResult {
   const problems: Problem[] = [];
   const notes: string[] = [];
   const bad = (where: string, reason: string, hint?: string): void => { problems.push({ where, reason, hint }); };
@@ -256,6 +267,18 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string):
     jumpTables.push({ start, end, kind, ...(str(e.comment) ? { comment: str(e.comment)! } : {}) });
   });
 
+  const splitTables = checkSplitTables(sections.splitTables ?? [], {
+    image, bad,
+    names: new Set([...labels.map((l) => l.label), ...routines.map((r) => r.name), ...routines.map((r) => r.name.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(\d)/, "_$1")),
+      ...segments.map((sg) => sg.label).filter((v): v is string => typeof v === "string")]),
+    taken: [
+      ...pointerTables.map((t, i) => ({ where: `pointerTables[${i}]`, ranges: [[parseInt(t.start, 16), parseInt(t.end, 16)] as [number, number]] })),
+      ...jumpTables.map((t, i) => ({ where: `jumpTables[${i}]`, ranges: [[parseInt(t.start, 16), parseInt(t.end, 16)] as [number, number]] })),
+      ...segments.flatMap((sg, i) => (sg.kind === "code" || sg.kind === "basic_stub"
+        ? [{ where: `segments[${i}] (${sg.kind})`, ranges: [[parseInt(sg.start, 16), parseInt(sg.end, 16)] as [number, number]] }] : [])),
+    ],
+  });
+
   const immediates: ImmediateEntry[] = [];
   (sections.immediates ?? []).forEach((raw, i) => {
     const where = `immediates[${i}]`;
@@ -277,9 +300,83 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string):
     routines,
     ...(pointerTables.length ? { pointerTables } : {}),
     ...(jumpTables.length ? { jumpTables } : {}),
+    ...(splitTables.length ? { splitTables } : {}),
     ...(immediates.length ? { immediates } : {}),
   };
   return { doc, problems, notes };
+}
+
+/**
+ * `splitTables[]`, held to the rules the loader refuses a file over
+ * (`splitTableProblems` in `pipeline/src/lib/annotations.ts` — `src/` is ESM, that is
+ * CommonJS, neither imports the other; `scripts/e2e-903-split-tables.mjs` runs one corpus
+ * through both and fails when they disagree).
+ */
+function checkSplitTables(
+  raw: unknown[],
+  ctx: {
+    image?: { start: number; end: number };
+    bad: (where: string, reason: string, hint?: string) => void;
+    names: Set<string>;
+    taken: Array<{ where: string; ranges: Array<[number, number]> }>;
+  },
+): SplitTableEntry[] {
+  const out: SplitTableEntry[] = [];
+  const seen = new Map<string, string>();
+  const taken = [...ctx.taken];
+  raw.forEach((item, i) => {
+    const where = `splitTables[${i}]`;
+    const bad = (reason: string, hint?: string): void => ctx.bad(where, reason, hint);
+    const e = rec(item);
+    const lo = canonHex(e.lo);
+    const hi = canonHex(e.hi);
+    if (lo === undefined) { bad(`lo=${JSON.stringify(e.lo)} is not a hex address`, didYouMean(e, "lo", ["low", "lo_table", "lotable", "start"])); return; }
+    if (hi === undefined) { bad(`hi=${JSON.stringify(e.hi)} is not a hex address`, didYouMean(e, "hi", ["high", "hi_table", "hitable", "end"])); return; }
+    const loV = parseInt(lo, 16), hiV = parseInt(hi, 16);
+    const id = `$${lo}/$${hi}`;
+    const first = seen.get(`${lo}:${hi}`);
+    if (first) { bad(`${id} is already decided by ${first} — one entry per (lo, hi)`); return; }
+    seen.set(`${lo}:${hi}`, where);
+    const comment = str(e.comment);
+    if (e.reject !== undefined) {
+      const reason = str(e.reject);
+      if (reason === undefined) { bad(`${id}: reject is empty — say why this is not a pointer table (a rejection with no reason is not a decision)`); return; }
+      out.push({ lo, hi, reject: reason, ...(comment ? { comment } : {}) });
+      return;
+    }
+    const count = e.count;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 1) { bad(`${id}: count must be a whole number of at least 1 (got ${JSON.stringify(count)})`); return; }
+    if (e.adjust !== undefined && (typeof e.adjust !== "number" || !Number.isInteger(e.adjust) || Math.abs(e.adjust) > 0xffff)) {
+      bad(`${id}: adjust must be a whole number (an RTS dispatch stores target-1, so adjust: 1), got ${JSON.stringify(e.adjust)}`); return;
+    }
+    const base = e.base === undefined ? undefined : str(e.base);
+    if (e.base !== undefined && (base === undefined || !ctx.names.has(base))) {
+      bad(`${id}: base ${JSON.stringify(e.base)} names no label, routine or segment label in this file`); return;
+    }
+    const loEnd = loV + count - 1, hiEnd = hiV + count - 1;
+    if (loEnd > 0xffff || hiEnd > 0xffff) { bad(`${id}: count ${count} runs a table past $FFFF`); return; }
+    if (ctx.image) {
+      for (const [name, a, b] of [["low", loV, loEnd], ["high", hiV, hiEnd]] as const) {
+        if (a < ctx.image.start || b > ctx.image.end) { bad(`${id}: the ${name} table ${$(a)}-${$(b)} is outside the image ${$(ctx.image.start)}-${$(ctx.image.end)}`); return; }
+      }
+    }
+    if (loV <= hiEnd && hiV <= loEnd) { bad(`${id}: the low table ${$(loV)}-${$(loEnd)} and the high table ${$(hiV)}-${$(hiEnd)} overlap`); return; }
+    for (const t of taken) {
+      for (const [a, b] of t.ranges) {
+        if ((loV <= b && loEnd >= a) || (hiV <= b && hiEnd >= a)) {
+          bad(`${id}: overlaps ${t.where} ${$(a)}-${$(b)}${t.where.startsWith("segments") ? " — a split table is data, never code" : ""}`); return;
+        }
+      }
+    }
+    taken.push({ where, ranges: [[loV, loEnd], [hiV, hiEnd]] });
+    out.push({
+      lo, hi, count,
+      ...(e.adjust !== undefined && e.adjust !== 0 ? { adjust: e.adjust as number } : {}),
+      ...(base ? { base } : {}),
+      ...(comment ? { comment } : {}),
+    });
+  });
+  return out;
 }
 
 function describeSegment(s: SegmentEntry): string {
@@ -306,6 +403,28 @@ export function nameLengthRefusal(projectDir: string, doc: AnnotationsDocument):
   if (max === undefined) return undefined;
   const long = namesTooLong(documentNames(doc), max);
   return long.length > 0 ? tooLongMessage(long, max) : undefined;
+}
+
+// ----------------------------------------------------------------- the image
+
+/**
+ * The span a PRG occupies, read off its own header — what a split table has to lie inside.
+ * Undefined when the bytes are not at hand (no `prg_path`, or a file that is not there): the
+ * range check is then left to the renderer, which refuses the same entry with the image in
+ * hand, and the door says so.
+ */
+export function imageSpanOf(projectDir: string, prgPath: string | undefined): { start: number; end: number } | undefined {
+  if (!prgPath) return undefined;
+  try {
+    const abs = resolve(projectDir, prgPath);
+    if (!existsSync(abs)) return undefined;
+    const bytes = readFileSync(abs);
+    if (bytes.length < 3) return undefined;
+    const start = bytes[0]! | (bytes[1]! << 8);
+    return { start, end: start + bytes.length - 3 };
+  } catch {
+    return undefined;
+  }
 }
 
 // ------------------------------------------------------------- the file name
@@ -400,6 +519,7 @@ export function documentSummary(doc: AnnotationsDocument): string {
   ];
   if (doc.pointerTables?.length) parts.push(`${doc.pointerTables.length} pointer tables`);
   if (doc.jumpTables?.length) parts.push(`${doc.jumpTables.length} jump tables`);
+  if (doc.splitTables?.length) parts.push(`${doc.splitTables.length} split table${doc.splitTables.length === 1 ? "" : "s"}`);
   if (doc.immediates?.length) parts.push(`${doc.immediates.length} immediates`);
   return parts.join(", ");
 }
@@ -416,7 +536,7 @@ export function readSections(path: string): { sections: RawSections; binary?: st
   return {
     sections: {
       segments: arr(o.segments), labels: arr(o.labels), routines: arr(o.routines),
-      pointerTables: arr(o.pointerTables), jumpTables: arr(o.jumpTables), immediates: arr(o.immediates),
+      pointerTables: arr(o.pointerTables), jumpTables: arr(o.jumpTables), splitTables: arr(o.splitTables), immediates: arr(o.immediates),
     },
     binary: str(o.binary),
   };

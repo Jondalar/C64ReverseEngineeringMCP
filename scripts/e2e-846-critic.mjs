@@ -188,8 +188,9 @@ try {
     check("D3: every check declares a severity", CHECKS.every((c) => !!c.severity) && CHECKS.length >= 7,
       `${CHECKS.length} checks`);
     check("D3: every check says what would settle it", CHECKS.every((c) => c.settleBy.length > 10));
-    check("exactly two checks are blocking",
-      CHECKS.filter((c) => c.severity === "blocking").length === 2,
+    check("exactly three checks are blocking (two from 846, split-table-undecided from 903)",
+      CHECKS.filter((c) => c.severity === "blocking").length === 3
+        && CHECKS.find((c) => c.id === "split-table-undecided")?.severity === "blocking",
       CHECKS.filter((c) => c.severity === "blocking").map((c) => c.id).join(", "));
     check("the critic tools are on the DEFAULT surface",
       DEFAULT_TOOLS.has("project_critique") && DEFAULT_TOOLS.has("critic_checks"));

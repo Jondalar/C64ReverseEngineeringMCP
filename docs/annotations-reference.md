@@ -78,9 +78,73 @@ monitor's label column, so in such a project no name ever wraps there.
   // OPTIONAL sections (omit entirely if unused):
   "pointerTables": [ { "start": "1000", "end": "101F", "stride": 2, "endian": "little", "comment": "..." } ],
   "jumpTables":   [ { "start": "1100", "end": "111F", "kind": "jmp", "comment": "..." } ],  // kind: jmp | jsr | word
+  "splitTables":  [ { "lo": "1021", "hi": "102A", "count": 9, "adjust": 0, "base": "handlers", "comment": "..." },
+                    { "lo": "2000", "hi": "2010", "reject": "string table indexed by a counter, not addresses" } ],
   "immediates":   [ { "address": "0820", "kind": "lo-of", "label": "sprite_ptr", "comment": "..." } ] // kind: lo-of | hi-of
 }
 ```
+
+## Split low/high tables
+
+Two parallel one-byte tables — one holding the low bytes, one the high bytes of `count`
+addresses (`LDA lo,X / STA $1D / LDA hi,X / STA $1E / JMP ($1D)`) — are what `splitTables`
+declares. Without it the listing prints `.byte $34,$7A,…` twice; with it every entry
+reads `.byte <handler_a, <handler_b, …` and `.byte >handler_a, >handler_b, …`, so
+moving a routine moves its table entries and a reader sees that byte *n* here and byte
+*n* there are one address.
+
+| Field | |
+|---|---|
+| `lo`, `hi` | hex addresses of the low-byte and the high-byte table |
+| `count` | entries; both tables are `count` bytes (required unless `reject`) |
+| `adjust` | `stored = target - adjust`, default 0. An RTS dispatch stores *target−1*, so `adjust: 1` |
+| `base` | a name from `labels` / `routines` / a segment label; every entry renders as `<(base+off)` / `>(base+off)` |
+| `comment` | free text |
+| `reject` | "this is not a pointer table, because …" — decides a found table the other way |
+
+Each entry is written, first that applies: against `base`, as `<label` / `>label` when
+the target has a name, as `<(segment_label+off)` when it lies inside a named segment, and
+otherwise as the bare address `<$xxxx`. A non-zero `adjust` is written into the expression
+(`<(handler-1)`), never folded into a number, so the 64tass listing carries it the same
+way. Both ranges are rendered as table data even when a `segments` entry already names
+them `lookup_table` — that is the normal case, and the segment's label stays the table's
+label.
+
+A split-table entry is **refused, not skipped**, naming the entry: a `lo` or `hi` that is
+not a hex address, `count` below 1, a table outside the image, the low and the high table
+overlapping each other, a table overlapping a `code` segment, a `pointerTables` /
+`jumpTables` range or another `splitTables` entry, a `base` that names nothing in the
+file, an empty `reject`, and an `adjust` that contradicts the code (an RTS dispatch the
+analysis saw stores *target−1*). A declaration is held to the rebuild like every other
+annotation: the assembler must reproduce the bytes.
+
+### A found table must be decided
+
+`analyze` finds split tables built three ways — `LDA lo,X / STA zp / LDA hi,X / STA zp+1`,
+the same stores into the operand of an instruction in the image, and the RTS dispatch
+`LDA hi,X / PHA / LDA lo,X / PHA / RTS` — and reports each once per `(lo, hi)` pair with
+its `shape`, a `countHint` when a `CPX`/`CPY #n` bounds the index nearby and an
+`adjustHint` of 1 for an RTS dispatch. A table found in **confirmed code** is an open
+obligation until the artifact's annotations hold a `splitTables` entry with that `lo` and
+`hi` — a declaration or a rejection with a reason. Nothing else closes it.
+
+- `analyze` and `disasm` never refuse; their answer ends with the open list, the shape,
+  the first targets, the hint, and the two ways to close each.
+- `agent_advance_phase` refuses to take the artifact past phase 5 while one is open. This
+  holds whatever `phaseGateStrict` says.
+- `project_critique` raises `split-table-undecided` (blocking) once per open table, so the
+  project is not done and `agent_next_step` recommends declaring them first.
+- Tables found in probable code are listed and never an obligation.
+
+The detector sees only those three shapes. A table whose index is computed in two steps,
+or whose pointer is copied before use, is not listed — **"0 open" is not "no tables"**.
+Reading the code finds the rest, and `splitTables` declares them; the list says so every
+time it is printed.
+
+A declaration is also knowledge: the graph holds one table node per entry and an edge from
+it to each in-image target (`graph_edges` on a handler shows the table that points at it),
+and a rejection is recorded on the table's node with its reason, so a later reader sees
+it was decided and not missed.
 
 ## Exact field names (the ones that bite)
 
@@ -152,7 +216,8 @@ core_4300_annotations.json
   - $43A8-$43BF  pointer_table  "tbl_all"
 ```
 
-Give each range its own start, or merge the two into one entry. Ranges that merely
+A `splitTables` entry that cannot be taken (see *Split low/high tables* above) is refused
+the same way, every offender named by its index. Give each range its own start, or merge the two into one entry. Ranges that merely
 **overlap** at different starts are fine — reshaping a range across an analysis boundary
 is what they are for — and are not refused.
 
@@ -165,6 +230,10 @@ of them:
 |---|---|---|
 | with `analysis_json` | applied | applied |
 | without | applied | **not applied** — retyping a byte range needs the analyser's segments |
+
+(`splitTables` belongs to the right-hand column. An annotations file addresses the file's
+own bytes; a split table inside a relocated block is not translated to its runtime
+address.)
 
 An annotated address **outside** the rendered file is named only on the analysis path,
 where the analyser records the reference; the legacy listing does not reference it and

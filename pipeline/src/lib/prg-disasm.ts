@@ -16,7 +16,7 @@ import {
   SplitPointerTableFact,
   TableUsageFact,
 } from "../analysis/types";
-import { AnnotationsFile, AnnotationsIndex, assertNoDuplicateSegmentStarts, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
+import { AnnotationsFile, AnnotationsFileRefusal, AnnotationsIndex, assertNoDuplicateSegmentStarts, assertSplitTablesValid, buildAnnotationsIndex, loadAnnotations, parseHex, type SplitTableIndexEntry } from "./annotations";
 import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
@@ -165,6 +165,10 @@ interface RenderAnalysisContext {
   pointerFacts: IndirectPointerConstructionFact[];
   tableFacts: TableUsageFact[];
   splitPointerFacts: SplitPointerTableFact[];
+  /** every split-table fact, whatever its provenance — what a declaration is held against */
+  splitTableEvidence: SplitPointerTableFact[];
+  /** the ranges `splitTables[]` declared, per part; a segment inside one renders as expressions */
+  splitRanges: Array<{ start: number; end: number; part: "lo" | "hi"; entry: SplitTableIndexEntry }>;
   displayStates: DisplayStateFact[];
   displayTransfers: DisplayTransferFact[];
   ramAccesses: RamAccessFact[];
@@ -1069,6 +1073,8 @@ function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnal
     pointerFacts: report.codeSemantics?.indirectPointers?.filter((fact) => fact.provenance === "confirmed_code") ?? [],
     tableFacts: report.codeSemantics?.tableUsages?.filter((fact) => fact.provenance === "confirmed_code") ?? [],
     splitPointerFacts: report.codeSemantics?.splitPointerTables?.filter((fact) => fact.provenance === "confirmed_code") ?? [],
+    splitTableEvidence: report.codeSemantics?.splitPointerTables ?? [],
+    splitRanges: [],
     displayStates: report.codeSemantics?.displayStates ?? [],
     displayTransfers: report.codeSemantics?.displayTransfers ?? [],
     ramAccesses: report.codeSemantics?.ramAccesses ?? [],
@@ -1496,8 +1502,8 @@ function reclassifySegmentRanges(
   }
 }
 
-// Apply pointerTables[] and jumpTables[] annotations: reclassify the listed
-// ranges so the renderer emits them as data tables rather than raw bytes, and
+// Apply pointerTables[], jumpTables[] and splitTables[] annotations: reclassify the
+// listed ranges so the renderer emits them as data tables rather than raw bytes, and
 // seed the label set with each entry's target so cross-references resolve.
 function applyAnnotationDataTables(context: RenderAnalysisContext, prg: PrgImage): void {
   const annotations = context.annotations;
@@ -1522,7 +1528,70 @@ function applyAnnotationDataTables(context: RenderAnalysisContext, prg: PrgImage
     }
   }
 
+  applyAnnotationSplitTables(context, prg, ranges);
+
   reclassifySegmentRanges(context, ranges);
+}
+
+/** The target a split-table entry stores at index `i` (adjust applied), or undefined past the image. */
+function splitTableTarget(prg: PrgImage, entry: SplitTableIndexEntry, i: number): { low: number; high: number; target: number } | undefined {
+  const lowOffset = entry.lo + i - prg.loadAddress;
+  const highOffset = entry.hi + i - prg.loadAddress;
+  if (lowOffset < 0 || highOffset < 0 || lowOffset >= prg.data.length || highOffset >= prg.data.length) return undefined;
+  const low = prg.data[lowOffset]!;
+  const high = prg.data[highOffset]!;
+  return { low, high, target: (low | (high << 8)) + entry.adjust };
+}
+
+// splitTables[]: both ranges become table segments, every in-image target gets a label (as
+// the word tables do), and a declaration is held against what the code does and against the
+// analysis — a table is data, so a range under `code` is refused, and an `adjust` that
+// contradicts an RTS dispatch the analysis saw is refused rather than rendered into a
+// listing that would still rebuild.
+function applyAnnotationSplitTables(
+  context: RenderAnalysisContext,
+  prg: PrgImage,
+  ranges: Array<{ start: number; end: number; kind: SegmentKind }>,
+): void {
+  const annotations = context.annotations;
+  if (!annotations || annotations.splitTables.length === 0) return;
+  const image: [number, number] = [prg.loadAddress, prg.loadAddress + prg.data.length - 1];
+  const hex4 = (n: number) => `$${formatHex16(n)}`;
+  const problems: string[] = [];
+  for (const entry of annotations.splitTables) {
+    if (entry.rejected !== undefined) continue;
+    const id = `${hex4(entry.lo)}/${hex4(entry.hi)}`;
+    const parts: Array<["lo" | "hi", number]> = [["lo", entry.lo], ["hi", entry.hi]];
+    if (parts.some(([, start]) => start < image[0] || start + entry.count - 1 > image[1])) {
+      problems.push(`${id}: a table lies outside the image ${hex4(image[0])}-${hex4(image[1])}`);
+      continue;
+    }
+    const codeUnder = context.segments.find((segment) =>
+      (segment.kind === "code" || segment.kind === "basic_stub")
+      && parts.some(([, start]) => segment.start <= start + entry.count - 1 && segment.end >= start));
+    if (codeUnder) {
+      problems.push(`${id}: the range overlaps a ${codeUnder.kind} segment ${hex4(codeUnder.start)}-${hex4(codeUnder.end)} — a split table is data; reclassify those bytes with a segments[] entry if they are not code`);
+      continue;
+    }
+    const evidence = context.splitTableEvidence.find((fact) => fact.lowTableBase === entry.lo && fact.highTableBase === entry.hi);
+    if (evidence?.adjustHint !== undefined && evidence.adjustHint !== entry.adjust) {
+      problems.push(`${id}: adjust ${entry.adjust} contradicts the code at ${hex4(evidence.start)}-${hex4(evidence.end)} — it is an RTS dispatch, which stores target-${evidence.adjustHint}, so adjust must be ${evidence.adjustHint}`);
+      continue;
+    }
+    for (const [part, start] of parts) {
+      ranges.push({ start, end: start + entry.count - 1, kind: "pointer_table" });
+      context.splitRanges.push({ start, end: start + entry.count - 1, part, entry });
+    }
+    for (let i = 0; i < entry.count; i += 1) {
+      const resolved = splitTableTarget(prg, entry, i);
+      if (resolved && resolved.target >= image[0] && resolved.target <= image[1]) context.labelSet.add(resolved.target);
+    }
+  }
+  if (problems.length > 0) {
+    throw new AnnotationsFileRefusal(
+      [`${problems.length} splitTables ${problems.length === 1 ? "entry" : "entries"} refused:`, ...problems.map((p) => `  ${p}`), "", "Nothing was rendered."].join("\n"),
+    );
+  }
 }
 
 function seedWordTableTargets(
@@ -2469,6 +2538,57 @@ function emitPointerTableSegment(
   }
 }
 
+// `<expr` / `>expr` for one entry of a split table: first that applies — the declared base,
+// a label at the target, a labelled segment or instruction the target is inside, then the
+// bare address. A non-zero adjust is written into the expression, never folded into a number.
+function splitTableExpression(target: number, entry: SplitTableIndexEntry, analysis: RenderAnalysisContext): string {
+  const withAdjust = (expr: string): string => (entry.adjust === 0 ? expr : `(${expr}${entry.adjust > 0 ? "-" : "+"}${Math.abs(entry.adjust)})`);
+  if (entry.base) {
+    const off = target - entry.base.address;
+    return off === 0 ? withAdjust(entry.base.name) : `(${entry.base.name}${off > 0 ? "+" : "-"}${Math.abs(off)}${entry.adjust === 0 ? "" : `${entry.adjust > 0 ? "-" : "+"}${Math.abs(entry.adjust)}`})`;
+  }
+  const inImage = target >= analysis.prg.loadAddress && target < analysis.prg.loadAddress + analysis.prg.data.length;
+  if (inImage) {
+    const code = findCodeLabelExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress);
+    if (code) return withAdjust(code);
+    const segmentOwner = analysis.segmentOwnerByAddress.get(target);
+    if (segmentOwner !== undefined && analysis.labelSet.has(segmentOwner)) {
+      const off = target - segmentOwner;
+      return withAdjust(off === 0 ? makeLabel(segmentOwner) : `${makeLabel(segmentOwner)}+${formatPlainOffset(off)}`);
+    }
+  } else {
+    const named = annotatedOperandName(target);
+    if (named) return withAdjust(named);
+  }
+  // A "target" outside 0..$FFFF is no address (a stored byte pair plus a large adjust): the number
+  // goes out as written so the assembler still arrives at the stored byte.
+  return withAdjust(target >= 0 && target <= 0xffff ? `$${target.toString(16).toUpperCase().padStart(4, "0")}` : `${target}`);
+}
+
+function emitSplitTableSegment(
+  prg: PrgImage,
+  segment: Segment,
+  range: RenderAnalysisContext["splitRanges"][number],
+  lines: string[],
+  analysis: RenderAnalysisContext,
+): void {
+  let address = segment.start;
+  while (address <= segment.end) {
+    if (analysis.labelSet.has(address) && address !== segment.start) {
+      lines.push(`${makeLabel(address)}:${labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)}`);
+    }
+    const items: string[] = [];
+    for (; address <= segment.end && items.length < 8; address += 1) {
+      if (items.length > 0 && analysis.labelSet.has(address)) break;
+      const resolved = splitTableTarget(prg, range.entry, address - range.start);
+      if (!resolved) { address = segment.end + 1; break; }
+      const expr = splitTableExpression(resolved.target, range.entry, analysis);
+      items.push(`${range.part === "lo" ? "<" : ">"}${expr}`);
+    }
+    if (items.length > 0) lines.push(`      .byte ${items.join(", ")}`);
+  }
+}
+
 function canRenderAsKickAsmText(bytes: number[]): boolean {
   return bytes.every((value) => value >= 0x20 && value <= 0x7e);
 }
@@ -3127,7 +3247,12 @@ function renderOneAnalysisSegment(segment: Segment, prg: PrgImage, analysis: Ren
     lines.push(`${makeLabel(segment.start)}:${labelCommentTextFromAnalysis(segment.start, analysis.xrefsByTarget)}`);
   }
 
-  if (segment.kind === "code" || segment.kind === "basic_stub") {
+  // A declared split table wins over whatever kind the segment carries: the same bytes are
+  // routinely a `lookup_table` segment as well, and that is the normal case.
+  const splitRange = analysis.splitRanges.find((r) => segment.start >= r.start && segment.end <= r.end);
+  if (splitRange) {
+    emitSplitTableSegment(prg, segment, splitRange, lines, analysis);
+  } else if (segment.kind === "code" || segment.kind === "basic_stub") {
     renderCodeSegment(segment, prg, analysis, lines);
   } else if (segment.kind === "petscii_text") {
     const hasInteriorLabels = Array.from(analysis.labelSet).some((address) => address > segment.start && address <= segment.end);
@@ -3363,6 +3488,7 @@ function emptyAnnotationsIndex(): AnnotationsIndex {
     routinesByAddress: new Map(),
     pointerTables: [],
     jumpTables: [],
+    splitTables: [],
     immediatesByAddress: new Map(),
     skipped: [],
   };
@@ -3921,7 +4047,7 @@ function countAnnotations(index: AnnotationsIndex): { names: number; structural:
   return {
     names: index.labelsByAddress.size,
     structural: index.segmentAnnotations.length + index.pointerTables.length
-      + index.jumpTables.length + index.immediatesByAddress.size,
+      + index.jumpTables.length + index.splitTables.length + index.immediatesByAddress.size,
   };
 }
 
@@ -4019,6 +4145,8 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   // the resolved address.
   if (resolvedAnnotationsFile && usedAnnotationsPath) {
     assertNoDuplicateSegmentStarts(resolvedAnnotationsFile, usedAnnotationsPath);
+    // …and the split tables against the image the loader could not see
+    assertSplitTablesValid(resolvedAnnotationsFile, usedAnnotationsPath, { start: prg.loadAddress, end: prg.loadAddress + prg.data.length - 1 });
   }
   const annotationsIndex = resolvedAnnotationsFile ? buildAnnotationsIndex(resolvedAnnotationsFile) : undefined;
   if (annotationsIndex && analysisContext) {

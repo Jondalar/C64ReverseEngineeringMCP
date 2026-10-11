@@ -90,9 +90,10 @@ export async function critique(projectDir: string): Promise<CriticReport> {
     title: string,
     proof: string,
     severity?: CriticFinding["severity"],
+    settleBy?: string,
   ): void => {
     const def = CHECK_BY_ID.get(check)!;
-    findings.push({ check: def.id, severity: severity ?? def.severity, title, proof, settleBy: def.settleBy });
+    findings.push({ check: def.id, severity: severity ?? def.severity, title, proof, settleBy: settleBy ?? def.settleBy });
   };
 
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
@@ -174,6 +175,23 @@ export async function critique(projectDir: string): Promise<CriticReport> {
         add("finding-without-evidence", `"${f.title}" asserts without proof`, `finding ${f.id}: evidence[] empty, no addressRange`);
       }
     }
+
+    // ------------------------------------------- split tables found and undecided (903)
+    ran.push("split-table-undecided");
+    try {
+      const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
+      const { projectSplitObligations, describeObligation, closingExample } = await import("../project-knowledge/split-obligations.js");
+      for (const { artifact, report } of projectSplitObligations(new ProjectKnowledgeService(projectDir).listArtifacts())) {
+        for (const o of report.open) {
+          const pair = `$${hex(o.lo).toUpperCase()}/$${hex(o.hi).toUpperCase()}`;
+          add("split-table-undecided",
+            `split table ${pair} in ${artifact.title ?? artifact.id} is found and undecided`,
+            `${describeObligation(o)} — confirmed code, analysis ${basename(report.analysisPath)}, artifact ${artifact.id}`,
+            undefined,
+            `write the splitTables[] entry for ${pair} in ${artifact.title ?? artifact.id}'s annotations (write_annotations / merge_annotations), then run disasm — ${closingExample(o)}`);
+        }
+      }
+    } catch { /* a project with no artifact store has no obligations; the other checks still ran */ }
 
     // ------------------------------------------------------- the model layer
     const { listBoundaries } = await import("../model/store.js");

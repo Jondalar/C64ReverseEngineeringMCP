@@ -51,7 +51,7 @@ export interface ResolutionInput {
 
 // ------------------------------------------------------------------- claims
 
-type ClaimKind = "segment" | "label" | "routine" | "name";
+type ClaimKind = "segment" | "label" | "routine" | "name" | "split";
 
 interface Claim {
   fragment: string;
@@ -71,6 +71,14 @@ interface Contest {
 }
 
 const $ = (hex: string): string => `$${hex}`;
+
+function describeSplit(e: Record<string, unknown>): string {
+  if (e.reject !== undefined) return `$${String(e.lo)}/$${String(e.hi)}  REJECTED: ${String(e.reject)}`;
+  const parts = [`count ${String(e.count)}`];
+  if (e.adjust !== undefined) parts.push(`adjust ${String(e.adjust)}`);
+  if (e.base !== undefined) parts.push(`base ${String(e.base)}`);
+  return `$${String(e.lo)}/$${String(e.hi)}  ${parts.join(", ")}`;
+}
 
 function describeSegment(e: Record<string, unknown>): string {
   return `${$(String(e.start))}-${$(String(e.end))}  ${String(e.kind)}${e.label ? `  "${String(e.label)}"` : ""}`;
@@ -102,6 +110,7 @@ export function planMerge(
   fragments: FragmentInput[],
   resolutions: ResolutionInput[],
   binary: string,
+  image?: { start: number; end: number },
 ): MergeOutcome {
   if (fragments.length === 0) {
     return { refusal: "REFUSED — no fragments. Nothing was written.\n\nPass `fragments: [{ name, ... }]` — each one a reading, with a name, because the name is the WHO in \"who claimed what\"." };
@@ -113,7 +122,7 @@ export function planMerge(
   const problems: Problem[] = [];
   for (const [i, f] of fragments.entries()) {
     const origin = f.path ? f.path : `fragments[${i}]`;
-    let sections: RawSections = { segments: f.segments, labels: f.labels, routines: f.routines, pointerTables: f.pointerTables, jumpTables: f.jumpTables, immediates: f.immediates };
+    let sections: RawSections = { segments: f.segments, labels: f.labels, routines: f.routines, pointerTables: f.pointerTables, jumpTables: f.jumpTables, splitTables: f.splitTables, immediates: f.immediates };
     if (f.path) {
       const read = readSections(f.path);
       if ("refusal" in read) return { refusal: `REFUSED — fragment ${f.name ?? `fragments[${i}]`}: ${read.refusal}\n\nNothing was written.` };
@@ -124,7 +133,7 @@ export function planMerge(
     const clash = seenNames.get(name);
     if (clash) return { refusal: `REFUSED — two fragments are both called "${name}" (${clash} and ${origin}). Nothing was written.\n\nA resolution picks a winner BY NAME, so two fragments may not share one.` };
     seenNames.set(name, origin);
-    const own = buildAnnotationsDocument(sections, binary);
+    const own = buildAnnotationsDocument(sections, binary, image);
     for (const p of own.problems) problems.push({ ...p, where: `${name}.${p.where}` });
     named.push({ name, sections, origin });
   }
@@ -160,6 +169,11 @@ export function planMerge(
     for (const r of doc.routines) {
       claim("routine", r.address, frag, r.name, `"${r.name}"`, { ...r } as unknown as Record<string, unknown>);
       push(nameSites, r.name, { fragment: frag, kind: "routine", address: r.address, described: `routine ${$(r.address)}` });
+    }
+    // a split table is claimed by its pair; two readings that state it the same way agree
+    for (const t of doc.splitTables ?? []) {
+      const entry = { ...t } as unknown as Record<string, unknown>;
+      claim("split", `${t.lo}-${t.hi}`, frag, `${t.count ?? ""}|${t.adjust ?? 0}|${t.base ?? ""}|${t.reject ?? ""}`, describeSplit(entry), entry);
     }
   }
 
@@ -266,7 +280,7 @@ export function planMerge(
   }
 
   // ---- 4. build the merged document, winners applied
-  const merged: RawSections = { segments: [], labels: [], routines: [], pointerTables: [], jumpTables: [], immediates: [] };
+  const merged: RawSections = { segments: [], labels: [], routines: [], pointerTables: [], jumpTables: [], splitTables: [], immediates: [] };
   const notes: string[] = [];
   const taken = new Set<string>();
   const put = (kind: ClaimKind, address: string, entry: Record<string, unknown>): void => {
@@ -276,6 +290,7 @@ export function planMerge(
     const use = resolvedEntry.get(key) ?? entry;
     if (kind === "segment") merged.segments!.push(use);
     else if (kind === "label") merged.labels!.push(use);
+    else if (kind === "split") merged.splitTables!.push(use);
     else merged.routines!.push(use);
   };
   for (const c of [...byKey.values()].sort(byAddress)) {
@@ -307,7 +322,7 @@ export function planMerge(
     for (const t of doc.immediates ?? []) merged.immediates!.push(t as unknown as Record<string, unknown>);
   }
 
-  const final = buildAnnotationsDocument(merged, binary);
+  const final = buildAnnotationsDocument(merged, binary, image);
   if (final.problems.length > 0) {
     return { refusal: renderProblems("REFUSED — the merged file would not be accepted. Nothing was written and nothing was recorded.", final.problems) };
   }
@@ -321,7 +336,7 @@ function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
 }
 
 function byAddress(a: { address: string }, b: { address: string }): number {
-  return parseInt(a.address, 16) - parseInt(b.address, 16);
+  return parseInt(a.address, 16) - parseInt(b.address, 16) || a.address.localeCompare(b.address);
 }
 
 /** `segment:$82e6` and `SEGMENT:82E6` are the key the refusal printed. */
@@ -330,6 +345,10 @@ function normaliseKey(raw: string): string {
   const k = (kind ?? "").trim().toLowerCase();
   const tail = rest.join(":").trim();
   if (k === "name") return `name:${tail}`;
+  if (k === "split") {
+    const [lo, hi] = tail.split(/[-/]/u).map((x) => canonHex(x.trim().replace(/^\$/u, "")));
+    return lo && hi ? `split:${lo}-${hi}` : `split:${tail}`;
+  }
   const hex = canonHex(tail);
   return hex ? `${k}:${hex}` : `${k}:${tail}`;
 }
@@ -337,15 +356,16 @@ function normaliseKey(raw: string): string {
 /** An entry a resolution supplies directly — checked the same way as any other. */
 function buildOne(c: Contest, value: Record<string, unknown>): { entry: Record<string, unknown>; described: string } | { refusal: string } {
   const template = c.claims[0]!.entry;
-  const section = c.kind === "segment" ? "segments" : c.kind === "label" ? "labels" : "routines";
+  const section = c.kind === "segment" ? "segments" : c.kind === "label" ? "labels" : c.kind === "split" ? "splitTables" : "routines";
   // a value may state only what it changes; the rest comes from the first claim, so a
   // pure rename is `{ label: "exit_door_probe" }` and nothing else.
   const entry: Record<string, unknown> = { ...template, ...value };
-  entry[c.kind === "segment" ? "start" : "address"] = c.address;
+  if (c.kind === "split") { const [lo, hi] = c.address.split("-"); entry.lo = lo; entry.hi = hi; }
+  else entry[c.kind === "segment" ? "start" : "address"] = c.address;
   const built = buildAnnotationsDocument({ [section]: [entry] } as RawSections, "");
   if (built.problems.length > 0) return { refusal: built.problems.map((p) => p.reason).join("; ") };
-  const out = (built.doc[section as "segments" | "labels" | "routines"] as unknown as Record<string, unknown>[])[0]!;
-  const described = c.kind === "segment" ? describeSegment(out) : `"${String(out.label ?? out.name)}"`;
+  const out = (built.doc[section as "segments" | "labels" | "routines" | "splitTables"] as unknown as Record<string, unknown>[])[0]!;
+  const described = c.kind === "segment" ? describeSegment(out) : c.kind === "split" ? describeSplit(out) : `"${String(out.label ?? out.name)}"`;
   return { entry: out, described };
 }
 
@@ -388,7 +408,7 @@ export interface ResolutionRecord {
 /** One resolution, as the finding that outlives the session. */
 export function resolutionFinding(entry: MergePlan["settled"][number], outputPath: string): ResolutionRecord {
   const { contest, resolution, winning } = entry;
-  const label = contest.kind === "name" ? `name "${contest.key.slice(5)}"` : `${contest.kind} ${$(contest.address)}`;
+  const label = contest.kind === "name" ? `name "${contest.key.slice(5)}"` : contest.kind === "split" ? `split table ${contest.address.replace("-", "/")}` : `${contest.kind} ${$(contest.address)}`;
   const heading = resolution.winner
     ? `${label} — ${resolution.winner} over ${[...new Set(contest.claims.map((c) => c.fragment))].filter((f) => f !== resolution.winner).join(", ")}`
     : `${label} — a value neither reading proposed`;
@@ -403,7 +423,12 @@ export function resolutionFinding(entry: MergePlan["settled"][number], outputPat
   if (!resolution.winner) lines.push(`  (none)  ${winning.described}   <- WON, supplied by the resolution`);
   lines.push("", `Why: ${resolution.why}`, "", `Merged into ${outputPath} by merge_annotations.`);
   const start = parseInt(contest.address, 16);
-  const endHex = contest.kind === "segment" ? String((winning.entry as { end?: string }).end ?? contest.address) : contest.address;
+  const splitCount = Number((winning.entry as { count?: number }).count);
+  const endHex = contest.kind === "segment"
+    ? String((winning.entry as { end?: string }).end ?? contest.address)
+    : contest.kind === "split"
+      ? (start + (Number.isInteger(splitCount) && splitCount > 0 ? splitCount - 1 : 0)).toString(16)
+      : contest.address;
   return {
     id: `annmerge-${contest.key.replace(/[^A-Za-z0-9]+/gu, "-").toLowerCase()}`,
     title: `Merge resolution: ${heading}`,

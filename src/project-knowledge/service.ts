@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_LABEL_LENGTH } from "./naming.js";
+import { openObligationsFor, formatPhaseRefusal } from "./split-obligations.js";
 import type { PlatformTag } from "../platform-kb/schema.js";
 import { DEFAULT_PROJECT_MODEL, isModelName } from "./machine-model.js";
 
@@ -836,6 +837,14 @@ export class ArtifactOutsideProjectError extends Error {
   constructor(readonly absPath: string, readonly projectRoot: string) {
     super(`${absPath} lies outside the project (${projectRoot})`);
     this.name = "ArtifactOutsideProjectError";
+  }
+}
+
+/** A phase move the project refuses by rule — an answer for the caller, not a crash. */
+export class PhaseGateRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PhaseGateRefusal";
   }
 }
 
@@ -2435,6 +2444,8 @@ export class ProjectKnowledgeService {
      * them the two are the same and nothing changes.
      */
     relocations?: Array<{ fileStart: number; fileEnd: number; runtimeAddr: number }>;
+    /** Spec 903 D6 — the bytes annotated, so a split table's targets become edges */
+    image?: { loadAddress: number; data: Uint8Array };
   }): {
     routines: number;
     labels: number;
@@ -2468,7 +2479,7 @@ export class ProjectKnowledgeService {
         annotationsArtifactId = annotationsArtifact.id;
       }
     }
-    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force, relocations: args.relocations });
+    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force, relocations: args.relocations, image: args.image });
     if (r.changed) {
       this.appendTimelineEvent({
         kind: "note",
@@ -3413,6 +3424,13 @@ export class ProjectKnowledgeService {
     }
     if (toPhase - current > 1 && !evidence) {
       throw new Error(`Skipping more than one phase forward (${current} -> ${toPhase}) requires an evidence string.`);
+    }
+    // Spec 903 D5 — the one phase rule that always binds (not behind phaseGateStrict): a split
+    // table found in confirmed code and never declared or rejected is what phase 5
+    // ("annotations written, rebuild byte-identical") leaves unfinished.
+    if (toPhase > 5) {
+      const open = openObligationsFor(store.items, artifactId);
+      if (open.length > 0) throw new PhaseGateRefusal(formatPhaseRefusal(artifact.title, toPhase, open));
     }
     const updated: ArtifactRecord = { ...artifact, phase: toPhase, updatedAt: nowIso() };
     this.storage.saveArtifacts({
