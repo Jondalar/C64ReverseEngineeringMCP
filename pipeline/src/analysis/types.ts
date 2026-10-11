@@ -325,13 +325,22 @@ export interface IndirectPointerConstructionFact {
   reasons: string[];
 }
 
+/** How the code consumes the two tables. */
+export type SplitTableShape = "zp_pointer" | "self_mod_operand" | "rts_dispatch";
+
 export interface SplitPointerTableFact {
   start: number;
   end: number;
   lowTableBase: number;
   highTableBase: number;
-  pointerBase: number;
+  /** zp_pointer: the zero-page cell of the low byte; self_mod_operand: the patched operand's address; rts_dispatch: none (the stack). */
+  pointerBase?: number;
   indexRegister: IndexedRegister;
+  shape: SplitTableShape;
+  /** `n` of a `CPX/CPY #n` that bounds the index near the loads, when one was found. A hint: the declaration states the count. */
+  countHint?: number;
+  /** What the table stores relative to the target: 1 for an RTS dispatch (target-1). */
+  adjustHint?: number;
   provenance: CodeProvenance;
   confidence: number;
   sampleTargets: number[];

@@ -27,12 +27,30 @@ function uniqueByKey<T>(items: T[], keyFn: (item: T) => string): T[] {
   return result;
 }
 
+function describeSink(fact: SplitPointerTableFact): string {
+  if (fact.shape === "rts_dispatch") {
+    return "RTS dispatch (target-1 pushed on the stack)";
+  }
+  const base = fact.pointerBase ?? 0;
+  if (fact.shape === "self_mod_operand") {
+    return `patched operand ${formatAddress(base)}-${formatAddress((base + 1) & 0xffff)}`;
+  }
+  return `ZP ${formatAddress(base)}-${formatAddress((base + 1) & 0xff)}`;
+}
+
 function summarizeSplitPointerTable(fact: SplitPointerTableFact): string[] {
   const lines: string[] = [];
-  lines.push(`### ${formatAddress(fact.lowTableBase)} + ${formatAddress(fact.highTableBase)} -> ZP ${formatAddress(fact.pointerBase)}-${formatAddress((fact.pointerBase + 1) & 0xff)}`);
+  lines.push(`### ${formatAddress(fact.lowTableBase)} + ${formatAddress(fact.highTableBase)} -> ${describeSink(fact)}`);
   lines.push(`- code: ${formatAddress(fact.start)}-${formatAddress(fact.end)}`);
   lines.push(`- provenance: \`${fact.provenance}\``);
   lines.push(`- index: \`${fact.indexRegister.toUpperCase()}\``);
+  lines.push(`- shape: \`${fact.shape}\``);
+  if (fact.countHint !== undefined) {
+    lines.push(`- count hint: ${fact.countHint} (from a CPX/CPY bound near the loads)`);
+  }
+  if (fact.adjustHint !== undefined) {
+    lines.push(`- adjust hint: ${fact.adjustHint} (the table stores target-${fact.adjustHint})`);
+  }
   lines.push(`- confidence: ${formatConfidence(fact.confidence)}`);
   lines.push(`- sample targets: ${fact.sampleTargets.map(formatAddress).join(", ") || "-"}`);
   lines.push(`- reasons:`);
@@ -79,7 +97,7 @@ export function renderPointerTableMarkdown(report: AnalysisLike): string {
       if (left.highTableBase !== right.highTableBase) {
         return left.highTableBase - right.highTableBase;
       }
-      return left.pointerBase - right.pointerBase;
+      return (left.pointerBase ?? -1) - (right.pointerBase ?? -1);
     }),
     (fact) => `${fact.lowTableBase}:${fact.highTableBase}:${fact.pointerBase}:${fact.indexRegister}`,
   );
