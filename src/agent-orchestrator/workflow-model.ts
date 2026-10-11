@@ -127,6 +127,15 @@ export const C64RE_WORKFLOW_STEPS = [
     branches: ["record-knowledge", "runtime-trace", "change-validate"],
   },
   {
+    id: "declare-split-tables",
+    phase: "semantic-annotation",
+    actor: "llm",
+    defaultTool: "write_annotations",
+    title: "Declare or reject the split low/high tables the analysis found",
+    completionChecks: ["split-tables-decided"],
+    branches: ["static-disassemble", "record-knowledge", "runtime-trace"],
+  },
+  {
     id: "runtime-trace",
     phase: "runtime-trace",
     actor: "runtime",

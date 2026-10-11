@@ -905,7 +905,14 @@ export interface BoundaryCounts {
 export interface AnnotationFileResult extends FileSummary, BoundaryCounts {
   /** false when the file's hash equals the last import's (nothing re-read) */
   changed: boolean;
+  /** Spec 903 D6 — split-table entries (declared + rejected) the file put into the graph */
+  splitTables?: number;
 }
+
+/** The bytes the annotations are about, for the one thing the file alone cannot say: what a split table points at. */
+export interface AnnotatedImage { loadAddress: number; data: Uint8Array }
+
+const SPLIT_TABLE_RULE = "split-table-903";
 
 const BOUNDARY_RULE = "826.0-T3";
 /** a human `segment` of these kinds names code, not data — it gets no data_block */
@@ -1012,7 +1019,7 @@ function assertNoDuplicateSegmentStarts(
  * FILE produced (producer '822', source_path = this file) are replaced — a row
  * the door has since renamed (producer 'human') is kept (D3: "kept-door-row").
  */
-export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[] } = {}): AnnotationFileResult {
+export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[]; image?: AnnotatedImage } = {}): AnnotationFileResult {
   // Spec 842 D4 — when the caller knows the relocations, the graph can key on the
   // runtime address and still record where the bytes are stored.
   const relocations = options.relocations;
@@ -1037,7 +1044,7 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   }
   const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
   const actx: Ctx = contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
-  let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[] };
+  let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[]; splitTables?: unknown[] };
   const noBoundary: BoundaryCounts = { attached: 0, dataBlocks: 0, splits: 0, unseen: 0, unseededOwner: 0 };
   try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {
     const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: -1, changed, ...noBoundary };
@@ -1104,6 +1111,85 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
       `segment:${hex4(rel.address)}`,
       comment || label ? { kind: "segment", title: `${kind} $${hex4U(rel.address)}-$${hex4U(rel.endAddress ?? rel.address)}`, body: comment, name: label } : undefined);
   }
+  // ---- Spec 903 D6 — a split table is knowledge, so it is in the graph and not only in the listing:
+  // one `split_table` node per entry (a declaration, or the rejection with its reason on it) and,
+  // for a declaration, one REFERENCES_DATA edge from the table to each target — the edge kind that
+  // already means "what points into it, the jump and pointer tables a call graph never shows".
+  const tableEdges: EdgeDraft[] = [];
+  let tableAddrTargets = 0;
+  const seenTableIds = new Set<string>();
+  const nameAtLo = new Map<number, string>();
+  for (const l of (parsed.labels ?? []) as Array<Record<string, unknown>>) { const a = parseHex(l.address); if (a !== undefined && typeof l.label === "string") nameAtLo.set(a, l.label.trim()); }
+  for (const s of (parsed.segments ?? []) as Array<Record<string, unknown>>) { const a = parseHex(s.start); if (a !== undefined && !nameAtLo.has(a) && typeof s.label === "string" && s.label.trim()) nameAtLo.set(a, s.label.trim()); }
+  const targetNodeId = (address: number): string | undefined => {
+    for (const d of fileNodeDrafts.values()) if ((d.kind === "routine" || d.kind === "label") && d.address === address) return d.id;
+    const row = db.prepare("SELECT id FROM nodes WHERE address = ? AND space = ? AND owner IS ? AND kind IN ('routine','label') ORDER BY (kind = 'routine') DESC, id LIMIT 1")
+      .get(address, actx.space, actx.owner ?? null) as { id: string } | undefined;
+    if (row) return row.id;
+    try {
+      const id = deriveProjectId({ slug, ctx: { space: actx.space }, kind: "addr", address });
+      if (!db.prepare("SELECT 1 FROM nodes WHERE id = ?").get(id) && !fileNodeDrafts.has(`${id} human`)) {
+        fileNodeDrafts.set(`${id} human`, { id, layer: "human", kind: "addr", ctx: { space: actx.space }, address, endAddress: null, name: null, attrs: { role: "split-table-target", captured_at: now }, origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null });
+      }
+      tableAddrTargets += 1;
+      return id;
+    } catch { return undefined; }
+  };
+  ((parsed.splitTables ?? []) as Array<Record<string, unknown>>).forEach((raw, index) => {
+    const lo = parseHex(raw?.lo);
+    const hi = parseHex(raw?.hi);
+    if (lo === undefined || hi === undefined) { fs.dropped += 1; return; }
+    const reason = typeof raw.reject === "string" ? raw.reject.trim() : undefined;
+    const count = typeof raw.count === "number" && Number.isInteger(raw.count) && raw.count >= 1 ? raw.count : undefined;
+    if (raw.reject !== undefined ? !reason : count === undefined) { fs.dropped += 1; return; }
+    let id: string;
+    try { id = deriveProjectId({ slug, ctx: actx, kind: "split_table", address: lo }); } catch { fs.dropped += 1; return; }
+    if (seenTableIds.has(id)) { fs.dropped += 1; return; }
+    seenTableIds.add(id);
+    const adjust = typeof raw.adjust === "number" && Number.isInteger(raw.adjust) ? raw.adjust : 0;
+    const comment = typeof raw.comment === "string" && raw.comment.trim() ? raw.comment.trim() : null;
+    const name = `split table $${hex4U(lo)}/$${hex4U(hi)}`;
+    const legacyId = `split_table:${hex4(lo)}-${hex4(hi)}`;
+    const end = count !== undefined ? Math.min(0xffff, lo + count - 1) : null;
+    const attrs = compact({
+      legacy_kind: "pointer-table", split_table: true, lo, hi, count, adjust: adjust === 0 ? undefined : adjust,
+      base: typeof raw.base === "string" ? raw.base : undefined,
+      rejected: reason !== undefined ? true : undefined, reject_reason: reason, comment, table_name: nameAtLo.get(lo),
+    });
+    fs.splitTables = (fs.splitTables ?? 0) + 1;
+    if (!ledger.already(ledgerStore, legacyId)) {
+      fileLog.push([ledgerStore, legacyId, id]);
+      fileNodeDrafts.set(`${id} human`, {
+        id, layer: "human", kind: "split_table", ctx: actx, address: lo, endAddress: end !== null && end > lo ? end : null, name,
+        attrs: { ...attrs, source_path: rel, captured_at: now }, origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null,
+      });
+      const title = reason !== undefined ? `${name} rejected` : `${name} (${count} entries${adjust ? `, adjust ${adjust}` : ""})`;
+      const body = reason ?? comment;
+      const aid = annotationId(id, "split_table", title);
+      fileAnnotations.set(aid, { id: aid, node_id: id, kind: "split_table", title, body, name, tags: "[]", source_path: rel, legacy_id: `${ledgerStore}/${legacyId}`, layer: "human", origin: "imported", confidence: "user_asserted", score: null, status: "active", producer: migrated, attrs: "{}", created_at: now, updated_at: now });
+    }
+    if (count === undefined || !options.image) return;
+    const image = options.image;
+    const byTarget = new Map<number, number[]>();
+    for (let i = 0; i < count; i += 1) {
+      const lowAt = lo + i - image.loadAddress;
+      const highAt = hi + i - image.loadAddress;
+      if (lowAt < 0 || highAt < 0 || lowAt >= image.data.length || highAt >= image.data.length) continue;
+      const target = (image.data[lowAt]! | (image.data[highAt]! << 8)) + adjust;
+      if (target < image.loadAddress || target >= image.loadAddress + image.data.length) continue;
+      const hits = byTarget.get(target);
+      if (hits) hits.push(i); else byTarget.set(target, [i]);
+    }
+    for (const [target, indices] of byTarget) {
+      const to = targetNodeId(target);
+      if (!to || to === id) continue;
+      tableEdges.push({
+        from: id, type: "REFERENCES_DATA", to, layer: "human", origin: "imported", confidence: "user_asserted", owner: actx.owner ?? null,
+        evidence: { rule: SPLIT_TABLE_RULE, table_source: rel, table: index, entries: indices.slice(0, 16), target },
+        score: 0,
+      });
+    }
+  });
   ctx.summary.files.push(fs);
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
@@ -1182,7 +1268,12 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     setAttrs.run(sortedJson({ ...attrs, boundary: value }), id);
   }
   for (const e of boundaryEdges) writer.edge(e);
-  if ((fs.dataBlocks > 0 || retiring) && ctx.store) resolveAddressesIn(ctx.store, { inTransaction: true });
+  // the table edges are re-derived whenever the bytes are at hand, and dropped with the file's rows when it changed
+  if (options.image || (previous !== undefined && changed)) {
+    db.prepare("DELETE FROM edges WHERE producer = ? AND json_extract(evidence, '$.rule') = ? AND json_extract(evidence, '$.table_source') = ?").run(migrated, SPLIT_TABLE_RULE, rel);
+  }
+  for (const e of tableEdges) writer.edge(e);
+  if ((fs.dataBlocks > 0 || retiring || tableAddrTargets > 0) && ctx.store) resolveAddressesIn(ctx.store, { inTransaction: true });
   return fs;
 }
 
@@ -1381,6 +1472,8 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
 
 export interface ImportAnnotationFileOptions {
   projectDir: string;
+  /** Spec 903 D6 — the bytes the file annotates; with them a split table's targets become edges */
+  image?: AnnotatedImage;
   store?: GraphStore;
   /** the caller already holds BEGIN IMMEDIATE on `store` */
   inTransaction?: boolean;
@@ -1472,7 +1565,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
     const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
-    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations });
+    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations, image: options.image });
     finishRun(db, store, ledger, summary, now);
     endWrite(db, ownsTx, true);
   } catch (error) {

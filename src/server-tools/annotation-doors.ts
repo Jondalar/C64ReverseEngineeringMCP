@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import {
-  buildAnnotationsDocument, documentSummary, nameLengthRefusal, overwriteRefusal,
+  buildAnnotationsDocument, documentSummary, imageSpanOf, nameLengthRefusal, overwriteRefusal,
   renderProblems, resolveAnnotationsPath, serialiseDocument,
 } from "./annotation-file.js";
 import { planMerge, resolutionFinding, type FragmentInput, type ResolutionInput } from "./annotation-merge.js";
@@ -64,6 +64,15 @@ const jumpTableSchema = z.object({
   kind: z.string().optional().describe("`jmp`/`jsr` = 3-byte rows, `word` = 2-byte rows"),
   comment: z.string().optional(),
 }).passthrough();
+const splitTableSchema = z.object({
+  lo: hexAddress.describe("The low-byte table"),
+  hi: hexAddress.describe("The high-byte table"),
+  count: z.number().int().optional().describe("Entries — both tables are `count` bytes. Required unless `reject` is given."),
+  adjust: z.number().int().optional().describe("stored = target - adjust. An RTS dispatch stores target-1: adjust 1. Default 0."),
+  base: z.string().optional().describe("A name from labels / routines / a segment label: every entry renders as <(base+off) / >(base+off)"),
+  comment: z.string().optional(),
+  reject: z.string().optional().describe("\"This is not a pointer table, because …\" — closes a found table without declaring one. Must not be empty."),
+}).passthrough();
 const immediateSchema = z.object({
   address: hexAddress.describe("The lda/ldx/ldy #imm instruction to rewrite"),
   kind: z.string().optional().describe("`lo-of` or `hi-of`"),
@@ -77,6 +86,7 @@ export const ANNOTATION_SECTION_SCHEMAS = {
   routines: routineSchema,
   pointerTables: pointerTableSchema,
   jumpTables: jumpTableSchema,
+  splitTables: splitTableSchema,
   immediates: immediateSchema,
 };
 
@@ -84,6 +94,8 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
   server.tool(
     "write_annotations",
     "Write the semantic annotation file for a payload from structured input: segments, labels, routines, and the optional pointer/jump/immediate tables. "
+    + "A split low/high table the analysis found (a `split-table-undecided` finding, or the list `analyze` / `disasm` end with) is closed here by a `splitTables[]` entry: "
+    + "{ lo, hi, count, adjust?, base?, comment? } declares it, { lo, hi, reject: \"why this is not a pointer table\" } rejects it. "
     + "Use whenever you have read a listing and know what its ranges and routines ARE — this is the door that turns that into the `<stem>_annotations.json` "
     + "that `disasm` applies and the knowledge graph imports, so you never write the JSON by hand or with a script of your own. "
     + "Every address may be written `43A8`, `$43a8` or `0x43A8` and comes back as bare uppercase hex, so nothing downstream has to normalise. "
@@ -93,7 +105,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
     + "Not for combining what several sessions or subagents wrote (use merge_annotations, which names every contradiction and records who won), "
     + "not for a first guess to review by hand (use propose_annotations, which writes a draft), and not for rendering the listing afterwards (use disasm). "
     + "It will not replace an existing file unless you pass overwrite. "
-    + "Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/immediates, binary, overwrite. "
+    + "Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/splitTables/immediates, binary, overwrite. "
     + "Returns: the path written, what went into it, and the next call that applies it.",
     {
       project_dir: z.string().optional(),
@@ -105,13 +117,14 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       routines: z.array(routineSchema).optional(),
       pointerTables: z.array(pointerTableSchema).optional(),
       jumpTables: z.array(jumpTableSchema).optional(),
+      splitTables: z.array(splitTableSchema).optional().describe("Split low/high tables: declare ({lo, hi, count, adjust?, base?}) or reject ({lo, hi, reject}) — the two ways to close a found one."),
       immediates: z.array(immediateSchema).optional(),
       overwrite: z.boolean().optional().describe("Replace an existing annotations file (default false — a hand-edited file is not clobbered by accident)."),
     },
     safeHandler("write_annotations", async (args: {
       project_dir?: string; prg_path?: string; output_path?: string; binary?: string;
       segments?: unknown[]; labels?: unknown[]; routines?: unknown[];
-      pointerTables?: unknown[]; jumpTables?: unknown[]; immediates?: unknown[];
+      pointerTables?: unknown[]; jumpTables?: unknown[]; splitTables?: unknown[]; immediates?: unknown[];
       overwrite?: boolean;
     }) => {
       const pd = context.projectDir({ projectDir: args.project_dir }, true);
@@ -120,10 +133,14 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
 
       const binary = args.binary
         ?? (args.prg_path ? basename(args.prg_path) : `${basename(dest.path).replace(/_annotations\.json$/u, "")}.prg`);
+      const image = imageSpanOf(pd, args.prg_path);
       const { doc, problems, notes } = buildAnnotationsDocument({
         segments: args.segments, labels: args.labels, routines: args.routines,
-        pointerTables: args.pointerTables, jumpTables: args.jumpTables, immediates: args.immediates,
-      }, binary);
+        pointerTables: args.pointerTables, jumpTables: args.jumpTables, splitTables: args.splitTables, immediates: args.immediates,
+      }, binary, image);
+      if ((args.splitTables?.length ?? 0) > 0 && !image) {
+        notes.push("splitTables: no prg_path, so the tables were not held to the image's span here — the renderer refuses an entry outside it.");
+      }
 
       if (problems.length > 0) {
         return text(renderProblems(`REFUSED — the annotations were not written to ${basename(dest.path)}.`, problems));
@@ -172,11 +189,12 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
     routines: z.array(routineSchema).optional(),
     pointerTables: z.array(pointerTableSchema).optional(),
     jumpTables: z.array(jumpTableSchema).optional(),
+    splitTables: z.array(splitTableSchema).optional(),
     immediates: z.array(immediateSchema).optional(),
   }).passthrough();
 
   const resolutionSchema = z.object({
-    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210`, `routine:64BF` or `name:main_loop`"),
+    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210`, `routine:64BF`, `split:1021-102A` or `name:main_loop`"),
     winner: z.string().optional().describe("The fragment whose claim wins, by name. For a `name:` key it is the fragment whose ADDRESS keeps the name."),
     value: z.record(z.unknown()).optional().describe("An entry neither fragment proposed, stating only what it changes — e.g. { label: \"exit_door_probe\" }. Not both this and `winner`."),
     why: z.string().optional().describe("What you read that decides it. REQUIRED — the reason is the record; without it the judgement dies with the session."),
@@ -215,7 +233,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       const binary = args.binary
         ?? (args.prg_path ? basename(args.prg_path) : `${basename(dest.path).replace(/_annotations\.json$/u, "")}.prg`);
 
-      const outcome = planMerge(pd, args.fragments ?? [], args.resolutions ?? [], binary);
+      const outcome = planMerge(pd, args.fragments ?? [], args.resolutions ?? [], binary, imageSpanOf(pd, args.prg_path));
       if ("refusal" in outcome) return text(outcome.refusal);
       const { doc, contests, settled, notes } = outcome.plan;
 

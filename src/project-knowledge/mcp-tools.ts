@@ -11,7 +11,7 @@ import { ensureWikiSkeleton } from "./project-wiki.js";
 import { ensureUiLaunchers, hostUiPlatform, type UiPlatform } from "./ui-launcher.js";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
-import { ProjectKnowledgeService } from "./service.js";
+import { PhaseGateRefusal, ProjectKnowledgeService } from "./service.js";
 import {
   buildServerEntry, checkMcpConfig, mcpConfigWarnings, describeFailure, describeLaunch, writeMcpConfig, MCP_CONFIG_FILE,
 } from "./mcp-config.js";
@@ -1245,7 +1245,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 034 / 035: phase orchestration tools.
   server.tool(
     "agent_advance_phase",
-    "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward.",
+    "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward. An artifact whose analysis found a split low/high table in confirmed code that no splitTables[] entry has declared or rejected is REFUSED past phase 5, whatever the project profile says; the refusal lists the open tables and how to close each.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1254,7 +1254,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
     safeHandler("agent_advance_phase", async ({ project_dir, artifact_id, to_phase, evidence }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
-      const updated = service.advanceArtifactPhase(artifact_id, to_phase as 1|2|3|4|5|6|7, evidence);
+      let updated;
+      try {
+        updated = service.advanceArtifactPhase(artifact_id, to_phase as 1|2|3|4|5|6|7, evidence);
+      } catch (error) {
+        if (error instanceof PhaseGateRefusal) return textContent(error.message);
+        throw error;
+      }
       if (!updated) {
         const { nextStepError } = await import("../server-tools/error-helpers.js");
         return nextStepError(

@@ -56,6 +56,7 @@ export const STEP_TO_LIFECYCLE: Record<string, LifecyclePhase> = {
   "static-analyze": "re",
   "static-disassemble": "re",
   "semantic-annotate": "re",
+  "declare-split-tables": "re",
   "runtime-trace": "re",
   "trace-query": "re",
   "visual-inspect": "re",

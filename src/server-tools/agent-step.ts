@@ -12,6 +12,7 @@
 // the 730.3 facade). Steps it does not implement yet return a clean
 // "blocked"/"failed" with one concrete next action — never a crash.
 
+import { describeObligation, projectSplitObligations } from "../project-knowledge/split-obligations.js";
 import { existsSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { hasProjectMarker } from "../project-root.js";
@@ -145,6 +146,7 @@ function satisfiedChecks(signals: ProjectSignals): ReadonlySet<string> {
   if (signals.analysisArtifacts > 0) s.add("analysis-present");
   if (signals.sourceArtifacts > 0) s.add("source-present");
   if (signals.annotationArtifacts > 0) s.add("annotations-present");
+  if (signals.openSplitTables === 0) s.add("split-tables-decided");
   if (signals.traceArtifacts > 0) s.add("trace-present");
   if (signals.findings > 0) s.add("knowledge-present");
   if (signals.unregisteredFiles === 0 && signals.unimportedManifests === 0 && signals.staleViews === 0) s.add("inventory-clean");
@@ -180,6 +182,9 @@ interface ProjectSignals {
   // exists — the engine must not steer to runtime before the static work is done.
   loaderReadAnnotated: boolean;      // a loader model / entry point / routine|annotation finding exists
   hasReadHypothesis: boolean;        // a `hypothesis`-kind finding is on record
+  // Spec 903 — split low/high tables found in confirmed code that no splitTables[] entry decided.
+  openSplitTables: number;
+  openSplitTablesExample?: string;
 }
 
 function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, initialized: boolean): ProjectSignals {
@@ -191,6 +196,7 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
       analysisArtifacts: 0, sourceArtifacts: 0, annotationArtifacts: 0, traceArtifacts: 0,
       openQuestions: 0, unsavedHint: false, findings: 0, ungroundedFindings: 0,
       loaderReadAnnotated: false, hasReadHypothesis: false,
+      openSplitTables: 0,
     };
   }
 
@@ -245,8 +251,19 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
     || allFindings.some((f) => (f.tags ?? []).some((t) => t === "routine" || t === "annotation"));
   const hasReadHypothesis = allFindings.some((f) => (f as { kind?: string }).kind === "hypothesis");
 
+  let openSplitTables = 0;
+  let openSplitTablesExample: string | undefined;
+  try {
+    for (const { artifact, report } of projectSplitObligations(artifacts)) {
+      openSplitTables += report.open.length;
+      if (!openSplitTablesExample && report.open[0]) openSplitTablesExample = `${artifact.title ?? artifact.id}: ${describeObligation(report.open[0])}`;
+    }
+  } catch { /* an unreadable analysis has no obligations */ }
+
   return {
     initialized: true,
+    openSplitTables,
+    ...(openSplitTablesExample ? { openSplitTablesExample } : {}),
     unregisteredFiles: actionableUnregistered.length,
     unregisteredExamples: actionableUnregistered.slice(0, 3),
     unimportedManifests: audit.counts.unimportedManifestArtifacts,
@@ -440,6 +457,23 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
     };
   }
 
+  // 8b. Spec 903 D5 — a split table found in confirmed code and never decided. The step comes
+  // BEFORE anything past phase 5 (runtime, trace mining, recording) for that artifact: the
+  // phase gate refuses the move anyway, so recommending it would be recommending a refusal.
+  // It is a step and not a complaint — the cure is one write_annotations call.
+  if (signals.openSplitTables > 0) {
+    vetoed.add("runtime-trace");
+    vetoed.add("trace-query");
+    return {
+      primary: suggestStep(
+        "declare-split-tables",
+        `${signals.openSplitTables} split low/high table(s) found in confirmed code are neither declared nor rejected (${signals.openSplitTablesExample ?? "see analyze/disasm output"}). Read the indexing code, then write a splitTables[] entry for each — { lo, hi, count, adjust?, base? } to declare, { lo, hi, reject } to reject — and run disasm. agent_advance_phase refuses past phase 5 until then.`,
+        { project_dir: projectDir },
+      ),
+      blockedBy,
+    };
+  }
+
   // 9. Open questions with no trace yet. STATIC-FIRST DOCTRINE (discipline-gate.ts): a
   // runtime trace CONFIRMS a read-derived hypothesis about an annotated loader — it does
   // not DISCOVER structure. So propose a trace ONLY once the loader is read+annotated AND a
@@ -590,6 +624,7 @@ const UI_HINT_BY_STEP: Record<string, string> = {
   "cart-chunk-inspect": "Check the Cartridge layout (banks/chunks) in the workbench.",
   "static-disassemble": "Review the Annotated Listing / ASM overlay in the workbench.",
   "semantic-annotate": "Review the proposed labels/comments in the Annotated Listing before accepting.",
+  "declare-split-tables": "Check the table's entries in the Annotated Listing: every entry should read <label / >label, not raw bytes.",
   "runtime-trace": "Watch the Live tab while the trace runs.",
   "visual-inspect": "Compare the resolved VIC evidence against the Live frame in the workbench.",
 };
