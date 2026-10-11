@@ -1,7 +1,7 @@
-// candidate-delta.ts — Spec 797 final-code-delta.
+// candidate-delta.ts — the chosen variant as a build-ready delta.
 //
-// Turn a candidate's exported source-patch-set (Spec 796 `candidate_export`:
-// `{ id, patches: [{ space, bank, addr, source }] }`) into a BUILD-READY delta on
+// Turn the chosen variant of a candidate (`{ id, patches: [{ space, bank, addr, source, bytes }] }`)
+// into a BUILD-READY delta on
 // disk — the code that goes into the real build (the yardstick #4 payoff, the
 // meaning bridge). Build-agnostic by default: one `.asm` per target (the source
 // already carries its own org) + a machine `delta-manifest.json` + a human
@@ -14,7 +14,10 @@ export interface DeltaPatch {
   space: string; // "ram" | "roml" | "romh"
   bank?: number | null;
   addr: number;
+  /** the source it was assembled from; empty when only the bytes are known */
   source: string;
+  /** the assembled bytes — written out as `.byte` lines under the target's org when there is no source */
+  bytes?: number[];
 }
 
 export interface CandidateExport {
@@ -46,7 +49,7 @@ export function buildDelta(exp: CandidateExport): {
   const entries: DeltaEntry[] = [];
   exp.patches.forEach((p, i) => {
     const name = deltaFileName(p, i);
-    files[name] = p.source.endsWith("\n") ? p.source : `${p.source}\n`;
+    files[name] = p.source.trim().length > 0 ? (p.source.endsWith("\n") ? p.source : `${p.source}\n`) : bytesAsSource(p);
     entries.push({
       file: name,
       space: p.space,
@@ -58,6 +61,14 @@ export function buildDelta(exp: CandidateExport): {
   files["delta-manifest.json"] = `${JSON.stringify(manifest, null, 2)}\n`;
   files["DELTA.md"] = renderReadme(exp, entries);
   return { files, manifest };
+}
+
+/** A target with no source: its bytes under its own org, in the syntax both supported assemblers read. */
+function bytesAsSource(p: DeltaPatch): string {
+  const lines = [`* = $${hex4(p.addr)}`];
+  const b = p.bytes ?? [];
+  for (let i = 0; i < b.length; i += 16) lines.push(`.byte ${b.slice(i, i + 16).map((x) => `$${(x & 0xff).toString(16).padStart(2, "0")}`).join(",")}`);
+  return `${lines.join("\n")}\n`;
 }
 
 function renderReadme(exp: CandidateExport, entries: DeltaEntry[]): string {

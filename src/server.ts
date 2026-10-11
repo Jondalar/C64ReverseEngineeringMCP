@@ -30,6 +30,8 @@ import { registerOptimiseTools } from "./server-tools/optimise-tools.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerRuntimeTools } from "./server-tools/runtime.js";
+import { registerAnchorTools } from "./server-tools/anchor-tools.js";
+import { registerCandidateTools } from "./server-tools/candidate-tools.js";
 import { registerReferenceTools } from "./server-tools/reference.js";
 import { registerPromptTools } from "./server-tools/prompts.js";
 import { registerPayloadTools } from "./server-tools/payloads.js";
@@ -294,6 +296,8 @@ function createServer(): McpServer {
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
   registerRuntimeTools(server, toolContext);
+  registerAnchorTools(server, toolContext);
+  registerCandidateTools(server, toolContext);
   registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
@@ -365,6 +369,8 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/disk-g64.ts", () => registerDiskG64Tools(server, toolContext));
   group("server-tools/headless.ts", () => registerHeadlessTools(server, toolContext));
   group("server-tools/runtime.ts", () => registerRuntimeTools(server, toolContext));
+  group("server-tools/anchor-tools.ts", () => registerAnchorTools(server, toolContext));
+  group("server-tools/candidate-tools.ts", () => registerCandidateTools(server, toolContext));
   group("server-tools/trace-store.ts", () => registerTraceStoreTools(server, toolContext));
   group("server-tools/reference.ts", () => registerReferenceTools(server, toolContext, repoDir()));
   group("server-tools/prompts.ts", () => registerPromptTools(server, { readTextFile, repoRoot: repoDir() }));

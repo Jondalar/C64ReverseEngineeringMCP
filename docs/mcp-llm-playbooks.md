@@ -464,28 +464,34 @@ inventory.
 
 **Use when:** Try my fix and tell me if it changed anything. / Does this patch break the game? / Freeze the life counter and see if it holds.
 
-**Preconditions:** A running session with a checkpoint to anchor on.; A scenario that replays deterministically.
+**Preconditions:** A running session you can name an instant of.; Inputs, if the effect needs a press, as an input list with cycles relative to the anchor.
 
 **Steps:**
 
-1. _(llm)_ Create the candidate: a baseline anchor plus a bound scenario. The no-patch run is played once and cached, so every later verdict has something to be a verdict AGAINST.
+1. _(llm)_ Name the instant before the interesting thing happens. The anchor is captured fresh, nothing moves, and the project remembers what it meant.
+   - tools: `runtime_anchor_set`, `runtime_anchor_list`, `runtime_anchor_goto`, `runtime_anchor_drop`
+   - persist: anchor name, why
+2. _(llm)_ Create the candidate from the anchor: the input list and the cycle budget. It is saved in the project and survives a restart.
    - tools: `runtime_candidate_create`, `runtime_candidate_list`
-   - persist: candidate id, baseline verdict
-2. _(llm)_ Add or replace one patch at a time (re-adding at the same target replaces, which is how a fix is iterated), then run and read the diff against the baseline.
-   - tools: `runtime_candidate_patch`, `runtime_candidate_run`, `runtime_candidate_remove_patch`
-   - persist: patch set, verdict per run
-3. _(llm)_ For a trainer: find the counters that decreased between two anchors, then prove one by freezing it and running the candidate again.
-   - tools: `runtime_find_cheat`, `runtime_candidate_patch`, `runtime_candidate_run`
+   - persist: candidate id
+3. _(llm)_ Add the variants — a few lines of source or bytes each. Setting a name again replaces that variant.
+   - tools: `runtime_candidate_variant`
+   - persist: variants
+4. _(llm)_ Run the candidate: the baseline without a patch and every variant at once, each on a clone, the shared machine untouched. Read each verdict against the baseline.
+   - tools: `runtime_candidate_run`
+   - persist: verdict per variant
+5. _(llm)_ For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the candidate.
+   - tools: `runtime_find_cheat`, `runtime_candidate_variant`, `runtime_candidate_run`
    - persist: cheat candidates, confirmation
-4. _(llm)_ Hand the proven patch-set on: the raw seed, or the build-ready delta with one source file per target.
-   - tools: `runtime_candidate_export`, `runtime_candidate_derive_delta`, `runtime_candidate_delete`, `agent_record_step`
-   - persist: delta files, manifest
+6. _(llm)_ Choose the variant that does what was intended, write it as a delta, wire the delta into the build, and prove the build holds it.
+   - tools: `runtime_candidate_choose`, `runtime_candidate_derive_delta`, `runtime_candidate_verify_build`, `runtime_candidate_delete`, `agent_record_step`
+   - persist: delta files, build check
 
-**Stop when:** The candidate's verdict is what the change intended, and the delta is on disk.
+**Stop when:** The chosen variant is what the change intended, and the project's build is verified to contain it.
 
 **Next:** Change / Patch / Crack / Port for the real build.
 
-**Do not:** Do not patch the shared session the human co-drives to test an idea. Do not accept a verdict from a run whose baseline was never played.
+**Do not:** Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; the candidate run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
 
 ## Rewind and Scrub
 

@@ -3116,6 +3116,30 @@ export class ProjectKnowledgeService {
     };
   }
 
+  /**
+   * Run the project's own build command (`profile.build`) and report how it ended. The command
+   * is the project's — a line a user wrote for their shell — so it runs the way the pipeline's
+   * steps do, here, in the one file allowed a shell. Nothing is parsed or rewritten.
+   */
+  runProfileBuild(): {
+    command: string; cwd: string; exitCode: number; stdoutTail: string; stderrTail: string; durationMs: number; outputs: string[];
+  } {
+    const build = this.getProjectProfile()?.build;
+    if (!build) throw new Error("the project profile has no build command (profile.build) — nothing to run");
+    const cwd = build.cwd ? resolve(this.storage.paths.root, build.cwd) : this.storage.paths.root;
+    const startedAt = Date.now();
+    const result = spawnSync(build.command, { cwd, shell: true, encoding: "utf8" });
+    return {
+      command: build.command,
+      cwd,
+      exitCode: result.status ?? -1,
+      stdoutTail: (result.stdout ?? "").slice(-2048),
+      stderrTail: ((result.stderr ?? "") + (result.error ? String(result.error.message) : "")).slice(-2048),
+      durationMs: Date.now() - startedAt,
+      outputs: build.outputs ?? [],
+    };
+  }
+
   // Spec 032 follow-up: run a build pipeline end-to-end, executing
   // each step's command via child_process.spawnSync. Records per-step
   // exit code, stdout/stderr tails, actual output hashes, duration.

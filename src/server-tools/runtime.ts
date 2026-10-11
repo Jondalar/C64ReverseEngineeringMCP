@@ -83,7 +83,7 @@ async function daemonTraceRead<T>(
   return traceRead<T>(op, duckdbPath, args);
 }
 
-export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
+export function registerRuntimeTools(server: McpServer, context: ServerToolContext): void {
   // ---- Getting a machine at all (Spec 716.3) ----
   //
   // Everything below this needs a daemon. Until this door existed the only answer an
@@ -472,11 +472,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
-  // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
-  const candidateDaemon = async () => {
-    const { runtimeDaemon } = await import("../runtime/backend.js");
-    return runtimeDaemon;
-  };
+  // ---- Candidates live in candidate-tools.ts (the project's memory of an iteration) ----
 
   // ── Spec 843 D9/D10 — rip a screen element out, and put a different one back ──
   //
@@ -485,9 +481,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // Inspect overlay; these two are the ends.
   //
   // Both speak the same unit — an address range — which is why they compose with the
-  // graph (a finding carries `addressRange`) and with the overlay model (a candidate
-  // patch targets an address). Neither invents machinery: a rip is a read of frozen
-  // RAM, an inject is `runtime_candidate_patch`.
+  // graph (a finding carries `addressRange`) and with the candidate model (a variant's
+  // target is an address). Neither invents machinery: a rip is a read of frozen RAM, an
+  // inject is a target of a candidate variant.
 
   server.tool(
     "runtime_rip_range",
@@ -529,155 +525,48 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_inject_range",
-    "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything. The bytes land in a candidate's patch set, so the original medium is untouched and a reset drops the layer rather than the change becoming permanent. Re-injecting the same address REPLACES the previous patch. Use it with runtime_rip_range to close the loop: rip, edit, inject. Not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: session_id, candidate_id, addr, bin_path, optional space and bank. Returns: the candidate.",
+    "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are tried in sandbox runs (runtime_candidate_run) and never written to the medium or the shared machine. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
     {
-      session_id: z.string().describe("Session the candidate belongs to"),
-      candidate_id: z.string().describe("Candidate to patch — the overlay layer, from runtime_candidate_create"),
+      session_id: z.string().optional().describe("Unused; kept so earlier callers still work"),
+      candidate_id: z.string().describe("Candidate to put the bytes in — from runtime_candidate_create"),
+      variant: z.string().optional().describe("Variant to add the target to; default \"inject\""),
       addr: z.number().int().describe("CPU-space address the bytes go to — the same range the rip came from, unless you mean to move it"),
       bin_path: z.string().describe("The .bin to write, absolute or relative to the project"),
-      space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the patch targets: ram, or a cartridge window (roml/romh)"),
+      space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the target is: ram, or a cartridge window (roml/romh)"),
       bank: z.number().int().optional().describe("Cartridge bank, when space is roml or romh"),
+      project_dir: z.string().optional(),
     },
-    safeHandler("runtime_inject_range", async ({ session_id, candidate_id, addr, bin_path, space, bank }) => {
+    safeHandler("runtime_inject_range", async ({ candidate_id, variant, addr, bin_path, space, bank, project_dir }) => {
       const { readFileSync } = await import("node:fs");
       const { isAbsolute, resolve: resolvePath } = await import("node:path");
-      const abs = isAbsolute(bin_path) ? bin_path : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), bin_path);
+      const projectDir = context.projectDir(project_dir ? { projectDir: project_dir } : undefined, true);
+      const abs = isAbsolute(bin_path) ? bin_path : resolvePath(projectDir, bin_path);
       const buf = readFileSync(abs);
       if (buf.length === 0) throw new Error(`${abs} is empty`);
       if (buf.length > 0x10000) throw new Error(`${abs} is ${buf.length} bytes — larger than the address space`);
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_patch", {
-        session_id, id: candidate_id, addr, space: space ?? "ram", bank, source: "", bytes: Array.from(buf),
-      });
+      const s = await import("../candidates/store.js");
+      const cand = s.loadCandidate(projectDir, candidate_id);
+      if (!cand) throw new Error(`no candidate "${candidate_id}" in ${projectDir} — runtime_candidate_create makes one`);
+      const name = variant ?? "inject";
+      const sp = space ?? "ram";
+      const prev = cand.variants.find((v) => v.name === name)?.targets ?? [];
+      const target = { space: sp, ...(sp === "ram" ? {} : { bank: bank ?? 0 }), addr: addr & 0xffff, source: "", bytes: Array.from(buf) };
+      const kept = prev.filter((t) => !(t.space === target.space && (t.bank ?? 0) === (target.bank ?? 0) && t.addr === target.addr));
+      const { setVariant } = await import("../candidates/variant.js");
+      cand.variants = setVariant(cand.variants, name, [...kept, target]);
+      s.saveCandidate(projectDir, cand);
       return { content: [{ type: "text" as const, text: JSON.stringify({
-        injected: { path: abs, bytes: buf.length, addr, space: space ?? "ram", bank: bank ?? null }, candidate: r,
+        injected: { path: abs, bytes: buf.length, addr, space: sp, bank: bank ?? null }, candidate: candidate_id, variant: name, targets: cand.variants.find((v) => v.name === name)!.targets.length,
       }, null, 2) }] };
     }),
   );
 
   server.tool(
-    "runtime_candidate_create",
-    "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Use when you want to iterate your own code against a fixed baseline. Not for a single patched run (use runtime_overlay_run). Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
-    { session_id: z.string(), anchor: z.string(), scenario: z.object({ inputs: z.array(z.any()).optional(), cycleBudget: z.number().optional() }).optional() },
-    safeHandler("runtime_candidate_create", async ({ session_id, anchor, scenario }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_create", { session_id, anchor, scenario: scenario ?? {} });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_patch",
-    "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Use to add or replace one patch on a candidate. Not for writing bytes into the live machine (use runtime_inject_range). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
-    { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
-    safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
-      // S11 gate: a patch ALLOCATES. Four corpus projects claimed free RAM from reading
-      // and all four were corrected by running, so a read-derived S11 does not open this.
-      {
-        const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_candidate_patch", process.env.C64RE_PROJECT_DIR?.trim() || undefined);
-        if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
-      }
-      let src = "";
-      let b = bytes;
-      if (source_path && (!b || b.length === 0)) {
-        const projectDir = process.env.C64RE_PROJECT_DIR ?? process.cwd();
-        const { assembleSource } = await import("../assemble-source.js");
-        const res = await assembleSource({ projectDir, sourcePath: source_path, assembler: "auto" });
-        if (res.exitCode !== 0) throw new Error(`assemble failed: ${res.stderr || res.stdout}`);
-        const { readFileSync } = await import("node:fs");
-        const prg = readFileSync(res.outputPath);
-        b = Array.from(prg.subarray(2)); // strip the 2-byte PRG load address
-        src = readFileSync(res.sourcePath, "utf8");
-      }
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_patch", { session_id, id, addr, space: space ?? "ram", bank, source: src, bytes: b ?? [] });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_run",
-    "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Use after every patch. Not for a run on the shared session the human co-drives (use runtime_session_run). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
-    { session_id: z.string(), id: z.string() },
-    safeHandler("runtime_candidate_run", async ({ session_id, id }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_run", { session_id, id });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_remove_patch",
-    "Remove the overlay patch at (space, bank, addr) from a candidate. Use to drop one patch and keep the candidate. Not for the whole candidate (use runtime_candidate_delete). Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
-    { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional() },
-    safeHandler("runtime_candidate_remove_patch", async ({ session_id, id, addr, space, bank }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_remove_patch", { session_id, id, addr, space: space ?? "ram", bank });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_list",
-    "List candidates (id omitted) or show one candidate's patches + last verdict. Use to see what exists and how the last run judged it. Not for running one (use runtime_candidate_run). Inputs: session_id, id?. Returns: candidate(s).",
-    { session_id: z.string(), id: z.string().optional() },
-    safeHandler("runtime_candidate_list", async ({ session_id, id }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_list", { session_id, id });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_delete",
-    "Delete a candidate from the session store. Use when a candidate is finished with. Not for dropping one patch and keeping the candidate (use runtime_candidate_remove_patch). Inputs: session_id, id. Returns: {id, deleted}.",
-    { session_id: z.string(), id: z.string() },
-    safeHandler("runtime_candidate_delete", async ({ session_id, id }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_delete", { session_id, id });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_export",
-    "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Use to hand the patch-set on as it stands. Not for build-ready files (use runtime_candidate_derive_delta). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
-    { session_id: z.string(), id: z.string() },
-    safeHandler("runtime_candidate_export", async ({ session_id, id }) => {
-      const d = await candidateDaemon();
-      const r = await d.call("runtime/candidate_export", { session_id, id });
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_derive_delta",
-    "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Use once the candidate is proven. Not for the raw patch-set (use runtime_candidate_export). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
-    { session_id: z.string(), id: z.string(), out_dir: z.string().optional() },
-    safeHandler("runtime_candidate_derive_delta", async ({ session_id, id, out_dir }) => {
-      const d = await candidateDaemon();
-      const exp = (await d.call("runtime/candidate_export", { session_id, id })) as {
-        id: string;
-        patches: { space: string; bank?: number | null; addr: number; source: string }[];
-      };
-      const { writeDelta } = await import("../candidate-delta.js");
-      const { resolve } = await import("node:path");
-      const { safeSegment } = await import("../lib/id-path.js");
-      const projectDir = process.env.C64RE_PROJECT_DIR ?? process.cwd();
-      // Spec 838 D1 — a candidate id is an identifier, and `delta-<id>` is a
-      // directory. Sanitised for the strictest platform we target, not this one.
-      const outDir = out_dir ? resolve(projectDir, out_dir) : resolve(projectDir, `delta-${safeSegment(exp.id)}`);
-      const res = writeDelta({ id: exp.id, patches: exp.patches ?? [] }, outDir);
-      return { content: [{ type: "text" as const, text: JSON.stringify(res, null, 2) }] };
-    }),
-  );
-
-  server.tool(
     "runtime_find_cheat",
-    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a candidate variant with that addr as a target holding its original value, runtime_candidate_variant) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
     { session_id: z.string(), before: z.string(), after: z.string(), max: z.number().optional() },
     safeHandler("runtime_find_cheat", async ({ session_id, before, after, max }) => {
-      const d = await candidateDaemon();
+      const { runtimeDaemon: d } = await import("../runtime/backend.js");
       const r = (await d.call("runtime/find_cheat_candidates", { session_id, before, after, max: max ?? 32 })) as {
         count: number;
         candidates: { addr: number; before: number; after: number; delta: number }[];
@@ -687,7 +576,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         .map((c) => `  $${(c.addr & 0xffff).toString(16).padStart(4, "0")}: ${c.before} → ${c.after} (−${c.delta})`)
         .join("\n");
       const hint = r.count
-        ? `\n\nNext: freeze the likeliest counter — create a candidate, runtime_candidate_patch(id, addr, bytes:[<original>]), then runtime_candidate_run to confirm it holds across the scenario.`
+        ? `\n\nNext: freeze the likeliest counter — create a candidate, runtime_candidate_variant(id, name, targets:[{addr, bytes:[<original>]}]), then runtime_candidate_run to confirm it holds across the scenario.`
         : `\n\nNo RAM decreased between the two anchors — check they bracket the life-loss.`;
       return { content: [{ type: "text" as const, text: `${r.count} cheat candidate(s):\n${top}${hint}\n\n${JSON.stringify(r, null, 2)}` }] };
     }),

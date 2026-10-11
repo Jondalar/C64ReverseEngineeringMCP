@@ -29,7 +29,7 @@ export function formatScan(report: ScanReport, title: string): string {
       ? "gain per frame, from the capture"
       : "what each change saves once — there is no measurement, so nothing here knows how OFTEN it runs"),
   );
-  out.push("  nothing here is applied: turning a candidate into a patch is a separate, deliberate step (runtime_candidate_patch)");
+  out.push("  nothing here is applied: turning a candidate into a patch is a separate, deliberate step (runtime_candidate_variant)");
   out.push("");
 
   // ---- §2
