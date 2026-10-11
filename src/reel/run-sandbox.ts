@@ -401,9 +401,11 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   };
 
   try {
-    // Take the clock FIRST. A machine that runs on while the caller is thinking
-    // is what made one recipe give five different outcomes (BUG-050); from here
-    // every advance is a bounded run in cycles.
+    // Keep the clock. The daemon is born headless (it stands at cycle 0 and moves only when
+    // told to), so this pause is a guard, not the start of determinism: a later `media/open`
+    // can flip the controller to running (see below), and a machine that runs on while the
+    // caller is thinking is what made one recipe give five different outcomes (BUG-050).
+    // Every advance is a bounded run in cycles.
     await box.call("debug/pause", { source: "sandbox" });
     await readMachine();
     resync();

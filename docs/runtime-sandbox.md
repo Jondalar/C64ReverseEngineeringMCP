@@ -35,7 +35,13 @@ Back comes the private port, which C64 it was, a line per step, every wait with 
 cycle it fired on, the end cycle + PC + registers, the 40x25 text screen, and the
 memory you asked for as a hex dump. The steps are the capture-scenario notation, one
 per line; every step that lasts carries its own duration and the machine is stopped
-between steps, so **the same list replays to the same bytes**.
+between steps, so **the same list replays to the same bytes** — also from a fresh start. Every
+sandbox is a new daemon, started headless: it stands at its reset vector at cycle 0 and moves
+only when the run tells it to, so nothing depends on how long the caller took to speak. The
+same arguments give the same warm-up (frames to READY), the same press and release cycles,
+the same end cycle, registers and RAM, however many times and however busy the host is. (A
+daemon left to run on its own until it was paused started every run at a different cycle:
+one case pressed up to 15 frames apart.)
 
 Drive 8 starts as a 1541. A medium that only fits a 1581 — a `.d81` — gets one: the
 runtime names the board it needs, and the sandbox switches drive 8 to it before opening
@@ -100,7 +106,10 @@ runtime_sandbox_run {
 - Every offset a step used is in the result. To replay a failing run exactly, give the same
   `input_offset_cycles` (the sweep names the first failing one) or the same `jitter_seed`.
 
-Without any of them nothing changes: the call carries no cycle, and a run replays to the same
+An offset is counted from the point the step would have pressed at, which is the same on every
+run of the same steps but is not necessarily a frame boundary (measured: after a PRG start the
+press can land mid-frame): read the press cycle from the result rather than assuming the beam
+position. Without any of them nothing changes: the call carries no cycle, and a run replays to the same
 bytes as before. A runtime that cannot place input at a cycle is refused by name; the press
 is never quietly moved back to a frame boundary.
 

@@ -1,6 +1,7 @@
 # Spec 899 — A scripted run can press a key anywhere in the frame and watch every frame
 
 **Status:** DONE (2026-10-10). The runtime half (Spec 901) is on TRX64 main (e0ac127) and not released yet: the live gate runs against a build of it, and every new option refuses by name on a runtime without it.
+**Replay across fresh starts:** fixed later on 2026-10-11 (issue #67 retest). Acceptance had proved "same seed, same run" inside one daemon only; sandboxes were spawned without `--headless`, so each fresh daemon ran on, paced by the wall clock, until the pause landed, and identical arguments pressed up to 15 frames apart. A sandbox now starts headless (cycle 0, advances only on command); `npm run e2e:replay-determinism` proves it with a new daemon per run.
 **Repo:** C64RE (the step notation and its report). TRX64: Spec 901 (cycle-exact input, the frame probe).
 **Number:** 899 (registry: `specs/README.md`).
 **Origin:** issues #67 and #68 (Mike, the Mega Vault VIC-20 → C64 port, 2026-10-10). Owner

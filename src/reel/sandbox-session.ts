@@ -18,11 +18,16 @@
 // (2026-10-01, parent PID 1). So the machine dies with this object, on the budget, or
 // with the process, and the last of the three no longer depends on this process.
 //
-// The machine is PAUSED for the whole run and advanced only by bounded runs. That
-// is what makes a schedule reproducible over a socket: a round trip costs wall
-// clock, but a paused machine does not move while it is in flight. Measured
-// (BUG-050): with the machine left running, one recipe gave five different
-// outcomes; paused and advanced in cycles, five for five identical.
+// The machine is born HEADLESS — command-driven, at its reset vector, cycle 0 — and
+// advanced only by bounded runs. That is what makes a schedule reproducible over a socket
+// AND across fresh starts: a round trip costs wall clock, but a machine that does not move
+// on its own does not care how long the caller took to say the first word. Measured
+// (BUG-050): with the machine left running, one recipe gave five different outcomes; paused
+// and advanced in cycles, five for five identical. Measured again (issue #67 retest): a
+// daemon started WITHOUT `--headless` runs on from the moment it accepts a connection, so
+// the pause landed at a cycle that depended on the wall clock (19657, 511083, 1985353 for a
+// pause 0, 0.5 and 2 s after the start) — and the same arguments pressed up to 15 frames
+// apart. Same run, same daemon was never the question; same run, fresh daemon is.
 
 import { WebSocket } from "ws";
 import type { ChildProcess } from "node:child_process";
@@ -128,7 +133,7 @@ export class SandboxSession {
     const s = new SandboxSession(port);
     const projectDir = opts.projectDir ?? (s.ownTmp = mkdtempSync(join(tmpdir(), "c64re-reel-")));
 
-    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model });
+    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model, headless: true });
     if (plan.mode === "none") {
       throw new Error(runtimeSetupRecipe("no runtime binary available for an isolated capture run"));
     }
