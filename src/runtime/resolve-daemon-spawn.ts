@@ -77,9 +77,13 @@ export function resolveDaemonSpawn(opts: {
   devSamples?: boolean;
   /** Spec 863 — start the daemon as this model; omitted = the project's, else default. */
   model?: string;
+  /** A private, command-driven machine: `--headless`. The daemon then has no pacing loop and no
+   *  auto-run on connect — it stands at its reset vector, cycle 0, until told to advance, which is
+   *  what a replayable run starts from. The shared machine never passes this (the human watches it). */
+  headless?: boolean;
 }): DaemonSpawn {
   const { repoRoot, projectDir, port } = opts;
-  const stdArgs = ["--project", projectDir, "--port", port];
+  const stdArgs = ["--project", projectDir, "--port", port, ...(opts.headless ? ["--headless"] : [])];
 
   // 1) explicit external binary — highest precedence. Extra args opt-in via
   //    C64RE_RUNTIME_BIN_ARGS; A/V for the UI is best enabled via env passthrough
@@ -88,7 +92,7 @@ export function resolveDaemonSpawn(opts: {
   if (bin) {
     const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
       .split(/\s+/)
-      .filter(Boolean);
+      .filter((a) => Boolean(a) && !(opts.headless && a === "--headless"));
     const m = modelArgs(opts.model, projectDir, extra);
     // A script (`.js`/`.mjs`/`.cjs`) is run by the Node that runs this: a stand-in daemon for a test
     // is a script, and a copy of node.exe cannot be handed `--project` as the daemon's own arguments.
@@ -121,11 +125,12 @@ export function resolveDaemonSpawn(opts: {
   if (existsSync(trx64)) {
     const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
       .split(/\s+/)
-      .filter(Boolean);
+      .filter((a) => Boolean(a) && !(opts.headless && a === "--headless"));
     // Spec 767 — the daemon streams BY DEFAULT (the C64's work is always visible;
-    // presentation is no longer gated behind `--stream`). So no flag here; `--headless`
-    // would be the opt-out (byte-exact oracle / silent tool daemons), which the UI never
-    // wants. Legacy `--stream` is still accepted by the daemon as a no-op.
+    // presentation is no longer gated behind `--stream`). So no flag here for the shared
+    // machine. A sandbox passes `headless` (see the option): without it the daemon runs on,
+    // paced by the wall clock, from the moment it accepts a connection, and every run
+    // starts at a different cycle. Legacy `--stream` is still accepted as a no-op.
     const m = modelArgs(opts.model, projectDir, extra);
     return { cmd: trx64, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
   }
@@ -141,7 +146,7 @@ export function resolveDaemonSpawn(opts: {
   // install trx64` from six months ago. PATH is still consulted, because ignoring a
   // deliberate install would be its own surprise, and a wrong version is caught by the
   // protocol handshake rather than silently tolerated.
-  const extraArgs = () => (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "").split(/\s+/).filter(Boolean);
+  const extraArgs = () => (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "").split(/\s+/).filter((a) => Boolean(a) && !(opts.headless && a === "--headless"));
   for (const candidate of [cachedDaemonPath(), daemonOnPath()]) {
     if (!candidate || !existsSync(candidate)) continue;
     const extra = extraArgs();
