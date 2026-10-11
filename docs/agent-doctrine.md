@@ -628,6 +628,16 @@ Do not "just analyze". Choose or propose a workflow:
 - unknown segment classification workflow (`classify_unknown` prompt)
 - continuation / onboarding workflow (`agent_onboard`)
 
+A semantic annotation pass ends with the split tables decided. `analyze` and `disasm` list
+every low/high table pair they found in confirmed code and nobody has declared; each one gets
+a `splitTables` entry — `{ lo, hi, count, adjust?, base? }` once you have read the indexing
+code and know how many entries it reaches, or `{ lo, hi, reject: "why this is not a pointer
+table" }` — written with `write_annotations` / `merge_annotations`, then `disasm` again so the
+listing and the graph take it. `agent_advance_phase` will not move the artifact past phase 5
+while one is open, and the project critique counts it as blocking. The list is what the
+detector saw, not what exists: tables whose index is computed in two steps are not on it,
+and you declare those the same way when reading finds them.
+
 Each workflow should end with:
 
 - knowledge updates

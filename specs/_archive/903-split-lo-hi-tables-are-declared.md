@@ -1,6 +1,6 @@
 # Spec 903 — Split low/high tables are declared, and a found one must be decided
 
-**Status:** PROPOSED (2026-10-11).
+**Status:** DONE (2026-10-11). `e2e:903` (scripts/e2e-903-split-tables.mjs, in `gates.yml`, run by `scripts/gate.sh`) holds acceptance 1-6 with real assertions; acceptance 7 was run by hand on Wasteland `block2_engine_0200` (§6). Full pre-push gate green, 109/109 steps (832 s, against released TRX64 0.12.10). Decisions the spec left open: §5.
 **Repo:** C64RE only (pipeline schema + renderer + detector, annotation doors, graph import,
 critic, phase gate). No TRX64 part.
 **Number:** 903 (registry: `specs/README.md`).
@@ -177,3 +177,74 @@ and the obligation. No spec numbers in user docs.
    reaches 0. Reading the indexing code decides, and the declaration records it.
    Declared, the listing rebuilds byte-identical.
 8. Smoke `e2e:903` in `package.json`, `gates.yml`, `scripts/gate.sh`.
+
+---
+
+## §5 Decisions taken while building
+
+1. **An entry that cannot be taken refuses the file; it is not skipped.** Every other section is a tolerant skip, but
+   an obligation is closed only by an entry that has been *applied*: a skipped entry would leave a table "decided" in
+   the file and undecided in the listing. So `splitTables` joins the duplicate-segment-start rule — the file is
+   refused before anything is rendered or imported, every offender named by its index. The writing doors refuse
+   the same entries before the file exists (`src/` and `pipeline/` cannot import each other, so the rules are stated
+   twice; the smoke runs one corpus through both and fails when they disagree).
+2. **"Inside the image" is checked where the image is known.** The loader has no bytes, so `disasm` checks the image
+   span after loading; the doors check it when `prg_path` is given and say so when it is not. "Not a code segment"
+   is checked against the file's own `code` / `basic_stub` segments in the file checks, and against the analysis'
+   `code` segments in the renderer, which is the only place that has the analysis. `probable_code` islands do not
+   count as code there.
+3. **A wrong `adjust` cannot be told from the bytes, so the rebuild alone cannot turn red for it.** The expression is
+   `stored = target - adjust`, derived from the same bytes it reproduces: any self-consistent `adjust` rebuilds
+   byte-identical (the smoke shows `adjust: 5` doing exactly that). What *can* be wrong is the claim about the code,
+   so acceptance 6 is realised against the evidence: an RTS dispatch fact carries `adjustHint: 1`, and a declaration
+   of that pair with any other `adjust` is refused by the renderer — no listing is written, `disasm` answers with the
+   refusal, and the output carries neither "rebuild verified byte-identical" nor "0 open". An `adjust` the code does
+   not contradict (a zero-page table declared with `adjust: 5`) is the author's claim and is rebuilt as claimed.
+   The renderer also emits an out-of-range target (a stored pair plus a large adjust) as a decimal so the assembler
+   still arrives at the stored byte.
+4. **Emission order.** Every in-image target is seeded into the label set first (as `seedWordTableTargets` does), so
+   rule 2 (`<label`) answers for all of them and rule 3 (`<(seglabel+off)`) is the fallback for a target the label
+   machinery did not take; `base` is rule 1 and wins. Targets outside the image are bare addresses (`<$C100`) unless
+   an annotation names the address. Entries are written eight to a `.byte`, broken at any label.
+5. **`base` is a name, not an address.** It must be a `labels[]` / `routines[]` name or a segment label of the same
+   file; the offset is `target - address(base)` and may be negative.
+6. **`countHint`** is the `n` of the nearest `CPX #n` (X tables) or `CPY #n` (Y tables) within six instructions
+   before or after the load group, 1..255. A hint: the declaration states the count.
+7. **Dedupe prefers confirmed code, then the earlier site.** A pair read from several routines yields one fact, so
+   the `// split tables:` comment above a routine appears over the first reader only. The report's per-routine detail
+   for the second reader is gone; the obligation does not change. An analysis written before this change still lists
+   a pair twice; the obligation reader deduplicates on read.
+8. **`pointerBase` became optional** (an RTS dispatch has none); for `self_mod_operand` it is the patched operand's
+   address, 16 bits.
+9. **The gate lives on `agent_advance_phase`, which is an advanced-tier tool.** I did not promote it to the default
+   surface. What a default-surface caller meets is the open list on `analyze` / `disasm`, the blocking critic check
+   and the recommender. The phase refusal is not behind `phaseGateStrict` and also refuses 7 (and 6 from a phase
+   already past 5).
+10. **The recommender's step is a new workflow step, `declare-split-tables`** (default tool `write_annotations`),
+    placed after "source exists but has no annotations" and before the runtime / trace steps; it is project-wide
+    (the recommender has no per-artifact focus), and it vetoes the runtime branch while open. Without any
+    annotations file the ladder still answers `semantic-annotate` first, which is where the tables get written.
+11. **Where the annotations of an artifact are looked for** (obligations, critic, gate): beside the source, beside its
+    listings, beside its newest registered analysis — the order the renderer uses.
+12. **Graph.** A new human node kind `split_table` (id on the low table's address, entity kind `pointer-table`), one
+    `REFERENCES_DATA` edge from it to each *in-image* target — the routine / label node at the address, else the
+    ownerless `addr` alias that `RESOLVES_TO` resolves — and, for a rejection, the reason on the node and as its
+    annotation row. The edges need the bytes, which only `disasm` hands the importer; an import that has none leaves
+    the node and no edges.
+13. **Out of scope, as the spec said:** interleaved `.word` tables and `#<` / `#>` immediates as obligations. A
+    relocated block is not translated: `splitTables` addresses the file's own bytes. The Windows job of `gates.yml`
+    was not extended — it runs path-spelling and process tests, not comparable ones.
+
+## §6 Acceptance 7, by hand (not in the gate)
+
+Wasteland `block2_engine_0200`, run on a scratch copy of the PRG, its analysis and its annotations, nothing in the
+project touched. `disasm` listed exactly two obligations, `$049F / $04B7` and `$23CE / $23E6`, once each — the
+analysis in that project still lists the first twice. Reading the indexing code: `lda screen_row_lo_table,y` with
+`Y` a character row (`$24`, or `pixel row >> 3`), and the data settles the question about `$049F`: it holds `$00`,
+paired with `$04B7 = $60`, which is `$6000` — row 0 of the bitmap — and `$04A0/$04B8 = $40/$61` is `$6140`, +$140.
+Entry 0 is real; the "pad" byte is the first entry, and the table is 24 entries (`$049F-$04B6` and `$04B7-$04CE`,
+the same 24 as `$23CE-$23E5` / `$23E6-$23FD`). Declared as `{lo: 049F, hi: 04B7, count: 24}` and
+`{lo: 23CE, hi: 23E6, count: 24}`, the listing reads `.byte <$6000` under `screen_row_lo_table`, `.byte <$6140, …`
+under `screen_row_lo_cycle`, `.byte >$6000, >$6140, …` under `screen_row_hi_table` and `.byte <$5C00, <$5C28, …` /
+`.byte >$5C00, >$5C28, …` at `$23CE` / `$23E6` (the targets are outside the 11 776-byte image, so the bare-address
+form), and the rebuild is byte-identical.

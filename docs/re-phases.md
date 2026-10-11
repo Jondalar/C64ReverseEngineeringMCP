@@ -82,8 +82,10 @@ listing.
   (write under `analysis/.../{stem}_annotations.json`),
   `disasm` (with annotations), `assemble_source --compare_to`.
 - **Done when**: the disasm rebuilds byte-identical with annotations;
-  ≥1 finding references the artifact; the segment list reads
-  semantically (named labels, no `WXXXX` everywhere).
+  every split low/high table the analysis found in confirmed code is
+  declared or rejected in `splitTables` (`agent_advance_phase` refuses
+  past this phase otherwise); ≥1 finding references the artifact; the
+  segment list reads semantically (named labels, no `WXXXX` everywhere).
 
 ## Phase 6 — Meta Connections
 
