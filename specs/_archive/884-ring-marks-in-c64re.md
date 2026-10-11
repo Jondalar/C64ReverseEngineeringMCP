@@ -1,6 +1,6 @@
 # Spec 884 — Ring marks in C64RE
 
-**Status:** PROPOSED 2026-09-26.
+**Status:** CLOSED (2026-10-11) — superseded by Spec 905, which carries D1–D4 and decides §6's three questions. Text below kept as written (PROPOSED 2026-09-26).
 **Repo:** C64RE only. What it needed from TRX64 was 809 §9 — reopened and **built
 2026-09-26** (TRX64 `main`, 809 archived). Nothing here waits any more.
 **Number:** 884 (registry: `specs/README.md`).
