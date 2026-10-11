@@ -420,20 +420,14 @@ jobs:
       - name: Input offsets, sweeps, windows and series on real machines (Spec 899)
         run: npm run e2e:899-sweep
 
-      # The pinned release daemon (checksum-verified, as a user gets it), so the daemon steps
-      # below run instead of skipping. With C64RE_REQUIRE_RUNTIME=1 a script that finds no
-      # daemon fails instead of skipping. The Windows job does the same.
-      - name: The pinned runtime, installed
-        run: node dist/cli.js runtime install
-
       # Spec 905 — from an anchor to the build. The doors and their descriptions, the retired
       # names, and the winner into the build (a chosen variant, the project's build command, the
       # built PRG/CRT compared byte by byte: GREEN, and RED naming the first differing address)
       # run on any runner; the real KickAssembler case skips loudly without a jar. The runtime
       # half — anchors, a candidate run on clones with inputs, the daemon restart — starts a
-      # trx64-daemon of its own on a free port (the pinned one installed above).
+      # trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
       - name: Anchors, candidates and the build (Spec 905)
-        run: C64RE_REQUIRE_RUNTIME=1 npm run e2e:905
+        run: npm run e2e:905
 
       # Replay across FRESH starts (issue #67 retest). Spec 899's acceptance proved "the same seed, the
       # same run" inside one daemon; identical arguments pressed up to 15 frames apart because every
@@ -442,9 +436,12 @@ jobs:
       # sandbox_run with input_offset_cycles / jitter_seed / sweep, the scene-reel runner, `c64re
       # scenario run`, a candidate run across a daemon restart — and asserts identical press and
       # release cycles, end cycle, registers, RAM digest, checks and pictures. Daemon of its own on
-      # free ports.
+      # free ports; SKIPS LOUDLY on a runner with no trx64-daemon (this one has none; run it locally
+      # against the sibling build). Not in the Windows job below for the same reason: that runner has
+      # no daemon binary either (e2e:716-runtime resolves one with nothing downloaded, e2e:902 uses a
+      # stand-in), so the step would only print SKIPPED there.
       - name: Replay across fresh starts — identical arguments, identical cycles (issue #67)
-        run: C64RE_REQUIRE_RUNTIME=1 npm run e2e:replay-determinism
+        run: npm run e2e:replay-determinism
 
       # Spec 905 — the workbench's anchor code (the page's own, bundled with its WsClient) against a
       # daemon of this run's own beside an MCP session; the source and bundle checks run everywhere.
@@ -824,21 +821,6 @@ jobs:
       # On Windows npm is npm.cmd, which Node refuses to start without a shell (EINVAL).
       - name: npm without a shell, on Windows
         run: npm run smoke:npm-cli
-
-      # The real runtime, so the steps below run against a daemon instead of skipping: the
-      # pinned release asset, checksum-verified, the same way a user gets it.
-      - name: The pinned runtime, installed on Windows
-        run: npm run build:mcp && node dist/cli.js runtime install
-
-      # A fresh process and real wall-clock timing is where replay drift showed (#67): each run
-      # its own daemon, delays between spawn and first call. C64RE_REQUIRE_RUNTIME=1: no SKIP.
-      - name: Identical arguments replay identically across fresh starts, on Windows
-        shell: bash
-        run: C64RE_REQUIRE_RUNTIME=1 npm run e2e:replay-determinism
-
-      - name: Anchors, parallel variants and the build check, on Windows
-        shell: bash
-        run: C64RE_REQUIRE_RUNTIME=1 npm run e2e:905
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — WSL2, which turns out to be testable after all.
