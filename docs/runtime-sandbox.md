@@ -143,6 +143,74 @@ which is the same private daemon with a `.feature` file in front of it.
 
 ---
 
+## From an anchor to the build — several variants at once, the winner into the project
+
+`runtime_sandbox_run` starts a whole medium on a machine of its own. The other job is
+different: the shared machine is *already* at the interesting instant, and you want to try
+several fixes from exactly there — each on a clone, none of them moving the machine the human
+is watching — and then take the one that works into the project's source and build.
+
+```
+1  runtime_anchor_set      { name: "vor_level3", why: "just before level 3 loads" }
+2  runtime_candidate_create{ anchor: "vor_level3", cycle_budget: 400000,
+                             inputs: [{ atCycle: 40000, kind: "joystick2", payload: { fire: true } }] }
+3  runtime_candidate_variant{ id: "cand-1", name: "lda01",  targets: [{ addr: 0xC10A, source_path: "fixes/lda01.asm" }] }
+   runtime_candidate_variant{ id: "cand-1", name: "skip",   targets: [{ addr: 0xC10A, bytes: [0xEA, 0xEA] }] }
+   runtime_candidate_variant{ id: "cand-1", name: "both",   targets: [{ addr: 0xC10A, source_path: "fixes/lda01.asm" },
+                                                                     { addr: 0xC230, source_path: "fixes/guard.asm" }] }
+4  runtime_candidate_run   { id: "cand-1" }
+5  runtime_candidate_choose{ id: "cand-1", variant: "both" }
+6  runtime_candidate_derive_delta{ id: "cand-1" }      // delta-cand-1/…  + the files registered as artifacts
+   … wire the delta into the project's build …
+7  runtime_candidate_verify_build{ id: "cand-1" }
+```
+
+**The anchor.** A name on a checkpoint of the shared machine (32 at most). Setting one captures a
+fresh checkpoint and names it; it does not move, pause or change the machine, and neither do
+`runtime_anchor_list` and `runtime_anchor_drop`. `runtime_anchor_goto` is the one that **moves the
+shared machine** — it jumps to the anchor and pauses there, and the human at the UI sees it. In an
+open project the anchor is also written into the graph (name, cycle, frame, why), so it is
+remembered after the daemon is gone; going to one the ring no longer holds says so and names the
+recorded cycle. While the machine stands in replay (after a goto) an anchor is not set: the runtime
+would name the older checkpoint under the transport cursor and replace its name. `runtime_monitor
+goto <last frame>` returns to the head. `runtime_mark` writes a label into a trace and names no instant of the
+machine; it is not an anchor.
+
+**The candidate.** One file per candidate under `knowledge/candidates/` — anchor, input list, cycle
+budget, and per variant its targets with the **assembled bytes** and the source they came from, plus
+the last verdict. A daemon restart loses nothing but the anchor in the ring; set it again at that
+moment and the same candidate runs again to the same verdicts. A target is RAM (default) or a
+cartridge window (`space: roml|romh`, `bank`, the window address); source is a file or inline text
+assembled with the project's assembler and its own `* =` must equal the target address.
+
+**The run.** One `runtime_candidate_run` is **one parallel batch**: run 0 without any patch, runs
+1…N one per variant, all from the anchor with the same inputs and the same budget, each on a clone.
+The shared machine is touched only to take a snapshot of the anchor. Each variant's end state is
+then compared with the baseline's, whole machine, volatile lanes (cycles, raster, noise) masked. The
+variant's own patched bytes are not counted as a difference — they differ by construction; the verdict
+is about what the code *did*. The answer is a table: variant, cycles, final PC, `same as baseline` or
+`DIFFERS — <component>: <what moved>`. Inputs are `[{ atCycle, kind, payload }]` with `atCycle`
+counted from the anchor; one at or past the budget is not played and the answer says so. Which
+change is right is your call (`runtime_candidate_choose`), the verdict only says what changed.
+
+**Into the build.** `runtime_candidate_derive_delta` writes the chosen variant as one `.asm` per
+target (each with its own org), `delta-manifest.json` and `DELTA.md` beside the project's source —
+never into it — and registers the files as artifacts tagged `candidate:<id>`. Wiring them into the
+build is the project's. `runtime_candidate_verify_build` then runs the project's own build command
+(`profile.build`), reads the image it produced — a PRG with its load address, a cartridge image bank
+by bank, or raw bytes from `raw_load_address` — and compares the bytes at every target: GREEN names
+each target, RED names the first differing address (or says the target is not in the image).
+`skip_build: true` checks an image that is already built.
+
+Anchor names are accepted wherever a checkpoint id is: `runtime_checkpoint_pin`,
+`runtime_checkpoint_restore`, `runtime_overlay_run`'s `anchor_id`, the candidate. `runtime_checkpoint_unpin`
+takes the id only — an anchor holds its own pin; `runtime_anchor_drop` releases it.
+
+For a single quick try that you *want* on the shared machine (and the human knows), `runtime_overlay_run`
+restores an anchor into it, patches, runs and leaves it paused there.
+
+---
+
 ## The raw recipe — an interactive private machine
 
 Only for the case above. Everything else is one `runtime_sandbox_run` call.
@@ -289,6 +357,7 @@ dedicated sandbox-only session; wrong while co-driving, and unnecessary now that
 | Try a different CRT / cold-boot / risky poke / run to the end | **`runtime_sandbox_run`** — one call, its own machine, ends itself |
 | Deterministic tool/logic test, no watching | **`runtime_sandbox_run`** with explicit `I wait N frames` steps |
 | A written scenario that should come back as a reel | `runtime_scene_reel` (same private daemon, `.feature` in front) |
+| Try several fixes from one instant at once, then put the winner into the build | **`runtime_anchor_set`** → `runtime_candidate_*` (this doc, "From an anchor to the build") |
 | Run a 6502 routine with no VIC/CIA/drive around it | `sandbox_6502_run`, or `sandbox_depack` for a game's own depacker |
 | Step / breakpoint / monitor / trace, interactively, NOT on the shared machine | raw WS daemon on your own port (this doc) |
 | Just boot something and look at one frame | `runtime_sandbox_run` with `frame_path`, or `trx64cli boot … --render` |

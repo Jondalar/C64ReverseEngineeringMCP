@@ -258,6 +258,17 @@ steer at once, so:
   start yourself: **`docs/runtime-sandbox.md`** carries that recipe and
   says when it is the wrong one.
 
+- **Several fixes to try from one instant?** Name the instant and run the
+  variants side by side, none of them on the shared machine:
+  `runtime_anchor_set` → `runtime_candidate_create` / `_variant` → `runtime_candidate_run`
+  (the baseline without a patch plus every variant at once, each on a clone, with the
+  same inputs) → `runtime_candidate_choose` → `runtime_candidate_derive_delta` →
+  `runtime_candidate_verify_build`, which proves the project's build really holds the
+  chosen bytes. The candidate is kept in the project (`knowledge/candidates/`) and the
+  anchor's meaning in the graph; only `runtime_anchor_goto` and `runtime_overlay_run`
+  move the shared machine, and both say so. The loop end to end is in
+  `docs/runtime-sandbox.md`.
+
 The persistent state lives in:
 
 - `knowledge/project.json`
