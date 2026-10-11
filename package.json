@@ -98,6 +98,7 @@
     "e2e:reloc-names": "npm run build && node scripts/e2e-reloc-names.mjs",
     "e2e:898": "npm run build && node scripts/e2e-898-platforms.mjs",
     "e2e:inventory-truth": "npm run build:mcp && node scripts/e2e-inventory-truth.mjs",
+    "e2e:replay-determinism": "npm run build:mcp && node scripts/e2e-replay-determinism.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",
     "smoke:813": "npm run build:mcp && node scripts/smoke-813-observers-and-regions.mjs",
     "smoke:812": "npm run build:mcp && node scripts/smoke-812-scene-reel.mjs",
