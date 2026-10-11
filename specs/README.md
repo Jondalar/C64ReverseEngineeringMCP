@@ -3,6 +3,7 @@
 **Everything here is open work.** Finished, retired and decided-against specs, each with
 the decision that closed it: [`_archive/README.md`](_archive/README.md).
 Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
+A new spec starts from [`_TEMPLATE.md`](_TEMPLATE.md): the problem first, then the scenarios that prove it solved, each with its test.
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one registry.
 **Next free: 905.** (903 is on branch `spec/903`.) (807 = TRX64's binary checkpoint ring, closed and archived there; 808 = TRX64's rewind
