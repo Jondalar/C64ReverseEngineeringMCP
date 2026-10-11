@@ -1,6 +1,6 @@
 # Spec 905 — From an anchor to the build: try variants in parallel, keep the one that works
 
-**Status:** C64RE half BUILT on `spec/905` (2026-10-11), green against the TRX64 half on its main (e2f5d72 + 87f9f03); waits on the TRX64 minor release (the `REQUIRED_TRX64_VERSION` pin moves with it), the merge, and the owner's by-hand loop on a real project.
+**Status:** BUILT and merged (2026-10-11): C64RE half on master, TRX64 half released in TRX64 0.13.0, C64RE 0.9.0 pins it. Open for the owner's by-hand loop on a real project.
 **Repo:** both. TRX64: a sandbox run plays inputs; the candidate RPCs go. C64RE: anchors as
 doors and in the workbench, the candidate as project memory, the parallel loop, the way into
 the build.
