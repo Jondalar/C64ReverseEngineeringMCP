@@ -22,6 +22,10 @@ Written for the reader who opens this in three months and remembers nothing.
 
 One worked example, with real addresses / commands / output, beats three paragraphs.
 
+**Break the problem into parts, MECE:** the parts do not overlap, and together they cover the
+whole use case. Number them (P1, P2, …) — usually the steps of the use case, plus anything
+that cuts across them (memory, a refusal, an old defect). §2 is checked against this list.
+
 ## §2 Scenarios — what proves it is solved
 
 The acceptance, as behaviour. Each scenario names the test that runs it; a scenario
@@ -36,12 +40,15 @@ Scenario: <one behaviour, from the user's side>
   And   <what must NOT happen: the shared machine did not move, nothing was written, …>
 ```
 
-| # | Scenario | Test (script / gate step) | Where it runs |
-|---|---|---|---|
-| S1 | … | `scripts/e2e-NNN-….mjs` → `e2e:NNN` | `gate.sh` + `gates.yml` (Linux / Windows) |
-| S2 | … | by hand, on the owner's project X — why it cannot be in the gate | — |
+| # | Solves | Scenario | Test (script / gate step) | Where it runs |
+|---|---|---|---|---|
+| S1 | P1 | … | `scripts/e2e-NNN-….mjs` → `e2e:NNN` | `gate.sh` + `gates.yml` (Linux / Windows) |
+| S2 | P2 | … | by hand, on the owner's project X — why it cannot be in the gate | — |
 
 Rules:
+- Every part of §1 has at least one scenario, and every scenario solves exactly one part.
+  A part without a scenario is unproved; a scenario without a part solves a problem nobody
+  had — cut it, or name the missing part in §1.
 - The negative is a scenario too: refusals by name, the shared machine untouched, a red
   rebuild stays red.
 - A scenario that needs real hardware, real game bytes or Commodore ROMs says so and is
