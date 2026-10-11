@@ -960,6 +960,15 @@
 .wb-film-thumb:hover { border-color: #58a6ff; }
 .wb-film-thumb.sel { flex: 0 0 auto; width: 79px; height: 56px; border: 2px solid var(--c64-green, #5cdb5c); }
 .wb-film-thumb.pin { box-shadow: 0 0 0 2px var(--c64-yellow, #ffd44a) inset; }
+.wb-film-thumb.anchor { border-bottom: 3px solid #ffb454; }
+.wb-film-anchors { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.wb-film-anchors input { padding: 2px 6px; font-size: 12px; background: #0f0f14; color: #ddd; border: 1px solid rgba(108,92,231,0.45); border-radius: 4px; width: 130px; }
+.wb-film-anchors button { padding: 2px 8px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd; border: 1px solid rgba(108,92,231,0.45); cursor: pointer; }
+.wb-film-anchors button:disabled { opacity: 0.4; cursor: default; }
+.wb-film-chip { display: inline-flex; gap: 1px; }
+.wb-film-transport { margin-top: 4px; color: #9aa; font-size: 11px; font-family: monospace; white-space: pre-wrap; }
+.anchor-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.anchor-list-empty { color: #888; font-size: 12px; }
 .wb-film-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .wb-film-hint { color: #888; font-size: 12px; margin-right: auto; font-family: monospace; }
 .wb-film-actions button { padding: 3px 10px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd; border: 1px solid rgba(108,92,231,0.45); cursor: pointer; }

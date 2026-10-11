@@ -189,6 +189,8 @@
     "smoke:889": "npm run build:mcp && node scripts/smoke-889-backend.mjs",
     "smoke:889-bridge": "npm run build:mcp && node scripts/smoke-889-bridge.mjs",
     "e2e:902": "npm run build:mcp && node scripts/e2e-902-down.mjs",
+    "smoke:905": "npm run build:mcp && npm run ui:build && node scripts/smoke-905-workbench.mjs",
+    "e2e:905": "npm run build:mcp && node scripts/e2e-905-anchor-loop.mjs",
     "e2e:902-leak": "npm run build:mcp && node scripts/e2e-902-leak.mjs",
     "smoke:npm-cli": "npm run build:mcp && node scripts/smoke-npm-cli.mjs",
     "check:leaks": "node scripts/check-leaks.mjs",
