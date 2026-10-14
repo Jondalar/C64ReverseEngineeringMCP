@@ -7,7 +7,7 @@
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { landingMapFromCaptureFile, readSetFromCaptureFile } from "../dist/trace/loader-lens.js";
+import { landingMapFromCaptureFile, readSetFromCaptureFile, readSetsFromCaptureFile } from "../dist/trace/loader-lens.js";
 import { encodeFileHeader, encodeMemAccess, encodeBlockRead, TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
 
 let pass = 0, fail = 0;
@@ -69,6 +69,10 @@ try {
   const c = map.find((e) => e.c64Dest === 0x1000);
   ok(!!c && c.len === 24 && c.source?.sector === 1, "run $1000 len 24, source T33/S1", c ? `len ${c.len} S${c.source?.sector}` : "missing");
   ok(/^[0-9a-f]{64}$/.test(a?.sha256 ?? ""), "run $0800 sha256 identity present");
+
+  // Spec 907 D4 — validate_extraction's one pass hands the landing map over too.
+  const one = readSetsFromCaptureFile(path);
+  ok(one.landings !== null && one.landings.length === 2 && one.landings.every((e) => e.kind === "landing"), "one-pass reader also returns the landing map", `${one.landings?.length}`);
 
   console.log(`\n${fail === 0 ? "GREEN" : "RED"}  loader-lens A5/Option A: ${pass} pass, ${fail} fail.`);
 } finally {

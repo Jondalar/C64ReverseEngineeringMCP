@@ -5,9 +5,11 @@
 //       though it is long + contiguous — this is the 78×T35 relocator false-positive.
 //   (3) Source by READ time: a landing's source block is FIFO-matched to the
 //       BLOCK_READ read-set, not the head position at write time.
+// Spec 907 D1 adds: downward runs, page-1 buffers, stack-buffered copies (provenance).
 // Run after build:mcp.
 import { buildLandingMap, buildReadSet, halftrackToTrack } from "../dist/trace/loader-lens.js";
 import { TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
+import { createHash } from "node:crypto";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -66,6 +68,87 @@ const c = map.find((e) => e.c64Dest === 0x1000);
 ok(!!c && c.len === 30 && c.source?.sector === 1, "landing C: $1000 len 30, source T33/S1", c ? `len ${c.len} S${c.source?.sector}` : "missing");
 ok(/^[0-9a-f]{64}$/.test(a?.sha256 ?? ""), "landing A carries a sha256 identity", a?.sha256?.slice(0, 12));
 ok(halftrackToTrack(66) === 33 && halftrackToTrack(36) === 18, "halftrack→track: 66→33, 36→18 (power-on T18)");
+
+
+// ---------------------------------------------------------------------------------
+// Spec 907 D1 — stack-buffered transfers (the Impossible Mission II shape).
+// Per sector: 4x $DD00 + one `pha` into page 1 (downward from $01EF), then, thousands of
+// cycles later with NO $DD00 read, `pla / eor #$f9 / dey / sta ($fe),y` into the
+// destination (descending). Page 1 is a buffer; the destination is the landing.
+// ---------------------------------------------------------------------------------
+console.log("\nSpec 907 D1 — stack buffer + downward copy\n");
+const N = 240;
+const rdm = (cycle, addr, value) => ({ op: TraceOp.RAM_WRITE, cycle, addr, value, access: ACCESS_READ });
+const sectorByte = (k, j) => (k * 53 + j * 7 + 3) & 0xff;
+const im2 = [];
+let t = 100_000;
+const bases = { 1: 0x1000, 2: 0x10f0 };
+for (const k of [1, 2]) {
+  im2.push(blk(t - 500, 66, k, 320));
+  for (let j = 0; j < N; j++) {
+    const c = t + j * 40;
+    for (let r = 0; r < 4; r++) im2.push(dd00(c + r * 10));
+    im2.push(wr(c + 34, 0x01ef - j, sectorByte(k, j)));        // pha, downward
+  }
+  t += N * 40 + 5000;                                           // the copy is far from any $DD00
+  for (let i = 0; i < N; i++) {                                 // pla ascending, sta descending
+    const j = N - 1 - i;
+    const c = t + i * 20;
+    im2.push(rdm(c, 0x01ef - j, sectorByte(k, j)));
+    im2.push(wr(c + 10, bases[k] + j, sectorByte(k, j) ^ 0xf9));
+  }
+  t += N * 20 + 20_000;
+}
+const m1 = buildLandingMap(im2);
+const lands = m1.filter((e) => e.kind === "landing");
+ok(lands.length === 2, "S1 two landings", m1.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}`).join(","));
+const l1 = lands.find((e) => e.c64Dest === 0x1000), l2 = lands.find((e) => e.c64Dest === 0x10f0);
+ok(!!l1 && l1.len === N && l1.source?.sector === 1, "S1 $1000 len 240 from T33/S1", JSON.stringify(l1?.source));
+ok(!!l2 && l2.len === N && l2.source?.sector === 2, "S1 $10F0 is its own landing, source T33/S2", JSON.stringify(l2?.source));
+ok(!!l1 && l1.viaBuffer?.addr === 0x0100 && l1.viaBuffer?.len === N, "S1 $1000 lists its buffer $0100+240", JSON.stringify(l1?.viaBuffer));
+ok(m1.every((e) => !(e.c64Dest >= 0x0100 && e.c64Dest <= 0x01ff)), "S1 the followed buffer is listed once, under its destination — no page-1 entry");
+const want1 = Uint8Array.from({ length: N }, (_, j) => sectorByte(1, j) ^ 0xf9);
+ok(!!l1 && l1.sha256 === createHash("sha256").update(want1).digest("hex"), "S1 sha256 is over the destination bytes in address order");
+ok(!!l1 && l1.transferReads >= 4, "S1 transfer evidence is the buffer window's", `rd ${l1?.transferReads}`);
+
+// S2 — a relocator copy of the landed bytes, and a depacker-style read of the buffer.
+const s2 = [...im2];
+for (let i = 0; i < N; i++) {                                   // $1000.. -> $C000.., a frame later
+  const c = t + i * 20;
+  s2.push(rdm(c, 0x1000 + i, sectorByte(1, i) ^ 0xf9));
+  s2.push(wr(c + 10, 0xc000 + i, sectorByte(1, i) ^ 0xf9));
+}
+t += N * 20 + 2000;
+// depacker shape: reads the (still intact) buffer, writes f(buf, i) — the XOR is not constant
+const s2b = [...s2];
+const lastWin = t;
+for (let i = 0; i < N; i++) {
+  const c = lastWin + i * 20;
+  s2b.push(rdm(c, 0x01ef - i, sectorByte(2, i)));
+  s2b.push(wr(c + 10, 0x4000 + i, (sectorByte(2, i) + i) & 0xff));
+}
+const m2 = buildLandingMap(s2b);
+ok(!m2.some((e) => e.c64Dest === 0xc000), "S2 relocator copy to $C000 is not a landing", m2.map((e) => "$" + e.c64Dest.toString(16)).join(","));
+ok(!m2.some((e) => e.c64Dest === 0x4000), "S2 depacker-style (non-constant XOR) read of the buffer is not a landing");
+ok(m2.filter((e) => e.kind === "landing").length === 2, "S2 the two real landings are unchanged");
+
+// A buffer nobody was followed out of stays visible, once per distinct range.
+const bufOnly = [];
+for (const k of [0, 1]) {
+  const t0 = 500_000 + k * 50_000;
+  for (let j = 0; j < 32; j++) { bufOnly.push(dd00(t0 + j * 20)); bufOnly.push(wr(t0 + j * 20 + 5, 0x0100 + j, j)); }
+}
+const mb = buildLandingMap(bufOnly);
+ok(mb.length === 1 && mb[0].kind === "buffer" && mb[0].c64Dest === 0x0100 && mb[0].len === 32 && mb[0].repeats === 2,
+  "page-1 transfer run with no copy is reported as ONE buffer (x2), never dropped, never a landing", JSON.stringify(mb.map((e) => [e.kind, e.c64Dest, e.len, e.repeats])));
+
+// A descending direct landing: lowest address, bytes in address order.
+const down = [];
+for (let i = 0; i < 40; i++) { const c = 700_000 + i * 8; if (i % 2 === 0) down.push(dd00(c)); down.push(wr(c + 2, 0x2027 - i, i + 1)); }
+const md = buildLandingMap(down);
+const want = Uint8Array.from({ length: 40 }, (_, i) => 40 - i);
+ok(md.length === 1 && md[0].kind === "landing" && md[0].c64Dest === 0x2000 && md[0].len === 40
+  && md[0].sha256 === createHash("sha256").update(want).digest("hex"), "downward direct landing reported at its lowest address, bytes in address order", JSON.stringify(md.map((e) => [e.c64Dest, e.len])));
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  loader-lens A2/Option A: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

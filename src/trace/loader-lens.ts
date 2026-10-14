@@ -35,17 +35,25 @@
 //           before drawing any conclusion — `cartBankUsage` does.
 //
 //  2. LANDING MAP (buildLandingMap) — the DEST-side human view (runtime_loader_lens):
-//     which RAM address each transferred payload landed at. Rebuilt (Spec 784 Option A)
-//     to defeat three defects the original write-time correlation had:
+//     which RAM address each transferred payload landed at. Rebuilt (Spec 784 Option A,
+//     Spec 907 D1) to defeat the defects the original write-time correlation had:
 //       (a) Multi-stream run builder — a landing survives interleaved scratch writes
-//           (KERNAL jiffy $A0-$A2, IRQ) instead of being flushed at the first gap.
-//       (b) Dataflow gate — a run counts as a disk-landing ONLY if transfer reads
-//           ($DD00 accesses) occurred in its cycle window. A pure memory-copy
-//           (relocator moving already-loaded bytes) has ZERO $DD00 reads → dropped.
-//           This is what killed the old 78×T35 false map (all of it was the copy).
-//       (c) Source by READ time — a landing's source block is FIFO-matched against the
+//           (KERNAL jiffy $A0-$A2, IRQ) instead of being flushed at the first gap. Runs
+//           are followed in BOTH directions (a `dey / sta (zp),y` copy walks downward);
+//           a run is reported at its lowest address, bytes in address order.
+//       (b) Dataflow gate — a run counts as a disk-landing if transfer reads ($DD00
+//           accesses) occurred in its cycle window, or if it is a 1:1 copy (constant XOR
+//           over >= 90 % of its bytes, each store within a few cycles of the read) out of
+//           page-1 bytes a transfer pushed. A pure memory-copy (relocator moving
+//           already-loaded bytes) has ZERO $DD00 reads and reads no transfer-written
+//           stack bytes → dropped. This is what killed the old 78×T35 false map.
+//       (c) Page 1 is the stack. A transfer run lying wholly in it is a buffer, never a
+//           landing; it is listed under the destination it was copied to, or on its own
+//           as kind "buffer" when no copy was followed.
+//       (d) Source by READ time — a landing's source block is matched against the
 //           BLOCK_READ stream by cycle, NOT the head position at WRITE time (which,
-//           under buffering, is a rotated-past sector, not the one that was read).
+//           under buffering, is a rotated-past sector, not the one that was read). For a
+//           copy out of a buffer the cycle is when the buffer was filled.
 
 import {
   streamCaptureEvents,
@@ -94,13 +102,20 @@ export type LandingSource =
   | { medium: "cart"; bank: number; slot: number; slotName: string; offLo: number; offHi: number };
 
 export interface LandingMapEntry {
+  /** `landing` — bytes a transfer delivered to their destination. `buffer` — a run the
+   *  transfer filled in page 1 (the stack) that no destination was followed out of: a
+   *  scratch buffer, listed so a loader that really lands in page 1 stays visible. A
+   *  buffer that WAS followed to a destination is not listed; it is that landing's
+   *  `viaBuffer`. */
+  kind: "landing" | "buffer";
   /** Where the bytes came FROM on the medium (FIFO-matched read-set entry; null if
    *  no medium read preceded this landing — e.g. a capture without the BLOCK_READ /
    *  CART_READ lane). Disk is matched first (a run that passed the $DD00 dataflow gate
    *  IS a disk landing); the cart residency active at the run's start is the fallback
    *  when the capture carries no disk lane at all. */
   source: LandingSource | null;
-  /** Where they LANDED in C64 RAM (start address of the run). */
+  /** Where they LANDED in C64 RAM — the LOWEST address of the run, whichever way the
+   *  loader walked it (the sha256 and `len` are over the bytes in address order). */
   c64Dest: number;
   /** Byte length of the run. */
   len: number;
@@ -111,6 +126,12 @@ export interface LandingMapEntry {
   /** Transfer reads ($DD00 accesses) observed in this run's window — the dataflow
    *  evidence that qualified it as a disk-landing (a memory-copy has ~0). */
   transferReads: number;
+  /** Landings only: the page-1 buffer the bytes were copied out of (1:1, constant XOR,
+   *  within a few cycles of the buffer read). Absent when the bytes landed directly. */
+  viaBuffer?: { addr: number; len: number };
+  /** Buffers only: how many runs of this address and length the capture held (a loader
+   *  that buffers one sector at a time fills the same page once per sector). */
+  repeats?: number;
 }
 
 export interface LandingMapOptions {
@@ -328,12 +349,40 @@ export function cartBankUsage(entries: CartReadSetEntry[]): CartBankUsage[] {
   return out;
 }
 
+/** What a run's bytes were copied out of: the transfer-written page-1 buffer. Filled
+ *  only for runs outside page 1, one entry per destination write that followed. */
+interface Provenance {
+  /** Destination writes whose value came out of an intact, transfer-written buffer byte
+   *  read within PROVENANCE_WINDOW cycles before the write. */
+  hits: number;
+  /** `value(write) XOR value(buffer byte)` of the first hit; -1 until there is one. */
+  xor: number;
+  /** Hits whose XOR differs from `xor` — a depacker / arithmetic copy, not a 1:1 move. */
+  xorBroken: number;
+  /** Transfer window the buffer bytes were written in. A write that follows a buffer
+   *  from another window ends the run, so two sectors never fuse into one landing. */
+  win: number;
+  /** Earliest cycle a followed buffer byte was written — where the source is looked up. */
+  srcCycle: number;
+  /** The page-1 runs the followed bytes came from. */
+  bufRuns: Set<Run>;
+}
+
 interface Run {
+  /** First address written. */
   startAddr: number;
+  /** Next address the run expects; meaningful for the direction once it is fixed. */
   nextAddr: number;
+  /** 0 = one byte so far, +1 = ascending, -1 = descending. */
+  dir: 0 | 1 | -1;
+  /** Bytes in WRITE order (reversed into address order when the run is reported). */
   bytes: number[];
   cycleStart: number;
   cycleEnd: number;
+  /** Keys under which the run sits in openUp / openDown, or -1. */
+  upKey: number;
+  downKey: number;
+  prov: Provenance | null;
 }
 
 // Bounds the number of simultaneously-open write streams. Real loader traces keep 1-2
@@ -341,14 +390,34 @@ interface Run {
 // oldest cycleEnd is evicted + emitted (it has gone stale).
 const MAX_OPEN_RUNS = 256;
 
+/** A write to page 1 counts as written DURING a transfer when a `$DD00` read happened at
+ *  most this many cycles before it (a receive loop reads the port up to four times per
+ *  byte, then pushes). */
+const TRANSFER_WRITE_WINDOW = 64;
+/** `$DD00` reads further apart than this belong to different transfer windows (the copy
+ *  of a sector takes thousands of cycles, a receive loop's inter-byte gap tens). */
+const TRANSFER_GAP = 1000;
+/** A destination write follows a buffer read when the read came at most this many cycles
+ *  before it (`pla / eor / dey / sta (zp),y` is ~11). */
+const PROVENANCE_WINDOW = 16;
+/** Share of a run's bytes that must be provably copied out of the buffer. */
+const PROVENANCE_SHARE = 0.9;
+const PAGE1_LO = 0x0100;
+const PAGE1_HI = 0x01ff;
+
 /**
  * Build the landing map (DEST-side human view) from a decoded loader-lens event stream.
- * See the file header for the three defects this rewrite defeats.
+ * See the file header for the defects this rewrite defeats.
  *
- * Multi-stream: RAM writes are grouped into ascending-address runs keyed by their next
- * expected address, so a run survives interleaved scratch writes. Dataflow gate: a run
- * is kept only if enough transfer reads ($DD00) fell in its cycle window. Source: each
- * kept run is FIFO-matched to the nearest preceding BLOCK_READ by cycle.
+ * Multi-stream: RAM writes are grouped into runs, ascending OR descending, keyed by the
+ * next address each expects, so a run survives interleaved scratch writes. Two ways a run
+ * is a landing: (1) dataflow gate — enough transfer reads ($DD00) fell in its cycle
+ * window; (2) provenance — it is a 1:1 (constant-XOR) copy out of the page-1 bytes a
+ * transfer pushed (a stack-buffered loader: receive → `pha`, then `pla` → store, with no
+ * `$DD00` read near the store). A run lying wholly in page 1 is never a landing: it is
+ * the buffer, listed as `kind:"buffer"` (once under the destination it was followed to,
+ * else once per distinct address range). Source: each landing is matched to the nearest
+ * preceding BLOCK_READ by cycle — of the buffer fill for a followed copy.
  */
 export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMapEntry[]> {
   const minRunLen = opts.minRunLen ?? 16;
@@ -358,17 +427,37 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
 
   // Completed runs (start/end cycle + bytes), collected in emission order.
   const completed: Run[] = [];
-  // Open runs keyed by nextAddr. A write to `addr` extends map[addr] (re-keyed to
-  // addr+1) or starts a fresh run.
-  const open = new Map<number, Run>();
+  // Open runs keyed by the address they expect next, one map per direction. A fresh
+  // one-byte run sits in both; the first extension fixes its direction.
+  const openUp = new Map<number, Run>();
+  const openDown = new Map<number, Run>();
+  const openAll = new Set<Run>();
   // Transfer-read cycles (sorted ascending by construction — events are in cycle order).
   const transferCycles: number[] = [];
-  // The two source lanes, folded in the SAME pass — a multi-gigabyte log is read
-  // once, never three times (BUG-052).
+  // The source lanes, folded in the SAME pass — a multi-gigabyte log is read once,
+  // never three times (BUG-052).
   const readSetFold = newReadSetFold();
   const cartFold = newCartReadSetFold();
 
+  // Transfer-window bookkeeping.
+  let lastTransfer = -Infinity;
+  let windowId = 0;
+  // The page-1 buffer: per byte, the transfer window it was written in (-1 = not written
+  // during a transfer, or since overwritten by something that was), value, write cycle,
+  // and the run that wrote it.
+  const bufWin = new Int32Array(256).fill(-1);
+  const bufVal = new Uint8Array(256);
+  const bufCycle = new Float64Array(256);
+  const bufRun: Array<Run | null> = new Array(256).fill(null);
+  // Page-1 reads that took an intact transfer-written byte, in the last PROVENANCE_WINDOW.
+  interface BufRead { cycle: number; xorSrc: number; win: number; srcCycle: number; run: Run | null }
+  let bufReads: BufRead[] = [];
+
   const complete = (run: Run) => {
+    if (run.upKey >= 0 && openUp.get(run.upKey) === run) openUp.delete(run.upKey);
+    if (run.downKey >= 0 && openDown.get(run.downKey) === run) openDown.delete(run.downKey);
+    run.upKey = run.downKey = -1;
+    openAll.delete(run);
     if (run.bytes.length < minRunLen) return;
     if (completed.length >= MAX_COMPLETED_RUNS) {
       throw new Error(
@@ -382,60 +471,130 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
   };
 
   const evictOldest = () => {
-    let oldestKey = -1;
-    let oldestCycle = Infinity;
-    for (const [k, r] of open) {
-      if (r.cycleEnd < oldestCycle) { oldestCycle = r.cycleEnd; oldestKey = k; }
+    let oldest: Run | null = null;
+    for (const r of openAll) if (oldest === null || r.cycleEnd < oldest.cycleEnd) oldest = r;
+    if (oldest) complete(oldest);
+  };
+
+  const register = (run: Run) => {
+    if (run.dir !== -1) {
+      run.upKey = run.dir === 1 ? run.nextAddr : run.startAddr + 1;
+      const clash = openUp.get(run.upKey);
+      if (clash && clash !== run) complete(clash);
+      openUp.set(run.upKey, run);
     }
-    if (oldestKey >= 0) {
-      const r = open.get(oldestKey)!;
-      open.delete(oldestKey);
-      complete(r);
+    if (run.dir !== 1) {
+      run.downKey = run.dir === -1 ? run.nextAddr : run.startAddr - 1;
+      const clash = openDown.get(run.downKey);
+      if (clash && clash !== run) complete(clash);
+      if (run.downKey >= 0) openDown.set(run.downKey, run);
     }
+    openAll.add(run);
+  };
+  const unregister = (run: Run) => {
+    if (run.upKey >= 0 && openUp.get(run.upKey) === run) openUp.delete(run.upKey);
+    if (run.downKey >= 0 && openDown.get(run.downKey) === run) openDown.delete(run.downKey);
+    run.upKey = run.downKey = -1;
+  };
+
+  /** The destination write (cycle, value) as a copy out of the buffer: the latest page-1
+   *  read in the window, if any. */
+  const followedRead = (cycle: number): BufRead | null => {
+    let best: BufRead | null = null;
+    for (const r of bufReads) if (r.cycle <= cycle && cycle - r.cycle <= PROVENANCE_WINDOW) best = r;
+    return best;
   };
 
   const push = (ev: DecodedEvent): void => {
     readSetFold.push(ev);
     cartFold.push(ev);
-    // Transfer-read timeline: a READ of the fastloader/serial port = a byte pulled from
-    // the drive. RAM_WRITE op carries both reads + writes (IO comes through 0x11 too).
-    if (ev.op === TraceOp.RAM_WRITE && ev.access === ACCESS_READ && ev.addr === transferReadAddr) {
-      transferCycles.push(ev.cycle);
+    if (ev.op !== TraceOp.RAM_WRITE) return;
+    if (ev.addr === undefined || ev.value === undefined) return;
+    // RAM_WRITE carries reads AND writes (I/O comes through it too).
+    if (ev.access === ACCESS_READ) {
+      if (ev.addr === transferReadAddr) {
+        // Transfer-read timeline: a READ of the fastloader/serial port = a byte pulled
+        // from the drive.
+        if (ev.cycle - lastTransfer > TRANSFER_GAP) windowId++;
+        lastTransfer = ev.cycle;
+        transferCycles.push(ev.cycle);
+      } else if (ev.addr >= PAGE1_LO && ev.addr <= PAGE1_HI) {
+        const i = ev.addr - PAGE1_LO;
+        // A buffer byte counts only while it is intact and no later transfer window has
+        // begun (that one is about to overwrite the buffer, so a read after it says
+        // nothing about the window the byte was written in).
+        if (bufWin[i] >= 0 && bufWin[i] === windowId && bufVal[i] === ev.value) {
+          while (bufReads.length && ev.cycle - bufReads[0].cycle > PROVENANCE_WINDOW) bufReads.shift();
+          bufReads.push({ cycle: ev.cycle, xorSrc: ev.value, win: bufWin[i], srcCycle: bufCycle[i], run: bufRun[i] });
+        }
+      }
       return;
     }
-    if (ev.op !== TraceOp.RAM_WRITE || ev.access !== ACCESS_WRITE) return;
-    if (ev.addr === undefined || ev.value === undefined) return;
+    if (ev.access !== ACCESS_WRITE) return;
     if (ev.addr < 0x0002 || ev.addr >= maxDest) return; // land in RAM only
+    const addr = ev.addr;
+    const inPage1 = addr >= PAGE1_LO && addr <= PAGE1_HI;
 
-    const existing = open.get(ev.addr);
+    // Provenance of a write OUTSIDE page 1.
+    const follow = inPage1 ? null : followedRead(ev.cycle);
+
+    // Pick the run to extend: direction-fixed beats a one-byte run; ascending wins a tie.
+    const up = openUp.get(addr);
+    const down = openDown.get(addr);
+    let existing: Run | undefined;
+    if (up && down) existing = up.dir !== 0 ? up : down.dir !== 0 ? down : up;
+    else existing = up ?? down;
+
+    // A destination write following a different transfer window's buffer ends the run.
+    if (existing && follow && existing.prov && existing.prov.hits > 0 && existing.prov.win !== follow.win) {
+      complete(existing);
+      existing = undefined;
+    }
+
+    let run: Run;
     if (existing) {
-      // Extend: consume the byte, advance the key to the next expected address.
-      open.delete(ev.addr);
-      existing.bytes.push(ev.value);
-      existing.nextAddr = ev.addr + 1;
-      existing.cycleEnd = ev.cycle;
-      // Collision guard: if another run already occupies nextAddr, close it first.
-      const clash = open.get(existing.nextAddr);
-      if (clash) { open.delete(existing.nextAddr); complete(clash); }
-      open.set(existing.nextAddr, existing);
+      run = existing;
+      unregister(run);
+      if (run.dir === 0) run.dir = up === run ? 1 : -1;
+      run.bytes.push(ev.value);
+      run.nextAddr = run.dir === 1 ? addr + 1 : addr - 1;
+      run.cycleEnd = ev.cycle;
+      // A run that walked off the 16-bit address space is finished.
+      if (run.nextAddr >= 0 && run.nextAddr <= 0xffff) register(run); else complete(run);
     } else {
-      const run: Run = {
-        startAddr: ev.addr,
-        nextAddr: ev.addr + 1,
-        bytes: [ev.value],
-        cycleStart: ev.cycle,
-        cycleEnd: ev.cycle,
+      run = {
+        startAddr: addr, nextAddr: addr, dir: 0, bytes: [ev.value],
+        cycleStart: ev.cycle, cycleEnd: ev.cycle, upKey: -1, downKey: -1, prov: null,
       };
-      const clash = open.get(run.nextAddr);
-      if (clash) { open.delete(run.nextAddr); complete(clash); }
-      open.set(run.nextAddr, run);
-      if (open.size > MAX_OPEN_RUNS) evictOldest();
+      register(run);
+      if (openAll.size > MAX_OPEN_RUNS) evictOldest();
+    }
+
+    if (follow) {
+      const p = run.prov ?? (run.prov = {
+        hits: 0, xor: -1, xorBroken: 0, win: follow.win, srcCycle: Infinity, bufRuns: new Set(),
+      });
+      const x = (ev.value ^ follow.xorSrc) & 0xff;
+      if (p.hits === 0) p.xor = x; else if (x !== p.xor) p.xorBroken++;
+      p.hits++;
+      if (follow.srcCycle < p.srcCycle) p.srcCycle = follow.srcCycle;
+      if (follow.run) p.bufRuns.add(follow.run);
+    }
+    if (inPage1) {
+      const i = addr - PAGE1_LO;
+      const inWindow = ev.cycle - lastTransfer <= TRANSFER_WRITE_WINDOW;
+      bufWin[i] = inWindow ? windowId : -1;
+      bufVal[i] = ev.value;
+      bufCycle[i] = ev.cycle;
+      bufRun[i] = run;
     }
   };
+  const low = (r: Run) => (r.dir === -1 ? r.nextAddr + 1 : r.startAddr);
+  const high = (r: Run) => (r.dir === 1 ? r.nextAddr - 1 : r.dir === -1 ? r.startAddr : r.startAddr);
 
   const finish = (): LandingMapEntry[] => {
-    for (const r of open.values()) complete(r);
-    open.clear();
+    for (const r of [...openAll]) complete(r);
+    openUp.clear(); openDown.clear(); openAll.clear();
 
     // Emission order: by start cycle (open-map iteration is insertion order, not cycle).
     completed.sort((a, b) => a.cycleStart - b.cycleStart);
@@ -451,24 +610,86 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
       const hi = upperBound(transferCycles, end);
       return hi - lo;
     };
+    const addressOrder = (r: Run) => (r.dir === -1 ? [...r.bytes].reverse() : r.bytes);
 
-    const out: LandingMapEntry[] = [];
+    // Pass 1 — classify. A run wholly in page 1 is a buffer candidate (it needs the
+    // transfer evidence like any run); any other run is a landing by the gate or by
+    // provenance.
+    interface Landing { run: Run; transferReads: number; viaBuf: boolean }
+    const landings: Landing[] = [];
+    const buffers: Array<{ run: Run; transferReads: number }> = [];
     for (const run of completed) {
       const transferReads = countTransfer(run.cycleStart, run.cycleEnd);
-      // Dataflow gate: no transfer reads in the window ⇒ this is a memory-copy /
-      // relocation of already-resident bytes, not a disk landing. Drop it.
-      if (transferReads < minTransferReads) continue;
-      const source = landingSource(readSet, cartReadSet, run.cycleStart);
-      const buf = Uint8Array.from(run.bytes);
+      const direct = transferReads >= minTransferReads;
+      const lo = low(run), hi = high(run);
+      if (lo >= PAGE1_LO && hi <= PAGE1_HI) {
+        // Page 1 is the stack. A transfer filling it is a buffer, never a landing.
+        if (direct) buffers.push({ run, transferReads });
+        continue;
+      }
+      const p = run.prov;
+      const viaBuf = !!p && p.hits >= PROVENANCE_SHARE * run.bytes.length && p.xorBroken === 0 && p.bufRuns.size > 0;
+      // Dataflow gate: no transfer reads in the window and not a 1:1 copy of transferred
+      // bytes ⇒ a memory-copy / relocation / depack of resident bytes, not a disk landing.
+      if (!direct && !viaBuf) continue;
+      landings.push({ run, transferReads, viaBuf });
+    }
+
+    const out: LandingMapEntry[] = [];
+    const followed = new Set<Run>();
+    for (const l of landings) {
+      const { run } = l;
+      let transferReads = l.transferReads;
+      let viaBuffer: { addr: number; len: number } | undefined;
+      let srcCycle = run.cycleStart;
+      if (l.viaBuf && run.prov) {
+        // The transfer evidence lives in the buffer's window, not in the copy's.
+        let bLo = 0xffff, bHi = 0, c0 = Infinity, c1 = -Infinity;
+        for (const b of run.prov.bufRuns) {
+          followed.add(b);
+          bLo = Math.min(bLo, low(b)); bHi = Math.max(bHi, high(b));
+          c0 = Math.min(c0, b.cycleStart); c1 = Math.max(c1, b.cycleEnd);
+        }
+        viaBuffer = { addr: bLo, len: bHi - bLo + 1 };
+        transferReads = Math.max(transferReads, countTransfer(c0, c1));
+        srcCycle = run.prov.srcCycle;
+      }
+      const buf = Uint8Array.from(addressOrder(run));
       out.push({
-        source,
-        c64Dest: run.startAddr,
+        kind: "landing",
+        source: landingSource(readSet, cartReadSet, srcCycle),
+        c64Dest: low(run),
         len: run.bytes.length,
         sha256: createHash("sha256").update(buf).digest("hex"),
         cycleStart: run.cycleStart,
         transferReads,
+        ...(viaBuffer ? { viaBuffer } : {}),
       });
     }
+
+    // Pass 2 — buffers nobody followed into a destination: kept visible, once per
+    // distinct address range (a sector-per-run loader fills the same page 100 times).
+    const seen = new Map<string, LandingMapEntry>();
+    for (const b of buffers) {
+      if (followed.has(b.run)) continue;
+      const key = `${low(b.run)}/${b.run.bytes.length}`;
+      const prior = seen.get(key);
+      if (prior) { prior.repeats = (prior.repeats ?? 1) + 1; continue; }
+      const buf = Uint8Array.from(addressOrder(b.run));
+      const entry: LandingMapEntry = {
+        kind: "buffer",
+        source: landingSource(readSet, cartReadSet, b.run.cycleStart),
+        c64Dest: low(b.run),
+        len: b.run.bytes.length,
+        sha256: createHash("sha256").update(buf).digest("hex"),
+        cycleStart: b.run.cycleStart,
+        transferReads: b.transferReads,
+        repeats: 1,
+      };
+      seen.set(key, entry);
+      out.push(entry);
+    }
+    out.sort((a, b) => a.cycleStart - b.cycleStart);
     return out;
   };
 
@@ -565,18 +786,33 @@ export function cartReadSetFromCaptureFile(path: string): CartReadSetEntry[] {
   return fold.finish();
 }
 
-/** Both read-sets and the identity block from ONE pass. `validate_extraction`
- *  needs all three; reading a 2 GB log three times is three times the wait for
- *  the same bytes. */
+/** Both read-sets, the landing map and the identity block from ONE pass.
+ *  `validate_extraction` needs all of them; reading a 2 GB log several times is that many
+ *  times the wait for the same bytes. The landing map is best-effort here: on a capture
+ *  that is a firehose (more runs than MAX_COMPLETED_RUNS) it comes back `null` with the
+ *  reason, and the read-set lanes — which never depended on it — are unaffected. */
 export function readSetsFromCaptureFile(path: string): {
   readSet: ReadSetEntry[];
   cartReadSet: CartReadSetEntry[];
+  landings: LandingMapEntry[] | null;
+  landingsError?: string;
   meta: TraceFileMeta;
 } {
   const disk = newReadSetFold();
   const cart = newCartReadSetFold();
-  const { meta } = streamCaptureEvents(path, (ev) => { disk.push(ev); cart.push(ev); });
-  return { readSet: disk.finish(), cartReadSet: cart.finish(), meta };
+  const land = newLandingMapFold();
+  let landingsError: string | undefined;
+  const { meta } = streamCaptureEvents(path, (ev) => {
+    disk.push(ev); cart.push(ev);
+    if (landingsError === undefined) {
+      try { land.push(ev); } catch (e) { landingsError = e instanceof Error ? e.message : String(e); }
+    }
+  });
+  let landings: LandingMapEntry[] | null = null;
+  if (landingsError === undefined) {
+    try { landings = land.finish(); } catch (e) { landingsError = e instanceof Error ? e.message : String(e); }
+  }
+  return { readSet: disk.finish(), cartReadSet: cart.finish(), landings, landingsError, meta };
 }
 
 /** The capture's own identity block (`TraceFileMeta`) — used to say WHICH run a
