@@ -194,9 +194,10 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
   }).passthrough();
 
   const resolutionSchema = z.object({
-    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210`, `routine:64BF`, `split:1021-102A` or `name:main_loop`"),
-    winner: z.string().optional().describe("The fragment whose claim wins, by name. For a `name:` key it is the fragment whose ADDRESS keeps the name."),
-    value: z.record(z.unknown()).optional().describe("An entry neither fragment proposed, stating only what it changes — e.g. { label: \"exit_door_probe\" }. Not both this and `winner`."),
+    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210` / `routine:64BF` (the name an address carries, whichever records name it), `immediate:85CF`, `split:1021-102A` or `name:main_loop`"),
+    winner: z.string().optional().describe("The fragment whose claim wins, by name; `A:routine` / `A:label` / `A:segment` when fragment A names the address twice. For a `name:` key it is the fragment whose ADDRESS keeps the name."),
+    value: z.record(z.unknown()).optional().describe("An entry neither fragment proposed, stating only what it changes — e.g. { label: \"exit_door_probe\" }. Not combined with `winner` or `delete`."),
+    delete: z.boolean().optional().describe("Remove the contested entry instead of keeping one reading: the address's name (label, routine and segment label), the segment, the split table, the immediate; for a `name:` key, every site of the name. Recorded like any resolution."),
     why: z.string().optional().describe("What you read that decides it. REQUIRED — the reason is the record; without it the judgement dies with the session."),
   }).passthrough();
 
@@ -205,9 +206,11 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
     "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding. "
     + "Use whenever more than one session, subagent or pass produced annotations for the same bytes — it is the door that replaces a hand-written merge script, "
     + "and the reason it exists is that such a script keeps its judgements in a scratchpad that dies with the session, so the project never learns the merge was contested. "
-    + "Two fragments saying the same thing collapse into one and you are asked nothing. Two that disagree — one segment start with two ends or kinds, one address with two names, "
-    + "one name at two addresses — are REFUSED, naming the key, every claimant and what each of them claimed. "
-    + "You answer with resolutions: [{ key, winner | value, why }], where `winner` is a fragment name, `value` is an entry neither side proposed, and `why` is required. "
+    + "Two fragments saying the same thing collapse into one and you are asked nothing — the same name at the same address from any mix of segment label, label and routine is one claim. "
+    + "Two that disagree — one segment start with two ends or kinds, one address with two names (across segment label, labels and routines), "
+    + "one name at two addresses, one instruction address with two immediates — are REFUSED, naming the key, every claimant and what each of them claimed. "
+    + "You answer with resolutions: [{ key, winner | value | delete, why }], where `winner` is a fragment name, `value` is an entry neither side proposed, `delete` removes the entry, and `why` is required. "
+    + "An immediate that points at a label which lost its address follows the winner there. "
     + "Each answer is written into the project as a finding carrying who claimed what, which one won and why — that is the point of the door, not the merged file. "
     + "It refuses a resolution for a key nothing disputes, a winner that claimed nothing there, and a resolution with no reason. "
     + "Not for writing one reading (use write_annotations), not for a first guess to review (use propose_annotations), and not for rendering the listing afterwards (use disasm). "
@@ -252,7 +255,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       if (args.dry_run === true) {
         const lines = [`Dry run — nothing was written and nothing was recorded.`, ``, ...head, ``, `Would write: ${outRel}`];
         for (const s of settled) {
-          lines.push(``, `${s.contest.key} → ${s.resolution.winner ? `${s.resolution.winner}'s reading` : "a value neither side proposed"}: ${s.winning.described}`);
+          lines.push(``, `${s.contest.key} → ${s.resolution.delete ? "removed" : s.resolution.winner ? `${s.resolution.winner}'s reading` : "a value neither side proposed"}:${s.winning.described}`);
           lines.push(`  why: ${s.resolution.why}`);
         }
         return text(lines.join("\n"));

@@ -19,10 +19,17 @@ nothing is written at all — the tolerant skip described below is for a file a 
 by hand, not for one a tool is writing.
 
 `merge_annotations` folds several readings of one payload into one file. Fragments that
-say the same thing collapse into one and you are asked nothing. Fragments that
-contradict each other — one segment start with two ends or kinds, one address with two
-names, one name at two addresses — are **refused, naming the key, every claimant and
-what each of them claimed**:
+say the same thing collapse into one and you are asked nothing. The identity rule is:
+**one address carries one name, and one name lives at one address**, across every record
+that names an address — a segment's `label`, `labels[]` and `routines[]`. The same name at
+the same address from any mix of those (same or different fragments) is one claim and
+collapses silently; names are compared as the assembler identifier they become, so a
+routine called "Turn advance" and a label `Turn_advance` agree. A label that only repeats
+what a routine or the segment already names there is dropped from the merged file unless it
+carries prose of its own. Fragments that contradict each other — one segment start with
+two ends or kinds, one address with two names, one name at two addresses, one instruction
+with two `immediates` rows — are **refused, naming the key, every claimant and what each
+of them claimed**:
 
 ```
 REFUSED — the fragments contradict each other. Nothing was written and nothing was recorded.
@@ -32,13 +39,31 @@ segment:82E6
   E  $82E6-$8305  pointer_table  "score_ptrs"
 ```
 
-You answer with `resolutions: [{ key, winner | value, why }]` — `winner` is a fragment
-name, `value` is an entry neither side proposed (stating only what it changes), and `why`
-is required. **Each resolution is written into the project as a finding** carrying who
+Keys: `segment:<addr>`, `label:<addr>` / `routine:<addr>` (the name an address carries —
+`label:` when a label or a segment label is involved, `routine:` when only routines
+disagree; either spelling answers it), `immediate:<addr>` (an immediate is keyed by its
+instruction address; a different label, or `lo-of` against `hi-of`, is a contradiction),
+`split:<lo>-<hi>` and `name:<identifier>` (one name at two addresses).
+
+You answer with `resolutions: [{ key, winner | value | delete, why }]` — `winner` is a
+fragment name (`A:routine`, `A:label` or `A:segment` when fragment A names the address
+twice), `value` is an entry neither side proposed (stating only what it changes; for an
+address name it is `{ label: "…" }`, the one name the address then carries), `delete: true`
+removes the entry (the address's name in every record, the segment, the split table, the
+immediate; for a `name:` key every site of the name), and `why` is required. Exactly one
+of the three. **Each resolution is written into the project as a finding** carrying who
 claimed what, which one won and why, so who was right at `$82E6` is still answerable
 after the session that decided it is gone. A resolution for a key nothing disputes, a
 winner that claimed nothing there, and a resolution with no reason are all refused.
-`dry_run` reports the merge without writing the file or recording anything.
+
+What a resolution leaves behind is consistent, not just chosen: a record that lost its
+name is dropped and **its comment is kept** on the record that survived at that address
+(a comment with nowhere to go is quoted in the answer, not lost); an `immediates` row that
+pointed at a label which lost its address is rewritten to the winning name at that
+address (and says so), and one that pointed at a deleted name is dropped (and says so).
+A contradiction that exists only because of another is listed after that one is answered —
+a refusal never lists a key that another answer would make vanish, so a second refusal can
+follow the first. `dry_run` reports the merge without writing the file or recording anything.
 
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
 stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm` refuses
