@@ -382,8 +382,11 @@ const diskManifestReader: ManifestReader = {
         confidence: 1,
         evidence: [buildArtifactEvidence(artifact, `Disk file ${fileName ?? file.relativePath ?? index}`)],
         artifactIds: [artifact.id],
+        // The extent the bytes occupy in memory: a headed PRG's file holds its two load
+        // address bytes first, and those are not placed anywhere (issue #82 - the range
+        // used to run two bytes past the body, and every reader of it counted them).
         addressRange: loadAddress !== undefined
-          ? { start: loadAddress, end: loadAddress + Math.max((file.sizeBytes ?? 1) - 1, 0) }
+          ? { start: loadAddress, end: loadAddress + Math.max((file.sizeBytes ?? 1) - (payloadFormat === "prg" ? 2 : 0) - 1, 0) }
           : undefined,
         // Payload metadata: a disk file IS a payload. Populating these
         // fields lets list_payloads / Payload tab / runtime memory map

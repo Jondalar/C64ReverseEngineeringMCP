@@ -6,6 +6,7 @@
 // in knowledge/project.json) and, when there is none, point at registered files that look
 // foreign and name the one call that settles it.
 
+import { artifactHasLoadHeader } from "./artifact-header.js";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { cartridgeSignatureOf, CARTRIDGE_SIGNATURE_HEAD, MACHINE_NAMES, projectDefaultPlatform } from "./platform-default.js";
 import type { ProjectKnowledgeService } from "./service.js";
@@ -44,7 +45,7 @@ function foreignLooking(service: ProjectKnowledgeService): { hits: Hit[]; scanne
     const sig = cartridgeSignatureOf(bytes);
     if (sig) { hits.push({ path: a.relativePath, what: `cartridge signature ${sig.name} at offset ${sig.offset} (a ${MACHINE_NAMES[sig.platform]} KERNAL checks it)` }); continue; }
     const load = bytes.readUInt16LE(0);
-    if (a.kind === "prg" && FOREIGN_BASIC_STARTS.includes(load)) hits.push({ path: a.relativePath, what: `load address ${hex16(load)}, a BASIC start of the VIC-20 / C16 / Plus/4` });
+    if (artifactHasLoadHeader(a) && FOREIGN_BASIC_STARTS.includes(load)) hits.push({ path: a.relativePath, what: `load address ${hex16(load)}, a BASIC start of the VIC-20 / C16 / Plus/4` });
   }
   return { hits, scanned };
 }

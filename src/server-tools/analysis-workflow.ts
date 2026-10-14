@@ -1,4 +1,5 @@
 import { basename, dirname, resolve, join } from "node:path";
+import { artifactHasLoadHeader } from "../project-knowledge/artifact-header.js";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -219,6 +220,11 @@ export const parseCountStrict = parseCount;
  */
 export { analysisWindowMismatch } from "./byte-doors.js";
 
+/** What the store says the file IS, for the byte door: a headed PRG is "prg"; a headerless block that a payload writer labelled as a PRG row is "raw". */
+function registeredKindOf(a: { kind: string; format?: string }): string {
+  return a.kind === "prg" && !artifactHasLoadHeader(a) ? "raw" : a.kind;
+}
+
 /**
  * What to do when the rebuild did not come back byte-identical.
  *
@@ -423,12 +429,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (a.artifact_id) {
       const artifact = service.getArtifactById(a.artifact_id);
       if (!artifact) return { ok: false, refusal: `No artifact with id ${a.artifact_id}. List the project's artifacts with list_artifacts, or pass the file with path instead.` };
-      return { ok: true, sourceAbs: resolve(pd, artifact.path), artifactId: artifact.id, ...(artifact.kind ? { registeredKind: artifact.kind } : {}) };
+      return { ok: true, sourceAbs: resolve(pd, artifact.path), artifactId: artifact.id, ...(artifact.kind ? { registeredKind: registeredKindOf(artifact) } : {}) };
     }
     if (named) {
       const sourceAbs = resolve(pd, named);
       const row = (() => { try { return service.listArtifacts().find((x) => x.path === sourceAbs); } catch { return undefined; } })();
-      return { ok: true, sourceAbs, ...(row ? { artifactId: row.id, registeredKind: row.kind } : {}) };
+      return { ok: true, sourceAbs, ...(row ? { artifactId: row.id, registeredKind: registeredKindOf(row) } : {}) };
     }
     return { ok: false, refusal: "Neither path nor artifact_id was given. Name the bytes: a file path (absolute or project-relative), or the id of a registered artifact." };
   }

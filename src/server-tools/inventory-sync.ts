@@ -32,6 +32,8 @@ export interface ProjectInventorySyncResult {
   status: "done" | "blocked" | "failed";
   registered: number;
   importedManifests: number;
+  /** Payload-source rows re-labelled from `kind: prg, format: raw` to `kind: raw` (issue #82). */
+  repairedPayloadSources: number;
   /** Analysis-run artifacts back-filled into the knowledge layer this pass. */
   importedAnalysisRuns: number;
   rebuiltViews: string[];
@@ -68,6 +70,33 @@ export interface ProjectInventorySyncResult {
 // project. When this runs inside an MCP tool that talks stdio JSON-RPC, the
 // blocked loop can't service the transport and the client drops the connection
 // as unresponsive. Yielding (`breathe()`) between phases keeps the loop alive.
+/**
+ * Issue #82 — re-label payload-source records the older manifest writer left ambiguous.
+ * It wrote `kind: "prg", format: "raw"` for a headerless block, and every reader that
+ * looked at `kind` took the first two bytes for a load address. The pair already says
+ * "headerless" (artifact-header.ts); the row is made to say it too, once. Returns how
+ * many rows changed; a second run changes none.
+ */
+export function repairAmbiguousPayloadSources(service: ProjectKnowledgeService): number {
+  let repaired = 0;
+  for (const artifact of service.listArtifacts()) {
+    if (artifact.kind !== "prg" || artifact.format !== "raw" || artifact.role !== "payload-source") continue;
+    try {
+      service.saveArtifact({
+        id: artifact.id,
+        kind: "raw",
+        scope: artifact.scope,
+        title: artifact.title,
+        path: artifact.relativePath,
+        role: artifact.role,
+        format: "raw",
+      });
+      repaired += 1;
+    } catch { /* a row that cannot be re-saved keeps reading as headerless through its format */ }
+  }
+  return repaired;
+}
+
 /**
  * Re-label a `manifest.json` that is registered as something other than a manifest.
  * The shape of the file decides: `header` + `chips[]` is an extract_crt manifest,
@@ -147,6 +176,8 @@ export async function runProjectInventorySync(
   // code and re-labelled the record). The file is still the manifest: restore the
   // record from what it says it is, before the manifests are imported below.
   repairMisregisteredManifests(service);
+  // 2c. Payload sources written as `kind: prg, format: raw` become `kind: raw` (issue #82).
+  const repairedPayloadSources = repairAmbiguousPayloadSources(service);
 
   // 3. Import disk/CRT/PRG manifests when present. importManifestArtifact uses
   // stable ids + a purge-then-resave, so re-importing the same manifest is a
@@ -298,6 +329,7 @@ export async function runProjectInventorySync(
     status,
     registered: reg.registered,
     importedManifests,
+    repairedPayloadSources,
     importedAnalysisRuns,
     unregisteredToolOutput: delta.toolOutputCount,
     unregisteredToolOutputByDir: delta.toolOutputByDir,
@@ -353,6 +385,7 @@ function renderFullReport(projectRoot: string, r: ProjectInventorySyncResult): s
     "",
     `- files registered: ${r.registered}`,
     `- manifests imported: ${r.importedManifests}`,
+    ...(r.repairedPayloadSources ? [`- payload sources re-labelled raw (were kind prg, format raw): ${r.repairedPayloadSources}`] : []),
     `- analysis runs back-filled: ${r.importedAnalysisRuns}`,
     `- views rebuilt: ${r.rebuiltViews.length}`,
     `- version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated, ${r.versionGroupsNeedDecision} needing a decision`,
@@ -394,6 +427,7 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult, report
   lines.push(`Project: ${projectRoot}`);
   lines.push(`Files registered: ${r.registered}`);
   lines.push(`Manifests imported: ${r.importedManifests}`);
+  if (r.repairedPayloadSources) lines.push(`Payload sources re-labelled raw: ${r.repairedPayloadSources}`);
   lines.push(`Analysis runs back-filled into the knowledge layer: ${r.importedAnalysisRuns}`);
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);

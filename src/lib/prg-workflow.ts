@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
+import { artifactIsHeaderless } from "../project-knowledge/artifact-header.js";
 import { basename, dirname, relative, resolve } from "node:path";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
@@ -383,7 +384,10 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
   // kinds (disk-file, cart-chunk) often carry it through addressRange.start.
   // If the artifact path ends in .prg, we can fall through to PRG-header mode.
   const explicitLoad = payload.payloadLoadAddress ?? payload.addressRange?.start;
-  const isPrg = payload.payloadFormat === "prg" || artifact.relativePath.toLowerCase().endsWith(".prg");
+  // A record the store labels headerless (a raw block, an extract, a payload source written as
+  // kind prg + format raw) has no load header whatever its file is called.
+  const isPrg = payload.payloadFormat === "prg"
+    || (!artifactIsHeaderless(artifact) && artifact.relativePath.toLowerCase().endsWith(".prg"));
   if (explicitLoad === undefined && !isPrg) {
     throw new Error(`Entity ${opts.payloadId} has no load address and the source artifact is not a PRG. Set payloadLoadAddress / addressRange before running the workflow.`);
   }

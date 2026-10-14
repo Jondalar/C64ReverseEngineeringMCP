@@ -9,6 +9,7 @@ import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { validateManifest, mediumDerivationForKind, chainCoverageWarning } from "./loader-manifest.js";
 import { registerManifestPayloads } from "./manifest-register.js";
+import { sourceArtifactShape } from "../project-knowledge/artifact-header.js";
 import { findPayloadEntity, listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { derivePayloadWindow, formatWindow } from "../project-knowledge/payload-window.js";
 import { ownerOfEntityId } from "../symbols/window-residency.js";
@@ -126,8 +127,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
           parameters: { name: args.name },
           inputs: [],
           outputs: [{
-            path: prgAbs, kind: "prg", scope: "generated",
-            role: "payload-source", format: "prg", producedByTool: "register_payload",
+            path: prgAbs, ...sourceArtifactShape(args.format === "raw" ? "raw" : "prg"), scope: "generated",
+            role: "payload-source", producedByTool: "register_payload",
           }],
         });
         sourceArtifactId = service.listArtifacts().find((a) => a.path === prgAbs)?.id;
@@ -298,8 +299,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
           parameters: { name },
           inputs: [],
           outputs: [{
-            path: bytesAbs, kind: "prg", scope: "generated",
-            role: "payload-source", format, producedByTool: "register_payloads_from_manifest",
+            path: bytesAbs, ...sourceArtifactShape(format), scope: "generated",
+            role: "payload-source", producedByTool: "register_payloads_from_manifest",
           }],
         });
         return service.listArtifacts().find((a) => a.path === bytesAbs)?.id;
