@@ -151,6 +151,13 @@ export interface CounterExample {
   address: number;
   /** Whose edge it is: the owner of the node it lands on (or of its source, for "only $A writes"). Absent for platform / ownerless nodes. */
   owner?: string;
+  /**
+   * Set only when the finding named no owner AND the edge cannot be pinned on the claim's
+   * subject: the claimed address is covered by several owners (several images loaded into
+   * one window), so this edge may belong to some other image's code. The owners involved.
+   * The edge is then a lead, not a refutation.
+   */
+  ambiguousOwners?: string[];
 }
 
 /** The owner a project-form node id carries (`slug:ram/<owner>:kind:addr`); a platform id has none. */
@@ -171,10 +178,37 @@ function ownerOfId(id: string): string | undefined {
  * Several files can load into one window, so numeric address equality across owners is not
  * a contradiction: with a subject, only nodes of those owners count. Ownerless nodes
  * (`addr`, cart banks) and platform ids (`c64:zp:00f3`) are shared by every owner and
- * always count. Without a subject every owner counts, as before.
+ * always count. Without a subject the first edge of any owner is returned, but when the
+ * claimed address is covered by more than one owner the result carries `ambiguousOwners`:
+ * with several images at the same addresses, an edge of another image says nothing about
+ * this claim, and the caller must not present it as a refutation.
  */
 export function findCounterExample(
-  db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } },
+  db: GraphDb,
+  claim: NegativeClaim,
+  range?: { start: number; end: number },
+  owners?: ReadonlySet<string>,
+): CounterExample | undefined {
+  const hit = firstCounterExample(db, claim, range, owners);
+  if (!hit || (owners && owners.size > 0) || hit.owner === undefined) return hit;
+  // No subject, and the edge belongs to a named owner: is the claim's address shared?
+  const spans = claim.onlyAddress !== undefined
+    ? [{ start: claim.onlyAddress, end: claim.onlyAddress }]
+    : range ? [range] : claim.addresses.map((a) => ({ start: a, end: a }));
+  const involved = new Set<string>([hit.owner]);
+  for (const span of spans) {
+    const rows = db.prepare(
+      "SELECT DISTINCT owner FROM nodes WHERE address BETWEEN ? AND ? AND owner IS NOT NULL",
+    ).all(span.start, span.end) as Array<{ owner: string }>;
+    for (const r of rows) involved.add(r.owner);
+  }
+  return involved.size > 1 ? { ...hit, ambiguousOwners: [...involved].sort() } : hit;
+}
+
+type GraphDb = { prepare(sql: string): { all(...args: unknown[]): unknown[] } };
+
+function firstCounterExample(
+  db: GraphDb,
   claim: NegativeClaim,
   range?: { start: number; end: number },
   owners?: ReadonlySet<string>,
