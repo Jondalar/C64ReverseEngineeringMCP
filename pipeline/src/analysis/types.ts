@@ -341,6 +341,13 @@ export interface SplitPointerTableFact {
   countHint?: number;
   /** What the table stores relative to the target: 1 for an RTS dispatch (target-1). */
   adjustHint?: number;
+  /**
+   * zp_pointer only: whether the zero-page pair is later used as a pointer — `(zp),y`, `(zp,x)` or `jmp (zp)` — on a
+   * path that starts after the second store and is not first overwritten. `false` is a pair of cells the code loads
+   * from two tables and only reads as bytes (a column and a row, a width and a height): listed, never an obligation.
+   * Absent for the other shapes, and in analyses written before the check existed (read as used).
+   */
+  pointerUsed?: boolean;
   provenance: CodeProvenance;
   confidence: number;
   sampleTargets: number[];

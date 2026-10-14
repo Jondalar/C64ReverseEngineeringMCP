@@ -18,6 +18,8 @@
 //   I  a wrong adjust is not accepted
 //   J  merge_annotations merges by (lo, hi)
 //   K  probable code is listed and does not block
+//   L  a zero-page pair counts only when the code uses it as a pointer: coordinates and
+//      width/height pairs are listed as probable and never block
 //
 //   npm run e2e:903
 
@@ -27,7 +29,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMcp } from "./lib/mcp-stdio.mjs";
-import { splitTablePrg } from "./lib/903-prgs.mjs";
+import { splitTablePrg, pairUsePrg } from "./lib/903-prgs.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -364,6 +366,52 @@ try {
     check(!/found and undecided/.test(c), "K3 the critic does not fire on it");
     const report = (await dist("project-knowledge/split-obligations.js")).splitObligationsFromFiles(probeAnalysisPath);
     check(report.open.length === 0 && report.probable.length === 1, "K4 as a record: open 0, probable 1", JSON.stringify({ open: report.open.length, probable: report.probable.length }));
+  }
+
+  // ═══ L. a zero-page pair is a table only when it is used as a pointer ═══════════
+  head("L. a pair stored to zero page and only read as bytes is probable, never an obligation");
+  {
+    const pairHex = (a, b) => `$${hex4(a)}/$${hex4(b)}`;
+    // L-a: a program whose pairs are all coordinates / sizes
+    const neg = pairUsePrg({ withPointers: false });
+    const NEG_REL = "artifacts/prg/coords.prg";
+    writeFileSync(join(proj, NEG_REL), neg.prg);
+    const negOut = await call("analyze_prg", { prg_path: NEG_REL, entry_points: ["080D"] });
+    const negFacts = JSON.parse(readFileSync(join(proj, "artifacts", "prg", "coords_analysis.json"), "utf8")).codeSemantics.splitPointerTables;
+    const byLo = (facts, labelsOf, name) => facts.find((f) => f.lowTableBase === labelsOf[name]);
+    check(negFacts.length === 3 && negFacts.every((f) => f.shape === "zp_pointer" && f.provenance === "confirmed_code" && f.pointerUsed === false),
+      "L1 the detector still sees the three pairs (confirmed code) and marks each pointerUsed:false", JSON.stringify(negFacts.map((f) => [hex4(f.lowTableBase), f.pointerUsed])));
+    check(openCount(negOut) === 0 && /Split tables: 0 open/.test(negOut), "L2 analyze lists 0 open", negOut.split("\n").filter((l) => /Split tables|probable/.test(l)).join(" | "));
+    check(/probable, listed and NOT an obligation — the zero-page pair is never used as a pointer/.test(negOut)
+      && negFacts.every((f) => negOut.includes(pairHex(f.lowTableBase, f.highTableBase))),
+      "L3 …and lists all three as probable, by table pair, saying why", negOut.split("\n").filter((l) => /Split tables|probable/.test(l)).join(" | "));
+    const report = (await dist("project-knowledge/split-obligations.js")).splitObligationsFromFiles(join(proj, "artifacts", "prg", "coords_analysis.json"));
+    check(report.open.length === 0 && report.probable.length === 3 && report.probable.every((p) => p.why === "no-pointer-use"),
+      "L4 as a record: open 0, probable 3 (no-pointer-use)", JSON.stringify({ open: report.open.length, probable: report.probable.map((p) => p.why) }));
+    const negId = service().listArtifacts().find((a) => a.path.endsWith("coords.prg"))?.id;
+    const adv = await call("agent_advance_phase", { artifact_id: negId, to_phase: 6, evidence: "fixture: nothing to decide" });
+    check(/Phase advanced/.test(adv), "L5 the gate does not fire on them", adv.split("\n")[0]);
+    const crit = await call("project_critique", { min_severity: "blocking" });
+    check(!/found and undecided/.test(crit) || !/coords/.test(crit), "L6 the critic does not fire on them", crit.split("\n").slice(0, 4).join(" | "));
+    const md2 = await call("pointer_report", { analysis_json: "artifacts/prg/coords_analysis.json" });
+    const mdText = readFileSync(join(proj, "artifacts", "prg", "coords_POINTER_TABLE_FACTS.md"), "utf8");
+    check(/pointer use: none seen/.test(mdText) && /byte_pair_not_a_pointer/.test(mdText), "L7 the pointer report says so too", mdText.split("\n").filter((l) => /pointer use|hypothesis/.test(l)).slice(0, 4).join(" | "));
+
+    // L-b: the same shapes next to two pairs that ARE pointers (used in a callee; used on one branch arm)
+    const mix = pairUsePrg({ withPointers: true });
+    const MIX_REL = "artifacts/prg/pairs.prg";
+    writeFileSync(join(proj, MIX_REL), mix.prg);
+    const mixOut = await call("analyze_prg", { prg_path: MIX_REL, entry_points: ["080D"] });
+    const mixFacts = JSON.parse(readFileSync(join(proj, "artifacts", "prg", "pairs_analysis.json"), "utf8")).codeSemantics.splitPointerTables;
+    const used = (name) => byLo(mixFacts, mix.labels, name)?.pointerUsed;
+    check(used("tp_lo") === true && used("tb_lo") === true, "L8 a pair used as ($zp),Y in the CALLEE, and one used on a BRANCH arm, are pointers", JSON.stringify(mixFacts.map((f) => [hex4(f.lowTableBase), f.pointerUsed])));
+    check(used("tc_lo") === false && used("tw_lo") === false, "L9 the coordinate pair and the width/height pair next to them are not", JSON.stringify(mixFacts.map((f) => [hex4(f.lowTableBase), f.pointerUsed])));
+    check(used("tq_lo") === false, "L10 a pair both of whose cells are overwritten before the ($zp),Y is not the table's pointer any more", String(used("tq_lo")));
+    check(openCount(mixOut) === 2 && openLines(mixOut).length === 2
+      && openLines(mixOut).some((l) => l.startsWith(`  ${pairHex(mix.labels.tp_lo, mix.labels.tp_hi).replace("/", " / ")}`))
+      && openLines(mixOut).some((l) => l.startsWith(`  ${pairHex(mix.labels.tb_lo, mix.labels.tb_hi).replace("/", " / ")}`)),
+      "L11 exactly the two pointer pairs are open", mixOut.split("\n").filter((l) => /Split tables|^  \$/.test(l)).join(" | "));
+    check(/never used as a pointer/.test(mixOut), "L12 …and the other three are listed as probable beside them");
   }
 } catch (e) {
   failCount += 1;

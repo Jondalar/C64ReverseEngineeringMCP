@@ -145,7 +145,8 @@ annotation: the assembler must reproduce the bytes.
 
 ### A found table must be decided
 
-`analyze` finds split tables built three ways — `LDA lo,X / STA zp / LDA hi,X / STA zp+1`,
+`analyze` finds split tables built three ways — `LDA lo,X / STA zp / LDA hi,X / STA zp+1`
+(counted only when the pair is then used as a pointer, see below),
 the same stores into the operand of an instruction in the image, and the RTS dispatch
 `LDA hi,X / PHA / LDA lo,X / PHA / RTS` — and reports each once per `(lo, hi)` pair with
 its `shape`, a `countHint` when a `CPX`/`CPY #n` bounds the index nearby and an
@@ -160,6 +161,13 @@ obligation until the artifact's annotations hold a `splitTables` entry with that
 - `project_critique` raises `split-table-undecided` (blocking) once per open table, so the
   project is not done and `agent_next_step` recommends declaring them first.
 - Tables found in probable code are listed and never an obligation.
+- A zero-page pair counts as a table only when the code later uses it as a pointer —
+  `(zp),y`, `(zp,x)` or `jmp (zp)` on either cell — on a path that starts after the second
+  store: fall-through, both branch arms, `jmp`, and into the callee of a `jsr`. A path stops
+  where the code overwrites a cell. A pair that is only read as bytes (a column and a row,
+  a width and a height) is listed as *probable* with the reason and is never an obligation;
+  declare or reject it anyway if you read it differently. The patched-operand and RTS
+  shapes need no such check: they are used as an address by construction.
 
 The detector sees only those three shapes. A table whose index is computed in two steps,
 or whose pointer is copied before use, is not listed — **"0 open" is not "no tables"**.

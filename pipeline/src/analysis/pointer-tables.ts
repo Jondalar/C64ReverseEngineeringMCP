@@ -51,6 +51,9 @@ function summarizeSplitPointerTable(fact: SplitPointerTableFact): string[] {
   if (fact.adjustHint !== undefined) {
     lines.push(`- adjust hint: ${fact.adjustHint} (the table stores target-${fact.adjustHint})`);
   }
+  if (fact.pointerUsed === false) {
+    lines.push("- pointer use: none seen — the zero-page pair is never used as (zp),y, (zp,x) or jmp (zp); probably two byte values, not an address table");
+  }
   lines.push(`- confidence: ${formatConfidence(fact.confidence)}`);
   lines.push(`- sample targets: ${fact.sampleTargets.map(formatAddress).join(", ") || "-"}`);
   lines.push(`- reasons:`);
@@ -61,6 +64,9 @@ function summarizeSplitPointerTable(fact: SplitPointerTableFact): string[] {
 }
 
 function classifySplitPointerTable(fact: SplitPointerTableFact): string {
+  if (fact.shape === "zp_pointer" && fact.pointerUsed === false) {
+    return "byte_pair_not_a_pointer";
+  }
   const targets = fact.sampleTargets;
   if (targets.length >= 4) {
     const deltas = targets.slice(1).map((target, index) => target - targets[index]);
