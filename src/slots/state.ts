@@ -11,10 +11,11 @@
 //              S3 from ordered loader-stage entities, S12 from address coverage). A
 //              derived fill needs no ceremony: doing the work IS filling the slot.
 //
-// S11 is the one slot with a third state on purpose. Four corpus projects claimed free
-// RAM from reading and all four were corrected by running, so a read-derived claim fills
-// it only as `hypothesis` — enough to be visible, not enough to open the doors that
-// allocate.
+// S11 is the one slot with a third state on purpose. A claim without a run behind it
+// fills it only as `hypothesis` — enough to be visible, not enough to open the doors that
+// allocate. A run never proves "unused": it shows what was written, and read-only data
+// survives a canary. "Free" is established by reading (no reader, no writer in the
+// listing); the run is the second witness for the writes.
 
 import type { SlotDef, SlotId } from "./schema.js";
 import { SLOTS } from "./schema.js";
@@ -624,8 +625,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
         const byRun = findings.some((f) =>
           (f.tags ?? []).some((t) => /^slot:S11$/i.test(t)) && (f.tags ?? []).some((t) => /^method:run$/i.test(t)));
         return byRun
-          ? { slot, status: "filled", detail: `${explicit[0]}, confirmed by running` }
-          : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — a run has not confirmed it` };
+          ? { slot, status: "filled", detail: `${explicit[0]}, a run saw no write (reads are not checked by a run)` }
+          : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — no run has watched the range for writes` };
       }
       // S15 is S11's twin one level out, and for the same reason: the claim is only
       // worth as much as the instrument behind it. A free list read off the BAM is a

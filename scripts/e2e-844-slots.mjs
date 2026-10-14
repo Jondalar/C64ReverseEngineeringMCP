@@ -105,7 +105,9 @@ try {
 
     rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF confirmed free by run", tags: ["slot:S11", "method:run"] });
     r = await slotReport(d);
-    check("a run settles S11", statusOf(r, "S11") === "filled", r.states.find((s) => s.slot.id === "S11")?.detail);
+    check("a run-watched S11 fills the slot", statusOf(r, "S11") === "filled", r.states.find((s) => s.slot.id === "S11")?.detail);
+    check("…and its text says a run saw no write, never that a run proved it free",
+      /saw no write/.test(r.states.find((s) => s.slot.id === "S11")?.detail ?? "") && !/confirmed by running/.test(r.states.find((s) => s.slot.id === "S11")?.detail ?? ""));
     check("the allocating door opens", (await checkSlotGate("runtime_candidate_variant", d)).allowed);
   }
 

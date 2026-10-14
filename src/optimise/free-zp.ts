@@ -2,10 +2,10 @@
 //
 // Not a guess, and not a table of "what the KERNAL usually leaves alone": the
 // project's own free-RAM slot (Spec 844's S11) is the only thing that says
-// which zero page is free here, and it distinguishes a claim a RUN confirmed
-// from one somebody read off a listing. Four projects in the corpus claimed
-// free RAM from reading and all four were corrected by running, which is why
-// the distinction is carried into the candidate rather than flattened.
+// which zero page is free here, and it distinguishes a claim a RUN watched
+// for writes from one somebody read off a listing. A run proves "not written",
+// never "not read", so the distinction is carried into the candidate rather
+// than flattened.
 //
 // No slot, no destination, no candidate — and the rule says that is why,
 // instead of picking $FB and hoping.
@@ -45,7 +45,7 @@ export function freeZeroPage(projectDir: string): FreeZeroPage | null {
     }
     if (!took) continue;
     if (byRun) confirmedByRun = true;
-    sources.push(`"${f.title}" (${byRun ? "confirmed by running" : "read-derived, still a hypothesis"})`);
+    sources.push(`"${f.title}" (${byRun ? "a run saw no write" : "read-derived, still a hypothesis"})`);
   }
   if (cells.size === 0) return null;
 
@@ -56,6 +56,6 @@ export function freeZeroPage(projectDir: string): FreeZeroPage | null {
     how:
       `the project's free-RAM slot says ${list.length} zero-page cell(s) are free (${shown}${list.length > 8 ? ", …" : ""}) — ` +
       sources.join("; ") +
-      (confirmedByRun ? "" : ". No run has confirmed this, so the destination is a hypothesis and the candidate inherits that"),
+      (confirmedByRun ? "" : ". No run has watched it for writes, so the destination is a hypothesis and the candidate inherits that"),
   };
 }

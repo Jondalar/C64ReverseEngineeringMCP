@@ -448,7 +448,7 @@ try {
     const block = candidateBlock(report, "zp-promote", "zpvar");
     check(has("zp-promote", "zpvar"), "zp-promote: with the free-RAM slot answered, the candidate appears");
     check(/\$FB is free/.test(block), "…naming the destination and where that came from");
-    check(/confirmed by running/.test(block), "…and that a run confirmed it, not a listing");
+    check(/a run saw no write/.test(block), "…and that a run watched it for writes, not only a listing");
     check(/2 access\(es\) to \$2000/.test(block), "…with every access that has to move");
     check(none("zpvarneg"), "zp-promote: a cell touched once yields none");
   }
