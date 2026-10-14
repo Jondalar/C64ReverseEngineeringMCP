@@ -145,12 +145,15 @@ try {
     check(fi.width === 384 && Buffer.from(fi.indices, "base64").length === 384 * 272, "session/frame_indices is served from the same frame");
 
     // paused: the stream goes quiet, the last frame stays
-    check(await until(() => notes.some((n) => n.paused === true), 3000), "no video for a quarter second → notification stream/paused {paused:true}");
-    const pn = notes.find((n) => n.paused === true);
+    // The receiver says paused once at the start too, before the first frame; that early note is
+    // in `notes` already, so wait for the LATEST note to say paused, not for any note to.
+    const lastNote = () => notes[notes.length - 1];
+    check(await until(() => lastNote()?.paused === true, 3000), "no video for a quarter second → notification stream/paused {paused:true}");
+    const pn = lastNote();
     check(typeof pn.ageMs === "number" && pn.ageMs >= 0, "…carrying the age of the last frame in ms", JSON.stringify(pn));
-    check(b.pausedState().paused === true && b.lastVideo()?.length === v.length, "the bridge keeps the paused verdict and the last frame for a page that connects late");
+    check(b.pausedState()?.paused === true && b.lastVideo()?.length === v.length, "the bridge keeps the paused verdict and the last frame for a page that connects late", JSON.stringify({ paused: b.pausedState(), last: b.lastVideo()?.length, v: v.length }));
     await sendFrame(tx, vp, 2);
-    check(await until(() => notes.some((n) => n.paused === false)), "video again → stream/paused {paused:false}");
+    check(await until(() => lastNote()?.paused === false), "video again → stream/paused {paused:false}");
 
     // rearm after a system reset
     const before = reqs(sim, /PUT \/v1\/streams\/video:start/).length;
