@@ -122,7 +122,7 @@ check(occurrences(asm.toLowerCase(), lutFirst) === 1,
 check(/lda\s+#\$02/i.test(asm), "the instruction after the text island decodes as LDA #$02");
 check(!/\.byte\s+\$c[ab],\s*\$a9/i.test(asm),
   "…and not as the misaligned `.byte $CB,$A9` the report shows");
-check(/sta\s+\$d021/i.test(asm), "…and the instruction after THAT is still aligned");
+check(/sta\s+vic_bg0\b/i.test(asm), "…and the instruction after THAT is still aligned (sta $D021 reads vic_bg0)");
 
 // The labels the author gave must survive into the block.
 check(asm.includes("credit_text") && asm.includes("offsetExtraBits"),
