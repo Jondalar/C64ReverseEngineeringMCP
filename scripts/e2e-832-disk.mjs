@@ -92,8 +92,10 @@ try {
 
   // Row 0 is a real PRG. Row 1 is a record file whose manifest (written before this
   // fix) still claims $CAFF. Row 2 is the row that survives the load-address check
-  // and still cannot be asserted: $FFFE + 4 bytes of file runs one byte past the
-  // top, so its range would be end < start once the graph masks it.
+  // and still cannot be asserted: a RAW block (every one of its 4 bytes is body,
+  // there is no header to strip) at $FFFE runs two bytes past the top, so its
+  // range would be end < start once the graph masks it. As a headed PRG the same
+  // 4 bytes are a header and 2 body bytes, which end exactly at $FFFF and import.
   const manifestPath = join(diskDir, "manifest.json");
   writeFileSync(manifestPath, `${JSON.stringify({
     sourceImage: "fixture.d64",
@@ -103,7 +105,7 @@ try {
     files: [
       { index: 0, origin: "kernal", name: "loader", type: "PRG", sizeSectors: 1, sizeBytes: 4, track: 17, sector: 0, loadAddress: 0x0801, relativePath: "01_loader.prg" },
       { index: 1, origin: "kernal", name: "t202", type: "PRG", sizeSectors: 60, sizeBytes: 15238, track: 20, sector: 0, loadAddress: 0xcaff, relativePath: "02_t202.prg" },
-      { index: 2, origin: "kernal", name: "edge", type: "PRG", sizeSectors: 1, sizeBytes: 4, track: 18, sector: 5, loadAddress: 0xfffe },
+      { index: 2, origin: "kernal", name: "edge", type: "PRG", sizeSectors: 1, sizeBytes: 4, track: 18, sector: 5, loadAddress: 0xfffe, format: "raw" },
     ],
   }, null, 2)}\n`);
 
