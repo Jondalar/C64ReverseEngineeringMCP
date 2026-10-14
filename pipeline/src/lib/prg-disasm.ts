@@ -1458,16 +1458,147 @@ function applyKernalAbiOperandOverrides(context: RenderAnalysisContext): void {
   }
 }
 
+const POINTER_USE_STEP_BUDGET = 4000;
+const POINTER_USE_CALL_DEPTH = 2;
+const POINTER_USE_CALLER_LIMIT = 16;
+
+// Is the zero-page pointer `low`/`low+1`, just built by stores, DEREFERENCED by the code that
+// runs next, before either cell is overwritten?
+//
+// Walks the instructions that can execute after `startAfter`: fall-through, both arms of a
+// branch, `jmp abs`, and into the callee of a `jsr` (at most POINTER_USE_CALL_DEPTH deep); a
+// callee's `rts` returns to the instruction after its `jsr`. A path ends at a store to either
+// cell, at `rti`/`brk`, and at anything the walk cannot follow: an indirect jump, a
+// `jmp`/`jsr` into bytes this listing did not decode. A `jsr` to a ROM routine the platform
+// names (KERNAL, BASIC) is stepped over; a `jsr` to an address outside the image is NOT: what
+// it does with the cells is unknown, so that path proves nothing.
+// When the routine that built the pointer returns (`rts` with nothing to return to), the walk
+// continues behind each `jsr` that calls that routine - a "set the pointer" helper is used by
+// its caller, one level up.
+//
+// Returns true only when a path reaches `lda (low),y` / `(low,x)` or `jmp ($00low)`. A scan
+// proves presence, never absence: a pointer whose use is out of reach reads as "no use", and
+// the immediates stay literal bytes. `lda $f0` / `cmp $f0` read the cell as a plain operand
+// and prove nothing.
+function zpPointerDereferencedAfter(
+  context: RenderAnalysisContext,
+  setupInstructionAddress: number,
+  startAfter: InstructionFact,
+  low: number,
+): boolean {
+  const high = (low + 1) & 0xff;
+  const isCell = (value: number | undefined): boolean => value === low || value === high;
+  // a ROM routine the platform knows by name (KERNAL, BASIC): it does not read the program's cells
+  const isRomRoutine = (address: number): boolean => {
+    if (platformOff()) return false;
+    return platformNode(activePlatform as PlatformTag, address)?.kind === "rom";
+  };
+
+  interface Cursor { address: number; stack: number[]; leftSetupRoutine: boolean }
+  const queue: Cursor[] = [{ address: (startAfter.address + startAfter.size) & 0xffff, stack: [], leftSetupRoutine: false }];
+  const seen = new Set<string>();
+  let budget = POINTER_USE_STEP_BUDGET;
+  let callers: number[] | undefined;
+
+  const callersOfSetupRoutine = (): number[] => {
+    if (callers) return callers;
+    callers = [];
+    const entries = new Set<number>();
+    for (const ins of context.instructions.values()) {
+      if (ins.mnemonic === "jsr" && ins.targetAddress !== undefined && ins.targetAddress <= setupInstructionAddress) entries.add(ins.targetAddress);
+    }
+    const candidates = [...entries].sort((x, y) => y - x).slice(0, 8);
+    for (const entry of candidates) {
+      // the nearest routine start from which the setup store is reachable without calling out
+      const walked = new Set<number>();
+      const stack = [entry];
+      let reached = false;
+      let guard = 1500;
+      while (stack.length > 0 && guard > 0 && !reached) {
+        const at = stack.pop()!;
+        if (walked.has(at)) continue;
+        walked.add(at);
+        const ins = context.instructions.get(at);
+        if (!ins) continue;
+        guard -= 1;
+        if (ins.address === setupInstructionAddress) { reached = true; break; }
+        if (ins.mnemonic === "rts" || ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+        if (ins.mnemonic === "jmp") {
+          if (ins.addressingMode === "abs" && ins.targetAddress !== undefined) stack.push(ins.targetAddress);
+          continue;
+        }
+        if (ins.addressingMode === "rel" && ins.targetAddress !== undefined) stack.push(ins.targetAddress);
+        stack.push((ins.address + ins.size) & 0xffff);
+      }
+      if (!reached) continue;
+      for (const ins of context.instructions.values()) {
+        if (ins.mnemonic === "jsr" && ins.targetAddress === entry) callers.push((ins.address + ins.size) & 0xffff);
+      }
+      break;
+    }
+    if (callers.length > POINTER_USE_CALLER_LIMIT) callers = [];
+    return callers;
+  };
+
+  while (queue.length > 0 && budget > 0) {
+    const cursor = queue.pop()!;
+    const key = `${cursor.address}|${cursor.stack.join(",")}|${cursor.leftSetupRoutine ? 1 : 0}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const ins = context.instructions.get(cursor.address);
+    if (!ins) continue;
+    budget -= 1;
+    const mode = ins.addressingMode;
+    if ((mode === "(zp),y" || mode === "(zp,x)") && ins.operandValue !== undefined && (ins.operandValue & 0xff) === low) return true;
+    if (ins.mnemonic === "jmp" && mode === "ind" && ins.operandValue === low) return true;
+    if ((ins.mnemonic === "sta" || ins.mnemonic === "stx" || ins.mnemonic === "sty")
+      && (mode === "zp" || (mode === "abs" && (ins.operandValue ?? 0x100) < 0x100)) && isCell(ins.operandValue)) continue;
+    const next = (ins.address + ins.size) & 0xffff;
+    if (ins.mnemonic === "rts") {
+      if (cursor.stack.length > 0) {
+        queue.push({ address: cursor.stack[cursor.stack.length - 1]!, stack: cursor.stack.slice(0, -1), leftSetupRoutine: cursor.leftSetupRoutine });
+      } else if (!cursor.leftSetupRoutine) {
+        for (const returnTo of callersOfSetupRoutine()) queue.push({ address: returnTo, stack: [], leftSetupRoutine: true });
+      }
+      continue;
+    }
+    if (ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+    if (ins.mnemonic === "jmp") {
+      if (mode === "abs" && ins.targetAddress !== undefined) queue.push({ address: ins.targetAddress, stack: cursor.stack, leftSetupRoutine: cursor.leftSetupRoutine });
+      continue;
+    }
+    if (ins.mnemonic === "jsr") {
+      const target = ins.targetAddress;
+      if (target === undefined) continue;
+      if (isRomRoutine(target)) {
+        queue.push({ address: next, stack: cursor.stack, leftSetupRoutine: cursor.leftSetupRoutine });
+      } else if (context.instructions.has(target) && cursor.stack.length < POINTER_USE_CALL_DEPTH) {
+        queue.push({ address: target, stack: [...cursor.stack, next], leftSetupRoutine: cursor.leftSetupRoutine });
+      }
+      continue;
+    }
+    if (mode === "rel" && ins.targetAddress !== undefined) {
+      queue.push({ address: ins.targetAddress, stack: cursor.stack, leftSetupRoutine: cursor.leftSetupRoutine });
+    }
+    queue.push({ address: next, stack: cursor.stack, leftSetupRoutine: cursor.leftSetupRoutine });
+  }
+  return false;
+}
+
 // Detect zero-page pointer construction:
 //
 //   lda #lo   /   sta $fb
 //   lda #hi   /   sta $fc
 //
 // (or with X/Y, or with the high half stored first). When the combined
-// (hi<<8)|lo points at a labelled address AND the low cell is dereferenced
-// somewhere in the listing (`(zp),y`, `(zp,x)`, `jmp ($00xx)`), rewrite the immediate operands as
-// `#<label` / `#>label` so the pointer becomes relocatable in source form. Both
-// halves must be present; a lone half, or a pair nothing dereferences, stays literal.
+// (hi<<8)|lo points at a labelled address AND THIS PAIR is dereferenced
+// before either cell is overwritten (`(zp),y`, `(zp,x)`, `jmp ($00xx)` - in the
+// same routine or in a callee, see `zpPointerDereferencedAfter`), rewrite the
+// immediate operands as `#<label` / `#>label` so the pointer becomes relocatable
+// in source form. A zero-page cell that is a pointer ELSEWHERE in the listing
+// proves nothing about this store: engines keep a shared pool of pointer cells
+// and also pass plain coordinates through the same bytes. Both halves must be
+// present; a lone half, or a pair no path dereferences, stays literal.
 function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
   interface ZpStoreEvent {
     listIndex: number;
@@ -1520,20 +1651,6 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
     });
   }
 
-  // A byte that happens to equal a label's low byte, stored to a zero-page cell, is a
-  // constant until something dereferences the cell as a pointer: `(zp),y`, `(zp,x)`, or
-  // `jmp ($00xx)` through a vector built in zero page. Without one the pair stays the
-  // literal it is.
-  const dereferenced = new Set<number>();
-  for (const inst of instructions) {
-    if (inst.operandValue === undefined) continue;
-    if (inst.addressingMode === "(zp),y" || inst.addressingMode === "(zp,x)") {
-      dereferenced.add(inst.operandValue & 0xff);
-    } else if (inst.addressingMode === "ind" && inst.operandValue < 0x100) {
-      dereferenced.add(inst.operandValue);
-    }
-  }
-
   const PAIR_WINDOW = 8;
   for (let i = 0; i < events.length; i += 1) {
     const a = events[i]!;
@@ -1551,10 +1668,18 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
       } else {
         continue;
       }
-      if (!dereferenced.has(low.zpAddress)) continue;
+      // One setup is straight-line code. A call, branch or jump between the two stores means the
+      // halves belong to different setups (the high half of one, the low half of the next).
+      let straightLine = true;
+      for (let between = a.listIndex + 1; between < b.listIndex; between += 1) {
+        if (instructions[between]!.isControlFlow) { straightLine = false; break; }
+      }
+      if (!straightLine) continue;
       const pointer = ((high.immediateValue & 0xff) << 8) | (low.immediateValue & 0xff);
       const label = resolvePointerLabel(pointer, context);
       if (!label) continue;
+      const lastStore = context.instructions.get(b.storeInstructionAddress)!;
+      if (!zpPointerDereferencedAfter(context, b.storeInstructionAddress, lastStore, low.zpAddress)) continue;
       if (!context.operandOverrides.has(low.immediateInstructionAddress)) {
         context.operandOverrides.set(low.immediateInstructionAddress, `#<${label}`);
       }
@@ -2591,13 +2716,27 @@ function renderCopyFact(fact: CopyRoutineFact): string {
   return `// SEMANTICS copy-loop ${src || "dynamic source"}${moreSrc ? moreSrc : ""} -> ${dest}${moreDest} via ${fact.indexRegister.toUpperCase()}`;
 }
 
-function renderPointerFact(fact: IndirectPointerConstructionFact): string {
+// The analyzer reports every lda/sta/lda/sta pair into adjacent zero-page cells; whether the pair
+// is a POINTER is decided here, by the same flow walk that decides the `#<label` halves. A pair
+// no path dereferences is two bytes (a rectangle's corner, a width and a height), and the
+// listing says so instead of calling it a pointer.
+function renderPointerFact(fact: IndirectPointerConstructionFact, context: RenderAnalysisContext): string {
   const zpLow = `$${formatHex8(fact.zeroPageBase)}`;
   const zpHigh = `$${formatHex8((fact.zeroPageBase + 1) & 0xff)}`;
-  if (fact.constantTarget !== undefined) {
-    return `// SEMANTICS zp-pointer ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}`;
+  let lastStore: InstructionFact | undefined;
+  for (let at: number | undefined = fact.start, step = 0; at !== undefined && step < 4; step += 1) {
+    lastStore = context.instructions.get(at);
+    at = lastStore ? lastStore.address + lastStore.size : undefined;
   }
-  return `// SEMANTICS zp-pointer ${zpLow}/${zpHigh} built dynamically`;
+  const dereferenced = lastStore !== undefined
+    && lastStore.address + lastStore.size - 1 === fact.end
+    && zpPointerDereferencedAfter(context, lastStore.address, lastStore, fact.zeroPageBase);
+  const kind = dereferenced ? "zp-pointer" : "zp-pair";
+  const note = dereferenced ? "" : " (no pointer use reached)";
+  if (fact.constantTarget !== undefined) {
+    return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}${note}`;
+  }
+  return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} built dynamically${note}`;
 }
 
 function renderTableFact(fact: TableUsageFact): string {
@@ -3294,7 +3433,7 @@ function renderCodeSegment(
       lines.push(renderCopyFact(fact));
     }
     for (const fact of context.pointerFactsByStart.get(instruction.address) ?? []) {
-      lines.push(renderPointerFact(fact));
+      lines.push(renderPointerFact(fact, context));
     }
     for (const fact of context.tableFactsByStart.get(instruction.address) ?? []) {
       lines.push(renderTableFact(fact));

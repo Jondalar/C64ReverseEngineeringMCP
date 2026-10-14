@@ -4,13 +4,23 @@
 // The renderer guessed a pointer from two immediates stored to adjacent zero-page cells whose
 // combined value hits a label. A constant that merely equals a label's low byte (and a high
 // byte that equals its high byte) was turned into a label half, so the listing still rebuilt
-// byte-identical but stopped being relocatable. The pair must also be DEREFERENCED
-// ((zp),y / (zp,x)) somewhere in the listing.
+// byte-identical but stopped being relocatable. The pointer BUILT BY THESE STORES must be
+// dereferenced - (zp),y / (zp,x) / jmp ($00xx) - on a path from the stores, before either cell
+// is overwritten: in the same routine or in a callee. A cell that is a pointer in some OTHER
+// routine (an engine's shared pointer pool) proves nothing about this setup.
 //
 //   a  lda #<tbl / sta $fb / lda #>tbl / sta $fc / lda ($fb),y   -> label halves
 //   b  the same constants stored to $fd/$fe, never dereferenced      -> literals
 //   c  a lone lo half, no hi half                                   -> literal
 //   d  a vector built in zero page and used by jmp ($00xx)          -> label halves
+//   e  shared pool: $f3 is (zp),y elsewhere; this setup's callee reads $f3/$f4 as plain
+//      operands (lda $f3 / adc $f4)                                 -> literals
+//   f  a setup followed by jsr to a callee that does lda ($f5),y    -> label halves
+//   g  setup, the cell is overwritten, only then a deref            -> literals
+//   h  two setups with a call between: the high half of one and the low half of the next must
+//      not pair up, however the cell is used                        -> literals
+//   i  a setup followed by jsr to a routine outside the image: unknown flow -> literals
+//   j  the same pair, the setup routine returns and its caller derefs    -> label halves
 //
 // Hermetic: a temp project and synthetic bytes. The rebuild check needs KickAssembler and is
 // skipped loudly without a jar, the way e2e:disasm-family is.
@@ -73,7 +83,7 @@ const call = async (name, args) => {
 };
 
 // $C040 is the table (a label: the code reads it). Its low byte is $40, its high byte $C0.
-const BODY = Buffer.alloc(0x48, 0xea);
+const BODY = Buffer.alloc(0x120, 0xea);
 Buffer.from([
   // a  $C000 — a real pointer setup, dereferenced
   0xa9, 0x40, 0x85, 0xfb, 0xa9, 0xc0, 0x85, 0xfc, 0xa0, 0x00, 0xb1, 0xfb, 0xad, 0x40, 0xc0, 0x60,
@@ -91,6 +101,28 @@ Buffer.from([
   0xa9, 0x40, 0x85, 0xf9, 0xa9, 0xc0, 0x85, 0xfa, 0x6c, 0xf9, 0x00,
 ]).copy(BODY, 0x30);
 Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]).copy(BODY, 0x40);
+const put = (at, bytes) => Buffer.from(bytes).copy(BODY, at);
+// e  $C050 - setup, jsr to $C060 which only reads $f3/$f4 as plain operands; $C070 is the pool
+//    routine that uses ($f3),y
+put(0x50, [0xa9, 0x40, 0x85, 0xf3, 0xa9, 0xc0, 0x85, 0xf4, 0x20, 0x60, 0xc0, 0x60]);
+put(0x60, [0xa5, 0xf3, 0x18, 0x65, 0xf4, 0x60]);
+put(0x70, [0xa0, 0x00, 0xb1, 0xf3, 0x60]);
+// f  $C080 - setup, jsr to $C090 which does lda ($f5),y
+put(0x80, [0xa9, 0x40, 0x85, 0xf5, 0xa9, 0xc0, 0x85, 0xf6, 0x20, 0x90, 0xc0, 0x60]);
+put(0x90, [0xa0, 0x00, 0xb1, 0xf5, 0x60]);
+// g  $C0A0 - setup into $e0/$e1, then $e0 is overwritten, then lda ($e0),y
+put(0xa0, [0xa9, 0x40, 0x85, 0xe0, 0xa9, 0xc0, 0x85, 0xe1, 0xa9, 0x01, 0x85, 0xe0, 0xa0, 0x00, 0xb1, 0xe0, 0x60]);
+// h  $C0C0 - setup ($c013), jsr, setup ($0140); the high half of the first ($c0) and the low half
+//    of the second ($40) would read as $c040; the callee $C0E0 derefs ($e2),y
+put(0xc0, [0xa2, 0x13, 0xa0, 0xc0, 0x86, 0xe2, 0x84, 0xe3, 0x20, 0xe0, 0xc0,
+           0xa2, 0x40, 0xa0, 0x01, 0x86, 0xe2, 0x84, 0xe3, 0x20, 0xe0, 0xc0, 0x60]);
+put(0xe0, [0xa0, 0x00, 0xb1, 0xe2, 0x60]);
+// i  $C0F0 - setup into $e4/$e5, jsr $1000 (outside the image)
+put(0xf0, [0xa9, 0x40, 0x85, 0xe4, 0xa9, 0xc0, 0x85, 0xe5, 0x20, 0x00, 0x10, 0x60]);
+// j  $C100 - a helper that sets $e6/$e7 and returns; $C110 calls it and then derefs ($e6),y
+put(0x100, [0xa9, 0x40, 0x85, 0xe6, 0xa9, 0xc0, 0x85, 0xe7, 0x60]);
+put(0x110, [0x20, 0x00, 0xc1, 0xa0, 0x00, 0xb1, 0xe6, 0x60]);
+
 const prg = Buffer.concat([Buffer.from([0x00, 0xc0]), BODY]);
 
 try {
@@ -104,7 +136,7 @@ try {
   // The pointer pass runs on an analysis, so analyse first and render from that analysis.
   await call("analyze_prg", {
     prg_path: "artifacts/halves.prg", output_json: "artifacts/halves_analysis.json",
-    entry_points: ["C000", "C010", "C020", "C030"],
+    entry_points: ["C000", "C010", "C020", "C030", "C050", "C060", "C070", "C080", "C090", "C0A0", "C0C0", "C0E0", "C0F0", "C100", "C110"],
   });
   const out = await call("disasm_prg", {
     prg_path: "artifacts/halves.prg", analysis_json: "artifacts/halves_analysis.json",
@@ -130,12 +162,31 @@ try {
   check(/lda\s+#<\S+/i.test(dLo) && /lda\s+#>\S+/i.test(dHi),
     "d: a vector jumped through as jmp ($00f9) renders as label halves", `${dLo.trim()} | ${dHi.trim()}`);
 
+
+  const eLo = around("f3")[0] ?? "", eHi = around("f4")[0] ?? "";
+  check(/lda\s+#\$40/i.test(eLo) && /lda\s+#\$c0/i.test(eHi),
+    "e: shared pool - $f3 is (zp),y in another routine, but this pair goes to a callee that reads it as a plain operand: literals", `${eLo.trim()} | ${eHi.trim()}`);
+  const fLo = around("f5")[0] ?? "", fHi = around("f6")[0] ?? "";
+  check(/lda\s+#<\S+/i.test(fLo) && /lda\s+#>\S+/i.test(fHi),
+    "f: a setup followed by jsr to a callee that does lda ($f5),y renders as label halves", `${fLo.trim()} | ${fHi.trim()}`);
+  const gLo = around("e0")[0] ?? "", gHi = around("e1")[0] ?? "";
+  check(/lda\s+#\$40/i.test(gLo) && /lda\s+#\$c0/i.test(gHi),
+    "g: the cell is overwritten before the deref: literals", `${gLo.trim()} | ${gHi.trim()}`);
+  check(/ldx\s+#\$40/i.test(asm) && /ldy\s+#\$c0/i.test(asm) && !/ldx\s+#<\S+/i.test(asm) && !/ldy\s+#>\S+/i.test(asm),
+    "h: the high half of one setup and the low half of the next never pair across a call", (asm.match(/(ldx|ldy)\s+#[<>]\S+/gi) ?? []).join(" "));
+  const iLo = around("e4")[0] ?? "", iHi = around("e5")[0] ?? "";
+  check(/lda\s+#\$40/i.test(iLo) && /lda\s+#\$c0/i.test(iHi),
+    "i: a setup followed by jsr to a routine outside the image is unknown flow: literals", `${iLo.trim()} | ${iHi.trim()}`);
+  const jLo = around("e6")[0] ?? "", jHi = around("e7")[0] ?? "";
+  check(/lda\s+#<\S+/i.test(jLo) && /lda\s+#>\S+/i.test(jHi),
+    "j: the setup routine returns and its caller does lda ($e6),y: label halves", `${jLo.trim()} | ${jHi.trim()}`);
+
   if (failCount > 0) console.log(`\n--- listing ---\n${asm}`);
   if (!HAVE_ASSEMBLER) {
     skipped += 1;
     console.log(`  SKIP  the listing rebuilds byte-identical  (KickAssembler not found at ${KICKASS} — skipped, not passed)`);
   } else {
-    check(!/WARNING: rebuild/.test(out), "the listing rebuilds byte-identical in all four cases",
+    check(!/WARNING: rebuild/.test(out), "the listing rebuilds byte-identical in all cases",
       out.split("\n").find((l) => /rebuild/i.test(l)));
   }
 } finally {

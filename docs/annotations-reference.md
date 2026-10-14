@@ -110,6 +110,20 @@ monitor's label column, so in such a project no name ever wraps there.
 }
 ```
 
+## Label halves in immediates
+
+Without an `immediates` row the renderer writes `lda #<label` / `lda #>label` on its own in two
+cases only. (1) A `jsr` into a routine whose ABI declares a register pointer pair (KERNAL, or a
+`routines[].abi.pointerPairs` row). (2) Two immediates stored to adjacent zero-page cells whose
+combined value is a label **and** that pointer is dereferenced - `(zp),y`, `(zp,x)` or
+`jmp ($00xx)` - on a path that starts at those stores and reaches the use before either cell is
+overwritten: in the same routine, in a `jsr` callee (two levels), or, when the routine only sets
+the pointer and returns, behind its callers. A cell that is a pointer in some other routine
+proves nothing about this setup, and the same two bytes passed as plain coordinates stay
+literal. A path the scan cannot follow - an indirect jump, a `jsr` into an address outside the
+image, bytes the analysis did not decode - proves nothing either: the bytes stay literal. Where
+the use is out of the file, an `immediates` row states it and always wins.
+
 ## Split low/high tables
 
 Two parallel one-byte tables — one holding the low bytes, one the high bytes of `count`
