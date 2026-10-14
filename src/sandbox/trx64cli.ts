@@ -51,10 +51,14 @@ export interface Trx64SandboxJson {
   steps: number;
   writtenSpan: { lo: number; hi: number } | null;
   writtenRuns: Array<{ lo: number; hi: number }>;
+  /** writtenRuns minus the addresses stored to only in I/O space. Absent from a trx64cli older than the RAM-image fields. */
+  ramWrittenRuns?: Array<{ lo: number; hi: number }>;
   finalRegs: { a: number; x: number; y: number; sp: number; p: number };
   streamPos: number;
-  harvest: { addr: number; len: number; hex: string; ioWritten?: Array<[number, number]> };
-  harvests: Array<{ addr: number; len: number; hex: string; ioWritten?: Array<[number, number]> }>;
+  // `hex` carries the CPU's I/O stores overlaid on RAM; `ramHex` (only when ioWritten is non-empty,
+  // and only from a trx64cli that has it) is the same range as RAM holds it.
+  harvest: { addr: number; len: number; hex: string; ioWritten?: Array<[number, number]>; ramHex?: string | null };
+  harvests: Array<{ addr: number; len: number; hex: string; ioWritten?: Array<[number, number]>; ramHex?: string | null }>;
 }
 
 export class Trx64CliError extends Error {}

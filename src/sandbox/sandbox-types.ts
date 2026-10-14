@@ -145,11 +145,18 @@ export interface SandboxRunResult {
   // runs stay disjoint — the space between two runs is not in this list, and
   // nothing fills it. Clipped to returnWritesRange when the caller set one.
   writtenRuns: WrittenRun[];
-  // Absolute address ranges inside the written runs whose bytes are what the CPU
-  // stored into I/O space ($D000-$DFFF with I/O banked in) — the last value
-  // written, never a chip read; colour RAM is its low nibble. Empty when the
-  // routine stored nowhere in I/O.
+  // Absolute address ranges the CPU stored into I/O space ($D000-$DFFF with I/O
+  // banked in). Those stores are NOT in `writtenRuns` / `writtenMap` / `writes`
+  // or in any memory snapshot as values: the RAM image holds what RAM holds. An
+  // address that was also stored to in RAM stays in the runs with its RAM byte;
+  // one stored to only in I/O is not in the runs. Empty when the routine stored
+  // nowhere in I/O.
   ioWritten?: Array<{ lo: number; hi: number }>;
+  // "ram": the runtime reported the RAM image (ramHex / ramWrittenRuns) and the runs
+  // are exact. "runtime-too-old": it did not, so the I/O-stored addresses were cut
+  // out of the runs — what RAM holds under them is unknown. Absent when there were
+  // no I/O stores.
+  ioImage?: "ram" | "runtime-too-old";
   // Smallest contiguous span covering all writtenMap addresses, or null. The
   // span is a convenience over `writtenRuns`, so its holes are `null` — it does
   // NOT gap-fill with zeroes (that was invented data) and never with residue.

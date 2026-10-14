@@ -92,7 +92,7 @@ const memBlockSchema = z.object({
 export function registerSandboxTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "sandbox_6502_run",
-    "Run a 6502 routine in an isolated sandbox: load code/data into the RAM of a real C64 whose CPU port starts at $34 (all RAM, no ROM, no I/O) — banking then follows $01 exactly as on the hardware, so a routine that changes $01 sees ROM, I/O or the char ROM where the PLA puts them; seed a different start banking via initial_zp $01 (and $00 for the port direction), optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM). Only the bytes the routine actually STORED are payload: the output names the written runs, and a memory range you ask for prints \"--\" wherever this run never wrote (the machine's own residue and your own loaded bytes both count as never-written). A harvest taken before this rule existed cannot tell the two apart, so re-run anything you kept from one. Zero page and the stack count as output, not as machinery — $0000-$01FF is reported too, judged by change against the run's own pre-run image. With I/O banked in ($01 seed $37), a store to $D000-$DFFF is reported with the value the CPU wrote (colour RAM $D800-$DBFF as its low nibble) — in the runs and in output_path — and an \"I/O stores\" line names those ranges; it is the last value stored, never a chip read. Not for depacking specifically (use sandbox_depack) or a full-machine boot (use runtime_session_run).",
+    "Run a 6502 routine in an isolated sandbox: load code/data into the RAM of a real C64 whose CPU port starts at $34 (all RAM, no ROM, no I/O) — banking then follows $01 exactly as on the hardware, so a routine that changes $01 sees ROM, I/O or the char ROM where the PLA puts them; seed a different start banking via initial_zp $01 (and $00 for the port direction), optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM). Only the bytes the routine actually STORED are payload: the output names the written runs, and a memory range you ask for prints \"--\" wherever this run never wrote (the machine's own residue and your own loaded bytes both count as never-written). A harvest taken before this rule existed cannot tell the two apart, so re-run anything you kept from one. Zero page and the stack count as output, not as machinery — $0000-$01FF is reported too, judged by change against the run's own pre-run image. With I/O banked in ($01 seed $37), a store to $D000-$DFFF goes to a chip, not to RAM: the runs, the memory windows and output_path hold the RAM image (the last value stored to RAM there), never the I/O value, and an \"I/O stores\" line names those ranges and says which of them lie inside the written runs (RAM was also stored there; the image keeps the RAM byte) and which are not in the image at all (stored only in I/O). Not for depacking specifically (use sandbox_depack) or a full-machine boot (use runtime_session_run).",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from the first path in loads[] to knowledge/phase-plan.json."),
       loads: z.array(memBlockSchema).min(1).describe("Memory loads applied in order. Each entry must specify exactly one of prg_path / raw_path / hex_bytes."),
@@ -214,8 +214,31 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         }
         const io = result.ioWritten ?? [];
         if (io.length > 0) {
-          const ioList = io.map((r) => (r.lo === r.hi ? `$${formatHexWord(r.lo)}` : `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)}`)).slice(0, 16).join(", ");
-          lines.push(`I/O stores: ${ioList}${io.length > 16 ? `, … +${io.length - 16} more` : ""} — in the runs above, these bytes are what the CPU stored into I/O space (the last value written, not a chip read; colour RAM as its low nibble), not RAM.`);
+          const fmt = (r: { lo: number; hi: number }) => (r.lo === r.hi ? `$${formatHexWord(r.lo)}` : `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)}`);
+          const list = (rs: Array<{ lo: number; hi: number }>) => `${rs.slice(0, 16).map(fmt).join(", ")}${rs.length > 16 ? `, … +${rs.length - 16} more` : ""}`;
+          lines.push(`I/O stores: ${list(io)} — the CPU stored these into I/O space (chips, not RAM). They are not RAM and no I/O value is in the runs, the memory windows or output_path.`);
+          if (result.ioImage === "ram" && writesRange) {
+            lines.push(`  (which of these the image keeps is not classified: the output is narrowed by return_writes_start/end.)`);
+          } else if (result.ioImage === "ram") {
+            // Which of the I/O-stored addresses did the RAM image keep? Those the routine also stored to in RAM.
+            const inRuns: Array<{ lo: number; hi: number }> = [];
+            const notInRuns: Array<{ lo: number; hi: number }> = [];
+            const inRun = (a: number) => result.writtenRuns.some((r) => r.lo <= a && a <= r.hi);
+            for (const r of io) {
+              let cur: { lo: number; hi: number; kept: boolean } | undefined;
+              for (let a = r.lo; a <= r.hi; a++) {
+                const kept = inRun(a);
+                if (cur && cur.kept === kept) { cur.hi = a; continue; }
+                if (cur) (cur.kept ? inRuns : notInRuns).push({ lo: cur.lo, hi: cur.hi });
+                cur = { lo: a, hi: a, kept };
+              }
+              if (cur) (cur.kept ? inRuns : notInRuns).push({ lo: cur.lo, hi: cur.hi });
+            }
+            if (inRuns.length > 0) lines.push(`  Inside the written runs: ${list(inRuns)} — RAM was also stored there; the image keeps the RAM byte, not the I/O value.`);
+            if (notInRuns.length > 0) lines.push(`  Not in the image: ${list(notInRuns)} — stored only in I/O, nothing was stored to RAM there.`);
+          } else if (result.ioImage === "runtime-too-old") {
+            lines.push(`  WARNING: this trx64cli does not report the RAM image under I/O stores, so ${list(io)} are CUT OUT of the written runs (what RAM holds there is unknown) and any run through them is split. Use a trx64cli with ramWrittenRuns to get the RAM bytes.`);
+          }
         }
         // Issue: the low pages used to be silently outside the answer, and the
         // description of `include_observed` called what the routine stored there
