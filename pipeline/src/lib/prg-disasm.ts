@@ -22,6 +22,7 @@ import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effecti
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
 import { listingEquates } from "./graph-equates";
+import { IoScope, ioRegisterFor, registerExpression, type ByteSource, type IoRegisterName } from "./io-names";
 import { platformNode, type PlatformTag } from "./platform-kb";
 
 // Spec 048: per-render platform override. Set at the top of
@@ -419,6 +420,109 @@ function resolveExternal(addr: number): ExternalEntry | undefined {
   return best;
 }
 
+// Spec 908 — the I/O window of the C64, named in the listing.
+//
+// `activeIoScope` answers, per instruction, whether $D000-$DFFF is I/O there (the default) or RAM /
+// character ROM because the project's `memoryMap` says so. `activeIoNames` holds the names the
+// equate door accepted for a register, by the address the name is defined at (null = refused); the
+// block of equates that defines them is written from it after the body, so an operand never names
+// something the listing does not define.
+let activeIoScope: IoScope | undefined;
+let activeIoNames = new Map<number, { name: string; comment: string } | null>();
+let activeIoNotes: string[] = [];
+let activeIoReason: string | undefined;
+
+function isIoWindowAddress(address: number): boolean {
+  return address >= 0xd000 && address <= 0xdfff;
+}
+
+/** Is the I/O window really I/O when the instruction at `instruction` reaches `address`? Defaults to yes. */
+function ioIsIoAt(address: number, instruction: number | undefined): boolean {
+  if (instruction === undefined || activeIoScope === undefined) return true;
+  return activeIoScope.useAt(address, instruction) === "io";
+}
+
+/** The names this listing already binds, so a platform name never takes one that is in use. */
+function ioDefinedNames(): Array<[string, number]> {
+  const defined = new Map<string, number>();
+  const remember = (address: number): void => {
+    const name = makeLabel(address & 0xffff);
+    if (!defined.has(name)) defined.set(name, address & 0xffff);
+  };
+  for (const address of activeAnnotations?.labelsByAddress.keys() ?? []) remember(address);
+  for (const address of activeAnnotations?.routinesByAddress.keys() ?? []) remember(address);
+  for (const { start, annotation } of activeAnnotations?.segmentAnnotations ?? []) if (annotation.label) remember(start);
+  for (const [base, accepted] of activeIoNames) if (accepted) defined.set(accepted.name, base);
+  return [...defined];
+}
+
+/** The name the equate door accepts for a register, asked once per register; undefined = print the address. */
+function ioEquateName(register: IoRegisterName): string | undefined {
+  const known = activeIoNames.get(register.base);
+  if (known !== undefined) return known?.name;
+  const defined = ioDefinedNames();
+  const result = listingEquates({
+    projectDir: process.env.C64RE_PROJECT_DIR,
+    space: "c64",
+    addresses: [register.base],
+    proposals: [{ address: register.base, name: register.name }],
+    defined,
+    definedElsewhere: [],
+  });
+  if (result.reason && activeIoReason === undefined) activeIoReason = result.reason;
+  for (const note of result.notes) if (!activeIoNotes.includes(note)) activeIoNotes.push(note);
+  const equate = result.equates.find((e) => e.address === register.base);
+  if (!equate) {
+    // the door finds nothing to define when the listing already binds the name to this very address
+    const alreadyHere = defined.some(([name, address]) => name === register.name && address === register.base);
+    activeIoNames.set(register.base, alreadyHere ? { name: register.name, comment: "" } : null);
+    return alreadyHere ? register.name : undefined;
+  }
+  const heading = register.base >= 0xde00 ? undefined : platformNode("c64", register.base)?.name;
+  activeIoNames.set(register.base, { name: equate.name, comment: heading && heading !== equate.name ? `  // ${heading}` : "" });
+  return equate.name;
+}
+
+/**
+ * The text an operand to the I/O window reads, or undefined to leave it as it is. Precedence: a
+ * human label at the address > the project's declaration that the window is RAM here > the
+ * platform's name for the register. A mirror reads as its register plus the distance.
+ *
+ * Only an instruction's operand asks (`instruction` is its address): a `.word` table entry that
+ * happens to hold $D020 is a number, not an access to the border register.
+ */
+function ioOperandExpression(address: number, instruction: number | undefined): string | undefined {
+  if (instruction === undefined || platformOff() || activePlatform !== "c64" || !isIoWindowAddress(address)) return undefined;
+  const human = activeAnnotations?.labelsByAddress.get(address)?.label;
+  if (human) return human;
+  if (!ioIsIoAt(address, instruction)) return undefined;
+  const register = ioRegisterFor(address, activeCartridgeType);
+  if (!register) return undefined;
+  const baseHuman = register.offset > 0 ? activeAnnotations?.labelsByAddress.get(register.base)?.label : undefined;
+  const base = baseHuman ?? ioEquateName(register);
+  return base === undefined ? undefined : registerExpression(base, register.offset);
+}
+
+/** The block that defines every register name the body used. */
+function renderIoRegisterEquates(registry: EquateRegistry): string[] {
+  const accepted = [...activeIoNames.entries()].filter((e): e is [number, { name: string; comment: string }] => e[1] !== null).sort((a, b) => a[0] - b[0]);
+  if (accepted.length === 0 && activeIoNotes.length === 0 && activeIoReason === undefined) return [];
+  const lines = ["// I/O registers this listing names"];
+  for (const [base, { name, comment }] of accepted) lines.push(...registry.equate(name, formatAddress(base), comment));
+  if (activeIoReason !== undefined) lines.push(`//  no register names: ${activeIoReason}`);
+  for (const note of activeIoNotes.slice(0, 20)) lines.push(`//  ${note}`);
+  lines.push("");
+  return lines.length > 2 || activeIoReason !== undefined || activeIoNotes.length > 0 ? lines : [];
+}
+
+/** The same block for the renderers that have no equate registry: written under the `.pc` line. */
+function insertIoRegisterEquates(lines: string[]): void {
+  const block = renderIoRegisterEquates(new EquateRegistry());
+  if (block.length === 0) return;
+  const at = lines.findIndex((line) => /^\s+\.pc = \$/u.test(line));
+  lines.splice(at < 0 ? lines.length : at + 2, 0, ...block);
+}
+
 function makeLabel(address: number): string {
   const lbl = activeAnnotations?.labelsByAddress.get(address);
   if (lbl) {
@@ -608,8 +712,10 @@ function findOperandExpression(
   labels: Set<number>,
   instructionOwnerByAddress: Map<number, number>,
   segmentOwnerByAddress: Map<number, number>,
+  instruction?: number,
 ): string | undefined {
-  if (!platformOff() && isC64IoAddress(address, activePlatform as PlatformTag)) {
+  // an address in the I/O window is a register, not a label — unless the project says the window is RAM here
+  if (!platformOff() && isC64IoAddress(address, activePlatform as PlatformTag) && ioIsIoAt(address, instruction)) {
     return formatC64IoAddress(address);
   }
 
@@ -677,7 +783,7 @@ function annotatedOperandName(address: number | undefined): string | undefined {
 }
 
 function operandTextFromFact(
-  instruction: Pick<InstructionFact, "addressingMode" | "operandValue" | "targetAddress">,
+  instruction: Pick<InstructionFact, "addressingMode" | "operandValue" | "targetAddress"> & { address?: number },
   labels: Set<number>,
   instructionOwnerByAddress: Map<number, number>,
   segmentOwnerByAddress: Map<number, number>,
@@ -690,8 +796,10 @@ function operandTextFromFact(
   const targetAddress = instruction.targetAddress;
   const targetExpression =
     targetAddress !== undefined
-      ? findOperandExpression(targetAddress, labels, instructionOwnerByAddress, segmentOwnerByAddress)
+      ? findOperandExpression(targetAddress, labels, instructionOwnerByAddress, segmentOwnerByAddress, instruction.address)
       : undefined;
+  // Spec 908 — the I/O window's own name wins over a label the image happens to carry there
+  const ioName = targetAddress !== undefined ? ioOperandExpression(targetAddress, instruction.address) : undefined;
 
   switch (instruction.addressingMode) {
     case "impl":
@@ -709,13 +817,13 @@ function operandTextFromFact(
     // the human's name wins over the platform's for the operand; the platform name
     // stays in the line comment as a hint
     case "abs":
-      return annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`;
+      return ioName ?? annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`;
     case "abs,x":
-      return `${annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},x`;
+      return `${ioName ?? annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},x`;
     case "abs,y":
-      return `${annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},y`;
+      return `${ioName ?? annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`},y`;
     case "ind":
-      return `(${annotatedOperandName(operand) ?? targetExpression ?? `$${formatHex16(operand)}`})`;
+      return `(${ioName ?? annotatedOperandName(operand) ?? targetExpression ?? `$${formatHex16(operand)}`})`;
     case "(zp,x)":
       return `(${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},x)`;
     case "(zp),y":
@@ -727,12 +835,13 @@ function operandTextFromFact(
   }
 }
 
-function commentTextFromTarget(targetAddress: number | undefined): string {
+function commentTextFromTarget(targetAddress: number | undefined, instruction?: number): string {
   if (targetAddress === undefined) {
     return "";
   }
 
   if (platformOff()) return "";
+  if (isC64IoAddress(targetAddress, activePlatform as PlatformTag) && !ioIsIoAt(targetAddress, instruction)) return "";
   const metadata = findC64IoMetadata(targetAddress, activePlatform as PlatformTag, activeCartridgeType);
   if (!metadata) {
     return "";
@@ -782,7 +891,9 @@ function generateInstructionComment(
 
   // 1. IO register comment (existing behavior, but we extend it)
   if (target !== undefined) {
-    const ioMeta = platformOff() ? undefined : findC64IoMetadata(target, activePlatform as PlatformTag, activeCartridgeType);
+    const ioMeta = platformOff() || (isC64IoAddress(target, activePlatform as PlatformTag) && !ioIsIoAt(target, instruction.address))
+      ? undefined
+      : findC64IoMetadata(target, activePlatform as PlatformTag, activeCartridgeType);
     if (ioMeta) {
       // For stores: try to include the value being written
       if (mnem.startsWith("st") && prevInstruction) {
@@ -3195,7 +3306,7 @@ function renderCodeSegment(
       targetComment = generateInstructionComment(instruction, prevInstruction, context);
       // Fall back to simple IO comment if generator returned empty
       if (!targetComment) {
-        targetComment = commentTextFromTarget(instruction.targetAddress);
+        targetComment = commentTextFromTarget(instruction.targetAddress, instruction.address);
       }
     }
     const probableComment =
@@ -3387,6 +3498,7 @@ function renderLegacy(
             return renderUndocumentedInstructionBytes(instruction).asm;
           }
           const factShape = {
+            address: instruction.address,
             addressingMode: instruction.mode,
             operandValue: instruction.operand,
             targetAddress: instruction.targetAddress,
@@ -3405,7 +3517,7 @@ function renderLegacy(
       ? ""
       : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).comment
-        : commentTextFromTarget(instruction.targetAddress);
+        : commentTextFromTarget(instruction.targetAddress, instruction.address);
     lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
 
     if (!instruction.isUnknown && (instruction.mnemonic === "jmp" || instruction.mnemonic === "rts" || instruction.mnemonic === "rti")) {
@@ -3495,6 +3607,7 @@ function emptyAnnotationsIndex(): AnnotationsIndex {
     jumpTables: [],
     splitTables: [],
     immediatesByAddress: new Map(),
+    memoryMap: [],
     skipped: [],
   };
 }
@@ -3625,7 +3738,7 @@ function emitRelocCodeRange(
       : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).asm
         : (() => {
-            const factShape = { addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress };
+            const factShape = { address: instruction.address, addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress };
             const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
             // Force `.abs` for abs-with-zeropage-operand so the relocated rebuild stays byte-identical.
             return renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(factShape));
@@ -3634,7 +3747,7 @@ function emitRelocCodeRange(
       ? ""
       : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).comment
-        : commentTextFromTarget(instruction.targetAddress);
+        : commentTextFromTarget(instruction.targetAddress, instruction.address);
     const selfMod = instruction.isUnknown ? undefined : relocSelfModNote(instruction);
     if (selfMod) comment = comment ? `${comment} | ${selfMod}` : `// ${selfMod}`;
     lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
@@ -4192,6 +4305,16 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   activeImageRange = [prg.loadAddress, prg.loadAddress + prg.data.length - 1];
   activeRelocWindows = (relocations ?? []).map((r): [number, number] => [r.runtimeAddr, r.runtimeAddr + (r.fileEnd - r.fileStart)]);
   pendingRelocAliases = new Set();
+  // Spec 908 D3 — what the project declared the I/O window to be, held against the bytes the
+  // routines it names run from (the image, and every relocated block at its run-time address)
+  const scopeSources: ByteSource[] = [{ base: prg.loadAddress, data: prg.data }];
+  for (const r of relocations ?? []) {
+    scopeSources.push({ base: r.runtimeAddr, data: prg.data.subarray(r.fileStart - prg.loadAddress, r.fileEnd - prg.loadAddress + 1) });
+  }
+  activeIoScope = new IoScope(annotationsIndex?.memoryMap ?? [], scopeSources);
+  activeIoNames = new Map();
+  activeIoNotes = [];
+  activeIoReason = undefined;
   const renderMode: AnnotationRenderMode = analysisContext
     ? "analysis"
     : relocations ? "relocation" : "legacy";
@@ -4243,6 +4366,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     const registry = new EquateRegistry();
     const body: string[] = [];
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations, registry);
+    lines.push(...renderIoRegisterEquates(registry));
     lines.push(...renderGraphNameEquates(analysisContext, body, registry));
     lines.push(...renderAddressAliasLabels(analysisContext, prg, registry));
     lines.push(...renderRelocAliasEquates(registry));
@@ -4251,10 +4375,12 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     lines.push(...body);
   } else if (relocations) {
     renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
+    insertIoRegisterEquates(lines);
   } else if (analysisContext) {
     const registry = new EquateRegistry();
     const body: string[] = [];
     renderWithAnalysis(prg, analysisContext, body);
+    lines.push(...renderIoRegisterEquates(registry));
     lines.push(...renderGraphNameEquates(analysisContext, body, registry));
     lines.push(...renderAddressAliasLabels(analysisContext, prg, registry));
     lines.push(...renderExternalLabelEquates(analysisContext, registry));
@@ -4262,9 +4388,14 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     lines.push(...body);
   } else {
     renderLegacy(prg, options.entryPoints ?? [], lines, annotationsIndex);
+    insertIoRegisterEquates(lines);
   }
 
   activeAnnotations = undefined;
+  activeIoScope = undefined;
+  activeIoNames = new Map();
+  activeIoNotes = [];
+  activeIoReason = undefined;
   activeHeldRanges = [];
   activeRelocWindows = [];
   activeImageRange = undefined;

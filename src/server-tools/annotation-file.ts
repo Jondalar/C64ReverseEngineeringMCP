@@ -60,6 +60,8 @@ export interface SplitTableEntry {
   reject?: string;
 }
 export interface ImmediateEntry { address: string; kind: "lo-of" | "hi-of"; label: string; comment?: string }
+/** What a stretch of $D000-$DFFF is at run time, where the machine's default (I/O) is not it. */
+export interface MemoryMapEntry { start: string; end: string; as: "io" | "ram" | "charrom"; routines?: string[] }
 
 export interface AnnotationsDocument {
   version: 1;
@@ -71,6 +73,7 @@ export interface AnnotationsDocument {
   jumpTables?: JumpTableEntry[];
   splitTables?: SplitTableEntry[];
   immediates?: ImmediateEntry[];
+  memoryMap?: MemoryMapEntry[];
 }
 
 /** One entry the file may not carry, named where the caller wrote it. */
@@ -90,6 +93,7 @@ export interface RawSections {
   jumpTables?: unknown[];
   splitTables?: unknown[];
   immediates?: unknown[];
+  memoryMap?: unknown[];
 }
 
 export const KNOWN_SEGMENT_KINDS = [
@@ -294,6 +298,8 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string, 
     immediates.push({ address, kind, label, ...(str(e.comment) ? { comment: str(e.comment)! } : {}) });
   });
 
+  const memoryMap = checkMemoryMap(sections.memoryMap ?? [], { image, bad, notes });
+
   const doc: AnnotationsDocument = {
     version: 1,
     binary,
@@ -304,8 +310,76 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string, 
     ...(jumpTables.length ? { jumpTables } : {}),
     ...(splitTables.length ? { splitTables } : {}),
     ...(immediates.length ? { immediates } : {}),
+    ...(memoryMap.length ? { memoryMap } : {}),
   };
   return { doc, problems, notes };
+}
+
+/** The I/O window: what `memoryMap` may speak about (the loader skips an entry outside it; a tool refuses it). */
+const WINDOW_FIRST = 0xd000;
+const WINDOW_LAST = 0xdfff;
+
+/**
+ * `memoryMap[]`, held to the rules the loader skips an entry over (`indexMemoryMap` in
+ * `pipeline/src/lib/annotations.ts`): a range inside $D000-$DFFF, an `as` the renderer knows, routine
+ * entries that are addresses. The same range declared twice is one claim — it is kept once, its routines
+ * joined — unless the two disagree on `as`, which is a contradiction and is refused.
+ */
+function checkMemoryMap(
+  raw: unknown[],
+  ctx: { image?: { start: number; end: number }; bad: (where: string, reason: string, hint?: string) => void; notes: string[] },
+): MemoryMapEntry[] {
+  const out: MemoryMapEntry[] = [];
+  const byRange = new Map<string, { where: string; entry: MemoryMapEntry }>();
+  raw.forEach((item, i) => {
+    const where = `memoryMap[${i}]`;
+    const e = rec(item);
+    const start = canonHex(e.start);
+    const end = canonHex(e.end);
+    if (start === undefined) { ctx.bad(where, `unparseable start=${JSON.stringify(e.start)}`, didYouMean(e, "start", ["from", "begin", "addr", "address"])); return; }
+    if (end === undefined) { ctx.bad(where, `unparseable end=${JSON.stringify(e.end)} (start ${start})`, didYouMean(e, "end", ["to", "stop", "last"])); return; }
+    const lo = parseInt(start, 16);
+    const hi = parseInt(end, 16);
+    if (hi < lo) { ctx.bad(where, `end $${end} is below start $${start}`); return; }
+    if (lo < WINDOW_FIRST || hi > WINDOW_LAST) {
+      ctx.bad(where, `$${start}-$${end} is not inside $D000-$DFFF`, "memoryMap says what the I/O window is at run time; the rest of the address space has no such question");
+      return;
+    }
+    const as = str(e.as);
+    if (as !== "io" && as !== "ram" && as !== "charrom") {
+      ctx.bad(where, `as=${JSON.stringify(e.as)}`, 'as is "io" (the default: registers), "ram" (what $01 = $34 shows) or "charrom" (the character ROM)');
+      return;
+    }
+    const routines: string[] = [];
+    if (e.routines !== undefined && !Array.isArray(e.routines)) { ctx.bad(where, "routines is not a list", 'routines: ["C000", …] — the entry addresses the declaration is limited to'); return; }
+    let ok = true;
+    for (const [j, r] of ((e.routines as unknown[] | undefined) ?? []).entries()) {
+      const a = canonHex(r);
+      if (a === undefined) { ctx.bad(`${where}.routines[${j}]`, `unparseable address ${JSON.stringify(r)}`); ok = false; continue; }
+      if (ctx.image && (parseInt(a, 16) < ctx.image.start || parseInt(a, 16) > ctx.image.end)) {
+        ctx.notes.push(`${where}.routines[${j}] $${a} is outside the image ($${ctx.image.start.toString(16).toUpperCase()}-$${ctx.image.end.toString(16).toUpperCase()}), so no code of it is held to the declaration here.`);
+      }
+      if (!routines.includes(a)) routines.push(a);
+    }
+    if (!ok) return;
+    const entry: MemoryMapEntry = { start, end, as, ...(routines.length ? { routines } : {}) };
+    const key = `${start}-${end}`;
+    const first = byRange.get(key);
+    if (first) {
+      if (first.entry.as !== as) {
+        ctx.bad(where, `$${start}-$${end} is already declared as "${first.entry.as}" by ${first.where}`,
+          "one range is one claim: two readings of what it is at run time are a contradiction, not a repeat. Declare it once, or give the second a narrower range or its own routines.");
+        return;
+      }
+      // the same claim twice: the declaration holds for the union of the routines it names, and for everything if either names none
+      if (first.entry.routines === undefined || routines.length === 0) delete first.entry.routines;
+      else for (const r of routines) if (!first.entry.routines.includes(r)) first.entry.routines.push(r);
+      return;
+    }
+    byRange.set(key, { where, entry });
+    out.push(entry);
+  });
+  return out;
 }
 
 /**
@@ -523,6 +597,7 @@ export function documentSummary(doc: AnnotationsDocument): string {
   if (doc.jumpTables?.length) parts.push(`${doc.jumpTables.length} jump tables`);
   if (doc.splitTables?.length) parts.push(`${doc.splitTables.length} split table${doc.splitTables.length === 1 ? "" : "s"}`);
   if (doc.immediates?.length) parts.push(`${doc.immediates.length} immediates`);
+  if (doc.memoryMap?.length) parts.push(`${doc.memoryMap.length} memoryMap range${doc.memoryMap.length === 1 ? "" : "s"}`);
   return parts.join(", ");
 }
 
@@ -539,6 +614,7 @@ export function readSections(path: string): { sections: RawSections; binary?: st
     sections: {
       segments: arr(o.segments), labels: arr(o.labels), routines: arr(o.routines),
       pointerTables: arr(o.pointerTables), jumpTables: arr(o.jumpTables), splitTables: arr(o.splitTables), immediates: arr(o.immediates),
+      memoryMap: arr(o.memoryMap),
     },
     binary: str(o.binary),
   };

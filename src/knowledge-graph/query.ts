@@ -9,7 +9,7 @@
 // DANGLING reference, never dropped.
 
 import { PlatformKb } from "../platform-kb/read.js";
-import { PLATFORM_TAGS, platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
+import { formatHex4, PLATFORM_TAGS, platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
 import { derivePlatformId, isPlatformId, parseId, type Ctx } from "./ids.js";
 import { CONTROL_FLOW_TYPES, type EdgeRow, type Layer, type NodeRow } from "./schema.js";
 import { GraphStore } from "./store.js";
@@ -198,8 +198,9 @@ export class Graph {
       const p = this.platform?.byId(id);
       if (p) {
         return {
-          id: p.id, kind: p.kind, name: p.symbol && !(p.symbol === p.name) ? `${p.symbol} ${p.name}` : p.name, symbol: p.symbol, address: p.address, endAddress: null,
-          space: p.kind === "io" ? "io" : p.kind === "rom" ? "rom" : "ram", owner: null, bank: null, attrs: { source: p.source },
+          id: p.id, kind: p.kind, name: p.ioName ?? (p.symbol && !(p.symbol === p.name) ? `${p.symbol} ${p.name}` : p.name), symbol: p.symbol, address: p.address, endAddress: null,
+          space: p.kind === "io" ? "io" : p.kind === "rom" ? "rom" : "ram", owner: null, bank: null,
+          attrs: p.ioName !== null ? { source: p.source, description: p.name, alias: p.symbol } : { source: p.source },
           origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
         };
       }
@@ -210,6 +211,17 @@ export class Graph {
       // (`c64:rom:0000`, 818's D7 case) and an unparseable id stay dangling.
       try {
         const parsed = parseId(id);
+        // an address in a chip's mirror is the register it mirrors, and says so (Spec 908 D1)
+        const mirror = parsed.form === "platform" && parsed.kind === "io" ? this.platform?.ioRegister(parsed.platform, parsed.address) : undefined;
+        if (mirror && mirror.offset > 0 && parsed.form === "platform") {
+          const unit = parsed.address >= 0xd800 && parsed.address <= 0xdbff ? "colour RAM cell" : "mirror";
+          return {
+            id, kind: parsed.kind, name: mirror.name, symbol: mirror.alias, address: parsed.address, endAddress: null,
+            space: "io", owner: null, bank: null,
+            attrs: { synthesized: true, mirror_of: formatHex4(mirror.base), mirror_offset: mirror.offset, description: `${unit} of ${mirror.name} (+$${mirror.offset.toString(16).toUpperCase()})${mirror.description ? ` — ${mirror.description}` : ""}`, alias: mirror.alias },
+            origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
+          };
+        }
         if (parsed.form === "platform" && parsed.kind === platformKindForAddress(parsed.platform, parsed.address)) {
           return {
             id, kind: parsed.kind, name: null, symbol: null, address: parsed.address, endAddress: null,
