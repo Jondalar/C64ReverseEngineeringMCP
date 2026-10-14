@@ -622,6 +622,11 @@ jobs:
       - name: Coverage counts a payload's body, whatever its format (issue 82)
         run: npm run e2e:payload-body-size
 
+      # An immediate is a label half only when its pointer is dereferenced. Needs the
+      # assembler for the rebuild half and skips that half loudly without it.
+      - name: Immediates stay literals unless a pointer is built (issue 83)
+        run: npm run e2e:zp-pointer-halves
+
       # The slot list itself, and the two measures a third autonomous run found
       # pointing the wrong way: S12's coverage rewarded a blanket `unknown`
       # placeholder over a named routine, and S6 was gated on a regex finding a

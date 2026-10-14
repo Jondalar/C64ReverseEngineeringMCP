@@ -70,6 +70,7 @@
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
     "e2e:848-contract": "node scripts/e2e-848-contract.mjs",
     "e2e:897-scope": "node scripts/e2e-897-scope.mjs",
+    "e2e:zp-pointer-halves": "node scripts/e2e-zp-pointer-halves.mjs",
     "e2e:payload-body-size": "node scripts/e2e-payload-body-size.mjs",
     "e2e:877-teeth": "node scripts/e2e-877-teeth.mjs",
     "check:esm-require": "node scripts/check-esm-require.mjs",
