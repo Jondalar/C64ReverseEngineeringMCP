@@ -5,7 +5,18 @@
 // code has to produce; none of it is a header line claiming the build works.
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+// S12 counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
+function writeArtifactsJson(file, text) {
+  writeFileSync(file, text);
+  const root = join(dirname(file), "..");
+  for (const a of JSON.parse(text).items) {
+    const p = join(root, a.relativePath);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, Buffer.alloc(a.fileSize ?? 0));
+  }
+}
+
 
 const { SLOTS, DOOR_SLOTS, KNOWN_PENDING_DOORS } = await import("../dist/slots/schema.js");
 const { slotReport, formatSlotReport } = await import("../dist/slots/state.js");
@@ -116,7 +127,7 @@ try {
     const d = newProject("s15"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-    writeFileSync(join(d, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+    writeArtifactsJson(join(d, "knowledge", "artifacts.json"), JSON.stringify({ items: [
       { id: "m1", kind: "d64", title: "side1.d64", path: "side1.d64", relativePath: "side1.d64", scope: "input", tags: [] },
     ] }, null, 2));
 
@@ -242,7 +253,7 @@ try {
     rec.saveEntity({ kind: "payload", name: "main", addressRange: { start: 0x0801, end: 0x0900 } });
     // 256 covered bytes against a 16 KB artifact ⇒ ~1.5 %.
     const artifacts = join(d, "knowledge", "artifacts.json");
-    writeFileSync(artifacts, JSON.stringify({ items: [
+    writeArtifactsJson(artifacts, JSON.stringify({ items: [
       { id: "a1", kind: "prg", title: "main.prg", path: "main.prg", relativePath: "main.prg", scope: "input", fileSize: 16386, tags: [] },
     ] }, null, 2));
 
@@ -272,7 +283,7 @@ try {
       const dir = mkdtempSync(join(tmpdir(), "c64re-cov8-"));
       mkdirSync(join(dir, "knowledge"), { recursive: true });
       writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: slug, slug }, null, 2));
-      writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+      writeArtifactsJson(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
         { id: "a1", kind: "prg", title: "main.prg", path: "main.prg", relativePath: "main.prg", scope: "input", fileSize: 4098, tags: [] },
       ] }, null, 2));
       return dir;

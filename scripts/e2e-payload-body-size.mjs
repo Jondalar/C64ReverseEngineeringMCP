@@ -192,6 +192,39 @@ try {
   check("disk import: denominator = 1000 (headed PRG body) + 2002 (record file, every byte)",
     diskSlots.coverage.total === 1000 + 2002, `${diskSlots.coverage.total} / expected ${1000 + 2002}`);
 
+  // ============================ F. the disk is the truth for sizes ============================
+  const G = "grow82";
+  const gd = project(G);
+  mkdirSync(join(gd, "payloads"), { recursive: true });
+  writeFileSync(join(gd, "payloads", "a.prg"), headed(102, 0x0801));       // 100 body
+  writeFileSync(join(gd, "payloads", "b.bin"), Buffer.alloc(100, 0x44));   // registered at 100, grows to 160
+  writeFileSync(join(gd, "payloads", "c.bin"), Buffer.alloc(50, 0x55));    // registered, then deleted
+  await session(gd, [
+    ["register_payload", { name: "a", load_address: 0x0801, source_prg_path: "payloads/a.prg", format: "prg" }],
+    ["register_payload", { name: "b", load_address: 0x9000, source_prg_path: "payloads/b.bin", format: "raw" }],
+    ["register_payload", { name: "c", load_address: 0xa000, source_prg_path: "payloads/c.bin", format: "raw" }],
+  ]);
+  const gRec = new KnowledgeRecords(gd);
+  check("writer: a registered file's size is stat'ed at registration (b.bin = 100)",
+    gRec.listArtifacts().find((a) => a.relativePath.endsWith("b.bin"))?.fileSize === 100);
+  writeFileSync(join(gd, "payloads", "b.bin"), Buffer.alloc(160, 0x44));
+  rmSync(join(gd, "payloads", "c.bin"));
+  const grown = await slotReport(gd);
+  check("a record whose file grew is counted at its disk size (100 + 160, not 100 + 100)",
+    grown.coverage.total === 100 + 160, `${grown.coverage.total} / expected 260`);
+  check("a registered file that is gone is named, not counted",
+    grown.coverage.missing.length === 1 && /c\.bin$/.test(grown.coverage.missing[0]), JSON.stringify(grown.coverage.missing));
+  const { formatSlotReport } = await import("../dist/slots/state.js");
+  check("...and the S12 answer says 'missing on disk'", /missing on disk[^\n]*c\.bin/.test(formatSlotReport(grown)));
+  const [gs1, gs2] = await session(gd, [["project_inventory_sync", {}], ["project_inventory_sync", {}]]);
+  check("project_inventory_sync re-reads the grown record's size", /re-read from disk: 1/.test(gs1), (/.*re-read.*/.exec(gs1) ?? ["(no line)"])[0]);
+  check("...names the missing file (keeps it)", /missing on disk[^\n]*c\.bin/.test(gs1));
+  check("...a second run re-reads none", !/re-read from disk/.test(gs2));
+  check("...the stored size now equals the disk",
+    new KnowledgeRecords(gd).listArtifacts().find((a) => a.relativePath.endsWith("b.bin"))?.fileSize === 160);
+  check("...the record of the missing file is still there",
+    new KnowledgeRecords(gd).listArtifacts().some((a) => a.relativePath.endsWith("c.bin")));
+
   // ============================ E. the helper, unit-wise ============================
   check("payloadBodySize: raw counts every byte", payloadBodySize({ kind: "raw", fileSize: 480 }) === 480);
   check("payloadBodySize: extract counts every byte", payloadBodySize({ kind: "extract", fileSize: 9360 }) === 9360);

@@ -17,6 +17,8 @@
 // survives a canary. "Free" is established by reading (no reader, no writer in the
 // listing); the run is the second witness for the writes.
 
+import { statSync } from "node:fs";
+import { resolve } from "node:path";
 import type { SlotDef, SlotId } from "./schema.js";
 import { SLOTS } from "./schema.js";
 import { formatScope, identityOf } from "../contract/scope.js";
@@ -150,6 +152,8 @@ export interface CoverageReport {
   /** Artifacts with neither an addressRange nor a fileSize — named, never silently dropped. */
   unmeasured: string[];
   threshold: number;
+  /** Registered loadable files that are not on disk. Named, never counted as bytes present. */
+  missing: string[];
   /** How many distinct loadable artifacts the denominator is made of. */
   artifacts: number;
   /** How many were left out as another copy of content already counted. */
@@ -163,6 +167,15 @@ const SLOT_TAG = /^slot:(S\d{1,2})$/i;
 const MEASURABLE_KINDS = new Set(["prg", "raw", "extract"]);
 
 export { payloadBodySize };
+
+/** The file's size on disk now, or undefined when it is not there. */
+function sizeOnDisk(projectDir: string, a: { relativePath?: string; path?: string }): number | undefined {
+  for (const p of [a.relativePath ? resolve(projectDir, a.relativePath) : undefined, a.path]) {
+    if (!p) continue;
+    try { const st = statSync(p); if (st.isFile()) return st.size; } catch { /* try the next spelling */ }
+  }
+  return undefined;
+}
 
 /** "analysis/disk/game/07_game.prg" -> "07_game", which is what the graph calls its owner. */
 function stemOf(path: string): string {
@@ -443,15 +456,20 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   let counted = 0;
   let duplicates = 0;
   const unmeasured: string[] = [];
+  const missing: string[] = [];
   for (const a of artifacts) {
     const own = stemOf(a.relativePath ?? a.path ?? a.title);
     const aside = !inScope(own);
+    // The bytes are the file's as it sits on disk NOW; the stored fileSize is only what it
+    // was at registration. A file that is gone has no bytes to count.
+    const live = sizeOnDisk(projectDir, a);
+    if (live === undefined) { if (!aside) missing.push(a.relativePath ?? a.path ?? a.title); continue; }
     // Identity is judged inside its class: a set-aside copy of an in-scope file must not
     // turn the in-scope one into a "duplicate", nor the other way round.
     const id = (aside ? "aside:" : "") + identityOf(a);
     if (seen.has(id)) { if (!aside) duplicates += 1; continue; }
     seen.add(id);
-    const size = payloadBodySize(a);
+    const size = payloadBodySize({ ...a, fileSize: live });
     if (aside) {
       if (size <= 0) continue;
       const o = asideOf(normStem(own), a.title);
@@ -506,7 +524,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
       let size = ext ? ext.end - ext.start + 1 : 0;
       if (size <= 1) {
         const src = byId.get(sourceOf.get(o) ?? "");
-        size = src ? payloadBodySize(src) || size : size;
+        const srcLive = src ? sizeOnDisk(projectDir, src) : undefined;
+        size = src && srcLive !== undefined ? payloadBodySize({ ...src, fileSize: srcLive }) || size : size;
       }
       if (size <= 0) { unmeasured.push(o); continue; }
       total += size;
@@ -520,6 +539,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     covered, declaredUnknown, machineOnly, total,
     ratio: total === 0 ? 0 : covered / total,
     unmeasured,
+    missing,
     threshold,
     artifacts: counted,
     duplicates,
@@ -793,6 +813,7 @@ export function formatSlotReport(r: SlotReport): string {
       : "Coverage: nothing measurable registered yet",
     ...formatNamed(r),
     ...formatScope(r.scope),
+    ...(r.coverage.missing.length ? [`  missing on disk (registered, no file, not counted): ${r.coverage.missing.join(", ")}`] : []),
     ...(r.coverage.unmeasured.length ? [`  unmeasured (no addressRange, no fileSize): ${r.coverage.unmeasured.join(", ")}`] : []),
   ].join("\n");
 }
