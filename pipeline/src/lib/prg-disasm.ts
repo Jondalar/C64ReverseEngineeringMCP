@@ -1464,8 +1464,10 @@ function applyKernalAbiOperandOverrides(context: RenderAnalysisContext): void {
 //   lda #hi   /   sta $fc
 //
 // (or with X/Y, or with the high half stored first). When the combined
-// (hi<<8)|lo points at a labelled address, rewrite the immediate operands as
-// `#<label` / `#>label` so the pointer becomes relocatable in source form.
+// (hi<<8)|lo points at a labelled address AND the low cell is dereferenced
+// somewhere in the listing (`(zp),y`, `(zp,x)`, `jmp ($00xx)`), rewrite the immediate operands as
+// `#<label` / `#>label` so the pointer becomes relocatable in source form. Both
+// halves must be present; a lone half, or a pair nothing dereferences, stays literal.
 function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
   interface ZpStoreEvent {
     listIndex: number;
@@ -1518,6 +1520,20 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
     });
   }
 
+  // A byte that happens to equal a label's low byte, stored to a zero-page cell, is a
+  // constant until something dereferences the cell as a pointer: `(zp),y`, `(zp,x)`, or
+  // `jmp ($00xx)` through a vector built in zero page. Without one the pair stays the
+  // literal it is.
+  const dereferenced = new Set<number>();
+  for (const inst of instructions) {
+    if (inst.operandValue === undefined) continue;
+    if (inst.addressingMode === "(zp),y" || inst.addressingMode === "(zp,x)") {
+      dereferenced.add(inst.operandValue & 0xff);
+    } else if (inst.addressingMode === "ind" && inst.operandValue < 0x100) {
+      dereferenced.add(inst.operandValue);
+    }
+  }
+
   const PAIR_WINDOW = 8;
   for (let i = 0; i < events.length; i += 1) {
     const a = events[i]!;
@@ -1535,6 +1551,7 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
       } else {
         continue;
       }
+      if (!dereferenced.has(low.zpAddress)) continue;
       const pointer = ((high.immediateValue & 0xff) << 8) | (low.immediateValue & 0xff);
       const label = resolvePointerLabel(pointer, context);
       if (!label) continue;

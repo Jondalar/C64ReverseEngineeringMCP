@@ -11,10 +11,11 @@
 //              S3 from ordered loader-stage entities, S12 from address coverage). A
 //              derived fill needs no ceremony: doing the work IS filling the slot.
 //
-// S11 is the one slot with a third state on purpose. Four corpus projects claimed free
-// RAM from reading and all four were corrected by running, so a read-derived claim fills
-// it only as `hypothesis` — enough to be visible, not enough to open the doors that
-// allocate.
+// S11 is the one slot with a third state on purpose. A claim without a run behind it
+// fills it only as `hypothesis` — enough to be visible, not enough to open the doors that
+// allocate. A run never proves "unused": it shows what was written, and read-only data
+// survives a canary. "Free" is established by reading (no reader, no writer in the
+// listing); the run is the second witness for the writes.
 
 import type { SlotDef, SlotId } from "./schema.js";
 import { SLOTS } from "./schema.js";
@@ -159,6 +160,20 @@ const SLOT_TAG = /^slot:(S\d{1,2})$/i;
 /** What COUNTS as bytes of the game. A generated .asm is an output, not a payload;
  *  counting it would both double-count and measure text. */
 const MEASURABLE_KINDS = new Set(["prg", "raw", "extract"]);
+
+/**
+ * The bytes a loadable file puts into the machine. A payload is a payload: only a file
+ * registered as a headed PRG (`kind: "prg"`) spends its first two bytes on a load
+ * address. A `raw` row (a headerless block rendered with `load_address`, `headed: false`)
+ * or an `extract` holds nothing but body, so every byte counts. A recorded address range
+ * is the extent and wins over the size.
+ */
+export function payloadBodySize(a: { kind: string; fileSize?: number; addressRange?: { start: number; end: number } }): number {
+  if (a.addressRange) return a.addressRange.end - a.addressRange.start + 1;
+  const size = a.fileSize ?? 0;
+  if (a.kind === "prg") return size > 2 ? size - 2 : 0;
+  return size;
+}
 
 /** "analysis/disk/game/07_game.prg" -> "07_game", which is what the graph calls its owner. */
 function stemOf(path: string): string {
@@ -447,9 +462,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const id = (aside ? "aside:" : "") + identityOf(a);
     if (seen.has(id)) { if (!aside) duplicates += 1; continue; }
     seen.add(id);
-    const size = a.addressRange
-      ? a.addressRange.end - a.addressRange.start + 1
-      : (a.fileSize && a.fileSize > 2 ? a.fileSize - 2 : 0); // minus the load address
+    const size = payloadBodySize(a);
     if (aside) {
       if (size <= 0) continue;
       const o = asideOf(normStem(own), a.title);
@@ -504,7 +517,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
       let size = ext ? ext.end - ext.start + 1 : 0;
       if (size <= 1) {
         const src = byId.get(sourceOf.get(o) ?? "");
-        size = src?.addressRange ? src.addressRange.end - src.addressRange.start + 1 : src?.fileSize && src.fileSize > 2 ? src.fileSize - 2 : size;
+        size = src ? payloadBodySize(src) || size : size;
       }
       if (size <= 0) { unmeasured.push(o); continue; }
       total += size;
@@ -624,8 +637,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
         const byRun = findings.some((f) =>
           (f.tags ?? []).some((t) => /^slot:S11$/i.test(t)) && (f.tags ?? []).some((t) => /^method:run$/i.test(t)));
         return byRun
-          ? { slot, status: "filled", detail: `${explicit[0]}, confirmed by running` }
-          : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — a run has not confirmed it` };
+          ? { slot, status: "filled", detail: `${explicit[0]}, a run saw no write (reads are not checked by a run)` }
+          : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — no run has watched the range for writes` };
       }
       // S15 is S11's twin one level out, and for the same reason: the claim is only
       // worth as much as the instrument behind it. A free list read off the BAM is a

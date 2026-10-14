@@ -7,8 +7,8 @@
 //
 // `slot_record` fills one. It exists rather than leaning on a raw `save_finding` tag
 // because a slot claim has a required shape: which slot, the answer, and the evidence
-// for it. S11 additionally demands the METHOD, because four corpus projects claimed free
-// RAM from reading and all four were corrected by running.
+// for it. S11 additionally demands the METHOD, because a run proves only "not written", never
+// "not read": free RAM needs the listing read for readers and writers, and a canary run on top.
 //
 // 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
 //
@@ -100,7 +100,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
       count: z.number().int().nonnegative().optional().describe("For S5 (runtime count): HOW MANY resident runtimes, as a number. S6/S7 applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
-      method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): READING (a hypothesis) or RUNNING (settled)? Four corpus projects got this wrong in the same direction. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
+      method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): 'read' (derived from the listing: a hypothesis) or 'run' (a canary/write trace saw no write). A run proves only that the range was not WRITTEN, never that it is not READ — read-only data passes a canary. Free needs the reading too: no reader and no writer in the listing. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
       boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
@@ -171,12 +171,13 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
               "# slot_record refused — S11 needs its method.",
               "",
               "Free RAM is the one slot where HOW you know is part of the answer. Pass",
-              "method=\"run\" if a run established it, method=\"read\" if you derived it from",
-              "the listing — a read-derived claim is recorded as a hypothesis and does not",
-              "open the doors that allocate.",
+              "method=\"run\" if a run watched the range for writes, method=\"read\" if you",
+              "derived it from the listing — a claim without a run is recorded as a hypothesis",
+              "and does not open the doors that allocate.",
               "",
-              "In the corpus of seven projects, four claimed free RAM from reading and all",
-              "four were corrected by running. That is why this is asked rather than assumed.",
+              "A run proves only that the range was not WRITTEN during that run. It never",
+              "proves the range is not READ: read-only data survives a canary untouched.",
+              "Free needs the reading too — no reader and no writer in the listing.",
             ].join("\n"),
           }],
         };

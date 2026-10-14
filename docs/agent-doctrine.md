@@ -370,8 +370,10 @@ references `$9000-$912F`". A boundary that straddles I/O and RAM keeps the first
 
 `project_critique` carries the proof behind any blocker, and `project_slots` says which
 of the fifteen are filled, which are a hypothesis, and which the contract does not ask
-for at all. A slot filled from reading alone stays a **hypothesis** where the slot says a
-run must confirm it — S11 (free RAM) is the one that has cost the corpus most.
+for at all. A slot filled from reading alone stays a **hypothesis** where the slot wants a run behind
+it — S11 (free RAM) is the one that has cost the corpus most. A run does not settle it
+either: a canary shows what was written, never what is read, so read-only data passes.
+"Free" is established by reading the listing (no reader, no writer); the run is the second witness.
 
 What none of these catch is a wrong reading. A run has finished with every slot filled, a
 document declared and every mechanically detectable defect fixed, while recording copy
