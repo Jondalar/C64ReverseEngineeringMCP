@@ -1,18 +1,45 @@
-import { cartBankUsage, type CartBankUsage, type CartReadSetEntry, type ReadSetEntry } from "../trace/loader-lens.js";
-import type { LoaderManifest } from "./loader-manifest.js";
+import { cartBankUsage, readSetNote, type CartBankUsage, type CartReadSetEntry, type LandingMapEntry, type ReadSetEntry } from "../trace/loader-lens.js";
+import { payloadIsPacked, type LoaderManifest } from "./loader-manifest.js";
 
 // Spec 784 B4 + Spec 785 C2/C3 — the validation verdict (meaning → C64RE).
 //
 // Diff a per-project extractor's manifest against the loader-lens READ-SET (the ground
 // truth the REAL loader produced), one branch per medium, both below the same call:
 //
-//   DISK — BLOCK_READ 0x35: which physical (track, sector) the drive actually latched
-//   GCR bytes off, in read order. A manifest span that claims a (track, sector) the
-//   loader never actually read → MISMATCH: the extractor's interpretation of the loader
-//   code is wrong (the Accolade/Wasteland bug class). A read block the manifest never
-//   claims → UNCLAIMED (extractor missed it). Drive-side truth (read_pra/GCR_read), so
-//   it is immune to the write-time buffering defect that made the old landing-map source
-//   lie (head parked on T35 while the transfer buffered → every span mis-attributed).
+//   DISK — BLOCK_READ2 0x37 (legacy BLOCK_READ 0x35): which physical (track, sector) the drive actually latched
+//   GCR bytes off, in read order. Drive-side truth (read_pra/GCR_read), immune to the
+//   write-time buffering that made the old landing-map source lie.
+//
+// **WHAT THE DISK BRANCH MAY AND MAY NOT CONCLUDE (Spec 907 D4).** Same rule as the cart
+// branch below: a run proves USE, never non-use. A manifest of 91 payloads checked
+// against a run that loaded two of them has 89 payloads the run never touched; that is
+// "not seen in this run", not a failure. Every sector span of a payload falls in exactly
+// one class:
+//
+//   matched          its (track, sector) is in the read-set.
+//   not seen         absent from the read-set, and no read span of the same payload lies
+//                    on BOTH sides of it (a leading or trailing gap = the capture armed
+//                    late / the run ended early; a whole untouched payload). Never fails.
+//   read past it     absent from the read-set, yet an EARLIER and a LATER span of the same
+//                    payload were read: the loader walked the chain through this position
+//                    without ever reading the sector the manifest names. Fails ONLY for a
+//                    capture that contains BLOCK_READ2 (0x37) records, whose sector credit
+//                    is exact. On a legacy BLOCK_READ (0x35)-only capture the credit may be
+//                    one sector off, so a hole can be skew, not a contradiction: it is
+//                    reported and does not fail. A sector the head only PASSED (a 0x37
+//                    visit with header bytes and no data bytes) is absent, not read.
+//   mismatch         the run read a sector the manifest claims, and its bytes landed where
+//                    no claiming payload puts them: the landing map (same capture) says the
+//                    bytes read from (track, sector) came to rest at an address range that
+//                    overlaps no claiming payload's extent [loadAddress, loadAddress +
+//                    sum of its sector-span lengths). Judged only for payloads stored raw
+//                    with a loadAddress (a depacked payload lands elsewhere by design), and
+//                    only when the landing map could be built. Fails.
+//
+// The answer leads with coverage: "this run reached X of N payloads" (a payload is reached
+// when at least one of its sector spans was read).
+//
+// A read block the manifest never claims → UNCLAIMED (extractor missed it, or a lead).
 //
 //   CART — CART_READ 0x36 (Spec 785 C1): which bank served which window, and over which
 //   offsets, while the CPU read out of it. Chip-side truth at the read.
@@ -50,6 +77,9 @@ export interface SpanMismatch {
   sector: number;
   reason: string;
 }
+
+/** A sector span the run did not read, with spans of the same payload read on both sides. */
+export type SpanReadPast = SpanMismatch;
 
 export interface UnclaimedRead {
   track: number;
@@ -137,7 +167,22 @@ export interface CartValidationResult {
 export interface ValidationResult {
   verdict: "pass" | "fail";
   matchedSpans: number;
+  /** Sector spans absent from the read-set that the run neither read past nor contradicts
+   *  — NOT a refutation (a run proves use, never non-use). */
+  notSeenSpans: number;
+  /** Sector spans the run read PAST without taking. Fails the verdict only when
+   *  `readPastFails` (the capture carries BLOCK_READ2 records); else reported only. */
+  readPast: SpanReadPast[];
+  readPastFails: boolean;
+  /** The caveat for a capture with legacy BLOCK_READ (0x35) records, else null. */
+  readSetNote: string | null;
+  /** Read sectors whose bytes landed where no claiming payload says — fails the verdict. */
   mismatched: SpanMismatch[];
+  /** Payloads with at least one sector span, and how many of them the run read from. */
+  payloadsTotal: number;
+  payloadsReached: number;
+  /** Whether landings were supplied, and so whether `mismatched` could be judged. */
+  landingsEvaluated: boolean;
   unclaimed: UnclaimedRead[];
   /** Slot spans NOT validated: no cart read-set supplied / no CART_READ lane in the
    *  capture. 0 once `cart.evaluated` is true. */
@@ -152,6 +197,9 @@ export interface ValidateExtractionOptions {
   cartReadSet?: CartReadSetEntry[];
   /** How the run is named in every "in run X" statement. Default "this run". */
   runLabel?: string;
+  /** The landing map of the same capture. Omit and the `mismatch` class is not judged
+   *  (nothing says where the bytes went). */
+  landings?: LandingMapEntry[];
 }
 
 /** Manifest slot name → the lane's slot code. ROMH and ULTIMAX_ROMH are one window on
@@ -228,7 +276,9 @@ export function validateExtraction(
   manifest: LoaderManifest,
   opts: ValidateExtractionOptions = {},
 ): ValidationResult {
-  const readSources = new Set(readSet.map((e) => `${e.track}/${e.sector}`));
+  // Only a visit that TOOK data counts as read; a sector the head merely passed does not.
+  const readSources = new Set(readSet.filter((e) => e.taken).map((e) => `${e.track}/${e.sector}`));
+  const readPastFails = readSet.some((e) => e.record === "block-read2");
   const claimed = new Set<string>();
   const mismatched: SpanMismatch[] = [];
   let matchedSpans = 0;
@@ -257,20 +307,42 @@ export function validateExtraction(
   // Claimed cart sub-ranges per (bank, slot), for the unclaimed-read diff.
   const cartClaims = new Map<string, Array<{ lo: number; hi: number }>>();
 
+  let notSeenSpans = 0;
+  let payloadsTotal = 0;
+  let payloadsReached = 0;
+  const readPast: SpanReadPast[] = [];
+  // sector -> claiming payload extents, for the landing check.
+  const extents = new Map<string, Array<{ payload: string; lo: number; hi: number }>>();
+
   for (const p of manifest.payloads) {
-    for (const span of p.spans) {
-      if (span.kind !== "sector") continue;
-      const key = `${span.track}/${span.sector}`;
-      claimed.add(key);
-      if (readSources.has(key)) {
-        matchedSpans++;
-      } else {
-        mismatched.push({
-          payload: p.name,
-          track: span.track,
-          sector: span.sector,
-          reason: "manifest span claims a sector the loader never read (per the read-set)",
-        });
+    const sectorSpans = p.spans.filter((s) => s.kind === "sector");
+    if (sectorSpans.length) {
+      payloadsTotal++;
+      const hit = sectorSpans.map((span) => readSources.has(`${span.track}/${span.sector}`));
+      for (const span of sectorSpans) claimed.add(`${span.track}/${span.sector}`);
+      matchedSpans += hit.filter(Boolean).length;
+      if (hit.some(Boolean)) payloadsReached++;
+      const first = hit.indexOf(true);
+      const last = hit.lastIndexOf(true);
+      sectorSpans.forEach((span, i) => {
+        if (hit[i]) return;
+        if (first >= 0 && i > first && i < last) {
+          readPast.push({
+            payload: p.name, track: span.track, sector: span.sector,
+            reason: `${runLabel} read this payload's span ${first + 1} and span ${last + 1} of ${sectorSpans.length} but never T${span.track}/S${span.sector} between them — the loader walked past this position, so the span does not name the sector it took`,
+          });
+        } else notSeenSpans++;
+      });
+      if (p.loadAddress != null && !payloadIsPacked(p)) {
+        const total = sectorSpans.reduce((n, s) => n + s.length, 0);
+        if (total > 0) {
+          for (const span of sectorSpans) {
+            const key = `${span.track}/${span.sector}`;
+            const list = extents.get(key) ?? [];
+            list.push({ payload: p.name, lo: p.loadAddress, hi: p.loadAddress + total - 1 });
+            extents.set(key, list);
+          }
+        }
       }
     }
 
@@ -337,9 +409,30 @@ export function validateExtraction(
     }
   }
 
+  // Mismatch — bytes read from a claimed sector landed outside every claiming payload.
+  const landingsEvaluated = opts.landings !== undefined;
+  const seenLanding = new Set<string>();
+  for (const l of opts.landings ?? []) {
+    if (l.kind !== "landing" || !l.source || l.source.medium !== "disk" || l.len <= 0) continue;
+    const key = `${l.source.track}/${l.source.sector}`;
+    const claimers = extents.get(key);
+    if (!claimers || !readSources.has(key)) continue;
+    const lo = l.c64Dest, hi = l.c64Dest + l.len - 1;
+    if (claimers.some((c) => lo <= c.hi && hi >= c.lo)) continue;
+    const dedup = `${key}@${lo}`;
+    if (seenLanding.has(dedup)) continue;
+    seenLanding.add(dedup);
+    mismatched.push({
+      payload: claimers.map((c) => c.payload).join(", "),
+      track: l.source.track, sector: l.source.sector,
+      reason: `${runLabel} read T${l.source.track}/S${l.source.sector} and its bytes landed at $${hex(lo)}-$${hex(hi)}, but ${claimers.map((c) => `${c.payload} places it at $${hex(c.lo)}-$${hex(c.hi)}`).join("; ")}`,
+    });
+  }
+
   const seenUnclaimed = new Set<string>();
   const unclaimed: UnclaimedRead[] = [];
   for (const e of readSet) {
+    if (!e.taken) continue;
     const key = `${e.track}/${e.sector}`;
     if (claimed.has(key) || seenUnclaimed.has(key)) continue;
     seenUnclaimed.add(key);
@@ -362,9 +455,16 @@ export function validateExtraction(
   }
 
   return {
-    verdict: mismatched.length === 0 && cart.conflicts.length === 0 ? "pass" : "fail",
+    verdict: mismatched.length === 0 && !(readPastFails && readPast.length > 0) && cart.conflicts.length === 0 ? "pass" : "fail",
     matchedSpans,
+    notSeenSpans,
+    readPast,
+    readPastFails,
+    readSetNote: readSetNote(readSet),
     mismatched,
+    payloadsTotal,
+    payloadsReached,
+    landingsEvaluated,
     unclaimed,
     skippedSlotSpans,
     cart,

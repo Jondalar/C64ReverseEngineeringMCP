@@ -478,7 +478,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_loader_lens",
-    "Use to read a loader-lens capture's landing map: which medium block each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source, c64Dest, len, sha256, transferReads}, where source is tagged by medium — {medium:'disk',track,sector,halftrack} or {medium:'cart',bank,slot,offLo,offHi} — or null. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. WHAT IT PROVES: everything here is a fact about THE ONE RUN you captured. A block that does not appear was not read IN THAT RUN — that is not evidence it is unused, and a run that never reached level 90 says nothing about level 90's blocks. Report it as 'read in run X' / 'not seen in run X', never as 'used' / 'unused'. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
+    "Use to read a loader-lens capture's landing map: which medium block each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). A run (ascending or descending stores) counts as a landing when transfer reads ($DD00) occurred in its window, or when it is a 1:1 copy (constant XOR) of bytes a transfer pushed into page 1 and no $DD00 read lies near the copy (a stack-buffered loader: pha during the transfer, pla + store later); relocation / depack runs are neither and are dropped. A transfer run lying in page 1 is a buffer, never a landing: it is shown under the destination it was copied to (viaBuffer), or, if none was followed, as its own kind:'buffer' line (x repeats). The source block is matched to the BLOCK_READ read-set by the time the bytes were transferred (not head-at-write-time). Returns per run {kind, source, c64Dest (lowest address), len, sha256 (address order), transferReads, viaBuffer?, repeats?}, where source is tagged by medium — {medium:'disk',track,sector,halftrack} or {medium:'cart',bank,slot,offLo,offHi} — or null. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. WHAT IT PROVES: everything here is a fact about THE ONE RUN you captured. A block that does not appear was not read IN THAT RUN — that is not evidence it is unused, and a run that never reached level 90 says nothing about level 90's blocks. Report it as 'read in run X' / 'not seen in run X', never as 'used' / 'unused'. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
     {
       capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): the read-derived reason — a concrete $address (the payload/routine you already located by reading the drivecode disasm / an entity / a finding) + what pointed you there. Fishing (no address / no rationale) is refused. If the disk is standard-GCR the payload is a static depack — read + sandbox_depack, not the loader-lens."),
@@ -489,7 +489,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
+      const { landingMapWithNoteFromCaptureFile } = await import("../trace/loader-lens.js");
       // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
       // catch is gone; it mattered most here, because the substrate gate two lines
       // down is handed this root and with `undefined` it had no medium to check.
@@ -506,12 +506,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Same shape as BUG-039: settle inside the grace window and answer exactly as
       // before, else hand back a job_id and keep folding.
       const { startAnalysisJob, waitForJob } = await import("./analysis-jobs.js");
-      const render = (map: Awaited<ReturnType<typeof landingMapFromCaptureFile>>) => {
+      const render = ({ map, note }: ReturnType<typeof landingMapWithNoteFromCaptureFile>) => {
         const lines = [
           // Spec 785 C3 — a read-set result is a fact about ONE run; name it, and say
           // what silence means, so nothing here reads as "used" / "unused".
-          `Loader-lens landing map — ${map.length} landed run(s) in run ${basename(abs)}`,
+          `Loader-lens landing map — ${map.filter((e) => e.kind === "landing").length} landed run(s)${map.some((e) => e.kind === "buffer") ? ` + ${map.filter((e) => e.kind === "buffer").length} unfollowed page-1 buffer(s) (scratch, not landings)` : ""} in run ${basename(abs)}`,
           `Capture: ${abs}`,
+          ...(note ? [`NOTE: ${note}.`] : []),
           `Every line below is what run ${basename(abs)} did. A block absent here was not read IN THIS RUN — that is not evidence it is unused.`,
           ...map.slice(0, 200).map((e) => {
             // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
@@ -521,7 +522,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
               : sr.medium === "disk"
                 ? `T${sr.track}/S${sr.sector} (ht${sr.halftrack})`
                 : `bank ${sr.bank} ${sr.slotName} $${sr.offLo.toString(16).padStart(4, "0")}-$${sr.offHi.toString(16).padStart(4, "0")}`;
-            return `  ${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}`;
+            const via = e.viaBuffer ? ` via buffer $${e.viaBuffer.addr.toString(16).padStart(4, "0")}+${e.viaBuffer.len}` : "";
+            const tag = e.kind === "buffer" ? `BUFFER${e.repeats && e.repeats > 1 ? ` x${e.repeats}` : ""} ` : "";
+            return `  ${tag}${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}${via}`;
           }),
           ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
         ];
@@ -532,7 +535,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Same shape as BUG-039: settle inside the grace window and answer exactly as
       // before, else hand back a job_id and keep folding.
       const job = startAnalysisJob("runtime_loader_lens", abs, async () =>
-        render(landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {})));
+        render(landingMapWithNoteFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {})));
       const settled = await waitForJob(job, LOADER_LENS_JOB_GRACE_MS);
       if (!settled) {
         const { statSync } = await import("node:fs");

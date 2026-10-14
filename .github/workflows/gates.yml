@@ -660,6 +660,15 @@ jobs:
       - name: The contract says which files it is about (Spec 897)
         run: npm run e2e:897-scope
 
+      # A loader capture says where the bytes landed (stack-buffered and downward copies
+      # follow to their destination, page 1 is a buffer) and the verdict says what the
+      # run proves (not seen is not a failure). Synthetic events and manifests, no daemon.
+      - name: The loader lens follows stack-buffered copies (Spec 907)
+        run: npm run e2e:907-lens
+
+      - name: validate_extraction says what the run proves (Spec 907)
+        run: npm run e2e:907-validate
+
       # The slot list itself, and the two measures a third autonomous run found
       # pointing the wrong way: S12's coverage rewarded a blanket `unknown`
       # placeholder over a named routine, and S6 was gated on a regex finding a

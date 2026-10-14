@@ -326,7 +326,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "validate_extraction",
-    "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. Flags spans claiming a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. CART (CART_READ, `cart-read` domain): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Not for registering the payloads themselves (use register_payloads_from_manifest). Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
+    "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. A run proves use, never non-use, so the answer leads with coverage ('this run reached X of N payloads') and sorts every sector span into: matched; not seen in this run (never fails — most of a big manifest is not reached by one run); read past it (the run read this payload's spans on both sides of a sector the manifest names but never took — fails when the capture carries BLOCK_READ2 (0x37) records, whose sector credit is exact; on a legacy BLOCK_READ (0x35)-only capture the credit may be one sector off, so it is reported and does not fail; a sector the head only passed, header bytes without data bytes, counts as not taken); mismatch (the sector was read but its bytes landed where no claiming payload puts them, from the landing map of the same capture, raw payloads with a loadAddress only — fails). Read blocks the manifest missed are listed as unclaimed. CART (CART_READ, `cart-read` domain): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch, like the disk branch, fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Not for registering the payloads themselves (use register_payloads_from_manifest). Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
     {
       project_dir: z.string().optional(),
       capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain for disk spans, cart-read domain for cart slot spans; both may be armed in one capture)."),
@@ -349,13 +349,13 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // three full reads of a file that is routinely gigabytes (BUG-052). Spec 785
       // C2 — the cart lane comes out of the SAME capture; empty unless the trace
       // armed the `cart-read` domain, and then slot spans are skipped as before.
-      const { readSet, cartReadSet, meta: captureMeta } = readSetsFromCaptureFile(captureAbs);
+      const { readSet, cartReadSet, landings, landingsError, meta: captureMeta } = readSetsFromCaptureFile(captureAbs);
       // Spec 785 C3 — name the run in every claim; a lower bound is only meaningful
       // with its capture attached.
       const runLabel = `run ${basename(captureAbs)}`;
 
       const { validateExtraction } = await import("./validate-extraction.js");
-      const result = validateExtraction(readSet, mres.manifest, { cartReadSet, runLabel });
+      const result = validateExtraction(readSet, mres.manifest, { cartReadSet, runLabel, landings: landings ?? undefined });
 
       // Spec 785 §4.1 — a manifest can describe a different image than the one that ran.
       // `imageIdentity` is an unknown key the schema strips, so read it off the raw JSON.
@@ -389,16 +389,18 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       try {
         service.saveFinding({
           kind: result.verdict === "pass" ? "confirmation" : "refutation",
-          title: `Extraction ${result.verdict}: ${mres.manifest.extractor} (${result.matchedSpans} matched, ${result.mismatched.length} mismatched)`,
+          title: `Extraction ${result.verdict}: ${mres.manifest.extractor} (${runLabel} reached ${result.payloadsReached} of ${result.payloadsTotal} payloads; ${result.matchedSpans} spans matched, ${result.mismatched.length} mismatched, ${result.readPast.length} read past)`,
           summary: [
             `Manifest ${basename(manifestAbs)} vs loader-lens ${basename(captureAbs)}.`,
-            `Matched sector spans ${result.matchedSpans}; mismatched ${result.mismatched.length}; unclaimed landings ${result.unclaimed.length}.`,
+            `${runLabel} reached ${result.payloadsReached} of ${result.payloadsTotal} payloads. Sector spans: ${result.matchedSpans} matched, ${result.notSeenSpans} NOT SEEN in ${runLabel} (not a refutation — a run proves use, never non-use), ${result.readPast.length} read past${result.readPastFails ? "" : " (reported only: legacy capture)"}, ${result.mismatched.length} mismatched; unclaimed reads ${result.unclaimed.length}.`,
             ...(result.cart.evaluated
               // Spec 785 C3 — every cart count is a statement about THIS run.
               ? [`Cart slot spans ${result.cart.slotSpans}: ${result.cart.confirmedSpans} read in ${runLabel}, ${result.cart.partialSpans} partly read, ${result.cart.notSeenSpans} NOT SEEN in ${runLabel} (not a refutation — the read-set proves used, never unused), ${result.cart.conflicts.length} contradicted by ${runLabel}.`]
               : [`Cart slot spans skipped: ${result.skippedSlotSpans} (${result.cart.reason}).`]),
             ...imageWarnings,
+            ...(result.readSetNote ? [`NOTE: ${result.readSetNote}.`] : []),
             ...result.mismatched.slice(0, 20).map((m) => `  MISMATCH ${m.payload} T${m.track}/S${m.sector}: ${m.reason}`),
+            ...result.readPast.slice(0, 20).map((m) => `  READ PAST ${m.payload} T${m.track}/S${m.sector}: ${m.reason}`),
             ...result.cart.conflicts.slice(0, 20).map((c) => `  CONFLICT ${c.payload} bank ${c.bank} ${c.slot}: ${c.reason}`),
           ].join("\n"),
           evidence: captureArtifactId ? [{ kind: "artifact" as const, title: "loader-lens capture", artifactId: captureArtifactId, capturedAt: new Date().toISOString() }] : undefined,
@@ -409,13 +411,21 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const c = result.cart;
       const h = (n: number) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
       const lines = [
+        // Spec 907 D4 — the answer leads with what the run covered; the verdict is
+        // only as wide as that.
+        `Coverage: ${runLabel} reached ${result.payloadsReached} of ${result.payloadsTotal} payload(s) with sector spans${c.evaluated ? `, ${c.payloadsSeenInRun} of ${c.payloadsTotal} with slot spans` : ""}. The rest were not seen in ${runLabel} — a run proves use, never non-use.`,
         `Extraction validation: ${result.verdict.toUpperCase()}`,
         `Manifest: ${mres.manifest.extractor} (${basename(manifestAbs)})`,
         `Capture: ${basename(captureAbs)} — ${readSet.length} block-read(s), ${cartReadSet.length} cart residenc(ies)`,
         ...imageWarnings,
+        ...(result.readSetNote ? [`NOTE: ${result.readSetNote}.`] : []),
         ``,
-        `DISK (BLOCK_READ)  matched sector spans ${result.matchedSpans}  mismatched ${result.mismatched.length}  unclaimed reads ${result.unclaimed.length}`,
-        ...result.mismatched.slice(0, 30).map((m) => `  ✗ ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
+        `DISK (BLOCK_READ)  sector spans: ${result.matchedSpans} matched  ${result.notSeenSpans} not seen in ${runLabel} (not a refutation)  ${result.readPast.length} read past${result.readPastFails ? "" : " (reported only: legacy capture)"}  ${result.mismatched.length} mismatched  |  unclaimed reads ${result.unclaimed.length}`,
+        ...(result.landingsEvaluated
+          ? []
+          : [`  (landing map unavailable${landingsError ? `: ${landingsError}` : ""} — "mismatched" was not judged, only matched / not seen / read past)`]),
+        ...result.readPast.slice(0, 30).map((m) => `  ${result.readPastFails ? "✗" : "!"} read past ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
+        ...result.mismatched.slice(0, 30).map((m) => `  ✗ mismatch ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
         ...result.unclaimed.slice(0, 15).map((u) => `  ? unclaimed read T${u.track}/S${u.sector} (${u.bytes} B)`),
         ``,
         ...(c.evaluated
