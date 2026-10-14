@@ -61,8 +61,12 @@ you mean to change a dependency.
 
 The build writes `dist/`: the MCP server as ES modules, and the analysis pipeline as
 CommonJS beside it in `dist/pipeline/`. To update a checkout later, `git pull && npm ci &&
-npm run build`. Your RE projects live in their own directories and are never touched by
-this.
+npm run build`. Skip the build and the server runs the new code through an old
+`dist/pipeline`: the build stamps that directory with the package version, and every answer
+that runs the pipeline then opens with `WARNING: pipeline build is X, server is Y — run npm
+run build` (a missing stamp is reported the same way). An npm install is built from its own
+version and never warns. Your RE projects live in their own directories and are never touched
+by this.
 
 ## 2. The runtime
 

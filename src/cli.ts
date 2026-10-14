@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { startStdioServer } from "./server.js";
+import { pipelineBuildWarning } from "./pipeline-build.js";
 import { createRequire } from "node:module";
 
 // MCP lifecycle forensics — the stdio server "disconnects" in the field with
@@ -212,6 +213,14 @@ if (argv[0] === "graph") {
     endpoint: process.env.C64RE_RUNTIME_ENDPOINT ?? null,
     argv: process.argv.slice(2),
   });
+  // Issue #71 — a pulled-but-not-rebuilt checkout: say so at start (the lifecycle log is the one
+  // channel that is neither JSON-RPC nor an "error" entry in the host); every tool answer that
+  // runs the pipeline repeats it.
+  {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const warning = pipelineBuildWarning(resolve(root, "dist", "pipeline", "cli.cjs"), root);
+    if (warning) lifecycle("pipeline-build-mismatch", { warning });
+  }
   process.on("exit", (code) => lifecycle("exit", { code }));
   process.on("beforeExit", (code) => lifecycle("beforeExit", { code }));
   // Signal handlers preserve the default die-on-signal semantics (128+n) but

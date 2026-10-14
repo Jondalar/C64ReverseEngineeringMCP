@@ -135,7 +135,17 @@ export async function critique(projectDir: string): Promise<CriticReport> {
         if (!claim) continue;
         const range = f.addressRange ?? f.evidence?.[0]?.addressRange;
         const counter = findCounterExample(store.db, claim, claim.onlyAddress === undefined ? range : undefined, subjectOwners(f));
-        if (counter) {
+        if (counter?.ambiguousOwners) {
+          // The finding names no owner and several images cover this address: the edge may be
+          // another image's code. Not a refutation — say so, and what decides it.
+          add(
+            "negative-claim-refuted",
+            `"${f.title}" claims ${claim.phrase} — ambiguous, not refuted`,
+            `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)} [owner ${counter.owner}], but the finding names no owner and ${counter.ambiguousOwners.length} owners cover that address (${counter.ambiguousOwners.join(", ")}), so the edge may belong to another image's code. Cite the finding's artifact_ids to decide.`,
+            "important",
+            "name the owner: save_finding(id=<this finding>, artifact_ids=[<the artifact the claim is about>]) — the check then counts only that owner's edges",
+          );
+        } else if (counter) {
           const whose = counter.owner ? ` [owner ${counter.owner}]` : "";
           const proof = claim.onlyAddress !== undefined
             ? `${counter.from} also does it: ${counter.edgeType} edge ${counter.from} -> ${counter.to}, the same target $${hex(claim.onlyAddress)} reaches${whose}`

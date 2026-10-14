@@ -14,10 +14,10 @@
 //       the machine did not advance and never says "ran up to"
 //   10  save_finding in a project onboarded by an earlier server process: the refusal says
 //       the server was (re)started since, and that is why; a never-onboarded project does not
-//   7   sandbox_6502_run with $01=$37: stores to $D000-$DFFF come back as the values the CPU
-//       wrote (output_path + an "I/O stores" line); with $01=$34 they are plain RAM
+//   7   sandbox_6502_run with $01=$37: stores to $D000-$DFFF are I/O, not RAM — named in an
+//       "I/O stores" line and absent from output_path; with $01=$34 they are plain RAM
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -175,10 +175,10 @@ if (!existsSync(cliBin)) {
     });
     const prgBytes = (f) => (existsSync(f) ? [...readFileSync(f).subarray(2)] : null);
     const r37 = await run(0x37, "out7/io37.prg");
-    const o = (lo) => prgBytes(join(proj, "out7", `io37-$${lo}.prg`));
-    check(JSON.stringify(o("D018")) === "[14]" && JSON.stringify(o("D020")) === "[14,14]" && JSON.stringify(o("D800")) === "[14,5]",
-      "7a $01=$37: $D018, $D020/$D021 and colour RAM $D800/$D801 reach output_path as the stored values ($0E,$0E,$0E,$0E,$05)", r37.split("\n").slice(-4).join(" | "));
-    check(/I\/O stores: \$D018, \$D020-\$D021, \$D800-\$D801/.test(r37), "7b the answer names the ranges that are CPU I/O stores", r37.split("\n").filter((l) => /I\/O/.test(l)).join(" | "));
+    const wrote37 = existsSync(join(proj, "out7")) ? readdirSync(join(proj, "out7")).filter((f) => f.startsWith("io37")) : [];
+    check(wrote37.length === 0,
+      "7a $01=$37: stores that only ever hit I/O are not RAM — no I/O value reaches output_path", wrote37.join(", ") || r37.split("\n").slice(-4).join(" | "));
+    check(/I\/O stores: \$D018, \$D020-\$D021, \$D800-\$D801/.test(r37) && /no I\/O value is in the runs/.test(r37), "7b the answer names the ranges that are CPU I/O stores and says none is in the image", r37.split("\n").filter((l) => /I\/O/.test(l)).join(" | "));
     const r34 = await run(0x34, "out7/ram34.prg");
     const ram = (lo) => prgBytes(join(proj, "out7", `ram34-$${lo}.prg`));
     check(!/I\/O stores/.test(r34) && JSON.stringify(ram("D020")) === "[14,14]" && JSON.stringify(ram("D800")) === "[14,245]",

@@ -225,8 +225,8 @@ async function callRun(args) {
   const runnerSrc = readFileSync(join(ROOT, "src/sandbox/sandbox-runner-realcore.ts"), "utf8");
   check(!/"--instr-cap", "0"/.test(runnerSrc),
     "7 the low pages come from the runtime — no second, zero-instruction run to diff against");
-  check(/const allRuns = \[\.\.\.j\.writtenRuns\]/.test(runnerSrc),
-    "7b …and the one write-map the caller reads IS the core's own");
+  check(/let allRuns = \[\.\.\.\(j\.ramWrittenRuns \?\? j\.writtenRuns\)\]/.test(runnerSrc),
+    "7b …and the one write-map the caller reads IS the core's own (its RAM stores, when it reports them apart)");
 
   const toolSrc = readFileSync(join(ROOT, "src/server-tools/sandbox.ts"), "utf8");
   check(!/stored nothing above \$01FF/.test(toolSrc),

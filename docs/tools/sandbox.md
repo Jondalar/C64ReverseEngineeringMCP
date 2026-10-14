@@ -105,6 +105,27 @@ routine's output is neither 200 fragments nor one span full of bytes it never
 stored, and `return_writes_start` / `return_writes_end` is how to ask for the
 part that is wanted.
 
+## An I/O store is not a RAM byte
+
+With I/O banked in (`$01` = `$37`), a store to `$D000-$DFFF` goes to a chip and never
+reaches RAM. The runs, the memory windows and `output_path` hold the **RAM image** — the last
+value stored to RAM — and never the value written to an I/O register. A depacker that fills
+`$D000-$DFFF` as RAM with I/O banked out and later does `sta $d011` with I/O banked in used
+to produce a file whose `$D011` byte was the VIC value; now it is the RAM byte.
+
+The answer carries an `I/O stores:` line naming every I/O address the CPU stored to, then
+splits them in two:
+
+- **Inside the written runs** — the routine also stored to RAM there. The image keeps the RAM
+  byte.
+- **Not in the image** — stored only in I/O, nothing was stored to RAM there. These addresses
+  are not in any run or file; a file never carries a byte nobody stored to RAM.
+
+The split needs a `trx64cli` that reports the RAM image (`ramWrittenRuns`, and `ramHex` per
+harvest). With an older one the RAM bytes under I/O stores are unknown: those addresses are
+cut out of the runs (a run through them is split in two) and the answer says so in a
+`WARNING`. `sandbox_depack` reads its unpacked bytes from the same RAM image.
+
 ## Zero page and the stack are output too
 
 The real core's write-map begins at $0200: below that is "the CPU port and the
