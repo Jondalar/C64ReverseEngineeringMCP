@@ -1,6 +1,6 @@
 # Spec 908 — I/O registers have names in every listing, also when the image covers $D000-$DFFF
 
-**Status:** BUILT on branch `spec/908` (2026-10-14), not merged. `e2e:908` holds S1-S5 and D3 with real assertions (in `gates.yml`, run by `scripts/gate.sh`); full gate GREEN, 117/117 steps (1170 s, in a clean clone outside the repo, against TRX64 0.13.0). Decisions the spec left open: §5.
+**Status:** DONE (2026-10-14). Merged to master; `e2e:908` holds S1-S5 and D3 (in `gates.yml`); full gate GREEN 117/117 against TRX64 0.13.0. Decisions the spec left open: §5.
 **Repo:** C64RE only (platform knowledge, listing renderer, annotations). No TRX64 part.
 **Number:** 908 (registry: `specs/README.md`).
 **Origin:** issue #74 (2026-10-14, the reporter's LLM on the GriffinSoft collection): four game
