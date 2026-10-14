@@ -39,7 +39,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs
 import { basename, join, relative } from "node:path";
 import type { ArtifactRecord, EntityRecord, FindingRecord, FlowRecord, OpenQuestionRecord, RelationRecord, UserLabelOverride } from "../../project-knowledge/types.js";
 import type { DatabaseSync, StatementSync } from "../../platform-kb/sqlite-quiet.js";
-import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx } from "../ids.js";
+import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx, type Space } from "../ids.js";
 import { canonicalJson } from "../json.js";
 import { contextForOwner } from "../producers/machine.js";
 import { resolveAddressesIn } from "../producers/resolve.js";
@@ -947,10 +947,10 @@ function containingRoutine(routines: GeneratedRoutine[], address: number, strict
 /** One record the file parsed (before the ledger decided whether a draft is written) — the boundary rule works from these. */
 interface AnnotationRecord { kind: "routine" | "label" | "segment"; address: number; endAddress: number | null; name: string | null; segmentKind?: string }
 
-function annotationMeta(db: DatabaseSync, stem: string): { hash: string } | undefined {
+function annotationMeta(db: DatabaseSync, stem: string): { hash: string; ctxSpace?: { space: Space; bank?: number } } | undefined {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`annotations_imported.${stem}`) as { value: string } | undefined;
   if (!row) return undefined;
-  try { return JSON.parse(row.value) as { hash: string }; } catch { return undefined; }
+  try { return JSON.parse(row.value) as { hash: string; ctxSpace?: { space: Space; bank?: number } }; } catch { return undefined; }
 }
 
 /**
@@ -1019,7 +1019,7 @@ function assertNoDuplicateSegmentStarts(
  * FILE produced (producer '822', source_path = this file) are replaced — a row
  * the door has since renamed (producer 'human') is kept (D3: "kept-door-row").
  */
-export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[]; image?: AnnotatedImage } = {}): AnnotationFileResult {
+export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[]; image?: AnnotatedImage; ctxSpace?: { space: Space; bank?: number } } = {}): AnnotationFileResult {
   // Spec 842 D4 — when the caller knows the relocations, the graph can key on the
   // runtime address and still record where the bytes are stored.
   const relocations = options.relocations;
@@ -1031,7 +1031,10 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   const rel = relative(projectDir, path);
   const hash = sha256File(path);
   const previous = annotationMeta(db, stem);
-  const changed = options.force === true || previous === undefined || previous.hash !== hash;
+  // the space the caller states wins; one stated earlier sticks until another is stated
+  const ctxSpace = options.ctxSpace ?? previous?.ctxSpace;
+  const spaceMoved = options.ctxSpace !== undefined && JSON.stringify(options.ctxSpace) !== JSON.stringify(previous?.ctxSpace ?? null);
+  const changed = options.force === true || previous === undefined || previous.hash !== hash || spaceMoved;
   // 826.0 T4 — data blocks the file made earlier; if this run retires them the RESOLVES_TO pass must re-run even when it makes none
   const priorDataBlocks = Number((db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND kind = 'data_block' AND producer = ? AND json_extract(attrs, '$.source_path') = ?").get(migrated, rel) as { n: number }).n);
   const retiring = previous !== undefined && changed && priorDataBlocks > 0;
@@ -1043,7 +1046,9 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     db.prepare("DELETE FROM migration_log WHERE legacy_store = ?").run(ledgerStore);
   }
   const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
-  const actx: Ctx = contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
+  const actx: Ctx = ctxSpace
+    ? (ctxSpace.space === "crt" ? { space: "crt", bank: ctxSpace.bank ?? 0 } : { space: ctxSpace.space, owner })
+    : contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
   let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[]; splitTables?: unknown[] };
   const noBoundary: BoundaryCounts = { attached: 0, dataBlocks: 0, splits: 0, unseen: 0, unseededOwner: 0 };
   try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {
@@ -1192,7 +1197,7 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   });
   ctx.summary.files.push(fs);
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
+    .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel, ...(ctxSpace ? { ctxSpace } : {}) }));
   // importing the owner's file by name brings a removed owner back (remove-owner.ts)
   db.prepare("DELETE FROM meta WHERE key = ?").run(`owner_removed.${owner}`);
 
@@ -1480,6 +1485,12 @@ export interface ImportAnnotationFileOptions {
   /** re-import even when the hash is unchanged */
   force?: boolean;
   now?: string;
+  /**
+   * The address space the file's nodes are filed under, when the caller states it (`disasm` with `space` / `bank`):
+   * `crt` + bank -> `crt/<bank>`, `ram` / `drv` -> under the owner. It outranks what the analysis artifact says, is
+   * remembered with the import (a later import that names none keeps it), and re-files the nodes when it changes.
+   */
+  ctxSpace?: { space: Space; bank?: number };
 }
 
 /** The annotation-file door (D6): `disasm_prg` and `c64re graph annotations-import` call this. */
@@ -1565,7 +1576,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
     const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
-    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations, image: options.image });
+    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations, image: options.image, ctxSpace: options.ctxSpace });
     finishRun(db, store, ledger, summary, now);
     endWrite(db, ownsTx, true);
   } catch (error) {

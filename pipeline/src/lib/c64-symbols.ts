@@ -5,6 +5,7 @@
 
 import { hex16 } from "./format";
 import { isIoAddress, platformNode, platformRegionName, type PlatformTag } from "./platform-kb";
+import { cartridgeIoComment } from "./cartridge-io";
 
 export interface C64IoMetadata {
   comment: string;
@@ -13,8 +14,13 @@ export interface C64IoMetadata {
 /** A register-level comment for an I/O address, or undefined. Only `io` kind
  * nodes answer here — ROM and zero page have their own comment shapes in the
  * renderer and must not be pre-empted by the generic operand comment. */
-export function findC64IoMetadata(address: number, platform: PlatformTag = "c64"): C64IoMetadata | undefined {
+export function findC64IoMetadata(address: number, platform: PlatformTag = "c64", cartridgeType?: number): C64IoMetadata | undefined {
   const hit = platformNode(platform, address);
+  // $DE00-$DFFF is the CARTRIDGE's: the store names EasyFlash's registers there, which is wrong for any other cartridge
+  if (platform === "c64") {
+    const own = cartridgeIoComment(address, cartridgeType, hit?.symbol ?? null);
+    if (own) return { comment: own };
+  }
   if (!hit && (platform === "vic20" || platform === "plus4") && isIoAddress(platform, address)) {
     // an I/O address with no row of its own but inside a named range (colour RAM): the range names it
     const region = platformRegionName(platform, address);

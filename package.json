@@ -202,6 +202,7 @@
     "e2e:899-sweep": "npm run build:mcp && node scripts/e2e-899-sweep.mjs",
     "e2e:900-checks": "npm run build:mcp && node scripts/e2e-900-checks.mjs",
     "e2e:903": "npm run build && node scripts/e2e-903-split-tables.mjs",
+    "e2e:cartridge-bank": "npm run build && node scripts/e2e-cartridge-bank-listing.mjs",
     "smoke:900": "npm run build:mcp && node scripts/smoke-900-scenario-run.mjs",
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",
     "e2e:867-window": "npm run build && node scripts/e2e-867-window.mjs",

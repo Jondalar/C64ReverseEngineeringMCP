@@ -19,10 +19,17 @@ nothing is written at all — the tolerant skip described below is for a file a 
 by hand, not for one a tool is writing.
 
 `merge_annotations` folds several readings of one payload into one file. Fragments that
-say the same thing collapse into one and you are asked nothing. Fragments that
-contradict each other — one segment start with two ends or kinds, one address with two
-names, one name at two addresses — are **refused, naming the key, every claimant and
-what each of them claimed**:
+say the same thing collapse into one and you are asked nothing. The identity rule is:
+**one address carries one name, and one name lives at one address**, across every record
+that names an address — a segment's `label`, `labels[]` and `routines[]`. The same name at
+the same address from any mix of those (same or different fragments) is one claim and
+collapses silently; names are compared as the assembler identifier they become, so a
+routine called "Turn advance" and a label `Turn_advance` agree. A label that only repeats
+what a routine or the segment already names there is dropped from the merged file unless it
+carries prose of its own. Fragments that contradict each other — one segment start with
+two ends or kinds, one address with two names, one name at two addresses, one instruction
+with two `immediates` rows — are **refused, naming the key, every claimant and what each
+of them claimed**:
 
 ```
 REFUSED — the fragments contradict each other. Nothing was written and nothing was recorded.
@@ -32,13 +39,31 @@ segment:82E6
   E  $82E6-$8305  pointer_table  "score_ptrs"
 ```
 
-You answer with `resolutions: [{ key, winner | value, why }]` — `winner` is a fragment
-name, `value` is an entry neither side proposed (stating only what it changes), and `why`
-is required. **Each resolution is written into the project as a finding** carrying who
+Keys: `segment:<addr>`, `label:<addr>` / `routine:<addr>` (the name an address carries —
+`label:` when a label or a segment label is involved, `routine:` when only routines
+disagree; either spelling answers it), `immediate:<addr>` (an immediate is keyed by its
+instruction address; a different label, or `lo-of` against `hi-of`, is a contradiction),
+`split:<lo>-<hi>` and `name:<identifier>` (one name at two addresses).
+
+You answer with `resolutions: [{ key, winner | value | delete, why }]` — `winner` is a
+fragment name (`A:routine`, `A:label` or `A:segment` when fragment A names the address
+twice), `value` is an entry neither side proposed (stating only what it changes; for an
+address name it is `{ label: "…" }`, the one name the address then carries), `delete: true`
+removes the entry (the address's name in every record, the segment, the split table, the
+immediate; for a `name:` key every site of the name), and `why` is required. Exactly one
+of the three. **Each resolution is written into the project as a finding** carrying who
 claimed what, which one won and why, so who was right at `$82E6` is still answerable
 after the session that decided it is gone. A resolution for a key nothing disputes, a
 winner that claimed nothing there, and a resolution with no reason are all refused.
-`dry_run` reports the merge without writing the file or recording anything.
+
+What a resolution leaves behind is consistent, not just chosen: a record that lost its
+name is dropped and **its comment is kept** on the record that survived at that address
+(a comment with nowhere to go is quoted in the answer, not lost); an `immediates` row that
+pointed at a label which lost its address is rewritten to the winning name at that
+address (and says so), and one that pointed at a deleted name is dropped (and says so).
+A contradiction that exists only because of another is listed after that one is answered —
+a refusal never lists a key that another answer would make vanish, so a second refusal can
+follow the first. `dry_run` reports the merge without writing the file or recording anything.
 
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
 stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm` refuses
@@ -120,7 +145,8 @@ annotation: the assembler must reproduce the bytes.
 
 ### A found table must be decided
 
-`analyze` finds split tables built three ways — `LDA lo,X / STA zp / LDA hi,X / STA zp+1`,
+`analyze` finds split tables built three ways — `LDA lo,X / STA zp / LDA hi,X / STA zp+1`
+(counted only when the pair is then used as a pointer, see below),
 the same stores into the operand of an instruction in the image, and the RTS dispatch
 `LDA hi,X / PHA / LDA lo,X / PHA / RTS` — and reports each once per `(lo, hi)` pair with
 its `shape`, a `countHint` when a `CPX`/`CPY #n` bounds the index nearby and an
@@ -135,6 +161,13 @@ obligation until the artifact's annotations hold a `splitTables` entry with that
 - `project_critique` raises `split-table-undecided` (blocking) once per open table, so the
   project is not done and `agent_next_step` recommends declaring them first.
 - Tables found in probable code are listed and never an obligation.
+- A zero-page pair counts as a table only when the code later uses it as a pointer —
+  `(zp),y`, `(zp,x)` or `jmp (zp)` on either cell — on a path that starts after the second
+  store: fall-through, both branch arms, `jmp`, and into the callee of a `jsr`. A path stops
+  where the code overwrites a cell. A pair that is only read as bytes (a column and a row,
+  a width and a height) is listed as *probable* with the reason and is never an obligation;
+  declare or reject it anyway if you read it differently. The patched-operand and RTS
+  shapes need no such check: they are used as an address by construction.
 
 The detector sees only those three shapes. A table whose index is computed in two steps,
 or whose pointer is copied before use, is not listed — **"0 open" is not "no tables"**.
@@ -305,3 +338,23 @@ The boundary is read off the bytes — you never have to guess a data-tail lengt
 and you never have to drop the `code` classification to get a byte-identical
 rebuild. The same line appears, naming the segment end instead, when an
 instruction would cross the end of a `code` range you declared.
+
+## A cartridge bank on its own
+
+A bank carved off a cartridge is listed like any raw block: `disasm` with `load_address`
+(`"8000"`, `"$8000"` and `"0x8000"` are all `$8000`; a JSON number is taken as given, so
+`8000` is `$1F40`) — with or without `relocations`.
+
+- **Where the names go.** `space` and `bank` decide the address space the graph files the
+  annotation names under. `space: "crt"` with a `bank` (or a `bank` alone) files them under
+  that cartridge bank, so a `model_assert` boundary in space `crt` at that bank holds them;
+  `ram` and `drv` file them under the owner. A space the graph does not have, `crt` with no
+  bank, or a bank beside `ram` is refused. The choice sticks with the import until another is
+  stated, and stating another moves the nodes.
+- **What `$DE00` is called.** The cartridge I/O window `$DE00-$DFFF` is named for the cartridge
+  the bytes belong to, not for EasyFlash: the CRT header's hardware type decides (GMod2: the
+  control register with bank bits, EEPROM CS/CLK/DI and DO on bit 7 of a read; EasyFlash:
+  `EF_BANK` / `EF_CTRL`; Magic Desk, Ocean and MegaByter have their own). The type is the one
+  recorded for the bytes — through the artifact's lineage, the directory `extract_crt` wrote
+  them to, or the project's only cartridge — and the answer's `Cartridge:` line says which. Where
+  no type is known the comment is the neutral `cartridge I/O $DE00`.

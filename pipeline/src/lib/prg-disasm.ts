@@ -30,6 +30,9 @@ import { platformNode, type PlatformTag } from "./platform-kb";
 // knowledge base (KERNAL / zero-page / I/O tables, C64 hardware inference);
 // names from annotations and the graph still apply.
 let activePlatform: PlatformTag | "none" = "c64";
+// The CRT hardware type of the cartridge these bytes belong to, when the caller knows it: what a store to
+// the cartridge I/O window means depends on it (./cartridge-io). Set per render with the platform.
+let activeCartridgeType: number | undefined;
 
 function platformOff(): boolean {
   return activePlatform === "none";
@@ -141,6 +144,8 @@ interface PrgDisasmOptions {
   // labels. "none" writes no ROM / zero-page / I/O names or comments at all (code
   // of a machine this tool has no table for); annotation and graph names still apply.
   platform?: PlatformTag | "none";
+  /** CRT hardware type of the cartridge these bytes belong to (the id at offset $16 of a .crt): decides what $DE00-$DFFF is called. Absent = not known, and the window is named neutrally. */
+  cartridgeType?: number;
   // Spec 741 (Slice A): relocated regions to render as
   // .pseudopc / .logical blocks at their runtime PC while keeping the
   // stored bytes byte-exact. Absent → rendering is unchanged.
@@ -728,7 +733,7 @@ function commentTextFromTarget(targetAddress: number | undefined): string {
   }
 
   if (platformOff()) return "";
-  const metadata = findC64IoMetadata(targetAddress, activePlatform as PlatformTag);
+  const metadata = findC64IoMetadata(targetAddress, activePlatform as PlatformTag, activeCartridgeType);
   if (!metadata) {
     return "";
   }
@@ -777,7 +782,7 @@ function generateInstructionComment(
 
   // 1. IO register comment (existing behavior, but we extend it)
   if (target !== undefined) {
-    const ioMeta = platformOff() ? undefined : findC64IoMetadata(target, activePlatform as PlatformTag);
+    const ioMeta = platformOff() ? undefined : findC64IoMetadata(target, activePlatform as PlatformTag, activeCartridgeType);
     if (ioMeta) {
       // For stores: try to include the value being written
       if (mnem.startsWith("st") && prevInstruction) {
@@ -4106,6 +4111,7 @@ function reportAnnotationApplication(index: AnnotationsIndex, mode: AnnotationRe
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): DisasmListingStats {
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
+  activeCartridgeType = options.cartridgeType;
   const resolvedPrgPath = resolve(prgPath);
   const prg = options.raw ? readRawImage(resolvedPrgPath, options.raw) : readPrg(resolvedPrgPath);
   const { report: analysisReport, path: usedAnalysisPath } = maybeLoadAnalysis(

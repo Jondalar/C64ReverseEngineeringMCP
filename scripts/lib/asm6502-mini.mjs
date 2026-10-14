@@ -16,6 +16,8 @@ const OPS = {
 };
 // `LDA tbl,X` / `LDA tbl,Y` / `STA tbl,X` — absolute indexed, which the table programs need
 const INDEXED = { LDA: { X: 0xbd, Y: 0xb9 }, STA: { X: 0x9d, Y: 0x99 } };
+// `LDA (zp),Y` / `STA (zp),Y` — the indirect-indexed form a pointer is used through
+const INDIRECT_Y = { LDA: 0xb1, STA: 0x91 };
 
 /** The same assembly, with the label addresses it settled on — a test that must point at its own code. */
 export function assembleWithLabels(origin, prog) {
@@ -54,6 +56,8 @@ export function assemble(origin, prog, labels = new Map()) {
     const arg = m[2]?.trim();
     if (arg === undefined) return [op.imp];
     if (arg.startsWith("#")) return [op.imm, value(arg.slice(1), pc) ?? 0];
+    const izy = arg.match(/^\((.+)\)\s*,\s*Y$/i);
+    if (izy && INDIRECT_Y[m[1]] !== undefined) return [INDIRECT_Y[m[1]], (value(izy[1].trim(), pc) ?? 0) & 0xff];
     const indexed = arg.match(/^(.+),\s*([XY])$/i);
     if (indexed && INDEXED[m[1]]) {
       const v = value(indexed[1].trim(), pc);

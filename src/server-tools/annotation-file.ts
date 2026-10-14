@@ -230,11 +230,13 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string, 
     if (name === undefined) { bad(where, `the routine at $${address} has no name`, didYouMean(e, "name", ["label", "title", "ident", "symbol", "routine"]) + ' — `name` is the one field a routine entry cannot do without: it is what the header prints and what renames the label'); return; }
     const already = routineAt.get(address);
     if (already) { bad(where, `$${address} is already the routine "${already.name}" (${already.where})`, "two routines at one address are two names for one thing — the importer keeps one of them and says nothing"); return; }
+    // the same name at the SAME address is one claim stated twice (a label and the routine it
+    // belongs to), not a second definition — only another address is.
     const usedName = nameAt.get(name);
-    if (usedName) { bad(where, `"${name}" is already defined at $${usedName.address} by ${usedName.where}`, "a routine name becomes a label identifier, and one identifier gets one definition"); return; }
+    if (usedName && usedName.address !== address) { bad(where, `"${name}" is already defined at $${usedName.address} by ${usedName.where}`, "a routine name becomes a label identifier, and one identifier gets one definition"); return; }
     const entry: RoutineEntry = { address, name, ...(str(e.comment) ? { comment: str(e.comment)! } : {}) };
     routineAt.set(address, { where, name });
-    nameAt.set(name, { where, address });
+    if (!usedName) nameAt.set(name, { where, address });
     routines.push(entry);
   });
 

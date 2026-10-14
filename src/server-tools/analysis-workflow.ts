@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { Space } from "../knowledge-graph/ids.js";
 import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { rebuildVerification } from "../lib/rebuild-verify.js";
@@ -14,6 +15,7 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ArtifactRecord } from "../project-knowledge/types.js";
 import { PLATFORM_TAGS, type PlatformTag } from "../platform-kb/schema.js";
 import { resolvePlatform } from "../project-knowledge/platform-default.js";
+import { cartridgeTypeFor, cartridgeTypeName, type CartridgeTypeHit } from "../project-knowledge/cartridge-type.js";
 import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
@@ -371,6 +373,27 @@ export function prgSpan(prgAbs: string): { loadAddress: number; lastAddress: num
   return { loadAddress, lastAddress: loadAddress + (head.length - 2) - 1, name: basename(prgAbs) };
 }
 
+/**
+ * `disasm`'s `space` / `bank`, as the space the graph files the names under. `crt` (or `cart`) needs the bank,
+ * a bank alone means a cartridge bank, `drv` / `drive` is the 1541, `ram` is the owner's own RAM. Anything
+ * else is refused: a space the graph does not have would be recorded in the provenance and file nothing.
+ */
+export function graphSpaceFrom(space: string | undefined, bank: number | undefined):
+  { ok: true; value?: { space: Space; bank?: number } } | { ok: false; refusal: string } {
+  const raw = space?.trim().toLowerCase();
+  if (raw === undefined || raw === "") return bank === undefined ? { ok: true } : { ok: true, value: { space: "crt", bank } };
+  const named = ({ ram: "ram", crt: "crt", cart: "crt", cartridge: "crt", drv: "drv", drive: "drv", c1541: "drv", "1541": "drv" } as Record<string, Space>)[raw];
+  if (!named) {
+    return { ok: false, refusal: `space ${JSON.stringify(space)} is not an address space the graph has: ram, crt (a cartridge bank; also "cart"), or drv (the 1541; also "drive").` };
+  }
+  if (named === "crt") {
+    if (bank === undefined) return { ok: false, refusal: `space ${JSON.stringify(space)} files the names under a cartridge bank — pass bank (the bank these bytes live in, 0 for the first).` };
+    return { ok: true, value: { space: "crt", bank } };
+  }
+  if (bank !== undefined) return { ok: false, refusal: `bank ${bank} is a cartridge bank, and space ${JSON.stringify(space)} is not the cartridge — drop bank, or pass space "crt".` };
+  return { ok: true, value: { space: named } };
+}
+
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
   // ──────────────────────────────────────────────────────────────────────────
   // TWO DOORS. Everything below this line is ONE `disasm` body and ONE
@@ -503,6 +526,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const hex = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
     const both = (value: number) => `${value} ($${value.toString(16).toUpperCase()})`;
 
+    // ── the space the graph files the names under ───────────────────────────
+    const spaceAsked = graphSpaceFrom(a.space, a.bank);
+    if (!spaceAsked.ok) return refuse(spaceAsked.refusal);
+
     // ── the seeds ───────────────────────────────────────────────────────────
     let seeds: number[];
     try {
@@ -608,6 +635,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
     if (noPlatformNames) cliArgs.push("--platform", "none");
     else if (resolvedPlatform !== "c64") cliArgs.push("--platform", resolvedPlatform);
+    // $DE00-$DFFF is the cartridge's, and which cartridge decides what the registers there are called
+    let cartridge: CartridgeTypeHit | undefined;
+    if (!noPlatformNames && resolvedPlatform === "c64") {
+      try { cartridge = cartridgeTypeFor(service.listArtifacts(), sourceAbs, sourceArtifactId); } catch { /* unknown stays unknown */ }
+    }
+    if (cartridge) cliArgs.push("--cartridge-type", String(cartridge.hardwareType));
     if (relocationsFile) cliArgs.push("--relocations", relocationsFile);
     if (annotationsAbs) cliArgs.push("--annotations", annotationsAbs);
     if (choice.path) cliArgs.push("--analysis", choice.path);
@@ -805,6 +838,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           // annotation lands in the graph at the address it RUNS at. Parsed once, by
           // the one rule, above.
           ...(graphRelocations.length > 0 ? { relocations: graphRelocations } : {}),
+          // the space / bank the caller named: the names are filed THERE, so a boundary asserted in `crt` holds them
+          ...(spaceAsked.value ? { ctxSpace: spaceAsked.value } : {}),
           // Spec 903 D6 — the bytes, so a split table's entries become edges to what they point at
           ...(() => {
             try {
@@ -856,6 +891,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       `Knowledge written to: ${resolve(pd, "knowledge")}`,
       `Analysis: ${choice.why}`,
       `Provenance: ${provenance}`,
+      cartridge
+        ? `Cartridge: ${cartridgeTypeName(cartridge.hardwareType)} (CRT hardware type ${cartridge.hardwareType}, from ${cartridge.via}) — the cartridge I/O window $DE00-$DFFF is named for it.`
+        : "",
       `Seeded: ${seededText}`,
       `${verdictLine}${rebuildRemedy(verdictLine, reading.kind === "raw" ? "raw" : "prg")}`,
       `Listing: ${listingAnnotationStatus(outAbs)}`,
@@ -1225,7 +1263,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm",
-    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof (assembled by the project's preferredAssembler when it is installed, else KickAssembler, else 64tass; the verdict names which). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. The one exception is a raw cartridge image: on a vic20 / plus4 render a file whose bytes carry the KERNAL's autostart signature (VIC-20 A0CBM at offset 4, TED CBM at offset 7) is placed at $A000 / $8000 and the answer names the signature; an explicit load_address wins. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/split/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/platform (c64, c1541, vic20, plus4, none — resolved: argument, the file's artifact record, the project default, c64)/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, the rebuild verdict, and the split low/high tables found in confirmed code that no splitTables[] entry has declared or rejected yet (listed, never a refusal here — agent_advance_phase refuses past phase 5 until they are decided) — or, for `paths`, one line per path and the failures named.",
+    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof (assembled by the project's preferredAssembler when it is installed, else KickAssembler, else 64tass; the verdict names which). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. The one exception is a raw cartridge image: on a vic20 / plus4 render a file whose bytes carry the KERNAL's autostart signature (VIC-20 A0CBM at offset 4, TED CBM at offset 7) is placed at $A000 / $8000 and the answer names the signature; an explicit load_address wins. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/split/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). `space` / `bank` say which address space the names go into the graph under: crt + a bank files them under that cartridge bank (so a model_assert boundary in space crt at that bank holds them), ram or drv files them under the owner; one stated earlier sticks until another is stated. On a C64 the cartridge I/O window $DE00-$DFFF is named for the cartridge type recorded for the bytes — the CRT header's hardware type, found through the artifact's lineage, the directory extract_crt wrote them to, or the project's only cartridge (the answer's `Cartridge:` line says which) — and is commented as plain \"cartridge I/O\" where no type is known. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/platform (c64, c1541, vic20, plus4, none — resolved: argument, the file's artifact record, the project default, c64)/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, the rebuild verdict, and the split low/high tables found in confirmed code that no splitTables[] entry has declared or rejected yet (listed, never a refusal here — agent_advance_phase refuses past phase 5 until they are decided) — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Named and present, it is the analysis rendered and is never swapped. Named and absent, or omitted, the project store is asked which analysis is registered for these bytes; only then the file beside them."),
@@ -1234,8 +1272,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration, no machine recorded on the file) — the graph is left exactly as it was and so is the file's machine. Use for scratch or draft renders you do not mean to keep. Default true."),
       output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the bytes run on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's own artifact record, the project's default (project_init platform), c64. c1541 is drive-side code; vic20 the VIC-20 (VIC-I, VIA1/VIA2, its KERNAL); plus4 the TED machines (C16, C116, Plus/4). Naming a machine RECORDS it for this file, so every later render and analysis of the file knows it (a preview, import_graph=false, records nothing: the machine is for that render only); its graph nodes are indexed under that machine (a 1541 file in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share, e.g. $0300-$07FF, actually contains them; a VIC-20 file's hardware accesses point at vic20:io:... nodes). The store names only what it has rows for: a machine with no row for an address leaves that address unnamed, it never borrows a C64 name. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file's machine. none sticks to the file: every later render that names no platform keeps it, and an explicit machine clears it."),
-      bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
-      space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
+      bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
+      space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored address of the region's first byte (inclusive). HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the span these bytes cover."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored address of the region's last byte (inclusive). Same rule."),
@@ -1411,8 +1449,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual. Whatever is applied is imported into the knowledge graph."),
       output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
       cpu: z.enum(["c64", "drive"]).optional().describe("Which 6502 these bytes run on. Default c64. `drive` renders 1541 zero page, VIA registers and drive ROM entry points instead of the C64's."),
-      bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
-      space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
+      bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
+      space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
     },
     // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("disasm_raw", async (args) => runDisasm("disasm_raw", { ...args, headed: false } as Parameters<typeof runDisasm>[1])),
