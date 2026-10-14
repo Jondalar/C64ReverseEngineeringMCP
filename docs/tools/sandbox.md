@@ -14,6 +14,10 @@ That file went with the in-repo emulator (Spec 806) and the doc kept pointing at
 it for months, which is the failure mode a tools page has: nobody re-reads the
 first paragraph.
 
+A sandbox that is a whole *machine* — `runtime_sandbox_run` for one call,
+`runtime_sandbox_start` / `runtime_sandbox_end` / `runtime_sandbox_list` for a session that
+stays — is documented in `docs/tools/headless.md` and `docs/runtime-sandbox.md`.
+
 ## Tool
 
 | Tool | Description |

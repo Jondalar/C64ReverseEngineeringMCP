@@ -26,6 +26,18 @@ async function daemon() {
   return runtimeDaemon;
 }
 
+/** The session a call names, as wire params: only when one is named — a sandbox session has marks of its own. */
+const sessionParams = (session_id: string | undefined): Record<string, unknown> => (session_id ? { session_id } : {});
+
+/** The project an anchor is recorded in: a sandbox session's own binding, else the one the call names or the MCP works in. */
+async function anchorProject(context: ServerToolContext, session_id: string | undefined, project_dir?: string): Promise<string | undefined> {
+  const { sandboxBinding } = await import("../runtime/sandbox-sessions.js");
+  return (session_id ? sandboxBinding(session_id)?.projectDir : undefined) ?? projectOf(context, project_dir);
+}
+
+/** Whose machine an answer talks about. */
+const whose = (session_id: string | undefined): string => (session_id && /^sb-/.test(session_id) ? `sandbox session ${session_id}` : "the shared machine");
+
 /** The daemon's refusal text, verbatim, as the answer — never an empty success. */
 function refusal(tool: string, e: unknown): ReturnType<typeof text> {
   const msg = e instanceof Error ? e.message : String(e);
@@ -39,6 +51,7 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
     + "Captures a fresh checkpoint of the shared session and puts the name on it (so the anchor is the instant you saw, not an auto-capture up to 20 ms old). "
     + "Does not move, pause or change the machine. Only at the head of the ring: after a goto (replay) it is refused until the transport is back at the head, because the runtime would name the older checkpoint under the cursor and replace its name. 32 anchors at most; a 33rd, or a name already taken, is refused with the runtime's own text. "
     + "In an open project the anchor is also recorded in the graph (name, cycle, frame, why) and outlives the ring. "
+    + "With a sandbox session_id (runtime_sandbox_start) the anchor is on THAT sandbox's own machine and ring, recorded in the project the sandbox is bound to. "
     + "Use before the interesting thing happens: just before a level loads, the frame before a sprite goes wrong. "
     + "Not a trace label (use runtime_mark) and not a plain checkpoint (use runtime_checkpoint_capture). "
     + "Inputs: name, why?, session_id?, project_dir?. Returns: the anchor with its cycle and frame, and how many of the 32 are used.",
@@ -55,20 +68,20 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
       // below; scrubbed back (after a goto, say) it is an OLDER checkpoint, which may already carry a
       // name — and a second name REPLACES the first. So an anchor is only set at the head.
       try {
-        const t = await d.call<{ atHead?: boolean; frameTotal?: number; frameIndex?: number }>("transport/status", {});
+        const t = await d.call<{ atHead?: boolean; frameTotal?: number; frameIndex?: number }>("transport/status", sessionParams(session_id));
         if (t.atHead === false) {
-          return text(`runtime_anchor_set: not set — the shared machine stands in replay (frame ${t.frameIndex ?? "?"} of ${t.frameTotal ?? "?"}), not at the head of the ring. The runtime names the checkpoint under the transport cursor, which is an older one and may already carry another name that this would replace. Return to the head first (runtime_monitor \`goto ${t.frameTotal ?? "<last frame>"}\`), then set the anchor.`);
+          return text(`runtime_anchor_set: not set — ${whose(session_id)} stands in replay (frame ${t.frameIndex ?? "?"} of ${t.frameTotal ?? "?"}), not at the head of the ring. The runtime names the checkpoint under the transport cursor, which is an older one and may already carry another name that this would replace. Return to the head first (runtime_monitor \`goto ${t.frameTotal ?? "<last frame>"}\`), then set the anchor.`);
         }
       } catch { /* a runtime without a transport answers the set itself */ }
       let cap: { ref?: { id?: string; cycles?: number } } | undefined;
       try { cap = await d.checkpointCapture<{ ref?: { id?: string; cycles?: number } }>(sid); } catch (e) { return refusal("runtime_anchor_set", e); }
       let r: { mark: MarkRow; used: number; cap: number; message?: string };
-      try { r = await d.call("mark/set", { name }); } catch (e) { return refusal("runtime_anchor_set", e); }
+      try { r = await d.call("mark/set", { name, ...sessionParams(session_id) }); } catch (e) { return refusal("runtime_anchor_set", e); }
       const lines = [`ANCHOR ${r.mark.name} — cycle ${r.mark.cycle}, frame ${r.mark.frame ?? "?"} (checkpoint ${r.mark.anchorId}); ${r.used} of ${r.cap} anchors used.`];
       if (cap?.ref?.id && cap.ref.id !== r.mark.anchorId) {
         lines.push(`Note: the transport cursor is not at the head of the ring, so the runtime marked the checkpoint under the cursor (${r.mark.anchorId}, cycle ${r.mark.cycle}), not the one just captured (${cap.ref.id}, cycle ${cap.ref.cycles}). Resume to the head and set again if you meant the live instant.`);
       }
-      const proj = projectOf(context, project_dir);
+      const proj = await anchorProject(context, session_id, project_dir);
       if (proj) {
         try {
           const { recordAnchor, projectHoldsGraph } = await import("../anchors/graph.js");
@@ -87,18 +100,18 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
 
   server.tool(
     "runtime_anchor_list",
-    "List the named anchors of the shared machine: name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them. "
+    "List the named anchors of the shared machine (or, with a sandbox session_id, of that sandbox): name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them. "
     + "Reads only — nothing moves. Use to see what you can start a candidate or a goto from. "
     + "Not the full checkpoint list (use runtime_checkpoint_list). Inputs: session_id?, project_dir?. Returns: the anchors, the 32-slot use, and the anchors recorded in the project but gone from the ring.",
     { session_id: z.string().optional(), project_dir: z.string().optional() },
-    safeHandler("runtime_anchor_list", async ({ project_dir }) => {
+    safeHandler("runtime_anchor_list", async ({ session_id, project_dir }) => {
       const d = await daemon();
       let r: { marks: MarkRow[]; cap: number; used: number; windowSeconds?: number };
-      try { r = await d.call("mark/list", {}); } catch (e) { return refusal("runtime_anchor_list", e); }
+      try { r = await d.call("mark/list", sessionParams(session_id)); } catch (e) { return refusal("runtime_anchor_list", e); }
       const lines = [`${r.used} of ${r.cap} anchors in the ring:`];
       for (const m of r.marks) lines.push(`  ${m.name}  cycle ${m.cycle}  frame ${m.frame ?? "?"}  ${m.secondsBack !== undefined ? `${m.secondsBack.toFixed(1)} s back` : ""}  (${m.anchorId})`);
       if (r.marks.length === 0) lines.push("  (none)");
-      const proj = projectOf(context, project_dir);
+      const proj = await anchorProject(context, session_id, project_dir);
       if (proj) {
         const { listRecordedAnchors } = await import("../anchors/graph.js");
         const inRing = new Set(r.marks.map((m) => m.name));
@@ -116,14 +129,14 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
     "runtime_anchor_drop",
     "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual. "
     + "Does not touch the machine. In an open project the recorded anchor stays, marked dropped, because candidates link to it. "
-    + "Not for removing a checkpoint pin (use runtime_checkpoint_unpin). Inputs: name, session_id?, project_dir?. Returns: what was dropped, or the runtime's refusal.",
+    + "With a sandbox session_id it is that sandbox's anchor. Not for removing a checkpoint pin (use runtime_checkpoint_unpin). Inputs: name, session_id?, project_dir?. Returns: what was dropped, or the runtime's refusal.",
     { name: z.string().min(1), session_id: z.string().optional(), project_dir: z.string().optional() },
-    safeHandler("runtime_anchor_drop", async ({ name, project_dir }) => {
+    safeHandler("runtime_anchor_drop", async ({ name, session_id, project_dir }) => {
       const d = await daemon();
       let r: { dropped: string; cycles?: number };
-      try { r = await d.call("mark/drop", { name }); } catch (e) { return refusal("runtime_anchor_drop", e); }
+      try { r = await d.call("mark/drop", { name, ...sessionParams(session_id) }); } catch (e) { return refusal("runtime_anchor_drop", e); }
       const lines = [`DROPPED ${r.dropped} (it was at cycle ${r.cycles ?? "?"}).`];
-      const proj = projectOf(context, project_dir);
+      const proj = await anchorProject(context, session_id, project_dir);
       if (proj) {
         try {
           const { projectHoldsGraph, readAnchor, recordAnchor } = await import("../anchors/graph.js");
@@ -140,17 +153,18 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
   server.tool(
     "runtime_anchor_goto",
     "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump. "
+    + "On a sandbox session (session_id sb-…) it moves only that sandbox's own machine, which nobody else watches. "
     + "Use to return to a named instant and inspect it or continue from it. "
     + "Not for starting sandbox runs (a candidate or runtime_sandbox_run starts from an anchor without moving anything). "
     + "An anchor the ring no longer holds is said to be gone, with the cycle recorded for it. Inputs: name, session_id?, project_dir?. Returns: the transport line after the jump, or the runtime's refusal.",
     { name: z.string().min(1), session_id: z.string().optional(), project_dir: z.string().optional() },
-    safeHandler("runtime_anchor_goto", async ({ name, project_dir }) => {
+    safeHandler("runtime_anchor_goto", async ({ name, session_id, project_dir }) => {
       const d = await daemon();
       try {
-        const r = await d.call<{ line?: string; cycles?: number; frame?: number }>("mark/goto", { name });
-        return text(`AT ${name} — cycle ${r.cycles ?? "?"}. The shared machine is paused here.\n${r.line ?? ""}`.trim());
+        const r = await d.call<{ line?: string; cycles?: number; frame?: number }>("mark/goto", { name, ...sessionParams(session_id) });
+        return text(`AT ${name} — cycle ${r.cycles ?? "?"}. ${whose(session_id).replace(/^./, (c) => c.toUpperCase())} is paused here.\n${r.line ?? ""}`.trim());
       } catch (e) {
-        const proj = projectOf(context, project_dir);
+        const proj = await anchorProject(context, session_id, project_dir);
         if (proj) {
           const { readAnchor } = await import("../anchors/graph.js");
           const rec = readAnchor(proj, name);

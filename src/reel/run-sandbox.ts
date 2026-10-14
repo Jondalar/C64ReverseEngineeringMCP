@@ -8,15 +8,16 @@
 //
 // THE LINE THIS FILE DRAWS, and it is the whole design decision:
 //
-//   A sandbox exists for the duration of one call. So the call may express
+//   This sandbox exists for the duration of one call. So the call may express
 //   anything that is COMPLETE IN ITSELF — a bounded advance, a wait on a state
 //   the machine can reach on its own, a look at the screen, the registers, some
 //   memory. What it may not express is anything whose value depends on a LATER
 //   call: a breakpoint you stop at and then decide from, a step you take and
 //   then repeat, a monitor prompt. Those need a machine that is still there
-//   afterwards, and doctrine rule 2 allows exactly one of those — the shared
-//   one a human co-drives. So this returns no session id, and there is nothing
-//   to attach to: the machine is gone before the answer is read.
+//   afterwards, and that is the sandbox SESSION (`runtime/sandbox-sessions.ts`,
+//   Spec 906): the same daemon, started for a purpose, with a session id, ended
+//   on reached / failed / budget / idle. This one returns no session id, and
+//   there is nothing to attach to: the machine is gone before the answer is read.
 //
 // Deliberately NOT a second `run-scenario.ts`: no regions (a region is a project
 // -store concept a scenario resolves against), no captures, no reel. The step

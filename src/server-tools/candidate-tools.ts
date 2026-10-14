@@ -54,29 +54,31 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
     "runtime_candidate_create",
     "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try. Saved in the project (knowledge/candidates), linked to the anchor in the graph, and still there after a daemon restart. "
     + "Does not run anything and does not touch the machine. Use after runtime_anchor_set, when you have several fixes to try from the same instant. "
-    + "Not a single quick try (use runtime_overlay_run). Inputs: anchor (an anchor name, or a checkpoint id), cycle_budget, inputs? ([{atCycle, kind: keyboard|joystick1|joystick2|model, payload}], atCycle relative to the anchor), title?, id?, project_dir?. Returns: the candidate id and what to do next.",
+    + "Not a single quick try (use runtime_overlay_run). Inputs: anchor (an anchor name, or a checkpoint id), cycle_budget, inputs? ([{atCycle, kind: keyboard|joystick1|joystick2|model, payload}], atCycle relative to the anchor), title?, id?, session_id?, project_dir?. Returns: the candidate id and what to do next.",
     {
       anchor: z.string().min(1).describe("Anchor name (runtime_anchor_set) or a checkpoint id"),
       cycle_budget: z.number().int().positive().describe("Cycles each run goes on for, counted from the anchor"),
       inputs: z.array(z.record(z.string(), z.unknown())).optional().describe("Input script: [{atCycle, kind, payload}] — joystick payload {fire:true,…}, keyboard payload \"TEXT\\r\""),
       title: z.string().optional(),
       id: z.string().optional().describe("Default cand-N"),
+      session_id: z.string().optional().describe("A sandbox session (sb-…) whose own anchors and clones to use; omitted: the shared session's"),
       project_dir: z.string().optional(),
     },
-    safeHandler("runtime_candidate_create", async ({ anchor, cycle_budget, inputs, title, id, project_dir }) => {
+    safeHandler("runtime_candidate_create", async ({ anchor, cycle_budget, inputs, title, id, session_id, project_dir }) => {
       const projectDir = project(project_dir);
       const s = await import("../candidates/store.js");
       const cid = id ?? s.nextCandidateId(projectDir);
       if (s.loadCandidate(projectDir, cid)) throw new Error(`candidate ${cid} already exists — pick another id or runtime_candidate_delete it`);
       const d = await daemon();
-      const marks = (await d.call("mark/list", {})) as { marks?: Array<{ name: string; anchorId: string; cycle: number; frame?: number }> };
+      const sp = session_id ? { session_id } : {};
+      const marks = (await d.call("mark/list", sp)) as { marks?: Array<{ name: string; anchorId: string; cycle: number; frame?: number }> };
       const m = marks.marks?.find((x) => x.name === anchor);
       let cand: Candidate = { id: cid, title, anchor, inputs: inputs ?? [], cycleBudget: cycle_budget, variants: [], createdAt: new Date().toISOString(), updatedAt: "" };
       if (m) { cand.anchorId = m.anchorId; cand.anchorCycle = m.cycle; cand.anchorFrame = m.frame ?? undefined; }
       else {
         const { resolveFrom } = await import("../candidates/run.js");
-        await resolveFrom((method, params) => d.call(method, params), cand); // throws, naming the missing anchor
-        const cps = (await d.call("checkpoint/list", {})) as { checkpoints?: Array<{ id: string; cycles: number; frame: number }> };
+        await resolveFrom((method, params) => d.call(method, { ...params, ...sp }), cand); // throws, naming the missing anchor
+        const cps = (await d.call("checkpoint/list", sp)) as { checkpoints?: Array<{ id: string; cycles: number; frame: number }> };
         const cp = cps.checkpoints?.find((x) => x.id === anchor);
         if (cp) { cand.anchorId = cp.id; cand.anchorCycle = cp.cycles; cand.anchorFrame = cp.frame; }
       }
@@ -127,18 +129,18 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
   server.tool(
     "runtime_candidate_run",
     "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked). "
-    + "The shared machine the human watches is not moved, paused or changed; only a snapshot of the anchor is taken. Verdicts are saved in the candidate. "
+    + "The shared machine the human watches is not moved, paused or changed; only a snapshot of the anchor is taken. Verdicts are saved in the candidate. With a sandbox session_id the anchor and the clones are that sandbox's own. "
     + "Use after adding or changing variants. Not for stepping a patch on the shared machine (use runtime_overlay_run, which moves it). "
-    + "Inputs: id, project_dir?. Returns: a table — variant, cycles, final PC, verdict, what changed.",
-    { id: z.string(), project_dir: z.string().optional() },
-    safeHandler("runtime_candidate_run", async ({ id, project_dir }) => {
+    + "Inputs: id, session_id?, project_dir?. Returns: a table — variant, cycles, final PC, verdict, what changed.",
+    { id: z.string(), session_id: z.string().optional().describe("A sandbox session (sb-…) whose own anchors and clones to use; omitted: the shared session's"), project_dir: z.string().optional() },
+    safeHandler("runtime_candidate_run", async ({ id, session_id, project_dir }) => {
       const projectDir = project(project_dir);
       const s = await import("../candidates/store.js");
       const cand = await need(projectDir, id);
       const d = await daemon();
       const { runCandidateOnce, renderRun } = await import("../candidates/run.js");
       let r;
-      try { r = await runCandidateOnce((m, p) => d.call(m, p), cand); } catch (e) { return text(`runtime_candidate_run: ${e instanceof Error ? e.message : String(e)}`); }
+      try { r = await runCandidateOnce((m, p) => d.call(m, session_id ? { ...p, session_id } : p), cand); } catch (e) { return text(`runtime_candidate_run: ${e instanceof Error ? e.message : String(e)}`); }
       cand.baseline = r.baseline;
       for (const v of r.variants) { const t = cand.variants.find((x) => x.name === v.name); if (t) t.verdict = v.verdict; }
       s.saveCandidate(projectDir, cand);

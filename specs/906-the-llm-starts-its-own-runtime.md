@@ -1,6 +1,6 @@
 # Spec 906 — The LLM starts its own full runtime for a purpose, works in it, and ends it
 
-**Status:** PROPOSED (2026-10-14).
+**Status:** BUILT and merged (2026-10-14); open for the reporter's retest on #78. Local gate 114/114 (1477 s) on a clone of the branch against TRX64 0.13.0; `e2e:906-refusals` (63 checks, hermetic, in `gates.yml`) and `e2e:906` (193 checks with `C64RE_E2E_LONG=1`, 191 without; daemons of its own) green. S1–S7 below, each with its test; what the spec left open is in §5.
 **Repo:** C64RE. The daemon is the same binary on its own port (`--headless`), so every capability
 is already there; what is missing is C64RE reaching it. TRX64 gets a part only where a scenario
 shows the daemon is the limit (D8), by decision recorded in §5, delegated to the TRX64 session.
@@ -195,4 +195,102 @@ Extending the one-shot call with more step verbs (this spec's first draft) — a
 
 ## §5 Decisions taken while building
 
-(filled in at the end)
+What the spec left open, and what was chosen. Each of these is a place the next reader would otherwise have to
+re-derive.
+
+1. **`budget_minutes` is required, there is no default.** S1 says a call without a budget is refused by name; D2 says
+   "default 30 min". They cannot both hold. The refusal won: a machine without a stated budget is the one that gets
+   forgotten, and the refusal text says "30 is a working session". The range is above 0 up to 240 (fractions are
+   allowed — the end-itself scenarios run on budgets of seconds); there is no floor of a minute. `idle_minutes`
+   defaults to 10 and is optional.
+2. **Parity table: two verdicts, with a scope.** `works` carries `session` (takes a `session_id`, routed),
+   `files` (no machine involved: the trace readers, snapshot diffs, the candidate store, `runtime_install`),
+   `own-machine` (`runtime_sandbox_run`, `runtime_scene_reel`) or `sandbox-door`; `ui-only` carries its reason.
+   The table is `src/runtime/sandbox-parity.ts`; both gates derive the registered tool list from
+   `collectToolInventory()` / the live MCP server and fail on an unclassified or stale entry. ui-only: `runtime_session_start`,
+   `runtime_session_close` (the shared session's lifecycle — a sandbox has its own doors), `runtime_keep_alive`,
+   `runtime_backend`, `runtime_down`, `runtime_input_load_vicerc|load_config|save_config`, `runtime_session_export_audio`.
+3. **A ui-only tool gets an optional `session_id` in its schema, added at registration (`server.ts`).** The MCP SDK
+   strips an argument the schema does not list before the handler runs, so `runtime_down { session_id: "sb-…" }` would
+   have run as `runtime_down {}` and ended every sandbox of every project. The guard wraps outermost.
+4. **A medium is mounted as a copy in the sandbox's scratch.** The runtime writes a mounted disk or cartridge back to the
+   file it was opened from when the machine ends (`daemon/shutdown` and a SIGTERM both do); a session debugging a loader
+   must not change the project's image. (`runtime_sandbox_run` still opens the project's file directly, as before.)
+5. **A session always warms to the BASIC prompt and is left paused** (`src/reel/session-boot.ts`, the same warm-up the
+   one-call run does). A cold boot from cycle 0 is not offered; a trace of the KERNAL's own start is not what an RE loop
+   asks for, and the one-call run does not offer it either.
+6. **Ownership is a record file** (`<state dir>/sandbox-sessions/<id>.json`: owner pid, port, purpose, project, deadline,
+   state, reason). It is what lets another MCP process say "not yours" instead of "no such session", and what the keeper
+   (a child of the owner, parent of the daemon) closes with `budget` / `owner gone` when the owner cannot. The owner's
+   liveness is `kill(pid, 0)`; the ledger record (`ProcessRecord.owner`) carries the pid as well. Ended records are kept
+   7 days. The in-process list of ended ids lives for the life of the process, the record for the next process.
+7. **Owner gone logs itself later.** The keeper is node, the step log is the product's, and the owner is dead: the
+   outcome `owner gone` (and the keeper's `budget`) is written into the project's step log by the first process that
+   looks at the record — a call with the id, or the next `runtime_sandbox_start` — once (the record is claimed with
+   `logged: true` before the entry is written).
+8. **The keeper ends a session's daemon with `daemon/shutdown` first** (through `globalThis.WebSocket`, Node ≥ 22 as
+   `engines` requires), SIGTERM after 3 s; a daemon without a record (the one-call run) is signalled as before. The
+   keeper also relays the daemon's stderr instead of handing it the owner's pipe — see "Needs TRX64".
+9. **Idle = no call for the limit; a call in flight is activity.** A job-mode run of minutes is not idleness.
+10. **Long calls (D6).** Grace window 100 s (`C64RE_JOB_GRACE_MS` overrides it, which is how the gate reaches job mode in
+    seconds). `runtime_session_run` and `runtime_until` become jobs on a sandbox only (the shared session's run stays one
+    call, as before); `runtime_trace_finalize` is a job for both, because it is what failed on the shared session (#77).
+    Its timeout is `120 s + 0.25 ms × events`, at most one hour, instead of the client's 60 s; if even that is exceeded the
+    answer names the intact `.c64retrace` and the lazy index. While a job runs the daemon is single: other calls on that
+    session wait behind it (said in the answer).
+11. **Reading a store while a C64 Ultimate is selected (D7).** The `trace/read` of a store file is served by a private
+    reader daemon (a sandbox of C64RE's own, started on first use, 15 minutes), not by the shared emulator daemon: that
+    one is the human's machine and may not even be running. The routing layer in `backend.ts` does it; `routing.ts` keeps
+    a refusal for a direct `trace/read` on the device with the accurate reason.
+12. **Anchors, candidates and the scenario registry take `session_id`** (`runtime_anchor_*`, `runtime_candidate_create` /
+    `_run`, `runtime_scenario_*`, `runtime_run_scenario(s_parallel)`, `runtime_batch_*`): the marks and the clones of a
+    sandbox are its own. An anchor on a sandbox is recorded in the project the sandbox is bound to.
+13. **A sandbox is bound to a project** (the one the start resolved): `runtime_trace_start` on it puts the capture in
+    that project's trace root and its pointer in that project's `runtime/traces.json`; the outcome goes into that project's
+    step log. The daemon's own working directory stays scratch.
+14. **Default surface 202 → 205** for the three doors; `runtime_sandbox_run`'s description keeps "NO session id" (it is
+    still the truth of the one-shot) and points at `runtime_sandbox_start`.
+15. **Gates.** The refusal half is `e2e:906-refusals` (hermetic, `gates.yml`); the daemon half is `e2e:906`, also in
+    `gates.yml` like `e2e:905` and `e2e:replay-determinism`: it starts daemons of its own and SKIPS LOUDLY on a runner with
+    no `trx64-daemon`. `C64RE_E2E_LONG=1` adds the 60M-cycle capture. The "shared session" of the parity walk is a headless
+    stand-in daemon brought to the same state by the same boot code. D7's `docs/tools/sandbox.md` is the 6502 sandbox's page;
+    the machine sandboxes are documented in `docs/tools/headless.md` and `docs/runtime-sandbox.md`, and the 6502 page
+    points there.
+16. **Pre-existing bug fixed on the way:** `runtime_rip_range` on a live machine sent `{addr, length}`, which the emulator's
+    runtime refuses (`ranges` is required) — a live rip never worked. It now sends both shapes (the C64 Ultimate's app
+    takes the old one).
+
+### Measured (S6, `C64RE_E2E_LONG=1`, TRX64 0.13.0, macOS, a synthetic D64, one run)
+
+60 000 000 cycles of a sandbox session with the `memory`, `drive8-cpu` and `drive-mechanism` lanes armed (a typed `LOAD"*",8,1` first):
+
+| | |
+|---|---|
+| the run (one `runtime_session_run` call, job mode past a 30 s grace) | 54.3 s |
+| `runtime_trace_finalize` incl. the index build (job mode) | 59.1 s |
+| events | 28 579 633 |
+| `.c64retrace` / index | 504 MB / 855 MB |
+
+Neither call came near a limit that is not its own: the index build is the daemon's and runs at about 0.5 M events/s
+(`20 M cycles, c64-cpu + drive-mechanism`: 5.7 M events, 7.9 s). The daemon is not the limit; nothing in this spec goes to TRX64
+for S6.
+
+### Needs TRX64 (not done here)
+
+- **The daemon aborts (SIGABRT) on a failed write to stderr.** Measured: spawn it with `stderr` as a pipe, close the reader,
+  let it log one line (a client connecting) — it dies with `SIGABRT` and its trace is not finished. C64RE now keeps the
+  pipe's reader alive in the keeper, which makes the owner-gone path safe, but any other launcher that loses its reader
+  loses the machine the same way. `eprintln!` → a write that ignores `EPIPE` is the fix.
+- **A self-termination deadline as a last line behind the keeper (D8)** is not needed for anything measured here: the keeper
+  ended every daemon in the gate, including the one whose owner was SIGKILLed. Left out.
+
+### CLAUDE.md rule 2 — not edited here (the owner's agent updates it); the proposed text
+
+> 2. **One SHARED machine, plus sandboxes the LLM starts for a purpose.** The session the human sees is exactly one, and the UI
+>    shows only that one: human and LLM co-drive it, and it is never power-cycled for a test. Anything else the LLM needs a machine
+>    for — depacking, a test run, a comparison, or an interactive loop of stepping, breakpoints, traces and rewind — it starts
+>    itself, as a `trx64-daemon` sandbox on its own port: one call (`runtime_sandbox_run`) or a session (`runtime_sandbox_start` →
+>    a `session_id` for every `runtime_*` tool, ended with `runtime_sandbox_end`). A sandbox has a stated purpose and a budget, is
+>    invisible to the UI and to every other MCP process, and **ends itself** on reached / failed / budget / idle / owner gone,
+>    whether or not anyone is still listening. Amended 2026-08-14 and 2026-10-14; the reasoning and the reaping rule are in
+>    `DOCTRINE.md`.

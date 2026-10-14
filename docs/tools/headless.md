@@ -112,8 +112,9 @@ before searching for one. `sandbox_6502_run` and `sandbox_depack` are a CPU sand
 no machine at all: a flat 64K of RAM and the real 6502 core, with no VIC, no CIA, no
 drive, no KERNAL — the right tool for running a depacker over some bytes. An
 ephemeral MACHINE — a whole C64 on its own port, born with a budget and ending
-itself when it runs out — is the next section, `runtime_sandbox_run`. If you want
-a cartridge to boot, you want a machine, not the CPU sandbox.
+itself when it runs out — is the next two sections: `runtime_sandbox_run` for one
+call, `runtime_sandbox_start` for a machine that stays. If you want a cartridge to
+boot, you want a machine, not the CPU sandbox.
 
 ## A machine of your own — `runtime_sandbox_run`
 
@@ -146,8 +147,8 @@ frames`), the text screen, the registers, a memory dump, one GIF frame. It may
 not ask for anything whose value depends on a LATER call — a breakpoint you stop
 at and then decide from, a step you repeat, a monitor prompt — because there is
 no later call: **the tool returns no `session_id` and nothing can attach to it.**
-A sandbox you could come back to would be a second shared machine, and doctrine
-rule 2 allows exactly one. For an interactive debug loop, use the shared machine.
+For a machine you do come back to — stepping, breakpoints, the monitor, a trace —
+start a sandbox session (next section).
 
 The step notation is the capture scenario's, the same parser as
 `runtime_scene_reel` and `.feature` goals — minus `I capture`, which is refused
@@ -162,6 +163,76 @@ typed key is never scanned. The tool detects this (it asks the runtime whether
 its VIC is sweeping) and says `NOT A WHOLE MACHINE` above the report rather than
 handing back a stale screen. A cartridge or a disk keeps the whole machine — put
 the PRG on a `.d64`, or load it into the shared session, which stays whole.
+
+## A machine of your own that stays — `runtime_sandbox_start`
+
+`runtime_sandbox_run` answers once and is gone. When the work is a loop — mount a
+medium, run to a point, set a breakpoint, step, read the monitor, capture a trace,
+inspect the VIC, rewind, try a poke, compare two states, each decision made after
+seeing the last answer — the machine has to stay. A sandbox *session* is that machine:
+
+```
+runtime_sandbox_start { purpose: "validate IM II extraction against a drive-mechanism capture",
+                        media_path: "media/im2.g64", budget_minutes: 30 }
+→ session_id "sb-validate-im-ii-1", its port, the machine it booted, the deadline
+
+runtime_trace_start    { session_id: "sb-validate-im-ii-1", domains: [...], hypothesis: "..." }
+runtime_type           { session_id: "sb-validate-im-ii-1", text: "LOAD\"*\",8,1{RETURN}" }
+runtime_until          { session_id: "sb-validate-im-ii-1", addr: 2176 }
+runtime_monitor        { session_id: "sb-validate-im-ii-1", command: "m 0880 08ff" }
+runtime_trace_finalize { session_id: "sb-validate-im-ii-1" }      → a capture in the project's trace root
+runtime_sandbox_end    { session_id: "sb-validate-im-ii-1", outcome: "reached", summary: "manifest matches 624/624" }
+```
+
+It is a daemon of its own, on its own port, and **every `runtime_*` tool that takes a
+`session_id` drives it exactly as it drives the shared session** — the id is all that
+changes. Which tools those are is a table in code (`src/runtime/sandbox-parity.ts`), with
+a verdict for each runtime tool, and a tool added without one fails the gate.
+
+- **What it is born with.** A `purpose` (one sentence — it is what `runtime_sandbox_list`
+  shows and what the project's step log records), a `budget_minutes` (above 0, at most 240;
+  required: a machine without a budget is the one that gets forgotten) and an idle limit
+  (`idle_minutes`, default 10; a call in flight is activity). At most four live sandbox
+  sessions per MCP process; the fifth is refused, naming the four and their purposes.
+- **What it stands at.** Switched on and warmed to the BASIC prompt, the medium in, and
+  **paused** at the cycle the answer names: a session advances only when a tool runs it
+  (`runtime_session_run`, `runtime_until`, `runtime_type` with `settle`, …), so the same
+  calls replay to the same bytes. A medium is mounted as a **copy** in the sandbox's
+  scratch — the runtime writes a mounted disk or cartridge back on exit, and the project's
+  image is never changed.
+- **Whose it is.** The MCP process that started it. Another process calling its id is
+  refused (`not yours`, naming whose and what for); it is not in `runtime_sandbox_list` of
+  anyone else; the workbench UI never shows it; it never reaches the shared session and the
+  shared session never reaches it; it is the emulator also while a C64 Ultimate is the
+  selected backend. The tools that serve a human's UI (`runtime_session_start`,
+  `runtime_session_close`, `runtime_keep_alive`, `runtime_backend`, `runtime_down`,
+  `runtime_input_*`, `runtime_session_export_audio`) refuse a sandbox id by name and say
+  why.
+- **How it ends.** `runtime_sandbox_end { session_id, outcome: reached | failed, summary }`,
+  or by itself: when the **budget** runs out, when no call has reached it for the **idle**
+  limit, or when its **owner** (the MCP process) dies. Every end finishes a trace in
+  progress (the `.c64retrace` is kept; its index is built on the first read), shuts the
+  daemon down, frees the port and removes the scratch. A later call with the id answers
+  `ended: <reason> at <time>` — never "no such session". What it wrote to the project
+  (captures, snapshots) is kept and listed in the answer, and the outcome — purpose,
+  outcome, summary, duration, artefacts — goes into the project's step log.
+- **Long work.** A run of tens of millions of cycles, or the index of the capture it wrote,
+  outlasts what a host tolerates from one call (about three minutes of silence drops the
+  whole connection). `runtime_session_run`, `runtime_until` on a sandbox and
+  `runtime_trace_finalize` therefore wait a grace window (100 s; `C64RE_JOB_GRACE_MS`
+  changes it) and past it answer `job_id`; `analysis_job_status { job_id }` returns the
+  finished answer. While a job runs the machine is single: another call on that session
+  waits behind it. `runtime_trace_finalize` sizes its own timeout to the capture (two
+  minutes plus a quarter of a millisecond per event); if even that is not enough the
+  answer names the intact `.c64retrace` and the lazy index.
+- **Measured (TRX64 0.13.0, the maintainer's machine, a synthetic disk).** 60 million
+  cycles with the `memory`, `drive8-cpu` and `drive-mechanism` lanes armed: the run took
+  about 54 s, finishing the capture and building its index about 59 s, for 28.6 million
+  events (a 504 MB `.c64retrace`, an 855 MB index).
+
+Anchors and candidates work on a sandbox too: `runtime_anchor_*` and
+`runtime_candidate_create` / `runtime_candidate_run` take the sandbox's `session_id`, and the
+clones a candidate runs on live inside the sandbox's daemon.
 
 ## Monitor, Interrupts, And Rendering
 

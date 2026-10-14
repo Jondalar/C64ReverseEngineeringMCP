@@ -107,7 +107,7 @@ C64 Ultimate that runs the TRX64 core and the `trxmon` app, choose it: `runtime_
 (list, probe, select, start_monitor) or `C64RE_RUNTIME_BACKEND=c64u:<host>` (`emulator` is
 the default and the other value). Nothing is chosen for you and nothing falls back to the
 emulator: a device that stops answering is an error naming it. Machines of your own
-(`runtime_sandbox_run`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
+(`runtime_sandbox_run`, `runtime_sandbox_start`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
 and media reach the device only if the exact same bytes passed a run there with at least one
 `Then` check first. In the workbench the same choice is the runtime selector in the top bar
 (scan, **Start monitor** for a device that has the core but not the app, a REST password

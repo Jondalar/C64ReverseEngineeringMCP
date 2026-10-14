@@ -50,7 +50,7 @@ export type Route =
   | { kind: "api" }
   | { kind: "refuse"; reason: string; wayOut: string };
 
-const SANDBOX_WAY_OUT = "use a machine of your own (runtime_sandbox_run, runtime_scene_reel, `c64re scenario run`), which is always the emulator";
+const SANDBOX_WAY_OUT = "use a machine of your own (runtime_sandbox_start for an interactive session, runtime_sandbox_run for one call, runtime_scene_reel, `c64re scenario run`), which is always the emulator";
 
 interface RefusalRule { match: (m: string) => boolean; reason: string; wayOut: string }
 
@@ -61,12 +61,17 @@ const REFUSALS: readonly RefusalRule[] = [
   {
     match: (m) => m === "trace/build_from_ring",
     reason: "trace export from the ring was removed from the app (its M1); no .c64retrace file is made on a C64 Ultimate",
-    wayOut: "trace on hardware is monitor/exec \"trace on|off|status\", `chis`, `whowrote`, `sd`; a captured .c64retrace comes from the emulator",
+    wayOut: "trace on hardware is monitor/exec \"trace on|off|status\", `chis`, `whowrote`, `sd`; a captured .c64retrace comes from the emulator — start a machine of your own with runtime_sandbox_start and capture there",
+  },
+  {
+    match: (m) => m === "trace/read",
+    reason: "a trace store is a file, and the device does not read files of the emulator's format",
+    wayOut: "the tools never ask the device for it: with a C64 Ultimate selected, a store read goes to an emulator reader of C64RE's own (trace_store_*, runtime_swimlane_slice and the rest of the trace readers work unchanged)",
   },
   {
     match: (m) => m.startsWith("trace/") || m === "debug/memory_access_map",
     reason: "the trace store and its analyses are not in the app (trace over RPC is not offered on a C64 Ultimate)",
-    wayOut: "ask the device's own monitor through runtime_monitor: `trace on|off|status`, `sd`, `chis`, `whowrote <addr>`; for a trace store capture on the emulator (runtime_sandbox_run)",
+    wayOut: "ask the device's own monitor through runtime_monitor: `trace on|off|status`, `sd`, `chis`, `whowrote <addr>`; for a trace store capture start a machine of your own with runtime_sandbox_start (always the emulator: runtime_trace_start takes its session_id, and the store file it writes reads fine while the C64 Ultimate stays selected), or runtime_sandbox_run for one call",
   },
   {
     match: (m) => startsWithAny(m, ["snapshot/", "ringbuffer/"]),

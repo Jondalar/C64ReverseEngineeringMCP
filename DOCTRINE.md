@@ -26,11 +26,12 @@ same session. Every start path attaches to the machine that daemon already has r
 than constructing a second. Callers must not cold-reset an attached session; only a
 freshly started daemon cold-boots. A disk requested on attach is not auto-mounted.
 
-- Need an **isolated** machine? Use a **separate backend process** — spawn
-  `trx64-daemon --port <own>` and drive it over raw WebSocket
-  (`docs/runtime-sandbox.md`). Never power-cycle the shared one to make room for a
-  test. The MCP `runtime_*` tools cannot give you isolation: they are pinned to one
-  port and attach by design.
+- Need an **isolated** machine? Start a **sandbox session**: `runtime_sandbox_start`
+  (`docs/runtime-sandbox.md`) is a separate `trx64-daemon` on its own port, and every
+  `runtime_*` tool that takes a `session_id` drives it when given the session's id. Never
+  power-cycle the shared one to make room for a test. Without a session id the `runtime_*`
+  tools are pinned to the shared port and attach by design — that is the shared machine,
+  and it stays the human's.
 
 **Amended 2026-08-14 — C64RE may spawn sandboxes itself.**
 
@@ -49,9 +50,13 @@ What does **not** change, and is the part this rule was always worth having for:
 What changes: for **point work** — depacking, a test run, a component comparison — C64RE
 may start a sandbox itself, without asking, and must take it down again.
 
-**A sandbox ends itself.** It is born with a budget (cycles and wall-clock) and terminates
-when the budget runs out, *whether or not anyone is still listening*. Not a reaper, not a
-cleanup pass at next start: self-termination.
+**A sandbox ends itself.** It is born with a budget and terminates when the budget runs
+out, *whether or not anyone is still listening*. Not a reaper, not a cleanup pass at next
+start: self-termination. What is built is a **wall-clock** budget, held by a keeper process
+between the owner and the daemon (`src/reel/sandbox-session.ts`), so it does not depend on
+the process that asked for it staying alive; a cycle budget is not built — a sandbox
+session is advanced only by bounded runs the owner asks for, so cycles are the owner's
+account, and the wall-clock, the idle limit and the owner check are the ones that end it.
 
 The reason is that the alternative fails in the way that is hardest to see. An orphaned
 sandbox is a process, a port and a few hundred megabytes that belong to nobody — and
@@ -62,6 +67,41 @@ that stays true after the tenth time somebody's script dies mid-run.
 
 "Point work" means the duration is known. If a job genuinely cannot state a budget, it is
 not point work and it belongs on a deliberately started daemon that a human owns.
+
+**Amended 2026-10-14 — a sandbox may stay: the sandbox session (Spec 906).**
+
+The 2026-08-14 amendment made a sandbox a thing for *point work*, and Spec 836 then drew
+the line at one call: `runtime_sandbox_run` returns **no session id**, because "a sandbox
+you could come back to would be a second shared machine, and there is only one of those".
+That sentence guarded against the right defect — debugging against a machine whose
+history you cannot account for — with the wrong remedy. It left an LLM that needs to step,
+set a breakpoint, trace or rewind with exactly one machine to do it on: the shared one,
+the human's, and every other project's. Issue #78 measured it: two LLM sessions in two
+projects competing for the one shared runtime, one of them blocked for as long as the
+other held it.
+
+The defect is not "a machine you can come back to". It is a machine **nobody is
+accounting for**. So the remedy is to make a returnable sandbox one somebody is always
+accounting for, not to forbid it. A **sandbox session** (`runtime_sandbox_start`) is a
+sandbox that stays across calls and has, from its first moment:
+
+- **a stated purpose** — one sentence, shown by `runtime_sandbox_list`, named in every
+  refusal, and recorded when it ends;
+- **a budget** — wall-clock, at most 240 minutes, held by the keeper;
+- **an idle limit** — it ends when no call has reached it for ten minutes (a call in flight
+  counts as activity);
+- **an owner** — the MCP process that started it; its id is that process's alone (another
+  process gets *not yours*), and it ends when that process dies;
+- **an end that is always recorded** — `reached` / `failed` when the owner says so
+  (`runtime_sandbox_end`), `budget` / `idle` / `owner gone` when nobody does; a trace in
+  progress is finished, not lost, and the outcome goes into the project's step log.
+
+What does **not** change: the shared session stays one; the UI shows only it; a sandbox is
+never visible there, never reaches it, and is never reached by it; it is always the
+emulator, also while a C64 Ultimate is the selected backend; at most four per MCP
+process. One-shot (`runtime_sandbox_run`, unchanged) and session (`runtime_sandbox_start`)
+are the two shapes of the same private daemon. Spec 836's *no session id* is retired
+for the second; it stays the truth of the first.
 
 *Scope note (2026-08-12, Spec 806): the C64RE-side half of this rule is now enforced by
 construction rather than by a gate. C64RE has no machine to build — the in-process
@@ -104,6 +144,9 @@ What that means in code, and what must not drift:
   backend is active (`src/reel/`, `src/scenario/`, `src/cost/capture.ts` import nothing
   from `backend.ts`, the daemon client, `c64u/` or `c64u-bridge/`;
   `scripts/smoke-889-backend.mjs` walks the import graph). Real hardware is one machine; a machine of your own is TRX64.
+  A sandbox *session* is reached through `backend.ts` — a call whose `session_id` is a
+  sandbox's goes to that sandbox's daemon, ahead of the active backend — and not the
+  other way round: the sandbox modules still import nothing from it.
 - **Hardware only after the emulator said yes** (§4b): with the C64U active, bytes reach
   the device only if their SHA-256 has a recorded green emulator run in the project
   (`knowledge/emulator-passes.json`). There is no override.

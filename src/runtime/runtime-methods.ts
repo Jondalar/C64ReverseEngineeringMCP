@@ -224,9 +224,21 @@ export abstract class RuntimeMethods {
       "checkpoint/read_memory", { session_id: sessionId, checkpoint_id: checkpointId, addr, length });
   }
   /** Live machine, same shape. */
-  readMemoryRange(sessionId: string, addr: number, length: number) {
-    return this.call<{ bytes?: number[]; data?: number[] }>(
-      "session/read_memory", { session_id: sessionId, addr, length });
+  async readMemoryRange(sessionId: string, addr: number, length: number): Promise<{ bytes: number[] }> {
+    // The emulator's runtime reads `ranges` ({addr, len, lens?}) and answers `chunks` of base64, at most 32 KiB
+    // a read; the C64 Ultimate's app takes `addr` + `length` and answers `bytes`. Both are sent, whichever
+    // answers is read. (This used to send {addr, length} alone, which the emulator's runtime refuses: a live
+    // runtime_rip_range never worked.)
+    const bytes: number[] = [];
+    for (let done = 0; done < length; done += 0x8000) {
+      const at = (addr + done) & 0xffff;
+      const len = Math.min(0x8000, length - done);
+      const r = await this.call<{ bytes?: number[]; data?: number[]; chunks?: Array<{ bytes: string }> }>(
+        "session/read_memory", { session_id: sessionId, addr: at, length: len, ranges: [{ addr: at, len }] });
+      if (Array.isArray(r.chunks)) for (const c of r.chunks) bytes.push(...Buffer.from(c.bytes, "base64"));
+      else bytes.push(...(r.bytes ?? r.data ?? []));
+    }
+    return { bytes };
   }
   vicInspectRegion<T = unknown>(sessionId: string, checkpointId: string, region: { x: number; y: number; width: number; height: number }) {
     return this.call<T>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
@@ -274,8 +286,8 @@ export abstract class RuntimeMethods {
   /** Spec 746.x — ONE stop path. `waitIndex` is the policy flag: the UI omits it
    *  (instant button, index publishes in the background); the MCP/LLM passes true
    *  to block until the DuckDB store is queryable (its next step is a query). */
-  traceStop<T = unknown>(sessionId: string, waitIndex = false) {
-    return this.call<T>("trace/run/stop", { session_id: sessionId, wait_index: waitIndex });
+  traceStop<T = unknown>(sessionId: string, waitIndex = false, timeoutMs?: number) {
+    return this.call<T>("trace/run/stop", { session_id: sessionId, wait_index: waitIndex }, timeoutMs);
   }
   traceStatus<T = unknown>(sessionId: string) {
     return this.call<T>("trace/run/status", { session_id: sessionId });

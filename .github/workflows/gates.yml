@@ -461,6 +461,25 @@ jobs:
       - name: Replay across fresh starts — identical arguments, identical cycles (issue #67)
         run: npm run e2e:replay-determinism
 
+      # Spec 906 — a machine of your own that stays. The refusal half needs no daemon and runs on any
+      # runner: a start without a purpose or a budget refused by name, every registered runtime tool
+      # holding a sandbox verdict (derived from the live server, so a new runtime tool without one fails
+      # here), every UI-only tool refusing a sandbox id by name, "not yours" / "ended: <reason>" /
+      # "no such session" told apart from the records, the C64U refusal naming runtime_sandbox_start,
+      # and the docs and doctrine saying what is built.
+      - name: A sandbox session — the refusals, the parity table, the doors (Spec 906)
+        run: npm run e2e:906-refusals
+
+      # Spec 906 — the runtime half: sandbox sessions on daemons of this run's own (free ports, synthetic
+      # media, a state directory of the run). Start for a purpose; every session tool answering as it does
+      # on the shared session (a stand-in daemon in the same state); two MCP processes side by side with
+      # the shared session; ending on reached / failed; ending itself on budget, idle and a killed owner
+      # with the trace finalized; job mode past the grace window; the C64U refusal followed through to a
+      # working trace and a store read with the device selected. SKIPS LOUDLY on a runner with no
+      # trx64-daemon; C64RE_E2E_LONG=1 adds the 60M-cycle capture.
+      - name: A sandbox session on real machines (Spec 906)
+        run: npm run e2e:906
+
       # Spec 905 — the workbench's anchor code (the page's own, bundled with its WsClient) against a
       # daemon of this run's own beside an MCP session; the source and bundle checks run everywhere.
       - name: Anchors in the workbench (Spec 905)
