@@ -813,7 +813,7 @@ export function formatSlotReport(r: SlotReport): string {
       : "Coverage: nothing measurable registered yet",
     ...formatNamed(r),
     ...formatScope(r.scope),
-    ...(r.coverage.missing.length ? [`  missing on disk (registered, no file, not counted): ${r.coverage.missing.join(", ")}`] : []),
+    ...(r.coverage.missing?.length ? [`  missing on disk (registered, no file, not counted): ${r.coverage.missing.join(", ")}`] : []),
     ...(r.coverage.unmeasured.length ? [`  unmeasured (no addressRange, no fileSize): ${r.coverage.unmeasured.join(", ")}`] : []),
   ].join("\n");
 }
