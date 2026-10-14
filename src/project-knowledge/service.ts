@@ -4630,8 +4630,13 @@ export class ProjectKnowledgeService {
       const { blobPath, ...row } = entity;
       if (!blobPath || !existsSync(blobPath)) return row as Omit<T, "blobPath">;
       try {
+        // The row's own format decides when it has one: a PRG-named file the extractor
+        // marked raw has no load header to strip.
+        const rowFormat = (row as { payloadFormat?: string }).payloadFormat;
+        const headed = rowFormat !== undefined ? rowFormat === "prg" : /\.prg$/i.test(blobPath);
         const blob = this.saveArtifact({
-          kind: /\.prg$/i.test(blobPath) ? "prg" : "extract",
+          kind: headed ? "prg" : "extract",
+          format: headed ? "prg" : "raw",
           scope: "analysis",
           title: basename(blobPath),
           path: blobPath,

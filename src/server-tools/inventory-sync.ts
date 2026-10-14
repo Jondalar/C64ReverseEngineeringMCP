@@ -21,8 +21,8 @@ import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/r
 import { diagnoseEmptyPattern, howToDeclare, howToSilenceToolOutput, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
-import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -32,6 +32,12 @@ export interface ProjectInventorySyncResult {
   status: "done" | "blocked" | "failed";
   registered: number;
   importedManifests: number;
+  /** Payload-source rows re-labelled from `kind: prg, format: raw` to `kind: raw` (issue #82). */
+  repairedPayloadSources: number;
+  /** Records whose stored fileSize no longer matched the file on disk and were re-read from it. */
+  refreshedSizes: number;
+  /** Registered files that are not on disk (relative paths). Kept, reported, never counted as bytes. */
+  missingOnDisk: string[];
   /** Analysis-run artifacts back-filled into the knowledge layer this pass. */
   importedAnalysisRuns: number;
   rebuiltViews: string[];
@@ -68,6 +74,60 @@ export interface ProjectInventorySyncResult {
 // project. When this runs inside an MCP tool that talks stdio JSON-RPC, the
 // blocked loop can't service the transport and the client drops the connection
 // as unresponsive. Yielding (`breathe()`) between phases keeps the loop alive.
+/**
+ * Issue #82 — re-label payload-source records the older manifest writer left ambiguous.
+ * It wrote `kind: "prg", format: "raw"` for a headerless block, and every reader that
+ * looked at `kind` took the first two bytes for a load address. The pair already says
+ * "headerless" (artifact-header.ts); the row is made to say it too, once. Returns how
+ * many rows changed; a second run changes none.
+ */
+export function repairAmbiguousPayloadSources(service: ProjectKnowledgeService): number {
+  let repaired = 0;
+  for (const artifact of service.listArtifacts()) {
+    if (artifact.kind !== "prg" || artifact.format !== "raw" || artifact.role !== "payload-source") continue;
+    try {
+      service.saveArtifact({
+        id: artifact.id,
+        kind: "raw",
+        scope: artifact.scope,
+        title: artifact.title,
+        path: artifact.relativePath,
+        role: artifact.role,
+        format: "raw",
+      });
+      repaired += 1;
+    } catch { /* a row that cannot be re-saved keeps reading as headerless through its format */ }
+  }
+  return repaired;
+}
+
+/**
+ * A record's fileSize is what the file was when it was registered. Re-read it from disk for
+ * every record whose file exists and has changed size; name the records whose file is gone
+ * (they stay in the store, and S12 does not count them). Idempotent.
+ */
+export function refreshArtifactSizes(service: ProjectKnowledgeService, projectRoot: string): { refreshed: number; missing: string[] } {
+  let refreshed = 0;
+  const missing: string[] = [];
+  for (const a of service.listArtifacts()) {
+    if (a.internal) continue;
+    let disk: number | undefined;
+    for (const p of [resolve(projectRoot, a.relativePath), a.path]) {
+      try { const st = statSync(p); if (st.isFile()) { disk = st.size; break; } } catch { /* next spelling */ }
+    }
+    if (disk === undefined) { missing.push(a.relativePath); continue; }
+    if (a.fileSize === disk) continue;
+    try {
+      service.saveArtifact({
+        id: a.id, kind: a.kind, scope: a.scope, title: a.title, path: a.relativePath,
+        ...(a.role ? { role: a.role } : {}), ...(a.format ? { format: a.format } : {}),
+      });
+      refreshed += 1;
+    } catch { /* a row that cannot be re-saved keeps its old size; S12 reads the disk anyway */ }
+  }
+  return { refreshed, missing };
+}
+
 /**
  * Re-label a `manifest.json` that is registered as something other than a manifest.
  * The shape of the file decides: `header` + `chips[]` is an extract_crt manifest,
@@ -147,6 +207,10 @@ export async function runProjectInventorySync(
   // code and re-labelled the record). The file is still the manifest: restore the
   // record from what it says it is, before the manifests are imported below.
   repairMisregisteredManifests(service);
+  // 2c. Payload sources written as `kind: prg, format: raw` become `kind: raw` (issue #82).
+  const repairedPayloadSources = repairAmbiguousPayloadSources(service);
+  // 2d. Sizes: the disk is the truth (issue #82). Missing files are named, not deleted.
+  const sizes = refreshArtifactSizes(service, projectRoot);
 
   // 3. Import disk/CRT/PRG manifests when present. importManifestArtifact uses
   // stable ids + a purge-then-resave, so re-importing the same manifest is a
@@ -298,6 +362,9 @@ export async function runProjectInventorySync(
     status,
     registered: reg.registered,
     importedManifests,
+    repairedPayloadSources,
+    refreshedSizes: sizes.refreshed,
+    missingOnDisk: sizes.missing,
     importedAnalysisRuns,
     unregisteredToolOutput: delta.toolOutputCount,
     unregisteredToolOutputByDir: delta.toolOutputByDir,
@@ -353,6 +420,9 @@ function renderFullReport(projectRoot: string, r: ProjectInventorySyncResult): s
     "",
     `- files registered: ${r.registered}`,
     `- manifests imported: ${r.importedManifests}`,
+    ...(r.refreshedSizes ? [`- record sizes re-read from disk: ${r.refreshedSizes}`] : []),
+    ...(r.missingOnDisk.length ? [`- registered but missing on disk (kept, not counted): ${r.missingOnDisk.length} - ${r.missingOnDisk.slice(0, 20).join(", ")}${r.missingOnDisk.length > 20 ? ", ..." : ""}`] : []),
+    ...(r.repairedPayloadSources ? [`- payload sources re-labelled raw (were kind prg, format raw): ${r.repairedPayloadSources}`] : []),
     `- analysis runs back-filled: ${r.importedAnalysisRuns}`,
     `- views rebuilt: ${r.rebuiltViews.length}`,
     `- version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated, ${r.versionGroupsNeedDecision} needing a decision`,
@@ -394,6 +464,9 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult, report
   lines.push(`Project: ${projectRoot}`);
   lines.push(`Files registered: ${r.registered}`);
   lines.push(`Manifests imported: ${r.importedManifests}`);
+  if (r.refreshedSizes) lines.push(`Record sizes re-read from disk: ${r.refreshedSizes}`);
+  if (r.missingOnDisk.length) lines.push(`Registered but missing on disk (kept, not counted by S12): ${r.missingOnDisk.length} - ${r.missingOnDisk.slice(0, 20).join(", ")}${r.missingOnDisk.length > 20 ? ", ..." : ""}`);
+  if (r.repairedPayloadSources) lines.push(`Payload sources re-labelled raw: ${r.repairedPayloadSources}`);
   lines.push(`Analysis runs back-filled into the knowledge layer: ${r.importedAnalysisRuns}`);
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);

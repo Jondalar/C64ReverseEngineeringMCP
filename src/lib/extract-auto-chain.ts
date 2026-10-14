@@ -34,7 +34,7 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
     const artifacts = service.listArtifacts();
     const manifestArt = artifacts.find((a) => a.id === manifestArtifactId);
     if (!manifestArt || !existsSync(manifestArt.path)) return 0;
-    let manifest: { files?: Array<{ relativePath?: string; type?: string; loadAddress?: number; name?: string }>; chips?: Array<{ file?: string; bank?: number; load_address?: number }> };
+    let manifest: { files?: Array<{ relativePath?: string; type?: string; format?: string; loadAddress?: number; name?: string }>; chips?: Array<{ file?: string; bank?: number; load_address?: number }> };
     try { manifest = JSON.parse(readFileSync(manifestArt.path, "utf8")); } catch { return 0; }
     const outputDir = dirname(manifestArt.path);
     const entities = service.listEntities();
@@ -60,6 +60,7 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
       if (ent.payloadSourceArtifactId !== undefined && !isManifestId(ent.payloadSourceArtifactId)) return;
       const fileArt = service.saveArtifact({
         kind: isPrg ? "prg" : "extract",
+        format: isPrg ? "prg" : "raw",
         scope: "analysis",
         title: relPath,
         path: filePath,
@@ -79,7 +80,9 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
 
     for (const f of manifest.files ?? []) {
       if (!f.relativePath) continue;
-      relink(f.relativePath, f.loadAddress, f.name, f.type === "PRG");
+      // The extractor's own verdict on the bytes decides: a PRG-typed entry whose first two
+      // bytes are not an address is written as `format: "raw"` and has no header to strip.
+      relink(f.relativePath, f.loadAddress, f.name, f.format ? f.format === "prg" : f.type === "PRG");
     }
     for (const c of manifest.chips ?? []) {
       if (!c.file) continue;

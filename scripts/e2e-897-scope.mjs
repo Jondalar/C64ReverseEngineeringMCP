@@ -6,7 +6,18 @@
 // the same records are measured again under a scope.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+// S12 counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
+function writeArtifactsJson(file, text) {
+  writeFileSync(file, text);
+  const root = join(dirname(file), "..");
+  for (const a of JSON.parse(text).items) {
+    const p = join(root, a.relativePath);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, Buffer.alloc(a.fileSize ?? 0));
+  }
+}
+
 
 const { saveContract, loadContract, formatContract, KICKOFF_QUESTIONS } = await import("../dist/contract/contract.js");
 const { slotReport, formatSlotReport } = await import("../dist/slots/state.js");
@@ -31,7 +42,7 @@ function newProject() {
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
   // game: 1000 loadable bytes; reference: 4000.
-  writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+  writeArtifactsJson(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
     { id: "a-game", kind: "prg", title: "game.prg", path: "game.prg", relativePath: "game.prg", scope: "input", fileSize: 1002, tags: [] },
     { id: "a-ref", kind: "prg", title: "reference.prg", path: "reference.prg", relativePath: "reference.prg", scope: "input", fileSize: 4002, tags: [] },
   ] }, null, 2));
@@ -183,7 +194,7 @@ try {
     dirs.push(dir);
     mkdirSync(join(dir, "knowledge"), { recursive: true });
     writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
-    writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+    writeArtifactsJson(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
       { id: "a-orig", kind: "prg", title: "mc_orig_unpacked.prg", path: "analysis/depack/mc_orig_unpacked.prg", relativePath: "analysis/depack/mc_orig_unpacked.prg", scope: "input", fileSize: 1002, contentHash: "HX", tags: [] },
       { id: "a-game", kind: "prg", title: "mc_game.prg", path: "mc_game.prg", relativePath: "mc_game.prg", scope: "input", fileSize: 1002, contentHash: "HX", tags: [] },
       { id: "a-ref", kind: "prg", title: "reference.prg", path: "reference.prg", relativePath: "reference.prg", scope: "input", fileSize: 4002, contentHash: "HR", tags: [] },
@@ -256,7 +267,7 @@ try {
     dirs.push(dir);
     mkdirSync(join(dir, "knowledge"), { recursive: true });
     writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
-    writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+    writeArtifactsJson(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
       { id: "a-mickey", kind: "prg", title: "mickey.prg", path: "mickey.prg", relativePath: "mickey.prg", scope: "input", fileSize: 3585, tags: [] },
     ] }, null, 2));
     const rid = (owner, kind, a) => `${SLUG}:ram/${owner}:${kind}:${a.toString(16).padStart(4, "0")}`;
