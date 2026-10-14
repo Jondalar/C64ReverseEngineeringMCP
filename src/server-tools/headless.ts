@@ -489,7 +489,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
+      const { landingMapWithNoteFromCaptureFile } = await import("../trace/loader-lens.js");
       // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
       // catch is gone; it mattered most here, because the substrate gate two lines
       // down is handed this root and with `undefined` it had no medium to check.
@@ -506,12 +506,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Same shape as BUG-039: settle inside the grace window and answer exactly as
       // before, else hand back a job_id and keep folding.
       const { startAnalysisJob, waitForJob } = await import("./analysis-jobs.js");
-      const render = (map: Awaited<ReturnType<typeof landingMapFromCaptureFile>>) => {
+      const render = ({ map, note }: ReturnType<typeof landingMapWithNoteFromCaptureFile>) => {
         const lines = [
           // Spec 785 C3 — a read-set result is a fact about ONE run; name it, and say
           // what silence means, so nothing here reads as "used" / "unused".
           `Loader-lens landing map — ${map.filter((e) => e.kind === "landing").length} landed run(s)${map.some((e) => e.kind === "buffer") ? ` + ${map.filter((e) => e.kind === "buffer").length} unfollowed page-1 buffer(s) (scratch, not landings)` : ""} in run ${basename(abs)}`,
           `Capture: ${abs}`,
+          ...(note ? [`NOTE: ${note}.`] : []),
           `Every line below is what run ${basename(abs)} did. A block absent here was not read IN THIS RUN — that is not evidence it is unused.`,
           ...map.slice(0, 200).map((e) => {
             // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
@@ -534,7 +535,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Same shape as BUG-039: settle inside the grace window and answer exactly as
       // before, else hand back a job_id and keep folding.
       const job = startAnalysisJob("runtime_loader_lens", abs, async () =>
-        render(landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {})));
+        render(landingMapWithNoteFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {})));
       const settled = await waitForJob(job, LOADER_LENS_JOB_GRACE_MS);
       if (!settled) {
         const { statSync } = await import("node:fs");

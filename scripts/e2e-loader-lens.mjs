@@ -7,7 +7,7 @@
 //       BLOCK_READ read-set, not the head position at write time.
 // Spec 907 D1 adds: downward runs, page-1 buffers, stack-buffered copies (provenance).
 // Run after build:mcp.
-import { buildLandingMap, buildReadSet, halftrackToTrack } from "../dist/trace/loader-lens.js";
+import { buildLandingMap, buildReadSet, halftrackToTrack, readSetNote } from "../dist/trace/loader-lens.js";
 import { TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
 import { createHash } from "node:crypto";
 
@@ -149,6 +149,41 @@ const md = buildLandingMap(down);
 const want = Uint8Array.from({ length: 40 }, (_, i) => 40 - i);
 ok(md.length === 1 && md[0].kind === "landing" && md[0].c64Dest === 0x2000 && md[0].len === 40
   && md[0].sha256 === createHash("sha256").update(want).digest("hex"), "downward direct landing reported at its lowest address, bytes in address order", JSON.stringify(md.map((e) => [e.c64Dest, e.len])));
+
+// ---------------------------------------------------------------------------------
+// Spec 907 D3 / S4 — BLOCK_READ2 (0x37): the read-set is on the C64 clock, a drive reset
+// that restarts the drive clock at 0 changes nothing, a sector the head only passed is
+// not a source, and a legacy 0x35 capture is flagged.
+// ---------------------------------------------------------------------------------
+console.log("\nSpec 907 D3 — BLOCK_READ2, drive reset, passed vs taken\n");
+const blk2 = (drv, c64, ht, sector, hdr, dat) => ({ op: TraceOp.BLOCK_READ2, cycle: drv, c64Cycle: c64, halftrack: ht, sector, headerBytes: hdr, dataBytes: dat, bytes: hdr + dat });
+const s4 = [];
+// Block T33/S0 read at drive clock 5000 / C64 clock 100; landing at $0800 (c64 120..).
+s4.push(blk2(5000, 100, 66, 0, 10, 320));
+for (let i = 0; i < 40; i++) { const c = 120 + i * 4; s4.push(wr(c, 0x0800 + i, i & 0xff)); if (i % 4 === 0) s4.push(dd00(c + 1)); }
+// DRIVE RESET: the drive clock restarts at 0 (20), the C64 clock keeps running (900).
+// T33/S2 is only PASSED (header bytes, no data) at c64 910, then T33/S1 is taken at 900.
+s4.push(blk2(20, 900, 66, 1, 10, 320));
+s4.push(blk2(30, 910, 66, 2, 10, 0));
+for (let i = 0; i < 30; i++) { const c = 920 + i * 3; s4.push(wr(c, 0x1000 + i, (0xa0 + i) & 0xff)); if (i % 3 === 0) s4.push(dd00(c + 1)); }
+// A headerless half-track read (sector 0xff, all bytes data) must not break anything.
+s4.push(blk2(40, 2000, 70, 0xff, 0, 640));
+const rs4 = buildReadSet(s4);
+ok(rs4.length === 4 && rs4.every((e) => e.record === "block-read2"), "S4 read-set holds the four 0x37 visits", `${rs4.length}`);
+ok(rs4[0].cycle === 100 && rs4[0].drvCycle === 5000 && rs4[1].cycle === 900 && rs4[1].drvCycle === 20, "S4 entry.cycle is the C64 clock; drvCycle keeps the (restarted) drive clock", JSON.stringify(rs4.slice(0, 2)));
+ok(rs4.map((e) => e.cycle).every((c, i, a) => i === 0 || c > a[i - 1]), "S4 the C64 clock is monotonic across the reset (the drive clock is not)");
+ok(rs4[2].taken === false && rs4[2].headerBytes === 10 && rs4[2].dataBytes === 0, "a visit with header bytes only is passed, not taken");
+ok(rs4[3].sector === 0xff && rs4[3].taken === true && rs4[3].track === 35, "sector 0xff (headerless half-track) is a taken visit", JSON.stringify(rs4[3]));
+ok(readSetNote(rs4) === null, "a 0x37 read-set carries no legacy note");
+const m4 = buildLandingMap(s4);
+const l4a = m4.find((e) => e.c64Dest === 0x0800), l4b = m4.find((e) => e.c64Dest === 0x1000);
+ok(l4a?.source?.sector === 0, "S4 landing before the reset: source T33/S0", JSON.stringify(l4a?.source));
+ok(l4b?.source?.sector === 1 && l4b.source.track === 33, "S4 landing after the reset: source is the block really read before it (T33/S1), not the passed S2, not S0", JSON.stringify(l4b?.source));
+
+// The same capture as legacy 0x35 records (drive clock only) is read, flagged, and carries the note.
+const rsLegacy = buildReadSet([blk(5, 66, 0, 254)]);
+ok(rsLegacy.length === 1 && rsLegacy[0].record === "block-read" && rsLegacy[0].taken === true && rsLegacy[0].cycle === 5, "a 0x35 record still decodes into the read-set on its drive clock");
+ok(/off by one/.test(readSetNote(rsLegacy) ?? "") && /drive reset/.test(readSetNote(rsLegacy) ?? ""), "a 0x35 read-set carries the off-by-one / clock note");
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  loader-lens A2/Option A: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

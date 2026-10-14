@@ -50,6 +50,7 @@ export enum TraceOp {
   GCR_EVENT = 0x33,       // RESERVED (no live producer)
   DRIVE_HEAD = 0x34,      // Spec 784 — 1541 disk-mechanism head (halftrack+sector), loader-lens armed-only
   BLOCK_READ = 0x35,      // Spec 784 — 1541 read-set (halftrack+sector+bytes read off it), loader-lens armed-only
+  BLOCK_READ2 = 0x37,     // Spec 907 — 1541 read-set v2: per (halftrack, sector) visit, header and data bytes told apart, both clocks. Replaces 0x35 in new captures.
   CART_READ = 0x36,       // Spec 785 C1 — CARTRIDGE read-set (bank+slot+offset range+served reads), armed-only
   MEDIA_WRITE = 0x40,     // RESERVED (no live producer)
 }
@@ -74,6 +75,7 @@ const SIZE: Record<number, number> = {
   [TraceOp.GCR_EVENT]: 12,        // reserved
   [TraceOp.DRIVE_HEAD]: 10,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1)
   [TraceOp.BLOCK_READ]: 12,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1) + bytes u16(2)
+  [TraceOp.BLOCK_READ2]: 22,      // Spec 907 — drv_clk f64(8) + c64_clk f64(8) + halftrack(1) + sector(1) + header_bytes u16(2) + data_bytes u16(2); the record's `cycle` slot is the DRIVE clock
   [TraceOp.CART_READ]: 19,        // Spec 785 — cycle f64(8) + bank u16(2) + slot(1) + offLo u16(2) + offHi u16(2) + bytes u32(4)
   [TraceOp.MEDIA_WRITE]: -1,      // reserved (variable)
 };
@@ -238,6 +240,26 @@ export function encodeBlockRead(
   return off;
 }
 
+/** Spec 907 — BLOCK_READ2 (0x37): op(1) drv_clk(f64) c64_clk(f64) halftrack(u8) sector(u8)
+ *  header_bytes(u16) data_bytes(u16) = 23 bytes, all little endian. Byte-identical to the
+ *  TRX64 producer's `write_block_read2` (crates/trx64-trace); this repo does not emit it
+ *  in production, the encoder lets a gate build a capture. sector 0xff = the half-track
+ *  has no header, every byte is data. */
+export function encodeBlockRead2(
+  dv: DataView, off: number, cap: number, drvClk: number, c64Clk: number, halftrack: number,
+  sector: number, headerBytes: number, dataBytes: number,
+): number {
+  if (!fits(off, 1 + 22, cap)) return -1;
+  dv.setUint8(off, TraceOp.BLOCK_READ2); off += 1;
+  dv.setFloat64(off, drvClk, true); off += 8;
+  dv.setFloat64(off, c64Clk, true); off += 8;
+  dv.setUint8(off, halftrack & 0xff); off += 1;
+  dv.setUint8(off, sector & 0xff); off += 1;
+  dv.setUint16(off, headerBytes & 0xffff, true); off += 2;
+  dv.setUint16(off, dataBytes & 0xffff, true); off += 2;
+  return off;
+}
+
 /** Spec 785 C1 — CART_READ (0x36): op(1) cycle(f64) bank(u16) slot(u8) offLo(u16)
  *  offHi(u16) bytes(u32). Byte-identical to the TRX64 producer's `write_cart_read`
  *  (crates/trx64-trace) — this repo does not emit the lane in production (TRX64 does);
@@ -288,6 +310,10 @@ export interface DecodedEvent {
   addr?: number; value?: number; access?: number; oldValue?: number;
   lines?: number; rasterY?: number; kindCode?: number; reg?: number;
   halftrack?: number; sector?: number; // Spec 784 DRIVE_HEAD (0x34) + BLOCK_READ (0x35)
+  // Spec 907 BLOCK_READ2 (0x37): `cycle` is the DRIVE clock (the record's first f64, and it
+  // restarts at 0 on a drive reset); `c64Cycle` is the C64 master clock at the same sample —
+  // the one to compare with C64-side events. There is no offset between the two.
+  c64Cycle?: number; headerBytes?: number; dataBytes?: number;
   bytes?: number;                       // BLOCK_READ (0x35) GCR bytes off the sector / CART_READ (0x36) served reads
   // Spec 785 C1 CART_READ (0x36): the bank residency — which bank served which
   // window (0 = ROML $8000-$9FFF, 1 = ROMH $A000-$BFFF / $E000-$FFFF), and the
@@ -375,6 +401,16 @@ export function decodeEvent(buf: Uint8Array, off: number, version: number = C64R
       const sector = buf[o++];
       const bytes = dv.getUint16(o, true); o += 2;
       return { ev: { op, cycle, halftrack, sector, bytes }, next: o };
+    }
+    case TraceOp.BLOCK_READ2: {
+      // Spec 907 — `cycle` above was drv_clk; c64_clk follows. One record per
+      // (halftrack, sector) visit; sector 0xff = half-track without a header.
+      const c64Cycle = dv.getFloat64(o, true); o += 8;
+      const halftrack = buf[o++];
+      const sector = buf[o++];
+      const headerBytes = dv.getUint16(o, true); o += 2;
+      const dataBytes = dv.getUint16(o, true); o += 2;
+      return { ev: { op, cycle, c64Cycle, halftrack, sector, headerBytes, dataBytes, bytes: headerBytes + dataBytes }, next: o };
     }
     case TraceOp.CART_READ: {
       // Spec 785 C1 — cart read-set: while `bank` served `slot`, the CPU read

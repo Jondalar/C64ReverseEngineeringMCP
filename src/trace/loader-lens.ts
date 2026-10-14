@@ -13,9 +13,16 @@
 //
 // Three lanes, three truths:
 //
-//  1. DISK READ-SET (buildReadSet) — the disk AUTHORITY. From the BLOCK_READ (0x35)
-//     stream the TRX64 drive emits: one record per physical (track, sector) the drive
-//     actually LATCHED GCR bytes off (read_pra/GCR_read), in read order. This is what
+//  1. DISK READ-SET (buildReadSet) — the disk AUTHORITY. From the BLOCK_READ2 (0x37)
+//     stream the TRX64 drive emits (Spec 907): one record per (half-track, sector) VISIT
+//     the drive actually LATCHED GCR bytes off, credited to the sector whose header the
+//     head last passed, header bytes and data bytes told apart (a visit with header bytes
+//     only PASSED the sector, it did not take it). Each record carries two clocks and no
+//     offset relates them (the drive runs at its own rate and restarts at 0 on a reset):
+//     `cycle` of a ReadSetEntry is the C64 clock, the one to compare with C64 events.
+//     Old captures carry BLOCK_READ (0x35) instead: drive clock only, credit may be off
+//     by one sector (the next header ahead), no header/data split — still read, flagged
+//     `record: "block-read"`, and the answer says so (`readSetNote`). This is what
 //     validate_extraction diffs a disk manifest against. It does NOT depend on the
 //     C64-side write timeline, so buffering / relocation cannot corrupt it.
 //
@@ -62,15 +69,34 @@ import {
 import { TraceOp, ACCESS_WRITE, ACCESS_READ, type DecodedEvent, type TraceFileMeta } from "./binary-format.js";
 import { createHash } from "node:crypto";
 
-/** One physical block the drive actually READ (Spec 784 read-set, BLOCK_READ 0x35). */
+/** One physical block the drive actually READ (Spec 784 read-set; Spec 907 BLOCK_READ2 0x37,
+ *  or the legacy BLOCK_READ 0x35). */
 export interface ReadSetEntry {
   halftrack: number;
   track: number;
+  /** 0xff (BLOCK_READ2 only) = the half-track has no header; every byte is data. */
   sector: number;
-  /** GCR data bytes the drive latched off this (halftrack, sector) in this pass. */
+  /** GCR bytes the drive latched off this (halftrack, sector) in this visit (header + data). */
   bytes: number;
-  /** Drive cycle the head left the sector (read complete). */
+  /** The clock to compare with C64-side events. BLOCK_READ2: the C64 clock at the sample.
+   *  Legacy BLOCK_READ: the DRIVE clock, which is not comparable with the C64's after a
+   *  drive reset (and runs at another rate anyway). */
   cycle: number;
+  record: "block-read2" | "block-read";
+  /** BLOCK_READ2 only: the drive clock of the same sample (drive-side joins). */
+  drvCycle?: number;
+  headerBytes?: number;
+  dataBytes?: number;
+  /** The visit took the sector's data. BLOCK_READ2: dataBytes > 0 (header bytes only =
+   *  the head passed the sector). Legacy: always true, the record cannot tell. */
+  taken: boolean;
+}
+
+/** The caveat a read-set carries when it includes legacy BLOCK_READ (0x35) records, else
+ *  null. Every surface that prints a read-set fact must print this with it. */
+export function readSetNote(readSet: ReadSetEntry[]): string | null {
+  if (!readSet.some((e) => e.record === "block-read")) return null;
+  return "this capture carries legacy BLOCK_READ (0x35) records: the sector credit may be off by one (the next sector ahead of the head) and the drive clock may not be comparable with the C64 clock after a drive reset — re-capture with a TRX64 that emits BLOCK_READ2 (0x37) for a sector-exact read-set";
 }
 
 /** One CART bank residency the CPU actually read out of (Spec 785 C1, CART_READ 0x36).
@@ -182,14 +208,31 @@ export function newReadSetFold(): Fold<ReadSetEntry[]> {
   const out: ReadSetEntry[] = [];
   return {
     push(ev) {
-      if (ev.op !== TraceOp.BLOCK_READ) return;
+      if (ev.op !== TraceOp.BLOCK_READ && ev.op !== TraceOp.BLOCK_READ2) return;
       if (ev.halftrack === undefined || ev.sector === undefined) return;
+      if (ev.op === TraceOp.BLOCK_READ2) {
+        out.push({
+          halftrack: ev.halftrack,
+          track: halftrackToTrack(ev.halftrack),
+          sector: ev.sector,
+          bytes: ev.bytes ?? 0,
+          cycle: ev.c64Cycle ?? ev.cycle,
+          record: "block-read2",
+          drvCycle: ev.cycle,
+          headerBytes: ev.headerBytes ?? 0,
+          dataBytes: ev.dataBytes ?? 0,
+          taken: (ev.dataBytes ?? 0) > 0,
+        });
+        return;
+      }
       out.push({
         halftrack: ev.halftrack,
         track: halftrackToTrack(ev.halftrack),
         sector: ev.sector,
         bytes: ev.bytes ?? 0,
         cycle: ev.cycle,
+        record: "block-read",
+        taken: true,
       });
     },
     finish: () => out,
@@ -700,13 +743,13 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
   return runFold(newLandingMapFold(opts), events);
 }
 
-/** Nearest BLOCK_READ with cycle ≤ `cycle` (the block being transferred as this run
+/** Nearest BLOCK_READ/BLOCK_READ2 that took data, with cycle ≤ `cycle` (the block being transferred as this run
  *  filled). Best-effort DEST→SOURCE hint; the read-set is the validation authority. */
 function nearestPrecedingRead(readSet: ReadSetEntry[], cycle: number): ReadSetEntry | null {
   let best: ReadSetEntry | null = null;
   for (const r of readSet) {
-    if (r.cycle <= cycle) best = r;
-    else break; // readSet is cycle-ascending
+    if (r.cycle > cycle) break; // readSet is cycle-ascending (C64 clock for BLOCK_READ2)
+    if (r.taken) best = r;      // a sector the head only passed is not a source
   }
   return best;
 }
@@ -830,4 +873,16 @@ export function landingMapFromCaptureFile(path: string, opts: LandingMapOptions 
   const fold = newLandingMapFold(opts);
   streamCaptureEvents(path, (ev) => fold.push(ev));
   return fold.finish();
+}
+
+/** The landing map plus the read-set caveat (`readSetNote`) from ONE pass — what
+ *  `runtime_loader_lens` prints, so a source taken from a legacy BLOCK_READ (0x35)
+ *  capture says that its sector credit may be off by one. */
+export function landingMapWithNoteFromCaptureFile(
+  path: string, opts: LandingMapOptions = {},
+): { map: LandingMapEntry[]; note: string | null } {
+  const land = newLandingMapFold(opts);
+  const disk = newReadSetFold();
+  streamCaptureEvents(path, (ev) => { land.push(ev); disk.push(ev); });
+  return { map: land.finish(), note: readSetNote(disk.finish()) };
 }

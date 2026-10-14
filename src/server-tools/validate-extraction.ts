@@ -1,4 +1,4 @@
-import { cartBankUsage, type CartBankUsage, type CartReadSetEntry, type LandingMapEntry, type ReadSetEntry } from "../trace/loader-lens.js";
+import { cartBankUsage, readSetNote, type CartBankUsage, type CartReadSetEntry, type LandingMapEntry, type ReadSetEntry } from "../trace/loader-lens.js";
 import { payloadIsPacked, type LoaderManifest } from "./loader-manifest.js";
 
 // Spec 784 B4 + Spec 785 C2/C3 — the validation verdict (meaning → C64RE).
@@ -6,7 +6,7 @@ import { payloadIsPacked, type LoaderManifest } from "./loader-manifest.js";
 // Diff a per-project extractor's manifest against the loader-lens READ-SET (the ground
 // truth the REAL loader produced), one branch per medium, both below the same call:
 //
-//   DISK — BLOCK_READ 0x35: which physical (track, sector) the drive actually latched
+//   DISK — BLOCK_READ2 0x37 (legacy BLOCK_READ 0x35): which physical (track, sector) the drive actually latched
 //   GCR bytes off, in read order. Drive-side truth (read_pra/GCR_read), immune to the
 //   write-time buffering that made the old landing-map source lie.
 //
@@ -22,7 +22,12 @@ import { payloadIsPacked, type LoaderManifest } from "./loader-manifest.js";
 //                    late / the run ended early; a whole untouched payload). Never fails.
 //   read past it     absent from the read-set, yet an EARLIER and a LATER span of the same
 //                    payload were read: the loader walked the chain through this position
-//                    without ever reading the sector the manifest names. Fails.
+//                    without ever reading the sector the manifest names. Fails ONLY for a
+//                    capture that contains BLOCK_READ2 (0x37) records, whose sector credit
+//                    is exact. On a legacy BLOCK_READ (0x35)-only capture the credit may be
+//                    one sector off, so a hole can be skew, not a contradiction: it is
+//                    reported and does not fail. A sector the head only PASSED (a 0x37
+//                    visit with header bytes and no data bytes) is absent, not read.
 //   mismatch         the run read a sector the manifest claims, and its bytes landed where
 //                    no claiming payload puts them: the landing map (same capture) says the
 //                    bytes read from (track, sector) came to rest at an address range that
@@ -165,8 +170,12 @@ export interface ValidationResult {
   /** Sector spans absent from the read-set that the run neither read past nor contradicts
    *  — NOT a refutation (a run proves use, never non-use). */
   notSeenSpans: number;
-  /** Sector spans the run read PAST without taking — fails the verdict. */
+  /** Sector spans the run read PAST without taking. Fails the verdict only when
+   *  `readPastFails` (the capture carries BLOCK_READ2 records); else reported only. */
   readPast: SpanReadPast[];
+  readPastFails: boolean;
+  /** The caveat for a capture with legacy BLOCK_READ (0x35) records, else null. */
+  readSetNote: string | null;
   /** Read sectors whose bytes landed where no claiming payload says — fails the verdict. */
   mismatched: SpanMismatch[];
   /** Payloads with at least one sector span, and how many of them the run read from. */
@@ -267,7 +276,9 @@ export function validateExtraction(
   manifest: LoaderManifest,
   opts: ValidateExtractionOptions = {},
 ): ValidationResult {
-  const readSources = new Set(readSet.map((e) => `${e.track}/${e.sector}`));
+  // Only a visit that TOOK data counts as read; a sector the head merely passed does not.
+  const readSources = new Set(readSet.filter((e) => e.taken).map((e) => `${e.track}/${e.sector}`));
+  const readPastFails = readSet.some((e) => e.record === "block-read2");
   const claimed = new Set<string>();
   const mismatched: SpanMismatch[] = [];
   let matchedSpans = 0;
@@ -421,6 +432,7 @@ export function validateExtraction(
   const seenUnclaimed = new Set<string>();
   const unclaimed: UnclaimedRead[] = [];
   for (const e of readSet) {
+    if (!e.taken) continue;
     const key = `${e.track}/${e.sector}`;
     if (claimed.has(key) || seenUnclaimed.has(key)) continue;
     seenUnclaimed.add(key);
@@ -443,10 +455,12 @@ export function validateExtraction(
   }
 
   return {
-    verdict: mismatched.length === 0 && readPast.length === 0 && cart.conflicts.length === 0 ? "pass" : "fail",
+    verdict: mismatched.length === 0 && !(readPastFails && readPast.length > 0) && cart.conflicts.length === 0 ? "pass" : "fail",
     matchedSpans,
     notSeenSpans,
     readPast,
+    readPastFails,
+    readSetNote: readSetNote(readSet),
     mismatched,
     payloadsTotal,
     payloadsReached,

@@ -2,7 +2,7 @@
 // A correct manifest passes; a sector the run never reached is "not seen" (never a FAIL);
 // a span the run read past, or a read whose bytes landed elsewhere, FAILs; a read block
 // the manifest missed is reported unclaimed. The read-set is drive-side
-// truth (BLOCK_READ 0x35), immune to write-time buffering. Run after build:mcp.
+// truth (BLOCK_READ2 0x37, legacy 0x35), immune to write-time buffering. Run after build:mcp.
 import { validateExtraction } from "../dist/server-tools/validate-extraction.js";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
 
@@ -12,11 +12,12 @@ const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" 
 console.log("validate-extraction B4 — manifest vs read-set diff\n");
 
 // The loader really read track 33 sectors 0,1,2 (ground truth read-set).
-const readSet = [
-  { halftrack: 66, track: 33, sector: 0, bytes: 254, cycle: 10 },
-  { halftrack: 66, track: 33, sector: 1, bytes: 254, cycle: 500 },
-  { halftrack: 66, track: 33, sector: 2, bytes: 254, cycle: 900 },
-];
+// v2(...) = BLOCK_READ2 (0x37) visit that took data; passed(...) = header bytes only;
+// legacy(...) = BLOCK_READ (0x35).
+const v2 = (track, sector, cycle) => ({ halftrack: track * 2, track, sector, bytes: 330, cycle, record: "block-read2", drvCycle: cycle, headerBytes: 10, dataBytes: 320, taken: true });
+const passed = (track, sector, cycle) => ({ halftrack: track * 2, track, sector, bytes: 10, cycle, record: "block-read2", drvCycle: cycle, headerBytes: 10, dataBytes: 0, taken: false });
+const legacy = (track, sector, cycle) => ({ halftrack: track * 2, track, sector, bytes: 254, cycle, record: "block-read", taken: true });
+const readSet = [v2(33, 0, 10), v2(33, 1, 500), v2(33, 2, 900)];
 
 const mk = (spans) => validateManifest({
   manifestVersion: 1, extractor: "pawn-serial", sourceImage: "the_pawn_s1.g64",
@@ -52,6 +53,35 @@ const past = validateExtraction(readSet, mk([
 ok(past.verdict === "fail", "interior span the run read past → FAIL", past.verdict);
 ok(past.readPast.length === 1 && past.readPast[0].sector === 5, "the span read past (T33/S5) is named", JSON.stringify(past.readPast));
 
+ok(past.readPastFails === true && past.readSetNote === null, "0x37 capture: read past fails, no legacy note");
+
+// Spec 907 D3 — the same manifest against a LEGACY (0x35) capture: the hole is reported,
+// does not fail, and the answer carries the off-by-one / clock note.
+const legacySet = [legacy(33, 0, 10), legacy(33, 1, 500), legacy(33, 2, 900)];
+const pastLegacy = validateExtraction(legacySet, mk([
+  { kind: "sector", track: 33, sector: 0, length: 254 },
+  { kind: "sector", track: 33, sector: 5, length: 254 },
+  { kind: "sector", track: 33, sector: 1, length: 254 },
+]));
+ok(pastLegacy.readPast.length === 1 && pastLegacy.readPastFails === false && pastLegacy.verdict === "pass", "0x35-only capture: read past is reported, NOT a FAIL", JSON.stringify({ v: pastLegacy.verdict, n: pastLegacy.readPast.length }));
+ok(typeof pastLegacy.readSetNote === "string" && /off by one/.test(pastLegacy.readSetNote) && /drive reset/.test(pastLegacy.readSetNote), "0x35 capture carries the off-by-one / clock note");
+// A mismatch still fails on a legacy capture (landing evidence does not depend on the credit class).
+const legacyBad = validateExtraction(legacySet, mk([
+  { kind: "sector", track: 33, sector: 0, length: 254 },
+]), { landings: [{ kind: "landing", source: { medium: "disk", halftrack: 66, track: 33, sector: 0 }, c64Dest: 0x9000, len: 254, sha256: "00", cycleStart: 1, transferReads: 9 }] });
+ok(legacyBad.verdict === "fail" && legacyBad.mismatched.length === 1, "0x35 capture: a landing mismatch still FAILs");
+
+// Spec 907 D3 — passed vs taken. T33/S5 was PASSED (header bytes, no data) between two taken
+// sectors: it is not read, so the span is read past (fails on 0x37); a taken S5 is matched.
+const withPassed = [v2(33, 0, 10), passed(33, 5, 300), v2(33, 1, 500)];
+const passedRes = validateExtraction(withPassed, mk([
+  { kind: "sector", track: 33, sector: 0, length: 254 },
+  { kind: "sector", track: 33, sector: 5, length: 254 },
+  { kind: "sector", track: 33, sector: 1, length: 254 },
+]));
+ok(passedRes.verdict === "fail" && passedRes.readPast.length === 1 && passedRes.matchedSpans === 2, "a sector the head only passed is not matched; read past fails", JSON.stringify({ m: passedRes.matchedSpans, r: passedRes.readPast.length }));
+ok(!passedRes.unclaimed.some((u) => u.sector === 5), "a passed sector is not an unclaimed read");
+
 // S5 — 91 payloads, the run loaded two of them.
 const many = {
   manifestVersion: 1, extractor: "im2", sourceImage: "im2.g64",
@@ -65,7 +95,7 @@ const many = {
   })),
 };
 const mm = validateManifest(many).manifest;
-const loadedTwo = [[1, 0], [1, 1], [2, 0], [2, 1]].map(([track, sector], n) => ({ halftrack: track * 2, track, sector, bytes: 320, cycle: 100 + n }));
+const loadedTwo = [[1, 0], [1, 1], [2, 0], [2, 1]].map(([track, sector], n) => v2(track, sector, 100 + n));
 const s5 = validateExtraction(loadedTwo, mm);
 ok(s5.verdict === "pass", "S5 91-payload manifest, two loaded → not FAIL", s5.verdict);
 ok(s5.payloadsReached === 2 && s5.payloadsTotal === 91, "S5 coverage: reached 2 of 91", `${s5.payloadsReached}/${s5.payloadsTotal}`);
