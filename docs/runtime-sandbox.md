@@ -2,15 +2,23 @@
 
 **Problem this solves.** You want to try something on a C64 that would disturb the
 human's live session (mount a different CRT, cold-boot, poke, run a scenario to the
-end). The shared session is exactly one machine and it is never power-cycled for a
-test, so isolation comes from a **second process** — never from a second in-process
-session.
+end) — or you need to step, set a breakpoint, trace or rewind while the shared machine
+is the human's, or another project's. The shared session is exactly one machine and it
+is never power-cycled for a test, so isolation comes from a **second process** — never
+from a second in-process session.
 
-**The answer: `runtime_sandbox_run`.** It starts that second process for you. A
-private daemon on its own port, born as a child of the call, born with a budget, and
-ending itself when the budget runs out — whether or not anyone is still listening.
-Nothing is mounted into the shared machine, nothing power-cycles it, nothing you do
-reaches the human's UI, and nothing is left running behind you.
+**The answer comes in two shapes of the same private daemon.**
+
+- **`runtime_sandbox_run`** — one call. A private daemon on its own port, born as a child
+  of the call, born with a budget, and ending itself when the call is done or the budget
+  runs out. You ask for everything you want read back in that one call.
+- **`runtime_sandbox_start`** — a machine that stays. Started for a stated purpose, with
+  a budget, named by a session id; every `runtime_*` tool that takes a `session_id`
+  drives it exactly as it drives the shared session. Ended with `runtime_sandbox_end`, or
+  by itself. See [A sandbox session](#a-sandbox-session--a-machine-of-your-own-that-stays).
+
+Either way: nothing is mounted into the shared machine, nothing power-cycles it, nothing
+you do reaches the human's UI, and nothing is left running behind you.
 
 Give it the medium, a schedule of steps, and say what you want read back:
 
@@ -133,22 +141,101 @@ frame in all. `every 3 frames` samples every third frame.
 All of this needs a runtime with cycle-exact input and the frame probe; `c64re runtime install`
 fetches one.
 
-<!-- deliberate-limitation: runtime_sandbox_run — it returns no session id BY DESIGN
-     (Spec 836): a sandbox you could come back to would be a second shared machine,
-     and there is exactly one of those. This limit is the tool's shape, not drift. -->
+**What `runtime_sandbox_run` does not give you, by design: a machine that is still there
+afterwards.** It returns no session id. The machine is gone before you read the answer, so
+nothing can attach to it, step it, breakpoint it, open the monitor on it, trace it or read
+its memory a second time. Ask for everything you want in THAT call.
 
-**What it cannot give you, deliberately: a machine that is still there afterwards.**
-`runtime_sandbox_run` returns no session id. The machine is gone before you read the
-answer, so nothing can attach to it, step it, breakpoint it, open the monitor on it,
-trace it or read its memory a second time. Ask for everything you want in THAT call.
+For **an interactive loop on a machine that is not the shared one** — stepping,
+breakpoints, the monitor REPL, a trace you start and stop, memory you read, then poke,
+then read again, each decision made after seeing the last answer — start a sandbox
+session, below. If your work is a written scenario that should come back as a reel, use
+`runtime_scene_reel`, which is the same private daemon with a `.feature` file in front of
+it.
 
-That leaves exactly one case for the raw recipe below: **an interactive loop on a
-machine that is not the shared one** — stepping, breakpoints, the monitor REPL, a
-trace you start and stop, memory you read, then poke, then read again, each decision
-made after seeing the last answer. If your loop is interactive but the machine may be
-the shared one, use `runtime_session_start` and the `runtime_*` tools instead; if your
-work is a written scenario that should come back as a reel, use `runtime_scene_reel`,
-which is the same private daemon with a `.feature` file in front of it.
+---
+
+## A sandbox session — a machine of your own that stays
+
+```jsonc
+runtime_sandbox_start { "purpose": "validate IM II extraction against a drive-mechanism capture",
+                        "media_path": "media/im2.g64", "budget_minutes": 30 }
+// → session_id "sb-validate-im-ii-1", its port, the machine it booted, the deadline
+
+runtime_trace_start    { "session_id": "sb-validate-im-ii-1", "domains": ["memory", "drive8-cpu", "drive-mechanism"], "hypothesis": "…" }
+runtime_type           { "session_id": "sb-validate-im-ii-1", "text": "LOAD\"*\",8,1{RETURN}" }
+runtime_until          { "session_id": "sb-validate-im-ii-1", "addr": 2176 }     // $0880
+runtime_monitor        { "session_id": "sb-validate-im-ii-1", "command": "m 0880 08ff" }
+runtime_trace_finalize { "session_id": "sb-validate-im-ii-1" }                    // a capture in the project's trace root
+runtime_sandbox_end    { "session_id": "sb-validate-im-ii-1", "outcome": "reached", "summary": "manifest matches 624/624" }
+```
+
+The shared session was never touched; another project's LLM can do the same in its own
+sandbox, at the same time, in its own MCP process.
+
+**Started for a purpose.** `purpose` (one sentence) and `budget_minutes` (above 0, at most
+240) are required and a call without them is refused by name. The purpose is what
+`runtime_sandbox_list` shows, what a refusal names when the limit is hit, and what the
+project's step log records when the sandbox ends. `idle_minutes` (default 10) is the other
+limit. At most **four** live sandbox sessions per MCP process; the fifth is refused,
+naming the four and their purposes.
+
+**What it stands at.** Switched on, warmed to the BASIC prompt, the medium in (`.crt`,
+`.d64`, `.g64`, `.d81`, `.prg` or a `.c64re` snapshot, by content; `drive_type`, `model`
+and `run` as for the one-call run), and **paused** at the cycle the answer names. A session
+advances only when a tool runs it, which is what makes the same calls replay to the same
+bytes. A medium is mounted as a **copy** in the sandbox's scratch: the runtime writes a
+mounted disk or cartridge back to its file when the machine ends, and the project's image
+is never changed by a sandbox.
+
+**Every runtime tool, the same.** The routing is by session id: `sb-…` goes to that
+sandbox's daemon, anything else to the active backend as before. The verdict per tool lives
+in code — `src/runtime/sandbox-parity.ts`:
+
+| Verdict | Tools |
+|---|---|
+| works, on the session | everything that takes a `session_id` and reads or moves a machine: run control, monitor, breakpoints, trace start/mark/finalize, checkpoints and the recorder, rewind and overlay, the VIC inspection tools, media, `runtime_type` / `runtime_joystick` / `runtime_render_screen`, anchors, `runtime_candidate_create` / `_run`, the scenario registry |
+| works, from files | the tools that read or write files and the project and involve no machine: the trace readers (`trace_store_*`, `runtime_swimlane_slice`, `runtime_query_events`, …), snapshot diffs, `runtime_candidate_variant` and the rest of the candidate store |
+| works, a machine per call | `runtime_sandbox_run`, `runtime_scene_reel` |
+| **refused by name** | what serves a human's UI: `runtime_session_start` and `runtime_session_close` (the shared session's lifecycle — a sandbox has its own doors), `runtime_keep_alive`, `runtime_backend`, `runtime_down`, `runtime_input_*` (the keymap of the workbench's keyboard), `runtime_session_export_audio` (a sandbox is born headless, with no A/V stream) |
+
+A refused tool answers with the reason and does nothing — also `runtime_down`, which would
+otherwise end every sandbox of every project.
+
+**Whose it is.** The MCP process that started it, and no other. Its record lives under the
+state directory (`sandbox-sessions/<id>.json`, with the owner's pid) and the process
+ledger carries the owner too. Another process calling the id gets *not yours*; the
+workbench UI and `session/list` of the shared daemon never see it, because it is another
+daemon; and it is always the emulator — also while a C64 Ultimate is the selected backend.
+
+**How it ends.**
+
+| Why | When | Recorded as |
+|---|---|---|
+| you say so | `runtime_sandbox_end { outcome: reached \| failed, summary }` | `reached` / `failed` |
+| the budget | at `deadline`, whether or not anyone is listening | `budget` |
+| idle | no call has reached it for the idle limit (a call in flight is activity) | `idle` |
+| its owner died | the MCP process was killed or closed; the keeper notices within a second | `owner gone` |
+
+Every end finishes a trace in progress (its `.c64retrace` is kept; the index is built on the
+first read), shuts the daemon down, frees the port and removes the scratch. A later call
+with the id answers `ended: <reason> at <time>`, never "no such session". Captures and
+snapshots written to the project are kept and listed; the outcome — purpose, outcome,
+summary, duration, artefacts — goes into the project's step log. When the owner could not
+write that entry itself (it died), the next process that looks at the record writes it, once.
+
+**Long runs and captures.** A single call that says nothing for about three minutes makes
+the host drop the whole connection. `runtime_session_run`, `runtime_until` and
+`runtime_trace_finalize` on a sandbox wait a grace window (100 s, `C64RE_JOB_GRACE_MS`) and
+past it answer `job_id`; poll `analysis_job_status { job_id }` for the finished answer. The
+machine is single, so another call on that session waits behind the job. The finalize call
+sizes its own timeout to the capture, and if the index build still outlasts it the answer
+names the intact `.c64retrace` and the lazy index — the capture is never the casualty.
+
+**Reading a capture while a C64 Ultimate is selected.** The device has no trace store, so
+it refuses `trace/*`. A store file a sandbox wrote is read by an emulator reader of C64RE's
+own, so `trace_store_*` and the other readers work unchanged with the device selected; and
+the device's refusal of a live trace names `runtime_sandbox_start` as the way to capture.
 
 ---
 
@@ -220,9 +307,11 @@ restores an anchor into it, patches, runs and leaves it paused there.
 
 ---
 
-## The raw recipe — an interactive private machine
+## The raw recipe — a daemon you drive over the wire yourself
 
-Only for the case above. Everything else is one `runtime_sandbox_run` call.
+Only for a wire method no tool exposes, or a daemon you want to outlive a conversation.
+An interactive private machine is `runtime_sandbox_start`; anything complete in one call
+is `runtime_sandbox_run`.
 
 ### 1. Start a sandbox daemon on its own port
 
@@ -293,10 +382,13 @@ ledger together with the rest of C64RE. A sandbox is not blocked by the hold `do
 leaves — it has a budget and ends itself.
 
 A forgotten sandbox daemon keeps running and pegs a core. That is the whole reason
-`runtime_sandbox_run` carries a budget: it ends itself, so there is nothing to forget. The
-budget is held next to the daemon, not in the process that asked for it: a keeper process
-between the two ends the daemon when the budget runs out or when that process is gone —
-killed, crashed or closed — and removes its scratch directory.
+`runtime_sandbox_run` and `runtime_sandbox_start` carry a budget: they end themselves, so
+there is nothing to forget. The budget is held next to the daemon, not in the process that
+asked for it: a keeper process between the two ends the daemon when the budget runs out or
+when that process is gone — killed, crashed or closed — and removes its scratch directory.
+The keeper passes the daemon's log lines on and keeps reading them after its parent is gone:
+a daemon whose stderr pipe has lost its reader dies on its next write, with its trace
+unflushed.
 
 ---
 
@@ -351,9 +443,9 @@ trx64cli boot --disk spiel.crt --warmup 5000000 --cycles 2000000 \
 
 **Point the MCP tools at another daemon** — `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4333`.
 Possible, but it is an MCP-**server** env: it redirects *all* `runtime_*` tools and needs
-an `/mcp` reconnect, so you lose the live session for the rest of the session. Fine for a
-dedicated sandbox-only session; wrong while co-driving, and unnecessary now that
-`runtime_sandbox_run` brings its own machine per call.
+an `/mcp` reconnect, so you lose the live session for the rest of the session. Wrong while
+co-driving, and unnecessary now that `runtime_sandbox_run` and `runtime_sandbox_start` bring
+a machine of their own.
 
 ---
 
@@ -364,11 +456,12 @@ dedicated sandbox-only session; wrong while co-driving, and unnecessary now that
 | Read the human's live machine (memory, registers, render, scrub) | MCP `runtime_*` on `:4312` — reads don't disturb it |
 | Human invited you to drive their session | MCP `runtime_*` on `:4312` (doctrine §1.2) |
 | Try a different CRT / cold-boot / risky poke / run to the end | **`runtime_sandbox_run`** — one call, its own machine, ends itself |
+| Step / breakpoint / monitor / trace / rewind, interactively, NOT on the shared machine | **`runtime_sandbox_start`** — a sandbox session: purpose, budget, a `session_id` for every `runtime_*` tool, `runtime_sandbox_end` |
 | Deterministic tool/logic test, no watching | **`runtime_sandbox_run`** with explicit `I wait N frames` steps |
 | A written scenario that should come back as a reel | `runtime_scene_reel` (same private daemon, `.feature` in front) |
 | Try several fixes from one instant at once, then put the winner into the build | **`runtime_anchor_set`** → `runtime_candidate_*` (this doc, "From an anchor to the build") |
 | Run a 6502 routine with no VIC/CIA/drive around it | `sandbox_6502_run`, or `sandbox_depack` for a game's own depacker |
-| Step / breakpoint / monitor / trace, interactively, NOT on the shared machine | raw WS daemon on your own port (this doc) |
+| A wire method no tool exposes | raw WS daemon on your own port (this doc) |
 | Just boot something and look at one frame | `runtime_sandbox_run` with `frame_path`, or `trx64cli boot … --render` |
 
 Never power-cycle the shared session to "make room" for a test — the human's state

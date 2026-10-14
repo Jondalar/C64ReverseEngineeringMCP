@@ -240,7 +240,7 @@ steer at once, so:
 <!-- deliberate-limitation: runtime_session_start — it ATTACHES to the one shared
      machine on purpose (one machine per process); a second in-process session
      rebinds the process-global VIC and drive and corrupts the first. The tool's
-     own description says the same, and points at runtime_sandbox_run. -->
+     own description says the same, and points at runtime_sandbox_start / runtime_sandbox_run. -->
 
 - **Need to test something that would disturb the live session** (other
   CRT, cold boot, risky poke, run a scenario to the end)? Do NOT
@@ -251,12 +251,15 @@ steer at once, so:
   private daemon on its own port as a child of the call, runs your
   medium and your steps on it, hands back the screen, a frame and the
   memory you ask for, and ends itself on its budget —
-  `runtime_scene_reel` does the same from a written scenario. The
-  human's session on `:4312` is never reached; you need neither their
-  permission nor their help. Only an INTERACTIVE loop on a private
-  machine (step, breakpoint, monitor, trace) still needs a daemon you
-  start yourself: **`docs/runtime-sandbox.md`** carries that recipe and
-  says when it is the wrong one.
+  `runtime_scene_reel` does the same from a written scenario. An
+  INTERACTIVE loop on a private machine (step, breakpoint, monitor,
+  trace, rewind) is **`runtime_sandbox_start`**: a sandbox session with
+  a stated purpose and a budget, whose `session_id` every `runtime_*`
+  tool takes exactly as it takes the shared session's, ended with
+  `runtime_sandbox_end` (or by itself on its budget, idle limit or
+  owner's death). The human's session on `:4312` is never reached, and
+  a sandbox is never in their UI; you need neither their permission nor
+  their help. **`docs/runtime-sandbox.md`** has the whole picture.
 
 - **Several fixes to try from one instant?** Name the instant and run the
   variants side by side, none of them on the shared machine:
