@@ -161,6 +161,20 @@ const SLOT_TAG = /^slot:(S\d{1,2})$/i;
  *  counting it would both double-count and measure text. */
 const MEASURABLE_KINDS = new Set(["prg", "raw", "extract"]);
 
+/**
+ * The bytes a loadable file puts into the machine. A payload is a payload: only a file
+ * registered as a headed PRG (`kind: "prg"`) spends its first two bytes on a load
+ * address. A `raw` row (a headerless block rendered with `load_address`, `headed: false`)
+ * or an `extract` holds nothing but body, so every byte counts. A recorded address range
+ * is the extent and wins over the size.
+ */
+export function payloadBodySize(a: { kind: string; fileSize?: number; addressRange?: { start: number; end: number } }): number {
+  if (a.addressRange) return a.addressRange.end - a.addressRange.start + 1;
+  const size = a.fileSize ?? 0;
+  if (a.kind === "prg") return size > 2 ? size - 2 : 0;
+  return size;
+}
+
 /** "analysis/disk/game/07_game.prg" -> "07_game", which is what the graph calls its owner. */
 function stemOf(path: string): string {
   const base = path.split("/").pop() ?? path;
@@ -448,9 +462,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const id = (aside ? "aside:" : "") + identityOf(a);
     if (seen.has(id)) { if (!aside) duplicates += 1; continue; }
     seen.add(id);
-    const size = a.addressRange
-      ? a.addressRange.end - a.addressRange.start + 1
-      : (a.fileSize && a.fileSize > 2 ? a.fileSize - 2 : 0); // minus the load address
+    const size = payloadBodySize(a);
     if (aside) {
       if (size <= 0) continue;
       const o = asideOf(normStem(own), a.title);
@@ -505,7 +517,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
       let size = ext ? ext.end - ext.start + 1 : 0;
       if (size <= 1) {
         const src = byId.get(sourceOf.get(o) ?? "");
-        size = src?.addressRange ? src.addressRange.end - src.addressRange.start + 1 : src?.fileSize && src.fileSize > 2 ? src.fileSize - 2 : size;
+        size = src ? payloadBodySize(src) || size : size;
       }
       if (size <= 0) { unmeasured.push(o); continue; }
       total += size;

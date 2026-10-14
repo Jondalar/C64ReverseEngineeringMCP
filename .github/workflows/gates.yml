@@ -618,6 +618,10 @@ jobs:
       - name: The contract says which files it is about (Spec 897)
         run: npm run e2e:897-scope
 
+      # S12's denominator: a raw payload counts every byte, only a headed PRG gives up two.
+      - name: Coverage counts a payload's body, whatever its format (issue 82)
+        run: npm run e2e:payload-body-size
+
       # The slot list itself, and the two measures a third autonomous run found
       # pointing the wrong way: S12's coverage rewarded a blanket `unknown`
       # placeholder over a named routine, and S6 was gated on a regex finding a
