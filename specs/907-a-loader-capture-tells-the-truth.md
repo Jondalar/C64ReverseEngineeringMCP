@@ -1,6 +1,6 @@
 # Spec 907 — A loader capture says where the bytes landed and which sector they came from
 
-**Status:** C64RE D1+D4 built on spec/907 (2026-10-14); D3 waits on TRX64 (D2, the new record).
+**Status:** BUILT on spec/907 (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 is not released: C64RE's D3 path needs a TRX64 release to produce 0x37 in real captures; until then real captures are 0x35 and read-past is report-only. S6 (the reporter's retest on #77) is by hand.
 **Repo:** both. TRX64: which sector a drive read is credited to (P2). C64RE: the landing map (P1),
 the verdict (P3), the decoder for what TRX64 adds. Leitregel: the drive's facts are a runtime
 capability → TRX64; what they mean for an extraction → C64RE.
@@ -82,7 +82,7 @@ Scenario: S3 a block read is filed under its own sector
 
 Scenario: S4 drive and C64 cycles can be compared after a drive reset
   Given a capture with a drive reset before the load
-  Then  a landing's source is the block read that really preceded it (the reader uses a common clock or the recorded offset)
+  Then  a landing's source is the block read that really preceded it (the reader compares on the record's c64_clk; there is no offset)
 
 Scenario: S5 the verdict says what the run proves
   Given a manifest of 91 payloads and a capture that loaded two of them
@@ -100,7 +100,7 @@ Scenario: S6 the reporter's case
 | S1 | P1 | stack buffer + downward copy | `scripts/e2e-loader-lens.mjs` (synthetic events) → `e2e:907-lens` | `gates.yml` (hermetic) |
 | S2 | P1 | relocator negative | same | `gates.yml` |
 | S3 | P2 | block credited to own sector | TRX64 `crates/trx64-core/tests/loader_head_trace.rs` (new cases) | TRX64 gate |
-| S4 | P2 | clocks comparable | TRX64 test (emits the offset or a common clock) + C64RE `e2e:907-lens` reader case | both gates |
+| S4 | P2 | clocks comparable | TRX64 test (record carries c64_clk) + C64RE `e2e:907-lens` reader case (drive clock restarts, c64 clock monotonic) | both gates |
 | S5 | P3 | verdict classes | `scripts/e2e-validate-extraction.mjs` → `e2e:907-validate` | `gates.yml` |
 | S6 | P1–P3 | reporter's capture | by hand: the reporter retests on #77 | — |
 
@@ -125,9 +125,10 @@ today; they are wired in as part of this spec.
   - Flush the open bucket at trace stop; arming at `session/run` does not clear an armed trace.
   - Header bytes and data bytes told apart: new record `BLOCK_READ2` (opcode `0x37`: drv_clk, ht,
     sector, header_bytes, data_bytes); `0x35` stays readable for old captures.
-  - The capture header (or a record at each drive reset) carries the drive-to-C64 clock offset.
+  - Clocks: decided in TRX64 (D1 there) — no offset. Each 0x37 record carries `drv_clk` and
+    `c64_clk`; the drive runs at its own rate and restarts at 0 on a reset, so no constant relates them.
   - Tests per S3/S4; release as a TRX64 patch (additions), C64RE pins it.
-- **D3 (P2, C64RE):** decode `0x37` and the clock offset (`src/trace/binary-format.ts`,
+- **D3 (P2, C64RE):** decode `0x37` and compare on its `c64_clk` (`src/trace/binary-format.ts`,
   `loader-lens.ts`); old captures still read, with a note that sector credit may be off by one.
 - **D4 (P3, C64RE) verdict:** disk sectors get the cart branch's classes — matched / not seen in
   this run / read past it / mismatch. Only mismatch (bytes read from a sector landed where the
@@ -202,3 +203,27 @@ today; they are wired in as part of this spec.
 
 **Wiring:** `e2e:907-lens` (loader-lens + loader-lens-file) and `e2e:907-validate` are npm scripts and
 `gates.yml` steps (hermetic, synthetic events).
+
+**D3 decode and verdict rule** (`src/trace/binary-format.ts`, `loader-lens.ts`, `validate-extraction.ts`;
+tests `e2e-loader-lens.mjs`, `e2e-loader-lens-file.mjs`, `e2e-validate-extraction.mjs`)
+
+- **Clock: no offset.** `0x37` is 23 bytes, little endian: op, `drv_clk` f64, `c64_clk` f64, half-track,
+  sector (`0xff` = half-track without a header, all bytes data), `header_bytes` u16, `data_bytes` u16.
+  The decoded event keeps the record's first f64 in `cycle` (the drive clock, as for every record)
+  and adds `c64Cycle`; the read-set entry's `cycle` is the C64 clock for `0x37` and `drvCycle` keeps
+  the drive clock. `nearestPrecedingRead` therefore compares C64 against C64. No offset idea
+  exists anywhere in the code path. `FORMAT_VERSION` unchanged (2).
+- **Passed vs taken.** A `0x37` visit with `data_bytes == 0` is *passed*: `taken: false`. It is not in
+  the matched set, not an unclaimed read, and not a landing source; the span it names reads as absent.
+  A legacy `0x35` record cannot tell and is always `taken`.
+- **Read past fails only on `0x37`.** `ValidationResult.readPastFails` is true when the capture holds
+  at least one `0x37` record. Without one, read-past spans are listed (marked "reported only") and the
+  verdict ignores them; a landing mismatch still fails. A mixed capture counts as `0x37`.
+- **Legacy note.** Any `0x35` record in the read-set adds `readSetNote`: sector credit may be off by one
+  and the drive clock may not be comparable after a drive reset. It is printed by `validate_extraction`
+  and `runtime_loader_lens` and returned in the result. `0x35` captures are otherwise read as before,
+  on the drive clock.
+- **Sector `0xff`** is a taken visit with a source `T<n>/S255`; it matches no manifest span (a manifest
+  cannot name a headerless sector) and so lists as an unclaimed read.
+- **Not built:** no re-credit of old `0x35` captures (the skew is not recoverable from the record).
+- **Open:** S6 on the reporter's IM II capture; it needs a TRX64 release for the capture to be `0x37`.
