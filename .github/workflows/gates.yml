@@ -642,6 +642,18 @@ jobs:
       - name: Documents declare themselves (Spec 847)
         run: npm run e2e:847-docs
 
+      # Three field reports from one LLM-driven project, all hermetic: a negative claim is judged
+      # within the owner it names (#79), an I/O store is not a RAM byte in the sandbox image (#72;
+      # its live half skips without a trx64cli), and a pulled-but-not-rebuilt pipeline says so (#71).
+      - name: A negative claim is judged within its owner (#79)
+        run: npm run e2e:issue79-negative-claim-owner
+
+      - name: An I/O store is not a RAM byte (#72)
+        run: npm run smoke:issue72-sandbox-io-ram
+
+      - name: A stale pipeline build is reported (#71)
+        run: npm run smoke:pipeline-version
+
       # 849's two halves: the shipped rules with a positive and a negative fixture
       # each, and the standing file the contract's shortfall is computed into. Both
       # hermetic — temp projects, no media, no runtime — and neither ran anywhere.
