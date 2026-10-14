@@ -136,6 +136,11 @@ jobs:
       - name: One spelling per path in the artifact store (#28)
         run: npm run e2e:relpath-spelling
 
+      # extract_crt registers its manifest as crt-manifest / manifest — for the first CRT, the
+      # second, and a project still holding the old disasm-target / prg record. Hermetic.
+      - name: The CRT manifest keeps its role (extract_crt)
+        run: npm run e2e:crt-manifest-role
+
       # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
       # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
       # built no Intel Mac while the installer claimed to serve one.

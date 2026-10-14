@@ -372,6 +372,13 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     throw new Error(`Entity ${opts.payloadId} references missing artifact ${sourceArtifactId}.`);
   }
 
+  // A manifest describes bytes, it is not bytes. An entity whose only artifact is
+  // the extraction manifest used to be disassembled as if the JSON were code, and
+  // the registration then re-labelled the manifest as a disasm-target PRG.
+  if (artifact.kind === "manifest" || artifact.role === "crt-manifest" || artifact.role === "disk-manifest") {
+    throw new Error(`Entity ${opts.payloadId} resolves to the extraction manifest ${artifact.relativePath}, not to payload bytes. Link the extracted file (payloadSourceArtifactId) before running the workflow.`);
+  }
+
   // Resolve load address. Payload entities carry payloadLoadAddress; other
   // kinds (disk-file, cart-chunk) often carry it through addressRange.start.
   // If the artifact path ends in .prg, we can fall through to PRG-header mode.
