@@ -13,7 +13,7 @@
 import { basename } from "node:path";
 import type { CriticFinding, Severity } from "./checks.js";
 import { CHECK_BY_ID } from "./checks.js";
-import { parseNegativeClaim, findCounterExample } from "./negative-claims.js";
+import { parseNegativeClaim, findCounterExample, uncheckedEdgeTypes, consideredEdgeTypes } from "./negative-claims.js";
 
 export interface CriticReport {
   findings: CriticFinding[];
@@ -134,14 +134,16 @@ export async function critique(projectDir: string): Promise<CriticReport> {
         const claim = parseNegativeClaim(`${f.title} ${f.summary ?? ""}`);
         if (!claim) continue;
         const range = f.addressRange ?? f.evidence?.[0]?.addressRange;
-        const counter = findCounterExample(store.db, claim, claim.onlyAddress === undefined ? range : undefined, subjectOwners(f));
+        const scope = claim.onlyAddress === undefined ? range : undefined;
+        const counter = findCounterExample(store.db, claim, scope, subjectOwners(f));
+        const considered = `edge kinds considered for "${claim.phrase}" (${claim.verb}): ${consideredEdgeTypes(claim.verb).join(", ")}`;
         if (counter?.ambiguousOwners) {
           // The finding names no owner and several images cover this address: the edge may be
           // another image's code. Not a refutation — say so, and what decides it.
           add(
             "negative-claim-refuted",
             `"${f.title}" claims ${claim.phrase} — ambiguous, not refuted`,
-            `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)} [owner ${counter.owner}], but the finding names no owner and ${counter.ambiguousOwners.length} owners cover that address (${counter.ambiguousOwners.join(", ")}), so the edge may belong to another image's code. Cite the finding's artifact_ids to decide.`,
+            `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)} [owner ${counter.owner}], but the finding names no owner and ${counter.ambiguousOwners.length} owners cover that address (${counter.ambiguousOwners.join(", ")}), so the edge may belong to another image's code. Cite the finding's artifact_ids to decide. [${considered}]`,
             "important",
             "name the owner: save_finding(id=<this finding>, artifact_ids=[<the artifact the claim is about>]) — the check then counts only that owner's edges",
           );
@@ -150,7 +152,20 @@ export async function critique(projectDir: string): Promise<CriticReport> {
           const proof = claim.onlyAddress !== undefined
             ? `${counter.from} also does it: ${counter.edgeType} edge ${counter.from} -> ${counter.to}, the same target $${hex(claim.onlyAddress)} reaches${whose}`
             : `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)}${whose}`;
-          add("negative-claim-refuted", `"${f.title}" claims ${claim.phrase}`, proof);
+          add("negative-claim-refuted", `"${f.title}" claims ${claim.phrase}`, `${proof} [${considered}]`);
+        } else {
+          // Not refuted. Edges of kinds nobody classified for this claim neither refute it nor
+          // clear it: say so, without blocking.
+          const unchecked = uncheckedEdgeTypes(store.db, claim, scope, subjectOwners(f));
+          if (unchecked.length > 0) {
+            add(
+              "negative-claim-refuted",
+              `"${f.title}" claims ${claim.phrase} — not refuted, ${unchecked.join("/")} edges not checked`,
+              `no counter-example among the edge kinds considered; edges of kind ${unchecked.join(", ")} also land on the claimed address and were not checked against this claim [${considered}]`,
+              "nice-to-have",
+              "read those edges (graph_edges) and decide whether any of them is a use the claim denies",
+            );
+          }
         }
       }
     }

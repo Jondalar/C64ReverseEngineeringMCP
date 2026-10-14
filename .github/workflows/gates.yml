@@ -703,10 +703,13 @@ jobs:
         run: npm run e2e:847-docs
 
       # Three field reports from one LLM-driven project, all hermetic: a negative claim is judged
-      # within the owner it names (#79), an I/O store is not a RAM byte in the sandbox image (#72;
+      # within the owner it names (#79) and only by edges that are real uses (#84), an I/O store is not a RAM byte in the sandbox image (#72;
       # its live half skips without a trx64cli), and a pulled-but-not-rebuilt pipeline says so (#71).
       - name: A negative claim is judged within its owner (#79)
         run: npm run e2e:issue79-negative-claim-owner
+
+      - name: Only real uses refute a negative claim (#84)
+        run: npm run e2e:issue84-negative-claim-edges
 
       - name: An I/O store is not a RAM byte (#72)
         run: npm run smoke:issue72-sandbox-io-ram

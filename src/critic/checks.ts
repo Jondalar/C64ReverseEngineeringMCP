@@ -43,7 +43,7 @@ export const CHECKS: readonly CheckDef[] = [
   {
     id: "negative-claim-refuted",
     severity: "blocking",
-    finds: "a standing claim that something is never read/written/called, which the graph contradicts (edges of other owners do not count when the finding names its artifact; a finding that names none at an address several owners share is reported as ambiguous, not refuted)",
+    finds: "a standing claim that something is never read/written/called, which the graph contradicts with a real use of the address — an identity or structure edge (RESOLVES_TO, CONTAINS), an edge from the target's own routine, or an unclassified edge kind never counts, and an unclassified kind is reported as not checked (edges of other owners do not count when the finding names its artifact; a finding that names none at an address several owners share is reported as ambiguous, not refuted)",
     settleBy: "read the counter-example edge, then correct or narrow the claim and record a refutation",
     because: "Every one of Ultima VI's four false negatives cost a rebuild, and each was refutable against that project's own graph.",
   },
