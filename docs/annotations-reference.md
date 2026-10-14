@@ -117,12 +117,24 @@ cases only. (1) A `jsr` into a routine whose ABI declares a register pointer pai
 `routines[].abi.pointerPairs` row). (2) Two immediates stored to adjacent zero-page cells whose
 combined value is a label **and** that pointer is dereferenced - `(zp),y`, `(zp,x)` or
 `jmp ($00xx)` - on a path that starts at those stores and reaches the use before either cell is
-overwritten: in the same routine, in a `jsr` callee (two levels), or, when the routine only sets
-the pointer and returns, behind its callers. A cell that is a pointer in some other routine
-proves nothing about this setup, and the same two bytes passed as plain coordinates stay
-literal. A path the scan cannot follow - an indirect jump, a `jsr` into an address outside the
-image, bytes the analysis did not decode - proves nothing either: the bytes stay literal. Where
-the use is out of the file, an `immediates` row states it and always wins.
+overwritten. The path may run through the same routine, through `jsr` callees (two levels; a
+deeper call is stepped over only when everything it can reach leaves both cells alone), or, when
+the routine only sets the pointer and returns, behind its callers. A routine that borrows the
+cells and puts the values back (`lda cell` / `pha` ... `pla` / `sta cell`, or parked in the
+operand of a later `lda #imm`) does not end the path. A cell that is a pointer in some other
+routine proves nothing about this setup, and the same two bytes passed as plain coordinates stay
+literal.
+
+A call that leaves the image is followed into the project's other files: those whose analysis
+records code at the target (code segments, and `jumpTables` rows of kind `jmp`). The target's bytes are
+decoded on demand from that file and the same rules apply; nothing from it is rendered. When
+several files hold code at the address they must agree - if one dereferences and another does
+not, nothing tells them apart, the bytes stay literal and the listing's
+`// SEMANTICS zp-pair` comment says `callee $XXXX ambiguous: N residents`. A path the scan cannot
+follow - an indirect jump, a call to an address no file has code at, bytes the analysis did not
+decode - proves nothing either: the bytes stay literal. An `immediates` row states a use the
+scan cannot reach and always wins. The label the halves render to must exist in the listing
+being rendered; the other file only decides pointer or not.
 
 ## Split low/high tables
 
