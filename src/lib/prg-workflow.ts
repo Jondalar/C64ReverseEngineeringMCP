@@ -211,7 +211,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
         `Disassemble PRG: ${basename(prgAbs)}`,
         { prg_path: opts.prgPath, output_asm: asmPath, analysis_json: analysisPath },
         [
-          { path: prgAbs, kind: "prg", scope: "input", role: "disasm-target" },
+          { path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "disasm-target" },
           { path: analysisPath, kind: "other", scope: "analysis", role: "analysis-json", format: "json" },
         ],
         [
