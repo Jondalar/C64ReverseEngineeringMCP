@@ -262,7 +262,7 @@ try {
   // name away from the losing SITE only, not from whatever else sits at that address.
   head("M3b one name at two addresses");
   const NAME_OUT = join(proj, "artifacts", "prg", "namefight_annotations.json");
-  const FRAG_F = { name: "F", labels: [{ address: "8205", label: "core_init" }] };
+  const FRAG_F = { name: "F", labels: [{ address: "8220", label: "core_init" }] };
   {
     const out = await call("merge_annotations", {
       output_path: "artifacts/prg/namefight_annotations.json",
@@ -272,7 +272,7 @@ try {
     check(/refus/i.test(out) && /name:core_init/.test(out),
       "M3b one identifier at two addresses is its own contest, keyed by the name",
       out.split("\n").filter((l) => /core_init/.test(l)).slice(0, 4).join("\n"));
-    check(/label \$8200/.test(out) && /label \$8205/.test(out),
+    check(/label \$8200/.test(out) && /label \$8220/.test(out),
       "M3b …naming both sites and which fragment put the name there",
       out.split("\n").filter((l) => /\$820/.test(l)).slice(0, 4).join("\n"));
     const ok2 = await call("merge_annotations", {
@@ -285,13 +285,128 @@ try {
       ok2.split("\n").filter(Boolean).slice(0, 3).join("\n"));
     if (existsSync(NAME_OUT)) {
       const nf = JSON.parse(readFileSync(NAME_OUT, "utf8"));
-      check((nf.labels ?? []).length === 2 && !(nf.labels ?? []).some((l) => l.address === "8205"),
-        "M3b …F's label at $8205 is dropped, A's at $8200 kept",
+      check((nf.labels ?? []).length === 2 && !(nf.labels ?? []).some((l) => l.address === "8220"),
+        "M3b …F's label at $8220 is dropped, A's at $8200 kept",
         JSON.stringify(nf.labels ?? []));
       check((nf.routines ?? []).some((r) => r.address === "8205" && r.name === "copy_loop"),
-        "M3b …and the ROUTINE that happens to sit at $8205 is untouched — the contest was about a name, not an address",
+        "M3b …and the routine at $8205 is untouched — the contest was about one name, not about every record near it",
         JSON.stringify(nf.routines ?? []));
     }
+  }
+
+  // ── N: the identity model ────────────────────────────────────────────────
+  //
+  // One address carries one name, one name lives at one address — across a segment's
+  // label, labels[], routines[] and the immediates that point at them.
+  const nout = (n) => join(proj, "artifacts", "prg", `${n}_annotations.json`);
+  const mergeTo = (n, fragments, resolutions, extra = {}) => call("merge_annotations", {
+    output_path: `artifacts/prg/${n}_annotations.json`, binary: "core_8200.prg", fragments, ...(resolutions ? { resolutions } : {}), ...extra,
+  });
+  const readOut = (n) => (existsSync(nout(n)) ? JSON.parse(readFileSync(nout(n), "utf8")) : null);
+
+  head("N1 the same name at the same address is one claim (segment label / label / routine)");
+  {
+    const frag1 = { name: "P", segments: [{ start: "8205", end: "820F", kind: "code", label: "advance_anim", comment: "range comment" }],
+      labels: [{ address: "8205", label: "advance_anim" }], routines: [{ address: "8205", name: "advance_anim", comment: "steps the frame" }] };
+    const frag2 = { name: "Q", labels: [{ address: "$8205", label: "advance_anim", comment: "from Q" }], routines: [{ address: "8205", name: "advance_anim" }] };
+    const out = await mergeTo("n1", [frag1, frag2]);
+    check(!/refus/i.test(out) && existsSync(nout("n1")), "N1 the mix collapses without a word", out.split("\n").slice(0, 4).join(" | "));
+    const m = readOut("n1");
+    check(m && m.routines.length === 1 && m.routines[0].name === "advance_anim" && m.segments.length === 1 && m.segments[0].label === "advance_anim",
+      "N1 …one routine, the segment keeps its label", JSON.stringify(m));
+    check(m && m.labels.length === 1 && m.labels[0].comment === "from Q",
+      "N1 …a label stays only where it carries prose of its own", JSON.stringify(m?.labels));
+    // a single fragment, written on its own and merged on a second pass: no "already defined"
+    const w = await call("write_annotations", { output_path: "artifacts/prg/n1w_annotations.json", binary: "core_8200.prg", ...frag1 });
+    check(!/REFUSED/.test(w), "N1 write_annotations takes a label and a routine that repeat one name at one address", w.split("\n")[0]);
+    const again = await mergeTo("n1b", [{ name: "pass1", path: nout("n1") }, { name: "pass2", path: nout("n1w") }]);
+    check(!/refus|already defined/i.test(again) && existsSync(nout("n1b")), "N1 …and a second pass over the merged file is accepted", again.split("\n").slice(0, 4).join(" | "));
+    const dup = await call("write_annotations", { output_path: "artifacts/prg/n1x_annotations.json", binary: "core_8200.prg",
+      labels: [{ address: "8205", label: "same_name" }, { address: "8210", label: "same_name" }] });
+    check(/REFUSED/.test(dup) && /already defined/.test(dup), "N1 CONTROL: one name at two addresses is still refused by the writer", dup.split("\n").slice(0, 3).join(" | "));
+  }
+
+  head("N2 two names at one address (label vs routine) are refused, resolved, and can be deleted");
+  {
+    const L = { name: "L", labels: [{ address: "8207", label: "kill_bit_locate_loop", comment: "loop head" }] };
+    const R = { name: "R", routines: [{ address: "8207", name: "door_link_request", comment: "asks the door" }] };
+    const out = await mergeTo("n2", [L, R]);
+    check(/refus/i.test(out) && /label:8207/.test(out) && /label "kill_bit_locate_loop"/.test(out) && /routine "door_link_request"/.test(out),
+      "N2 label vs routine at one address is a contradiction, naming both records", out.split("\n").filter((l) => /8207|kill|door/.test(l)).slice(0, 5).join(" | "));
+    check(!existsSync(nout("n2")), "N2 …and nothing is written");
+    const win = await mergeTo("n2", [L, R], [{ key: "label:8207", winner: "R", why: "the routine name says what it does" }]);
+    const m = readOut("n2");
+    check(!/refus/i.test(win) && m && m.labels.length === 0 && m.routines.length === 1 && m.routines[0].name === "door_link_request",
+      "N2 the routine wins: the stale label is gone from the file", JSON.stringify(m) + win.split("\n")[0]);
+    check(m && /asks the door/.test(m.routines[0].comment ?? "") && /loop head/.test(m.routines[0].comment ?? ""),
+      "N2 …and the losing label's comment is kept on the surviving record, not dropped", JSON.stringify(m?.routines));
+    const f1 = await call("list_findings", {});
+    check(/label \$8207 — R over L/.test(f1), "N2 …and the answer is a recorded finding", f1.split("\n").filter((l) => /8207/.test(l)).join(" | "));
+    const alias = await mergeTo("n2a", [L, R], [{ key: "routine:8207", winner: "L", why: "keep the older, tested name" }]);
+    const ma = readOut("n2a");
+    check(!/refus/i.test(alias) && ma && ma.labels.length === 1 && ma.labels[0].label === "kill_bit_locate_loop" && ma.routines.length === 0,
+      "N2 the label wins and the routine goes; `routine:8207` answers the same contest", JSON.stringify(ma) + alias.split("\n")[0]);
+    const del = await mergeTo("n2d", [L, R], [{ key: "label:8207", delete: true, why: "both names were guesses, the address is just a loop" }]);
+    const md = readOut("n2d");
+    check(!/refus/i.test(del) && md && md.labels.length === 0 && md.routines.length === 0,
+      "N2 a resolution can DELETE: neither name stays", JSON.stringify(md) + del.split("\n")[0]);
+    const f2 = await call("list_findings", {});
+    check(/label \$8207 — removed/.test(f2), "N2 …and so is the deletion", f2.split("\n").filter((l) => /8207/.test(l)).join(" | "));
+    const bad = await mergeTo("n2b", [L, R], [{ key: "label:8207", winner: "R", delete: true, why: "cannot be both at once" }]);
+    check(/refus/i.test(bad) && /more than one of winner, value and delete/.test(bad), "N2 winner and delete together are refused");
+    const same = await mergeTo("n2s", [{ name: "S", labels: [{ address: "8207", label: "a_name" }], routines: [{ address: "8207", name: "b_name" }] }]);
+    check(/refus/i.test(same) && /label:8207/.test(same), "N2 one fragment contradicting itself is refused the same way", same.split("\n").slice(0, 4).join(" | "));
+    const own = await mergeTo("n2o", [{ name: "S", labels: [{ address: "8207", label: "a_name" }], routines: [{ address: "8207", name: "b_name" }] }],
+      [{ key: "label:8207", winner: "S:routine", why: "the routine name is the descriptive one" }]);
+    const mo = readOut("n2o");
+    check(!/refus/i.test(own) && mo && mo.labels.length === 0 && mo.routines[0]?.name === "b_name", "N2 `S:routine` picks the record when one fragment names the address twice", own.split("\n")[0]);
+  }
+
+  head("N3 resolving a name: keeps the other record's comment");
+  {
+    const A = { name: "A", labels: [{ address: "8200", label: "core_dup" }] };
+    const B = { name: "B", routines: [{ address: "8220", name: "core_dup", comment: "keep me" }], segments: [{ start: "8220", end: "822F", kind: "code" }] };
+    const out = await mergeTo("n3", [A, B], [{ key: "name:core_dup", winner: "A", why: "$8200 is the cold entry" }]);
+    const m = readOut("n3");
+    check(!/refus/i.test(out) && m && m.labels.length === 1 && m.labels[0].address === "8200", "N3 the name stays at $8200 only", JSON.stringify(m) + out.split("\n")[0]);
+    check(m && m.routines.length === 0 && /keep me/.test(m.segments.find((x) => x.start === "8220")?.comment ?? ""), "N3 …and the comment of the dropped routine moved to the segment at $8220", JSON.stringify(m));
+    const del = await mergeTo("n3d", [A, B], [{ key: "name:core_dup", delete: true, why: "neither site deserves the name" }]);
+    const md = readOut("n3d");
+    check(!/refus/i.test(del) && md && md.labels.length === 0 && md.routines.length === 0, "N3 a name: key can be deleted at every site", JSON.stringify(md) + del.split("\n")[0]);
+  }
+
+  head("N4 immediates: identical collapse, conflicting are refused, dangling ones follow the label");
+  {
+    const imm = (address, kind, label) => ({ address, kind, label });
+    const same = await mergeTo("n4a", [{ name: "A", immediates: [imm("8207", "lo-of", "tbl")] }, { name: "B", immediates: [imm("$8207", "lo-of", "tbl")] }]);
+    const ma = readOut("n4a");
+    check(!/refus/i.test(same) && ma && ma.immediates.length === 1, "N4 two fragments with the same immediate give one row", JSON.stringify(ma?.immediates));
+    const clash = await mergeTo("n4b", [{ name: "A", immediates: [imm("8207", "lo-of", "msg_a")] }, { name: "B", immediates: [imm("8207", "lo-of", "txt_b")] }]);
+    check(/refus/i.test(clash) && /immediate:8207/.test(clash) && /msg_a/.test(clash) && /txt_b/.test(clash), "N4 two labels for one immediate are refused as immediate:8207, both named", clash.split("\n").slice(0, 6).join(" | "));
+    const kinds = await mergeTo("n4k", [{ name: "A", immediates: [imm("8207", "lo-of", "t")] }, { name: "B", immediates: [imm("8207", "hi-of", "t")] }]);
+    check(/refus/i.test(kinds) && /immediate:8207/.test(kinds), "N4 lo-of vs hi-of at one instruction is refused too");
+    const win = await mergeTo("n4c", [{ name: "A", immediates: [imm("8207", "lo-of", "msg_a")] }, { name: "B", immediates: [imm("8207", "lo-of", "txt_b")] }],
+      [{ key: "immediate:8207", winner: "B", why: "txt_b is the table the loop reads" }]);
+    const mc = readOut("n4c");
+    check(!/refus/i.test(win) && mc && mc.immediates.length === 1 && mc.immediates[0].label === "txt_b", "N4 the winner's row is the only one", JSON.stringify(mc?.immediates));
+    const del = await mergeTo("n4d", [{ name: "A", immediates: [imm("8207", "lo-of", "msg_a")] }, { name: "B", immediates: [imm("8207", "lo-of", "txt_b")] }],
+      [{ key: "immediate:8207", delete: true, why: "the operand is a plain byte, not an address half" }]);
+    const md = readOut("n4d");
+    check(!/refus/i.test(del) && md && !(md.immediates ?? []).length, "N4 an immediate can be deleted", JSON.stringify(md));
+    // the #73 shape: the label loses, the immediates pointing at it must follow, not dangle
+    const A = { name: "A", labels: [{ address: "82C0", label: "msg_ring" }], immediates: [imm("8207", "lo-of", "msg_ring"), imm("820A", "hi-of", "msg_ring")] };
+    const B = { name: "B", labels: [{ address: "82C0", label: "txt_ring" }], immediates: [imm("8207", "lo-of", "txt_ring")] };
+    const first = await mergeTo("n4e", [A, B]);
+    check(/refus/i.test(first) && /label:82C0/.test(first) && !/immediate:8207/.test(first),
+      "N4 the label dispute is listed; the immediate dispute it causes is not (it dissolves with the answer)", first.split("\n").filter((l) => /label:|immediate:/.test(l)).join(" | "));
+    const res = await mergeTo("n4e", [A, B], [{ key: "label:82C0", winner: "B", why: "txt_ring is what the table is called in the text pass" }]);
+    const me = readOut("n4e");
+    check(!/refus/i.test(res) && me && (me.immediates ?? []).length === 2 && me.immediates.every((r) => r.label === "txt_ring"),
+      "N4 the losing label's immediates are rewritten to the winner — none left pointing at msg_ring", JSON.stringify(me?.immediates) + res.split("\n").slice(0, 3).join(" | "));
+    check(/Note: .*msg_ring.*txt_ring/.test(res), "N4 …and the rewrite is said, not silent", res.split("\n").filter((l) => /Note:/.test(l)).join(" | "));
+    const dl = await mergeTo("n4f", [A, B], [{ key: "label:82C0", delete: true, why: "the table has no name worth keeping" }]);
+    const mf = readOut("n4f");
+    check(!/refus/i.test(dl) && mf && (mf.immediates ?? []).length === 0 && /dropped/.test(dl), "N4 a deleted label takes the immediates that pointed at it with it, and says so", JSON.stringify(mf?.immediates));
   }
 
   // ── M11 dry run ──────────────────────────────────────────────────────────

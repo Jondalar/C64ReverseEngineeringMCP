@@ -71,6 +71,21 @@ interface ResolvedLoad {
   bytes: Uint8Array;
 }
 
+/** `runs` with every address of `cut` removed; a run that straddles a cut splits in two. */
+function subtractRanges(runs: Array<{ lo: number; hi: number }>, cut: Array<{ lo: number; hi: number }>): Array<{ lo: number; hi: number }> {
+  let out = runs;
+  for (const c of cut) {
+    const next: Array<{ lo: number; hi: number }> = [];
+    for (const r of out) {
+      if (c.hi < r.lo || c.lo > r.hi) { next.push(r); continue; }
+      if (r.lo < c.lo) next.push({ lo: r.lo, hi: c.lo - 1 });
+      if (r.hi > c.hi) next.push({ lo: c.hi + 1, hi: r.hi });
+    }
+    out = next;
+  }
+  return out;
+}
+
 /** Where the core's own write-map begins; everything under it is zero page + the stack. */
 const LOW_END = 0x0200;
 
@@ -177,8 +192,13 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
 
     const j = runTrx64Sandbox(cli, args);
 
-    // Full 64K RAM as written (raw slice, banking ignored).
-    const ram = hexToBytes(j.harvest.hex);
+    // Full 64K, banking ignored. `harvest.hex` has the CPU's I/O stores laid over RAM; the RAM
+    // image is `ramHex` when the runtime sends it (only when there were I/O stores) — an I/O
+    // store must never overwrite a RAM byte of the image.
+    const ioRanges = (j.harvest.ioWritten ?? []).map(([lo, hi]) => ({ lo, hi }));
+    const ram = j.harvest.ramHex ? hexToBytes(j.harvest.ramHex) : hexToBytes(j.harvest.hex);
+    let ioImage: SandboxRunResult["ioImage"];
+    if (ioRanges.length > 0) ioImage = j.ramWrittenRuns && j.harvest.ramHex ? "ram" : "runtime-too-old";
 
     // ── Zero page and the stack ────────────────────────────────────────────────
     // The core used to stop its write map at $0200, so a store to zero page or the
@@ -194,8 +214,11 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       lowMemory.changed += hi - r.lo + 1;
     }
 
-    // One ordered write map, straight from the core.
-    const allRuns = [...j.writtenRuns].sort((a, b) => a.lo - b.lo);
+    // One ordered write map, straight from the core — the RAM stores only. A runtime that
+    // splits them out sends `ramWrittenRuns`; an older one cannot tell RAM from I/O stores
+    // apart, so the I/O-stored addresses are cut out (their RAM byte is not known).
+    let allRuns = [...(j.ramWrittenRuns ?? j.writtenRuns)].sort((a, b) => a.lo - b.lo);
+    if (ioImage === "runtime-too-old") allRuns = subtractRanges(allRuns, ioRanges);
 
     // The run's FULL write set as a per-address mask — one byte per address is
     // cheap (64 KiB) and it is what makes a gap answerable for any window the
@@ -268,7 +291,7 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       cycles: j.cycles,
     };
 
-    const ioWritten = (j.harvest.ioWritten ?? []).map(([lo, hi]) => ({ lo, hi }));
+    const ioWritten = ioRanges;
 
     return {
       stopReason: j.stopReason as StopReason | "stop_pc",
@@ -278,6 +301,7 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       writtenMap,
       writtenRuns,
       ioWritten,
+      ioImage,
       writtenSpan,
       memorySnapshots,
       streamPos: j.streamPos,

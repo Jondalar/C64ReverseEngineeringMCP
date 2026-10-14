@@ -502,11 +502,50 @@ function findCountHint(instructions: InstructionFact[], from: number, to: number
   return best?.value;
 }
 
+/**
+ * Is the zero-page pair `base`/`base+1`, just stored by `last`, later used as a pointer: `(zp),y` or `(zp,x)` on either
+ * cell, or `jmp (zp)`? Walks the instructions that can execute after `last` — fall-through, both branch arms, `jmp`,
+ * and into the callee of a `jsr` (the pointer is usually set up for the routine that follows) — and stops a path where
+ * the code overwrites a cell (`sta/stx/sty zp`). Returns false when no path reaches a pointer use inside the budget:
+ * the two bytes are then only ever read as bytes (a column and a row, a width and a height).
+ */
+function pairUsedAsPointer(index: Map<number, InstructionFact>, last: InstructionFact, base: number): boolean {
+  const high = (base + 1) & 0xff;
+  const cells = (value: number | undefined): boolean => value === base || value === high;
+  const seen = new Set<number>();
+  const queue: number[] = [(last.address + last.size) & 0xffff];
+  let budget = 1500;
+  while (queue.length > 0 && budget > 0) {
+    const at = queue.pop()!;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    const ins = index.get(at);
+    if (!ins) continue;
+    budget -= 1;
+    const mode = ins.addressingMode;
+    if ((mode === "(zp),y" || mode === "(zp,x)") && cells(ins.operandValue)) return true;
+    if (ins.mnemonic === "jmp" && mode === "ind" && cells(ins.targetAddress)) return true;
+    if ((ins.mnemonic === "sta" || ins.mnemonic === "stx" || ins.mnemonic === "sty") && mode === "zp" && cells(ins.operandValue)) continue;
+    const next = (ins.address + ins.size) & 0xffff;
+    if (ins.mnemonic === "rts" || ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+    if (ins.mnemonic === "jmp") {
+      if (mode === "abs" && ins.targetAddress !== undefined) queue.push(ins.targetAddress);
+      continue;
+    }
+    if (ins.mnemonic === "jsr" || mode === "rel") {
+      if (ins.targetAddress !== undefined) queue.push(ins.targetAddress);
+    }
+    queue.push(next);
+  }
+  return false;
+}
+
 function collectSplitPointerTables(
   context: AnalyzerContext,
   instructions: InstructionFact[],
   provenance: CodeProvenance,
   operandBytes: Set<number>,
+  instructionIndex: Map<number, InstructionFact>,
 ): SplitPointerTableFact[] {
   const facts: SplitPointerTableFact[] = [];
   const platform = context.platform ?? "c64";
@@ -521,6 +560,7 @@ function collectSplitPointerTables(
     pointerBase: number | undefined,
     adjustHint: number | undefined,
     what: string,
+    pointerUsed?: boolean,
   ): void => {
     const sampleTargets = sampleSplitPointerTargets(context, low, high).map((target) => (adjustHint ? (target + adjustHint) & 0xffff : target));
     const inRangeRatio =
@@ -548,11 +588,15 @@ function collectSplitPointerTables(
       shape,
       ...(countHint !== undefined ? { countHint } : {}),
       ...(adjustHint !== undefined ? { adjustHint } : {}),
+      ...(pointerUsed !== undefined ? { pointerUsed } : {}),
       provenance,
       confidence,
       sampleTargets,
       reasons: [
         what,
+        ...(pointerUsed === false
+          ? ["The zero-page pair is never used as a pointer — no (zp),y, (zp,x) or jmp (zp) follows on any path from the stores — so this reads as two byte values (coordinates, width/height), not as an address table."]
+          : []),
         `Both loads use ${indexRegister.toUpperCase()} as the shared index register.`,
         sampleTargets.length > 0
           ? `${Math.round(inRangeRatio * 100)}% of the first ${sampleTargets.length} reconstructed targets fall inside the mapped binary.`
@@ -608,6 +652,7 @@ function collectSplitPointerTables(
       build(
         index, index + 3, a.targetAddress!, c.targetAddress!, indexRegister, "zp_pointer", b.operandValue, undefined,
         `Code builds zero-page pointer ${formatAddress(b.operandValue)}-${formatAddress(d.operandValue)} from indexed tables ${formatAddress(a.targetAddress!)} and ${formatAddress(c.targetAddress!)}.`,
+        pairUsedAsPointer(instructionIndex, d, b.operandValue),
       );
       index += 3;
       continue;
@@ -636,7 +681,7 @@ function collectSplitPointerTables(
 
 /**
  * One fact per (lowTableBase, highTableBase). The confirmed reading wins over a probable
- * one, then the earlier site; a count hint any of them found is kept.
+ * one, then the earlier site; a count hint any of them found is kept, and a pair read as a pointer at any site is a pointer.
  */
 function dedupeSplitTables(facts: SplitPointerTableFact[]): SplitPointerTableFact[] {
   const byPair = new Map<string, SplitPointerTableFact>();
@@ -652,7 +697,10 @@ function dedupeSplitTables(facts: SplitPointerTableFact[]): SplitPointerTableFac
       (fact.provenance === seen.provenance && fact.start < seen.start);
     const winner = better ? fact : seen;
     const other = better ? seen : fact;
-    byPair.set(key, winner.countHint === undefined && other.countHint !== undefined ? { ...winner, countHint: other.countHint } : winner);
+    const merged = winner.countHint === undefined && other.countHint !== undefined ? { ...winner, countHint: other.countHint } : { ...winner };
+    // read as a pointer at ANY site is read as a pointer
+    if (winner.pointerUsed !== undefined || other.pointerUsed !== undefined) merged.pointerUsed = winner.pointerUsed === true || other.pointerUsed === true;
+    byPair.set(key, merged);
   }
   return [...byPair.values()].sort((left, right) => left.start - right.start);
 }
@@ -689,13 +737,18 @@ export function extractCodeSemantics(context: AnalyzerContext): CodeSemantics {
     }
   }
 
+  const instructionIndex = new Map<number, InstructionFact>();
+  for (const pool of [...getInstructionPools(context)].reverse()) {
+    for (const instruction of pool.instructions) instructionIndex.set(instruction.address, instruction);
+  }
+
   for (const pool of getInstructionPools(context)) {
     tableUsages.push(...collectTableUsages(pool.instructions, pool.provenance, platform));
     copyRoutines.push(...collectCopyRoutines(pool.instructions, pool.provenance, platform));
     hardwareTargetedCopies.push(...collectHardwareTargetedCopies(pool.instructions, pool.provenance, platform));
     sidDataSources.push(...collectSidDataSources(context, pool.instructions, pool.provenance));
     indirectPointers.push(...collectIndirectPointers(pool.instructions, pool.provenance));
-    splitPointerTables.push(...collectSplitPointerTables(context, pool.instructions, pool.provenance, operandBytes));
+    splitPointerTables.push(...collectSplitPointerTables(context, pool.instructions, pool.provenance, operandBytes, instructionIndex));
   }
 
   return {

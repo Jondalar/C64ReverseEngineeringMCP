@@ -7,7 +7,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatAddr4, formatHex4, platformKindForAddress, platformNodeId, type PlatformAbi, type PlatformNodeKind, type PlatformTag } from "./schema.js";
+import { formatAddr4, formatHex4, platformKindForAddress, platformNodeId, type IoRegisterHit, type PlatformAbi, type PlatformIoWindow, type PlatformNodeKind, type PlatformTag } from "./schema.js";
 import { DatabaseSync } from "./sqlite-quiet.js";
 
 export interface PlatformNode {
@@ -18,6 +18,8 @@ export interface PlatformNode {
   symbol: string | null;
   name: string;
   description: string | null;
+  /** the name a listing prints for this I/O register (`vic_ctrl1`), or null */
+  ioName: string | null;
   source: string;
 }
 
@@ -44,7 +46,8 @@ export function defaultPlatformKbPath(): string {
   );
 }
 
-type NodeRecord = { id: string; platform: string; kind: string; address: number; symbol: string | null; name: string; description: string | null; source: string };
+type NodeRecord = { id: string; platform: string; kind: string; address: number; symbol: string | null; name: string; description: string | null; io_name: string | null; source: string };
+type WindowRecord = { platform: string; start_address: number; end_address: number; period: number; chip: string };
 type RegionRecord = { id: string; platform: string; start_address: number; end_address: number; name: string; source: string };
 
 export class PlatformKb {
@@ -62,7 +65,7 @@ export class PlatformKb {
       "SELECT * FROM platform_region WHERE platform = ? AND start_address <= ? AND end_address >= ? ORDER BY (end_address - start_address) ASC LIMIT 1",
     );
     this.searchStmt = this.db.prepare(
-      "SELECT * FROM platform_node WHERE platform = ? AND (symbol LIKE ? OR name LIKE ?) ORDER BY (symbol = ?) DESC, address ASC LIMIT ?",
+      "SELECT * FROM platform_node WHERE platform = ? AND (symbol LIKE ? OR name LIKE ? OR io_name LIKE ?) ORDER BY (symbol = ? OR io_name = ?) DESC, address ASC LIMIT ?",
     );
   }
 
@@ -87,7 +90,37 @@ export class PlatformKb {
     const q = query.trim();
     if (!q) return [];
     const like = `%${q}%`;
-    return (this.searchStmt.all(platform, like, like, q.toUpperCase(), limit) as NodeRecord[]).map(toNode);
+    return (this.searchStmt.all(platform, like, like, like, q.toUpperCase(), q.toLowerCase(), limit) as NodeRecord[]).map(toNode);
+  }
+
+  /**
+   * Spec 908 D1 — the I/O register an address is, with the offset when the address is a mirror
+   * of it (VIC every 64 bytes, SID every 32, the CIAs every 16) or a cell of colour RAM. The
+   * answer is only the register: which NAME a listing prints in the cartridge window depends on
+   * the cartridge and is not decided here.
+   */
+  ioRegister(platform: PlatformTag, address: number): IoRegisterHit | undefined {
+    const a = address & 0xffff;
+    if (this.windowStmt === undefined) {
+      try { this.windowStmt = this.db.prepare("SELECT * FROM platform_io_window WHERE platform = ? AND start_address <= ? AND end_address >= ?"); } catch { this.windowStmt = null; }
+    }
+    if (this.windowStmt === null) return undefined;
+    const w = this.windowStmt.get(platform, a, a) as WindowRecord | undefined;
+    if (!w) return undefined;
+    const base = w.period > 0 ? w.start_address + ((a - w.start_address) % w.period) : w.start_address;
+    const node = this.node(platform, base);
+    if (!node || node.ioName === null) return undefined;
+    return { name: node.ioName, base, offset: a - base, alias: node.symbol, description: node.name, chip: w.chip };
+  }
+
+  private windowStmt: ReturnType<DatabaseSync["prepare"]> | null | undefined = undefined;
+
+  /** every window the store knows, for the gate that holds both readers to one rule */
+  ioWindows(platform: PlatformTag): PlatformIoWindow[] {
+    try {
+      return (this.db.prepare("SELECT * FROM platform_io_window WHERE platform = ? ORDER BY start_address").all(platform) as WindowRecord[])
+        .map((w) => ({ platform: w.platform as PlatformTag, startAddress: w.start_address, endAddress: w.end_address, period: w.period, chip: w.chip }));
+    } catch { return []; }
   }
 
   /** The derived id for an address on a platform, whether or not a row exists. */
@@ -143,7 +176,7 @@ export class PlatformKb {
 function toNode(row: NodeRecord): PlatformNode {
   return {
     id: row.id, platform: row.platform as PlatformTag, kind: row.kind as PlatformNodeKind,
-    address: row.address, symbol: row.symbol, name: row.name, description: row.description, source: row.source,
+    address: row.address, symbol: row.symbol, name: row.name, description: row.description, ioName: row.io_name ?? null, source: row.source,
   };
 }
 

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { pipelineBuildWarning } from "./pipeline-build.js";
 
 export interface CliResult {
   stdout: string;
@@ -79,6 +80,9 @@ export function runCli(command: string, args: string[], options: RunCliOptions):
     });
   }
 
+  // Issue #71: the server may be newer than the compiled pipeline it is about to spawn.
+  const buildWarning = pipelineBuildWarning(cliPath, projectRoot);
+
   return new Promise((res) => {
     execFile(
       "node",
@@ -101,7 +105,8 @@ export function runCli(command: string, args: string[], options: RunCliOptions):
       (error, stdout, stderr) => {
         res({
           stdout: stdout ?? "",
-          stderr: stderr ?? "",
+          // The warning rides in stderr: every door that shows a pipeline run shows it.
+          stderr: buildWarning ? `${buildWarning}\n${stderr ?? ""}`.trimEnd() : stderr ?? "",
           exitCode: error ? 1 : 0,
         });
       },

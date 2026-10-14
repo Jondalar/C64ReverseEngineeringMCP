@@ -41,13 +41,20 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
     const isManifestId = (id: string | undefined) => id === manifestArtifactId;
     let linked = 0;
 
-    const relink = (relPath: string, loadAddress: number | undefined, name: string | undefined, isPrg: boolean): void => {
+    const relink = (relPath: string, loadAddress: number | undefined, name: string | undefined, isPrg: boolean, bank?: number): void => {
       const filePath = join(outputDir, relPath);
       if (!existsSync(filePath)) return;
       const bytes = readFileSync(filePath);
       const hash = createHash("sha256").update(bytes).digest("hex");
+      // A cartridge chip entity carries neither a content hash nor a payload load
+      // address — it is placed by (bank, load address). Without this match it kept
+      // the manifest as its only artifact, and the auto-chain then took that
+      // manifest.json for the chip's bytes.
       const ent = entities.find((e) => e.payloadContentHash === hash)
-        ?? entities.find((e) => e.payloadLoadAddress === loadAddress && (e.name === name || e.name === relPath));
+        ?? entities.find((e) => e.payloadLoadAddress === loadAddress && (e.name === name || e.name === relPath))
+        ?? (bank !== undefined && loadAddress !== undefined
+          ? entities.find((e) => e.kind === "chip" && e.addressRange?.bank === bank && e.addressRange.start === loadAddress)
+          : undefined);
       if (!ent) return;
       // already linked to a real (non-manifest) source → nothing to do.
       if (ent.payloadSourceArtifactId !== undefined && !isManifestId(ent.payloadSourceArtifactId)) return;
@@ -76,7 +83,7 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
     }
     for (const c of manifest.chips ?? []) {
       if (!c.file) continue;
-      relink(c.file, c.load_address, c.file, c.file.toLowerCase().endsWith(".prg"));
+      relink(c.file, c.load_address, c.file, c.file.toLowerCase().endsWith(".prg"), c.bank);
     }
     return linked;
   } catch {

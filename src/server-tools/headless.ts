@@ -71,7 +71,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test. For a machine of your own, use runtime_sandbox_run (or runtime_scene_reel for a scripted run) — a private daemon on its own port, ending on a budget; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.d81/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, model (which C64: c64-pal, c64-ntsc, …), trace_out, trace_domains. Returns: session id + which C64 it is + resolved config + trace status when streaming.",
+    "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test. For a machine of your own — to step, breakpoint, trace or rewind without taking the human's machine or another project's — use runtime_sandbox_start (a sandbox session: a stated purpose, a budget, a session id for every runtime_* tool, ended with runtime_sandbox_end), runtime_sandbox_run for one call, or runtime_scene_reel for a scripted run; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine use runtime_sandbox_start, which is a separate daemon of your own. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.d81/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, model (which C64: c64-pal, c64-ntsc, …), trace_out, trace_domains. Returns: session id + which C64 it is + resolved config + trace status when streaming.",
     {
       // BUG-041 — a session is a MACHINE; a medium is something you put in it. This
       // used to be a REQUIRED disk_path that a shared attach never acted on (the daemon
@@ -264,6 +264,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { planUntil, describeRunAdvance } = await import("../runtime/session-run.js");
       // Refuse what cannot be done before touching the machine.
       const target = until ? planUntil(until) : undefined;
+      // Spec 906 D6 — on a sandbox session a run of tens of millions of cycles outlives the host's patience:
+      // past the grace window the call answers a job id and `analysis_job_status` hands over this answer.
+      const { jobOnSandbox } = await import("./long-call.js");
+      return jobOnSandbox("runtime_session_run", session_id, "the run", async () => {
       const s0 = await runtimeDaemon.state(session_id);
       if (target) {
         // The same daemon path runtime_until takes: run to the address on the live machine.
@@ -284,6 +288,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
         : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
       return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, stalled: after.stalled, via: `Runtime Daemon${s0.streamPump ? (after.pumpIdle ? ", live pump idle (no UI attached), run done blocking" : ", live-streamed") : ""}` }) }] };
+      });
     },
 ));
 
@@ -340,7 +345,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const proj = (() => { try { return resolveHeadlessProjectDir(context, { fileHint: output }); } catch { return undefined; } })();
+      // Spec 906 D2 — a sandbox session is bound to the project it was started for: its capture goes to
+      // THAT project's trace root (never into the sandbox's scratch, which ends with it) and its pointer
+      // is recorded there, whatever project this call itself would otherwise resolve.
+      const { sandboxBinding } = await import("../runtime/sandbox-sessions.js");
+      const proj = sandboxBinding(session_id)?.projectDir
+        ?? (() => { try { return resolveHeadlessProjectDir(context, { fileHint: output }); } catch { return undefined; } })();
       // Spec 827 — a capture defaults OUTSIDE the project: 20 GB of index and log
       // in one project measured on 2026-09-06, in the very tree a user syncs. An
       // explicit `output` is still obeyed exactly as before; it only gets a warning
@@ -381,8 +391,24 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Finalize the active streaming trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Requires an active trace (runtime_trace_start, or runtime_session_start trace_out=...). Call once capture is complete; the store is then queryable any time via trace_store_query / trace_store_top_pcs / trace_store_bus_find / runtime_query_events (pass the trace.duckdb path). Not for marking (use runtime_mark) or progress polling (use runtime_trace_status). Inputs: session_id. Returns: run summary (runId, event/byte counts, mark list, store path).",
     { session_id: z.string() },
     safeHandler("runtime_trace_finalize", async ({ session_id }) => {
+      const { inlineOrJob } = await import("./long-call.js");
+      return inlineOrJob("runtime_trace_finalize", session_id, "the trace store", () => finalizeTrace(session_id));
+    },
+));
+
+  /**
+   * Finalize the active trace of a session. The index build is synchronous in the daemon and grows with
+   * the capture, so the call's own timeout is sized to the capture instead of the client's default (60 s,
+   * which a capture of tens of millions of cycles outlives — the shared session's finalize failed on it);
+   * and when even that is not enough the answer names the intact `.c64retrace` and the lazy index.
+   */
+  async function finalizeTrace(session_id: string) {
+    {
       // Spec 746.3 — route to the shared daemon (BUG-028 class: was getRuntimeController-only).
       const { runtimeDaemon } = await import("../runtime/backend.js");
+      const { finalizeTimeoutMs, isCallTimeout } = await import("./long-call.js");
+      const before = await runtimeDaemon.traceStatus<{ active?: boolean; eventCount?: number; retracePath?: string }>(session_id).catch(() => undefined);
+      const retraceGuess = before?.retracePath;
       // wait_index=true: stop + await the background DuckDB index so the store is
       // queryable on return (the LLM queries next); the UI's instant button omits it.
       // Spec 806 — the store paths come from the runtime's `index` block, NOT from a
@@ -392,10 +418,22 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // are two real files: `retracePath` is the binary timeline (the authority),
       // `duckdbPath` is the queryable index — and the trace_store_* tools want the
       // latter. Report both so the next call can be made without guessing.
-      const stopped = await runtimeDaemon.traceStop<{
+      let stopped: {
         run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number } | null;
         index?: { duckdbPath?: string; retracePath?: string; eventsIndexed?: number };
-      }>(session_id, true);
+      };
+      try {
+        stopped = await runtimeDaemon.traceStop(session_id, true, finalizeTimeoutMs(before?.eventCount));
+      } catch (e) {
+        if (!isCallTimeout(e) || !retraceGuess) throw e;
+        const duck = retraceGuess.endsWith(".c64retrace") ? `${retraceGuess.slice(0, -".c64retrace".length)}.duckdb` : undefined;
+        return { content: [{ type: "text" as const, text: [
+          `Trace finalize did not finish within ${Math.round(finalizeTimeoutMs(before?.eventCount) / 1000)} s — the index build is still the daemon's.`,
+          `The capture itself is intact: ${retraceGuess} (the binary timeline is the authority).`,
+          duck ? `Its index is built on the first read: pass ${duck} as duckdb_path to trace_store_info / trace_store_query / runtime_swimlane_slice — the runtime builds it then, from the .c64retrace.` : "",
+          `Do not call runtime_trace_finalize again for this run.`,
+        ].filter(Boolean).join("\n") }] };
+      }
       const run = stopped.run;
       // The clean refusal used to live in the in-process branch; without it a finalize
       // with no active trace threw a raw TypeError on `.runId` at the caller.
@@ -423,8 +461,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ...(mm ? [mm] : []),
         `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice — pass the Store path above as duckdb_path.`,
       ].join("\n") }] };
-    },
-));
+    }
+  }
 
   server.tool(
     "runtime_trace_status",
@@ -532,8 +570,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { runtimeDaemon, activeIdentity } = await import("../runtime/backend.js");
       const st = await runtimeDaemon.state(session_id);
       const { c64Cycles, mode, cpu } = st;
+      // Spec 906 — a sandbox session answers as itself: its own daemon, bound to the project it was started
+      // for. The selected backend (a C64 Ultimate, say) has nothing to do with it.
+      const { sandboxBinding } = await import("../runtime/sandbox-sessions.js");
+      const sb = sandboxBinding(session_id);
       // Spec 889 — which runtime answered: the emulator, or a C64 Ultimate and which one.
-      const backendId = await activeIdentity();
+      const backendId: Awaited<ReturnType<typeof activeIdentity>> = sb
+        ? { kind: "emulator", label: `Sandbox session ${session_id} — a daemon of its own`, endpoint: `ws://127.0.0.1:${sb.port}` }
+        : await activeIdentity();
       const dev = backendId.device;
       const backendLine = backendId.kind === "c64u" && dev
         ? `Backend: ${backendId.label} — real hardware${dev.board ? `, board ${dev.board}` : ""}${dev.product ? `, ${dev.product}` : ""}` +
@@ -579,7 +623,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       let projectLine: string;
       let here: string | undefined;
       try { here = context.projectDir({ projectDir: project_dir }, true); } catch { here = undefined; }
-      if (!here) {
+      if (sb) {
+        projectLine = `Project: this sandbox is bound to ${sb.projectDir} (purpose: ${sb.purpose}) — its captures go to that project's trace root; the daemon's own scratch is not the project`;
+      } else if (!here) {
         projectLine = "Project: not checked — no project resolved for this call";
       } else {
         try {
@@ -602,7 +648,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const render = (v: unknown, none: string) =>
         v == null ? none : typeof v === "string" ? v : JSON.stringify(v);
       return { content: [{ type: "text" as const, text: [
-        `Runtime session status (${backendId.kind === "c64u" ? "C64 Ultimate" : "Runtime Daemon"}) — ${session_id}`,
+        `Runtime session status (${sb ? "Sandbox session" : backendId.kind === "c64u" ? "C64 Ultimate" : "Runtime Daemon"}) — ${session_id}`,
         backendLine,
         ``,
         `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
@@ -616,7 +662,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Drive 8: ${render(drive, "unavailable")}`,
         `Cartridge: ${render(cart, "none inserted")}`,
         // Spec 886 D3 — when the runtime will end itself, so nothing is lost by surprise.
-        describeIdleExit(st.idleExit, Date.now(), backendId.kind === "c64u" ? "bridge" : "runtime"),
+        sb ? `Ends: by ${sb.deadline} at the latest, sooner on runtime_sandbox_end, on its idle limit, or when this MCP process dies` : describeIdleExit(st.idleExit, Date.now(), backendId.kind === "c64u" ? "bridge" : "runtime"),
       ].join("\n") }] };
     },
 ));
@@ -625,7 +671,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // and the next call starts a fresh machine. Work that must not lose its machine says so.
   server.tool(
     "runtime_keep_alive",
-    "Keep the runtime up for a while, or for good. The runtime C64RE starts by itself ends itself after 10 minutes with no request, no viewer on the A/V stream and no recording trace, and the next tool call then starts a FRESH machine — sessions, mounted media, checkpoints and rewind history gone. Use when you are about to step away from a machine you still need (a long think, a human checking the screen, a trace you mean to come back to): minutes holds it that long from now, forever until it is stopped. Not for a machine of your own (runtime_sandbox_run ends with its call by design) and not to keep a session from being reset (nothing resets it while it is in use). Inputs: minutes or forever. Returns: when the runtime will now end itself, or that it will not.",
+    "Keep the runtime up for a while, or for good. The runtime C64RE starts by itself ends itself after 10 minutes with no request, no viewer on the A/V stream and no recording trace, and the next tool call then starts a FRESH machine — sessions, mounted media, checkpoints and rewind history gone. Use when you are about to step away from a machine you still need (a long think, a human checking the screen, a trace you mean to come back to): minutes holds it that long from now, forever until it is stopped. Not for a machine of your own (runtime_sandbox_run ends with its call by design; a sandbox session lives for the budget runtime_sandbox_start gave it) and not to keep a session from being reset (nothing resets it while it is in use). Inputs: minutes or forever. Returns: when the runtime will now end itself, or that it will not.",
     {
       minutes: z.number().positive().max(24 * 60).optional().describe("Hold the runtime at least this long from now."),
       forever: z.boolean().optional().describe("Never end on idle; it runs until stopped. A later `minutes` replaces it."),

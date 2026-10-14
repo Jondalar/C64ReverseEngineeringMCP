@@ -164,7 +164,7 @@ for (const c of CASES) {
   }
 
   // D1c — the classification survives: this is still a code segment with code in it.
-  check(/^\s*lda\s+#\$00/m.test(code) && /^\s*sta(\.abs)?\s+\$D020/mi.test(code),
+  check(/^\s*lda\s+#\$00/m.test(code) && /^\s*sta(\.abs)?\s+(\$D020|vic_border)\b/mi.test(code),
     "D1c the body is still rendered as code — the caller does not have to drop the segment to get a rebuild");
 
   // D1d — the proof.

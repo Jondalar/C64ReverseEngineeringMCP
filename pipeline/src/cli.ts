@@ -53,8 +53,8 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--relocations <json>] [--annotations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--annotations <json>] [--relocations <json>]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--relocations <json>] [--annotations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--annotations <json>] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]] [--platform c64|c1541|vic20|plus4]",
       "  node dist/cli.js basic-list <prg> [--json] [--platform c64|vic20|plus4]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801] [--platform c64|vic20|plus4]",
@@ -70,6 +70,13 @@ function usage(): never {
       "and the store has one writer.",
     ].join("\n"),
   );
+}
+
+/** A CRT hardware type: the DECIMAL id the cartridge format and its documentation use (60 is GMod2) — not an address, so not read as hex. */
+function cartridgeTypeArg(value: string): number {
+  const text = value.trim();
+  if (!/^\d{1,5}$/u.test(text)) throw new Error(`--cartridge-type ${JSON.stringify(value)} is not a CRT hardware type — a decimal number such as 60 (GMod2) or 32 (EasyFlash)`);
+  return Number(text);
 }
 
 function checkPlatform(value: string): PlatformTag | "none" {
@@ -142,9 +149,13 @@ function main(): void {
     // `<stem>_annotations.json` was going to match had to move the file.
     let annotationsPath: string | undefined;
     let noAnalysis = false;
+    let cartridgeType: number | undefined;
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
-      if (args[i] === "--platform" && args[i + 1]) {
+      if (args[i] === "--cartridge-type" && args[i + 1]) {
+        cartridgeType = cartridgeTypeArg(args[i + 1]);
+        i += 1;
+      } else if (args[i] === "--platform" && args[i + 1]) {
         platform = checkPlatform(args[i + 1]);
         i += 1;
       } else if (args[i].startsWith("--platform=")) {
@@ -219,6 +230,7 @@ function main(): void {
       annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
       noAnalysis,
       platform,
+      ...(cartridgeType !== undefined ? { cartridgeType } : {}),
       relocations,
     });
     // Which files the RENDERER actually read. The wrapper around this verb used to
@@ -252,6 +264,7 @@ function main(): void {
     let analysisFlagPath: string | undefined;
     let relocationsPath: string | undefined;
     let noAnalysis = false;
+    let cartridgeType: number | undefined;
     const remaining: string[] = [];
     const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string => {
       const value = inline ?? next;
@@ -265,6 +278,9 @@ function main(): void {
         : [arg, undefined];
       if (flag === "--platform") {
         platform = checkPlatform(takeValue(flag, inline, args[i + 1]));
+        if (inline === undefined) i += 1;
+      } else if (flag === "--cartridge-type") {
+        cartridgeType = cartridgeTypeArg(takeValue(flag, inline, args[i + 1]));
         if (inline === undefined) i += 1;
       } else if (flag === "--load-address" || flag === "--loadAddress") {
         loadAddress = parseAddress(takeValue(flag, inline, args[i + 1]), "--load-address");
@@ -304,6 +320,7 @@ function main(): void {
       analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
       noAnalysis,
       platform,
+      ...(cartridgeType !== undefined ? { cartridgeType } : {}),
       raw: { loadAddress, offset, length },
       annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
       // Spec 741's relocated rendering is not a property of the PRG header: bytes

@@ -2446,6 +2446,8 @@ export class ProjectKnowledgeService {
     relocations?: Array<{ fileStart: number; fileEnd: number; runtimeAddr: number }>;
     /** Spec 903 D6 — the bytes annotated, so a split table's targets become edges */
     image?: { loadAddress: number; data: Uint8Array };
+    /** the address space the nodes are filed under — `disasm`'s `space` / `bank`; see ImportAnnotationFileOptions */
+    ctxSpace?: { space: "ram" | "crt" | "drv"; bank?: number };
   }): {
     routines: number;
     labels: number;
@@ -2479,7 +2481,7 @@ export class ProjectKnowledgeService {
         annotationsArtifactId = annotationsArtifact.id;
       }
     }
-    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force, relocations: args.relocations, image: args.image });
+    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force, relocations: args.relocations, image: args.image, ctxSpace: args.ctxSpace });
     if (r.changed) {
       this.appendTimelineEvent({
         kind: "note",

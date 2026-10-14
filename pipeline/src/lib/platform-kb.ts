@@ -132,6 +132,43 @@ export function platformRegionName(platform: PlatformTag, address: number): stri
   return row?.name;
 }
 
+export interface IoRegisterHit {
+  /** the name a listing prints for the register (`vic_ctrl1`) */
+  name: string;
+  /** the register the name belongs to */
+  base: number;
+  /** address - base: 0 for the register itself, > 0 for a mirror of it or a cell of colour RAM */
+  offset: number;
+}
+
+let windowStmt: Stmt | null | undefined;
+let ioNameStmt: Stmt | undefined;
+
+/**
+ * The I/O register `address` is on the C64's chips (VIC-II, SID, colour RAM, CIA 1, CIA 2), or
+ * undefined: not in a chip window, or a stretch of one the chip has no register in ($D02F-$D03F).
+ * A chip that repeats (VIC every 64 bytes, SID every 32, the CIAs every 16) folds the address
+ * onto its base register. The windows and the names are rows of the store; the arithmetic is the
+ * ESM reader's `ioRegister` twin, held equal by scripts/e2e-908-io-names.mjs.
+ */
+export function platformIoRegister(address: number): IoRegisterHit | undefined {
+  open();
+  if (windowStmt === undefined) {
+    try {
+      windowStmt = db!.prepare("SELECT start_address, period FROM platform_io_window WHERE platform = 'c64' AND start_address <= ? AND end_address >= ?");
+      ioNameStmt = db!.prepare("SELECT io_name FROM platform_node WHERE platform = 'c64' AND address = ?");
+    } catch { windowStmt = null; }
+  }
+  if (!windowStmt || !ioNameStmt) return undefined;
+  const a = address & 0xffff;
+  const w = windowStmt.get(a, a) as { start_address: number; period: number } | undefined;
+  if (!w) return undefined;
+  const base = w.period > 0 ? w.start_address + ((a - w.start_address) % w.period) : w.start_address;
+  const row = ioNameStmt.get(base) as { io_name: string | null } | undefined;
+  if (!row || row.io_name === null) return undefined;
+  return { name: row.io_name, base, offset: a - base };
+}
+
 /** Comment text for an operand, or undefined when the store knows nothing. */
 export function platformComment(platform: PlatformTag, address: number): string | undefined {
   return platformNode(platform, address)?.label ?? platformRegionName(platform, address);

@@ -136,6 +136,11 @@ jobs:
       - name: One spelling per path in the artifact store (#28)
         run: npm run e2e:relpath-spelling
 
+      # extract_crt registers its manifest as crt-manifest / manifest — for the first CRT, the
+      # second, and a project still holding the old disasm-target / prg record. Hermetic.
+      - name: The CRT manifest keeps its role (extract_crt)
+        run: npm run e2e:crt-manifest-role
+
       # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
       # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
       # built no Intel Mac while the installer claimed to serve one.
@@ -405,6 +410,24 @@ jobs:
       - name: Split low/high tables are declared, and a found one is decided (Spec 903)
         run: npm run e2e:903
 
+      # Spec 908 — I/O registers have names in every listing. One synthetic PRG over $0801-$EFFF
+      # (so $D000-$DFFF is inside the image) assembled from a listing here, synthetic .crt banks,
+      # MCP over stdio: every register's name in the graph and a mirror, the operands and the
+      # equate block in both dialects, a human label that wins, a memoryMap that says the window
+      # is RAM for one routine, the cartridge window by type, and memoryMap through
+      # write_annotations / merge_annotations / the loader. No ROMs, no game bytes, no runtime.
+      # The rebuild checks need KickAssembler / 64tass and skip loudly without them.
+      - name: I/O registers have names in every listing (Spec 908)
+        run: npm run e2e:908
+
+      # A cartridge bank listed on its own — hermetic: synthetic .crt images and one 8 KiB bank
+      # of synthetic code, MCP over stdio. Where disasm files the names (space / bank, so a
+      # crt-space boundary holds them), how load_address is read (one address rule, with
+      # relocations too), and what $DE00 is called: the cartridge type recorded for the bytes
+      # decides (GMod2, EasyFlash, Magic Desk), and no known type is a neutral "cartridge I/O".
+      - name: A cartridge bank listed on its own — space, load address, $DE00
+        run: npm run e2e:cartridge-bank
+
       # Spec 899 — hermetic: the window check and the series in the scenario notation, the
       # input offset, the jitter seed and the sweep's offsets as pure functions, a runtime
       # that cannot place input refused by name, a stopped probe reported as a stop, and the
@@ -442,6 +465,25 @@ jobs:
       # stand-in), so the step would only print SKIPPED there.
       - name: Replay across fresh starts — identical arguments, identical cycles (issue #67)
         run: npm run e2e:replay-determinism
+
+      # Spec 906 — a machine of your own that stays. The refusal half needs no daemon and runs on any
+      # runner: a start without a purpose or a budget refused by name, every registered runtime tool
+      # holding a sandbox verdict (derived from the live server, so a new runtime tool without one fails
+      # here), every UI-only tool refusing a sandbox id by name, "not yours" / "ended: <reason>" /
+      # "no such session" told apart from the records, the C64U refusal naming runtime_sandbox_start,
+      # and the docs and doctrine saying what is built.
+      - name: A sandbox session — the refusals, the parity table, the doors (Spec 906)
+        run: npm run e2e:906-refusals
+
+      # Spec 906 — the runtime half: sandbox sessions on daemons of this run's own (free ports, synthetic
+      # media, a state directory of the run). Start for a purpose; every session tool answering as it does
+      # on the shared session (a stand-in daemon in the same state); two MCP processes side by side with
+      # the shared session; ending on reached / failed; ending itself on budget, idle and a killed owner
+      # with the trace finalized; job mode past the grace window; the C64U refusal followed through to a
+      # working trace and a store read with the device selected. SKIPS LOUDLY on a runner with no
+      # trx64-daemon; C64RE_E2E_LONG=1 adds the 60M-cycle capture.
+      - name: A sandbox session on real machines (Spec 906)
+        run: npm run e2e:906
 
       # Spec 905 — the workbench's anchor code (the page's own, bundled with its WsClient) against a
       # daemon of this run's own beside an MCP session; the source and bundle checks run everywhere.
@@ -650,6 +692,18 @@ jobs:
 
       - name: Documents declare themselves (Spec 847)
         run: npm run e2e:847-docs
+
+      # Three field reports from one LLM-driven project, all hermetic: a negative claim is judged
+      # within the owner it names (#79), an I/O store is not a RAM byte in the sandbox image (#72;
+      # its live half skips without a trx64cli), and a pulled-but-not-rebuilt pipeline says so (#71).
+      - name: A negative claim is judged within its owner (#79)
+        run: npm run e2e:issue79-negative-claim-owner
+
+      - name: An I/O store is not a RAM byte (#72)
+        run: npm run smoke:issue72-sandbox-io-ram
+
+      - name: A stale pipeline build is reported (#71)
+        run: npm run smoke:pipeline-version
 
       # 849's two halves: the shipped rules with a positive and a negative fixture
       # each, and the standing file the contract's shortfall is computed into. Both

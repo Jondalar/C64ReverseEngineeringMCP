@@ -9,7 +9,7 @@
 // on, kept in exactly one place. It has no runtime dependency on node:sqlite so
 // it can be imported anywhere.
 
-export const PLATFORM_KB_SCHEMA_VERSION = 2; // 2: Spec 826 D4 adds platform_abi
+export const PLATFORM_KB_SCHEMA_VERSION = 3; // 2: Spec 826 D4 adds platform_abi; 3: Spec 908 adds platform_node.io_name and platform_io_window
 
 export type PlatformTag = "c64" | "c1541" | "vic20" | "plus4";
 
@@ -25,6 +25,8 @@ export interface PlatformNodeRow {
   symbol: string | null;
   name: string;
   description: string | null;
+  /** Spec 908 D1 — the short, stable name a listing prints for an I/O register (`vic_ctrl1`); null where the row names none. `symbol` stays the book's label and is only an alias for search. */
+  ioName: string | null;
   source: string;
   layer: "generated";
   origin: "imported";
@@ -113,6 +115,7 @@ CREATE TABLE platform_node (
   symbol      TEXT,
   name        TEXT NOT NULL,
   description TEXT,
+  io_name     TEXT,
   source      TEXT NOT NULL,
   layer       TEXT NOT NULL DEFAULT 'generated',
   origin      TEXT NOT NULL DEFAULT 'imported',
@@ -130,6 +133,15 @@ CREATE TABLE platform_region (
   source        TEXT NOT NULL
 );
 CREATE INDEX platform_region_span ON platform_region (platform, start_address, end_address);
+CREATE INDEX platform_node_io_name ON platform_node (platform, io_name);
+CREATE TABLE platform_io_window (
+  platform      TEXT NOT NULL,
+  start_address INTEGER NOT NULL,
+  end_address   INTEGER NOT NULL,
+  period        INTEGER NOT NULL,
+  chip          TEXT NOT NULL,
+  PRIMARY KEY (platform, start_address)
+);
 CREATE TABLE platform_abi (
   platform  TEXT NOT NULL,
   address   INTEGER NOT NULL,
@@ -141,6 +153,33 @@ CREATE TABLE platform_abi (
 );
 CREATE INDEX platform_abi_addr ON platform_abi (platform, address);
 `;
+
+/**
+ * Spec 908 D1 — a stretch of the I/O window one chip answers in. `period` > 0: the chip repeats
+ * every `period` bytes, so an address folds onto its base register (`$D051` = `$D011` + 64).
+ * `period` 0: no repetition, the address is the window's first register plus an offset (colour RAM).
+ */
+export interface PlatformIoWindow {
+  platform: PlatformTag;
+  startAddress: number;
+  endAddress: number;
+  period: number;
+  chip: string;
+}
+
+/** What an I/O address is called: the register, and how far this address sits from it. */
+export interface IoRegisterHit {
+  name: string;
+  /** the register the name belongs to */
+  base: number;
+  /** address - base: 0 for the register itself, > 0 for a mirror or a colour RAM cell */
+  offset: number;
+  /** the book's label for the register (`SCROY`), the alias search also finds it by */
+  alias: string | null;
+  /** the book's heading for the register */
+  description: string | null;
+  chip: string;
+}
 
 /** Spec 826 D4 — one row per (routine, location, role): the calling convention of a ROM entry. */
 export interface PlatformAbiRow {

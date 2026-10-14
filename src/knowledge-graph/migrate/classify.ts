@@ -91,7 +91,7 @@ export function classifyQuestion(question: Pick<OpenQuestionRecord, "source" | "
  */
 export function normStem(name: string): string {
   let s = name.toLowerCase().replace(/^.*\//u, "");
-  s = s.replace(/\.(prg|bin|crt|d64|g64|json|asm|tass|txt)$/u, "");
+  s = s.replace(/\.(prg|bin|crt|d64|g64|json|asm|tas|tass|txt)$/u, "");
   s = s.replace(/_annotations$/u, "");
   s = s.replace(/_analysis(?:_r\d+)?$/u, "");
   s = s.replace(/_disasm$/u, "");

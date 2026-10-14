@@ -15,7 +15,7 @@
 
 import { maxLabelLength } from "../project-knowledge/naming.js";
 import { SymbolResolver } from "./resolver.js";
-import type { NameOrigin, RuntimeSpace } from "./types.js";
+import type { NameOrigin, Resolution, RuntimeSpace } from "./types.js";
 
 /** A name a listing can define without changing a byte. */
 export interface ListingEquate {
@@ -27,11 +27,25 @@ export interface ListingEquate {
   payload: string | null;
 }
 
+/** A name the PLATFORM proposes for an address (an I/O register) — it loses to anything the project holds. */
+export interface PlatformProposal {
+  address: number;
+  name: string;
+}
+
 export interface ListingEquateRequest {
-  projectDir: string;
+  /** the project whose graph and symbol files decide; without one only the platform proposals are held to the rules */
+  projectDir?: string;
   space: RuntimeSpace;
   /** the addresses this listing references and does not itself define */
   addresses: number[];
+  /**
+   * Names the platform proposes for addresses nothing in the project names (the I/O registers).
+   * A name the graph or a symbol file holds for the address wins and comes back in its place; the
+   * proposal is subject to every rule a graph name is (identifier, mnemonic, the project's length
+   * limit, a name this listing already uses).
+   */
+  proposals?: PlatformProposal[];
   /** the names this listing already defines, and at which address */
   defined: Array<[string, number]>;
   /**
@@ -76,18 +90,19 @@ const hex4 = (n: number): string => `$${(n & 0xffff).toString(16).toUpperCase().
  * is stored — the graph and the symbol files stay the only stores.
  */
 export function equatesForListing(req: ListingEquateRequest): ListingEquateResult {
-  const resolver = SymbolResolver.forProject(req.projectDir);
   const out: ListingEquateResult = { equates: [], notes: [] };
-  if (resolver.size === 0) return out;
+  const proposals = new Map((req.proposals ?? []).map((p) => [p.address & 0xffff, p.name]));
+  const resolver = req.projectDir !== undefined ? SymbolResolver.forProject(req.projectDir) : undefined;
+  if ((resolver === undefined || resolver.size === 0) && proposals.size === 0) return out;
 
-  const limit = maxLabelLength(req.projectDir);
+  const limit = req.projectDir !== undefined ? maxLabelLength(req.projectDir) : undefined;
   // name → the address the listing already binds it to; an emitted equate joins it, so a
   // second address wanting the same name loses to the first and says so.
   const taken = new Map<string, number>(req.defined);
   const elsewhere = new Set(req.definedElsewhere ?? []);
 
   for (const address of [...new Set(req.addresses.map((a) => a & 0xffff))].sort((l, r) => l - r)) {
-    const resolution = resolver.staticNameAt(req.space, address);
+    const resolution: Resolution = resolver?.staticNameAt(req.space, address) ?? { space: req.space, addr: address, evidence: [] };
     if (resolution.ambiguous && resolution.ambiguous.length > 0) {
       out.notes.push(
         `${hex4(address)} has ${resolution.ambiguous.length} names in the graph `
@@ -95,7 +110,13 @@ export function equatesForListing(req: ListingEquateRequest): ListingEquateResul
       );
       continue;
     }
-    const name = resolution.name;
+    // The platform's proposal stands in only where the project holds no name of its own: the
+    // disassembler's generated `W<HEX4>` is the listing's placeholder, not a name.
+    const proposed = proposals.get(address);
+    const held = resolution.name && !(resolution.name.origin === "derived" && proposed !== undefined) ? resolution.name : undefined;
+    const name = held ?? (proposed !== undefined
+      ? { name: proposed, origin: "derived" as const, kind: "io", payload: null }
+      : undefined);
     if (!name) continue;
 
     if (!IDENTIFIER.test(name.name)) {

@@ -32,4 +32,11 @@ function walk(dir) {
 }
 
 walk(root);
+
+// Stamp the build with the package version. The MCP server compares this with its own
+// package.json before spawning the pipeline (src/pipeline-build.ts), so a checkout that was
+// pulled but not rebuilt says so instead of rendering with the old pipeline.
+const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+writeFileSync(join(root, ".pipeline-version"), `${version}\n`, "utf8");
+
 console.log("Pipeline .js → .cjs conversion done.");

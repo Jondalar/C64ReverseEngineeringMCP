@@ -240,7 +240,8 @@ function interpretDepackRun(
     stopReason: string;
     steps: number;
     writtenRuns: Array<{ lo: number; hi: number }>;
-    harvest: { addr: number; len: number; hex: string };
+    ramWrittenRuns?: Array<{ lo: number; hi: number }>;
+    harvest: { addr: number; len: number; hex: string; ramHex?: string | null };
   },
   opts: SandboxDepackOptions,
 ): SandboxDepackResult {
@@ -254,8 +255,10 @@ function interpretDepackRun(
   // already exclude $0000-$01ff (stack + CPU port machinery — never depack
   // output); clip to captureRange when the caller set one.
   const range = opts.captureRange;
+  // RAM stores only: an I/O store ($D000-$DFFF with I/O in) is not depack output, and the
+  // image is read from `ramHex` (RAM without the I/O overlay) when the runtime sends it.
   const writtenAddrs: number[] = [];
-  for (const { lo, hi } of j.writtenRuns) {
+  for (const { lo, hi } of j.ramWrittenRuns ?? j.writtenRuns) {
     const a0 = range ? Math.max(lo, range.start) : lo;
     const a1 = range ? Math.min(hi, range.end) : hi;
     for (let a = a0; a <= a1; a++) writtenAddrs.push(a);
@@ -267,7 +270,7 @@ function interpretDepackRun(
     );
   }
 
-  const ram = hexToBytes(j.harvest.hex);
+  const ram = hexToBytes(j.harvest.ramHex ?? j.harvest.hex);
   const unpacked = Uint8Array.from(ram.subarray(dest, dest + len));
 
   // `writes` (diagnostic) reconstructed as the dest run: the real core reports the
@@ -278,7 +281,7 @@ function interpretDepackRun(
   // Issue #17 — every run the depacker wrote, so the caller can SEE that a
   // multi-block depack produced more than the one run returned here, and where
   // the holes between them are. Unclipped by captureRange on purpose.
-  const writtenRuns = j.writtenRuns.map(({ lo, hi }) => ({ lo, hi, len: hi - lo + 1 }));
+  const writtenRuns = (j.ramWrittenRuns ?? j.writtenRuns).map(({ lo, hi }) => ({ lo, hi, len: hi - lo + 1 }));
 
   return {
     unpacked,

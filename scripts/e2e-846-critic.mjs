@@ -377,8 +377,9 @@ try {
       own.length === 1 && /\[owner megavault_f3\]/.test(own[0].proof), own.map((h) => h.proof).join(" | "));
     saved("anon window $1000-$1FFF not referenced", []);
     const anon = await hitsFor("anon window $1000-$1FFF not referenced");
-    check("#48.1: a finding that names no subject still matches any owner, and the proof shows whose edge it was",
-      anon.length === 1 && /\[owner megavault_f3\]/.test(anon[0].proof), anon.map((h) => h.proof).join(" | "));
+    check("#79: a finding that names no subject and a shared window is flagged ambiguous, never refuted, and the proof shows whose edge it was",
+      anon.length === 1 && /ambiguous, not refuted/.test(anon[0].title) && anon[0].severity !== "blocking" && /\[owner megavault_f3\]/.test(anon[0].proof),
+      anon.map((h) => `${h.severity} ${h.title} ${h.proof}`).join(" | "));
 
     svc.saveFinding({ kind: "observation", title: "F1 zp: $F3 is read by nothing", artifactIds: [f1.id], evidence: [], tags: [] });
     check("#48.1: zero page is shared - a platform edge still refutes a claim about F1",
@@ -395,8 +396,9 @@ try {
     svc.saveFinding({ kind: "observation", title: "anon only $1000 writes to disk", evidence: [], tags: [] });
     check("#48.1: 'only $1000 writes' about F1 is not refuted by F3's writer at another address",
       (await hitsFor("F1 only $1000")).length === 0, (await hitsFor("F1 only $1000")).map((h) => h.proof).join(" | "));
-    check("#48.1: the same claim with no subject is still refuted by any owner's writer",
-      (await hitsFor("anon only $1000")).length === 1, (await hitsFor("anon only $1000")).map((h) => h.proof).join(" | "));
+    check("#79: the same claim with no subject, another owner's writer: ambiguous, not a refutation",
+      (await hitsFor("anon only $1000")).length === 1 && /ambiguous, not refuted/.test((await hitsFor("anon only $1000"))[0].title),
+      (await hitsFor("anon only $1000")).map((h) => h.title).join(" | "));
   }
 
   // point 2: an update without address_range leaves the stored range alone; `null` removes it

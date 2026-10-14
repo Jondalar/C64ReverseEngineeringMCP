@@ -61,8 +61,12 @@ you mean to change a dependency.
 
 The build writes `dist/`: the MCP server as ES modules, and the analysis pipeline as
 CommonJS beside it in `dist/pipeline/`. To update a checkout later, `git pull && npm ci &&
-npm run build`. Your RE projects live in their own directories and are never touched by
-this.
+npm run build`. Skip the build and the server runs the new code through an old
+`dist/pipeline`: the build stamps that directory with the package version, and every answer
+that runs the pipeline then opens with `WARNING: pipeline build is X, server is Y — run npm
+run build` (a missing stamp is reported the same way). An npm install is built from its own
+version and never warns. Your RE projects live in their own directories and are never touched
+by this.
 
 ## 2. The runtime
 
@@ -103,7 +107,7 @@ C64 Ultimate that runs the TRX64 core and the `trxmon` app, choose it: `runtime_
 (list, probe, select, start_monitor) or `C64RE_RUNTIME_BACKEND=c64u:<host>` (`emulator` is
 the default and the other value). Nothing is chosen for you and nothing falls back to the
 emulator: a device that stops answering is an error naming it. Machines of your own
-(`runtime_sandbox_run`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
+(`runtime_sandbox_run`, `runtime_sandbox_start`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
 and media reach the device only if the exact same bytes passed a run there with at least one
 `Then` check first. In the workbench the same choice is the runtime selector in the top bar
 (scan, **Start monitor** for a device that has the core but not the app, a REST password

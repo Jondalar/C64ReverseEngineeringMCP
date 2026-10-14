@@ -49,6 +49,56 @@ export interface ExtensionRegion {
 
 export const EXTENSION_SOURCE = "c64re-extension";
 
+// The name a LISTING prints for each C64 I/O register.
+//
+// One scheme, lower-case, chip-prefixed, at most 20 characters (the project name rule). The
+// book's Mapping label (SCROY, EXTCOL, ...) stays on the node as `symbol` and is only an alias
+// for search; the name below is what an operand reads and what an equate defines. Which address
+// answers for which register when a chip repeats (VIC every 64 bytes, SID every 32, the CIAs
+// every 16) is the window table underneath, not a name per mirror.
+function voiceNames(prefix: string, voice: number): string[] {
+  return ["freq_lo", "freq_hi", "pw_lo", "pw_hi", "ctrl", "ad", "sr"].map((r) => `${prefix}_v${voice}_${r}`);
+}
+function ciaNames(prefix: string): string[] {
+  return ["pra", "prb", "ddra", "ddrb", "ta_lo", "ta_hi", "tb_lo", "tb_hi", "tod_10ths", "tod_sec", "tod_min", "tod_hr", "sdr", "icr", "cra", "crb"].map((r) => `${prefix}_${r}`);
+}
+const SPRITES = [0, 1, 2, 3, 4, 5, 6, 7];
+const VIC_NAMES: string[] = [
+  ...SPRITES.flatMap((n) => [`vic_spr${n}_x`, `vic_spr${n}_y`]),
+  "vic_spr_x_msb", "vic_ctrl1", "vic_raster", "vic_lp_x", "vic_lp_y", "vic_spr_enable", "vic_ctrl2", "vic_spr_yexp",
+  "vic_mem", "vic_irq", "vic_irq_mask", "vic_spr_prio", "vic_spr_multi", "vic_spr_xexp", "vic_spr_coll", "vic_spr_bgcoll",
+  "vic_border", "vic_bg0", "vic_bg1", "vic_bg2", "vic_bg3", "vic_spr_mc0", "vic_spr_mc1",
+  ...SPRITES.map((n) => `vic_spr${n}_col`),
+];
+const SID_NAMES: string[] = [
+  ...voiceNames("sid", 1), ...voiceNames("sid", 2), ...voiceNames("sid", 3),
+  "sid_filter_lo", "sid_filter_hi", "sid_filter_res", "sid_volume", "sid_pot_x", "sid_pot_y", "sid_osc3", "sid_env3",
+];
+const C64_IO_BLOCKS: Array<{ base: number; names: string[] }> = [
+  { base: 0xd000, names: VIC_NAMES },
+  { base: 0xd400, names: SID_NAMES },
+  { base: 0xd800, names: ["color_ram"] },
+  { base: 0xdc00, names: ciaNames("cia1") },
+  { base: 0xdd00, names: ciaNames("cia2") },
+];
+
+export interface IoRegisterEntry { platform: PlatformTag; address: number; ioName: string; /** the node's name where the book has no row for the register */ heading: string }
+export interface IoWindowEntry { platform: PlatformTag; startAddress: number; endAddress: number; period: number; chip: string }
+
+export function loadIoRegisters(): IoRegisterEntry[] {
+  return C64_IO_BLOCKS.flatMap((block) => block.names.map((ioName, i): IoRegisterEntry => ({ platform: "c64", address: block.base + i, ioName, heading: block.base === 0xd800 ? "Colour RAM, $D800-$DBFF (one nibble per screen cell)" : ioName })));
+}
+
+export function loadIoWindows(): IoWindowEntry[] {
+  return [
+    { platform: "c64", startAddress: 0xd000, endAddress: 0xd3ff, period: 64, chip: "VIC-II" },
+    { platform: "c64", startAddress: 0xd400, endAddress: 0xd7ff, period: 32, chip: "SID" },
+    { platform: "c64", startAddress: 0xd800, endAddress: 0xdbff, period: 0, chip: "colour RAM" },
+    { platform: "c64", startAddress: 0xdc00, endAddress: 0xdcff, period: 16, chip: "CIA 1" },
+    { platform: "c64", startAddress: 0xdd00, endAddress: 0xddff, period: 16, chip: "CIA 2" },
+  ];
+}
+
 const C64_CARTRIDGE_IO: ExtensionEntry[] = [
   { platform: "c64", address: 0xde00, symbol: "EF_BANK", name: "EasyFlash bank register",
     description: "Write-only. Selects the 8 KiB bank presented at ROML ($8000) and ROMH ($A000/$E000). Reading it does not return the bank." },

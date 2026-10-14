@@ -43,6 +43,9 @@ import { registerAgentStepTools } from "./server-tools/agent-step.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSceneReelTool } from "./server-tools/scene-reel.js";
 import { registerRuntimeSandboxTool } from "./server-tools/runtime-sandbox.js";
+import { registerRuntimeSandboxSessionTools } from "./server-tools/runtime-sandbox-session.js";
+import { SANDBOX_PARITY, sandboxRefusal } from "./runtime/sandbox-parity.js";
+import { z } from "zod";
 import { registerRuntimeBackendTool } from "./server-tools/runtime-backend.js";
 import { registerRuntimeDownTool } from "./server-tools/runtime-down.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
@@ -146,6 +149,23 @@ function onboardingGateHandler(toolName: string, inner: ToolHandler): ToolHandle
   };
 }
 
+/**
+ * Spec 906 D3 — a tool that serves a human's UI refuses a sandbox session id by name.
+ *
+ * Its handler sees the arguments after the schema has parsed them, and a field the schema does not
+ * list is dropped before the handler runs — so a `runtime_down` handed `session_id: "sb-…"` would run
+ * as if none was given and end everything. The injector below therefore adds an optional `session_id`
+ * to the schema of every tool whose verdict is `ui-only`, and this wrapper refuses before anything runs.
+ */
+function sandboxGuardHandler(toolName: string, inner: ToolHandler): ToolHandler {
+  return async (...a: unknown[]) => {
+    const first = a[0] as { session_id?: unknown } | undefined;
+    const why = sandboxRefusal(toolName, first?.session_id);
+    if (why) return { content: [{ type: "text" as const, text: why }] };
+    return inner(...a);
+  };
+}
+
 const HAND_AUTHORED_WRITERS: ReadonlySet<string> = new Set([
   "contract_set", "project_steering_set", "write_annotations", "model_assert", "model_remove",
 ]);
@@ -237,6 +257,19 @@ function applyPhaseTagInjector(server: McpServer): void {
           args[args.length - 1] = onboardingGateHandler(toolName, ruleFooterHandler(toolName, handler as ToolHandler));
         }
       }
+      // Spec 906 D3 — the sandbox verdict. Outermost: nothing else runs for a refused id.
+      const parity = SANDBOX_PARITY[toolName];
+      if (parity?.verdict === "ui-only" && args.length >= 4) {
+        const shape = args[args.length - 2];
+        if (shape && typeof shape === "object" && !("session_id" in (shape as object))) {
+          args[args.length - 2] = {
+            ...(shape as Record<string, unknown>),
+            session_id: z.string().optional().describe(`Leave out. A sandbox session id (sb-…) is refused here: ${parity.reason}.`),
+          };
+        }
+        const handler = args[args.length - 1];
+        if (typeof handler === "function") args[args.length - 1] = sandboxGuardHandler(toolName, handler as ToolHandler);
+      }
       // Spec 049: phase gate. Wrap the last arg (the handler) only
       // if the tool is registered in PHASE_TOOLS (non-agnostic).
       // This keeps agnostic tools unwrapped and avoids polluting the
@@ -310,6 +343,7 @@ function createServer(): McpServer {
   registerSandboxTools(server, toolContext);
   registerSceneReelTool(server, toolContext);
   registerRuntimeSandboxTool(server, toolContext);
+  registerRuntimeSandboxSessionTools(server, toolContext);
   registerRuntimeBackendTool(server, toolContext);
   registerRuntimeDownTool(server, toolContext);
   registerSandboxDepackTool(server, toolContext);
@@ -383,6 +417,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/sandbox.ts", () => registerSandboxTools(server, toolContext));
   group("server-tools/scene-reel.ts", () => registerSceneReelTool(server, toolContext));
   group("server-tools/runtime-sandbox.ts", () => registerRuntimeSandboxTool(server, toolContext));
+  group("server-tools/runtime-sandbox-session.ts", () => registerRuntimeSandboxSessionTools(server, toolContext));
   group("server-tools/runtime-backend.ts", () => registerRuntimeBackendTool(server, toolContext));
   group("server-tools/runtime-down.ts", () => registerRuntimeDownTool(server, toolContext));
   group("server-tools/sandbox-depack.ts", () => registerSandboxDepackTool(server, toolContext));

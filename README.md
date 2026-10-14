@@ -133,7 +133,7 @@ do when it does not work: **[INSTALL.md](INSTALL.md)**.
 ## Starting and stopping
 
 C64RE starts what it needs by itself: the runtime when a runtime tool first needs it, the
-C64 Ultimate bridge when you select a device, a private machine for a sandbox run. Every
+C64 Ultimate bridge when you select a device, a private machine for a sandbox run or session. Every
 process it starts is entered in a ledger under `~/.c64re/processes/`, with its start time
 and command line, so nothing is hunted by hand.
 

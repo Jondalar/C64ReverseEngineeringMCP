@@ -83,6 +83,9 @@ async function daemonTraceRead<T>(
   return traceRead<T>(op, duckdbPath, args);
 }
 
+/** The session a registry tool names, as call params: only when one is named (a sandbox session's own daemon). */
+const sid = (session_id: string | undefined): Record<string, unknown> => (session_id ? { session_id } : {});
+
 export function registerRuntimeTools(server: McpServer, context: ServerToolContext): void {
   // ---- Getting a machine at all (Spec 716.3) ----
   //
@@ -246,8 +249,13 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
       budget: z.number().optional(),
     },
     safeHandler("runtime_until", async ({ session_id, addr, budget }) => {
-      const r = await callApi(session_id, "until", addr, budget !== undefined ? { budget } : undefined);
-      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+      // Spec 906 D6 — a run to a far address on a sandbox session may outlive the host's patience: past the
+      // grace window the call answers a job id and `analysis_job_status` hands over this answer.
+      const { jobOnSandbox } = await import("./long-call.js");
+      return jobOnSandbox("runtime_until", session_id, "the run", async () => {
+        const r = await callApi(session_id, "until", addr, budget !== undefined ? { budget } : undefined);
+        return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+      });
     }),
   );
 
@@ -965,12 +973,12 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_scenario_list",
     "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
-    {},
-    safeHandler("runtime_scenario_list", async () => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), },
+    safeHandler("runtime_scenario_list", async ({ session_id }) => {
       // Spec 806 step 2 — the scenario registry lives in the runtime: it owns the
       // project `scenarios/` dir and merges its in-memory copies over the disk scan.
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const scenarios = await runtimeDaemon.call("runtime/scenario_list", {});
+      const scenarios = await runtimeDaemon.call("runtime/scenario_list", sid(session_id));
       return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
     }),
   );
@@ -979,6 +987,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
     "runtime_scenario_save",
     "Save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
     {
+      session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"),
       id: z.string(),
       diskPath: z.string(),
       mode: z.enum(["true-drive"]),  // Spec 723.3: fast-trap / real-kernal removed
@@ -990,10 +999,10 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
       })).default([]),
       startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
     },
-    safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
+    safeHandler("runtime_scenario_save", async ({ session_id, id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
       const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
-      const r = await runtimeDaemon.call<{ id: string; filePath?: string }>("runtime/scenario_save", { scenario });
+      const r = await runtimeDaemon.call<{ id: string; filePath?: string }>("runtime/scenario_save", { scenario, ...sid(session_id) });
       // The runtime writes into ITS project's `scenarios/` dir (the MCP starts it
       // with --project, so that is the caller's). A runtime started without one
       // keeps the scenario in memory and returns no path — say so rather than
@@ -1005,11 +1014,11 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_scenario_load",
     "Load a single scenario by id. Checks project dir first, then samples.",
-    { id: z.string() },
-    safeHandler("runtime_scenario_load", async ({ id }) => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), id: z.string() },
+    safeHandler("runtime_scenario_load", async ({ session_id, id }) => {
       // The runtime raises `scenario '<id>' not found` itself — same message.
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const s = await runtimeDaemon.call("runtime/scenario_load", { id });
+      const s = await runtimeDaemon.call("runtime/scenario_load", { id, ...sid(session_id) });
       return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
     }),
   );
@@ -1017,10 +1026,10 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_scenario_delete",
     "Delete a scenario JSON by id. Returns true if found and removed.",
-    { id: z.string() },
-    safeHandler("runtime_scenario_delete", async ({ id }) => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), id: z.string() },
+    safeHandler("runtime_scenario_delete", async ({ session_id, id }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const { deleted } = await runtimeDaemon.call<{ deleted: boolean }>("runtime/scenario_delete", { id });
+      const { deleted } = await runtimeDaemon.call<{ deleted: boolean }>("runtime/scenario_delete", { id, ...sid(session_id) });
       return { content: [{ type: "text", text: deleted ? `deleted ${id}` : `${id} not found` }] };
     }),
   );
@@ -1054,13 +1063,13 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_run_scenario",
     "Replay a saved scenario by id, returns ReplayResult hashes.",
-    { id: z.string() },
-    safeHandler("runtime_run_scenario", async ({ id }) => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), id: z.string() },
+    safeHandler("runtime_run_scenario", async ({ session_id, id }) => {
       // Spec 806 step 2 — deterministic replay in the runtime: it looks the id up in
       // its own registry and returns the ReplayResult. The load + startSnapshot
       // decoding that used to happen here is the runtime's, on the far side of the id.
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const result = await runtimeDaemon.call("runtime/scenario_run", { id });
+      const result = await runtimeDaemon.call("runtime/scenario_run", { id, ...sid(session_id) });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
@@ -1071,10 +1080,11 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
     "runtime_run_scenarios_parallel",
     "Replay several scenarios as one batch. Returns batchId + progress for polling.",
     {
+      session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"),
       scenario_ids: z.array(z.string()).min(1),
       worker_count: z.number().int().min(1).optional(),
     },
-    safeHandler("runtime_run_scenarios_parallel", async ({ scenario_ids, worker_count }) => {
+    safeHandler("runtime_run_scenarios_parallel", async ({ session_id, scenario_ids, worker_count }) => {
       // Spec 806 step 2 — the batch runner is the runtime's (`batch/start`), which
       // owns the scenario registry the ids resolve against and pushes the same
       // batch/progress notifications. Poll it with runtime_batch_status.
@@ -1082,6 +1092,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
       const entry = await runtimeDaemon.call("batch/start", {
         scenarioIds: scenario_ids,
         workerCount: worker_count,
+        ...sid(session_id),
       });
       return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
     }),
@@ -1090,11 +1101,11 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_batch_status",
     "Poll progress of a parallel batch. Returns completed / total and status.",
-    { batch_id: z.string() },
-    safeHandler("runtime_batch_status", async ({ batch_id }) => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), batch_id: z.string() },
+    safeHandler("runtime_batch_status", async ({ session_id, batch_id }) => {
       // The runtime raises `batch '<id>' not found` itself — same message.
       const { runtimeDaemon } = await import("../runtime/backend.js");
-      const entry = await runtimeDaemon.call("batch/status", { batchId: batch_id });
+      const entry = await runtimeDaemon.call("batch/status", { batchId: batch_id, ...sid(session_id) });
       return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
     }),
   );
@@ -1102,11 +1113,11 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   server.tool(
     "runtime_batch_results",
     "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
-    { batch_id: z.string() },
-    safeHandler("runtime_batch_results", async ({ batch_id }) => {
+    { session_id: z.string().optional().describe("A sandbox session (sb-…) whose own daemon holds this registry; omitted: the shared runtime's"), batch_id: z.string() },
+    safeHandler("runtime_batch_results", async ({ session_id, batch_id }) => {
       const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.call<{ batch: { status?: string; completed?: number; total?: number } }>(
-        "batch/results", { batchId: batch_id },
+        "batch/results", { batchId: batch_id, ...sid(session_id) },
       );
       if (r.batch?.status === "running") throw new Error(`batch '${batch_id}' still running (${r.batch.completed}/${r.batch.total})`);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };

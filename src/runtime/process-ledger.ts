@@ -30,6 +30,8 @@ export interface ProcessRecord {
   startedAt: string;
   /** A C64U bridge: the device it serves. */
   device?: string;
+  /** A sandbox: the pid of the MCP process that owns it (Spec 906 D4) — the one that may end it or call it. */
+  owner?: number;
   /** Set when startedBy is "smoke": the gate step (or npm script) that was running. */
   smoke?: string;
 }
@@ -58,6 +60,7 @@ export interface RegisterInput {
   project?: string;
   startedBy: StartedBy;
   device?: string;
+  owner?: number;
 }
 
 /**
@@ -72,7 +75,7 @@ export async function registerProcess(input: RegisterInput, proc: PlatformProc =
   const rec: ProcessRecord = {
     v: 1, pid: input.pid, start: info.start, command: info.command,
     kind: input.kind, port: input.port, project: input.project, startedBy,
-    startedAt: new Date().toISOString(), device: input.device,
+    startedAt: new Date().toISOString(), device: input.device, owner: input.owner,
     smoke: startedBy === "smoke" ? smokeName(env) : undefined,
   };
   writeJsonAtomic(recordFile(input.pid), JSON.parse(JSON.stringify(rec)));

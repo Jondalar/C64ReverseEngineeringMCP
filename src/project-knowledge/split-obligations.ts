@@ -8,7 +8,9 @@
 //
 // An obligation is a `SplitPointerTableFact` with `provenance: "confirmed_code"`, keyed by
 // (lowTableBase, highTableBase). Code nobody has proved (`probable_code`) is listed, never
-// an obligation: a gate that fires on it is a wall.
+// an obligation: a gate that fires on it is a wall. So is a zero-page pair the code never
+// uses as a pointer (`pointerUsed: false` — coordinates, width/height): the shape alone does
+// not make a table.
 //
 // The ONLY thing that closes one is an entry with the same lo/hi in that artifact's
 // annotations — a declaration (count ≥ 1) or a rejection (a non-empty `reject`). The
@@ -30,6 +32,10 @@ export interface SplitObligation {
   /** the code that reads the tables */
   codeStart: number;
   codeEnd: number;
+  /** for a listed-not-obligation entry: why it does not bind */
+  why?: "probable-code" | "no-pointer-use";
+  /** zero-page cell of the low byte, for a zp_pointer */
+  pointerBase?: number;
 }
 
 export interface SplitObligationReport {
@@ -44,6 +50,7 @@ export interface SplitObligationReport {
 /** Printed with every obligation list, so nobody reads "0 open" as "no tables". */
 export const SPLIT_LIMIT_SENTENCE =
   "The detector sees only three shapes (zero-page pointer, patched operand, RTS dispatch) built from confirmed code; "
+  + "a zero-page pair counts only when the code later uses it as a pointer ((zp),y, (zp,x), jmp (zp)); "
   + "a table whose index is computed in two steps or whose pointer is copied before use is not listed here. "
   + "\"0 open\" is not \"no tables\" — reading the code finds the rest, and splitTables[] declares them.";
 
@@ -52,6 +59,7 @@ const hex4 = (n: number): string => `$${(n & 0xffff).toString(16).toUpperCase().
 interface RawFact {
   start?: number; end?: number; lowTableBase?: number; highTableBase?: number; indexRegister?: string;
   shape?: string; provenance?: string; sampleTargets?: number[]; countHint?: number; adjustHint?: number;
+  pointerUsed?: boolean; pointerBase?: number;
 }
 
 const factCache = new Map<string, { stamp: string; facts: RawFact[] }>();
@@ -131,8 +139,12 @@ export function splitObligationsFromFiles(analysisPath: string, annotationsPath?
       ...(typeof f.countHint === "number" ? { countHint: f.countHint } : {}),
       ...(typeof f.adjustHint === "number" ? { adjustHint: f.adjustHint } : {}),
       codeStart: f.start ?? 0, codeEnd: f.end ?? 0,
+      ...(typeof f.pointerBase === "number" ? { pointerBase: f.pointerBase } : {}),
     };
-    if (f.provenance !== "confirmed_code") { report.probable.push(o); continue; }
+    if (f.provenance !== "confirmed_code") { report.probable.push({ ...o, why: "probable-code" }); continue; }
+    // two bytes loaded from two tables and only read as bytes are not an address table; an analysis
+    // written before the check carries no `pointerUsed` and keeps the old reading
+    if (o.shape === "zp_pointer" && f.pointerUsed === false) { report.probable.push({ ...o, why: "no-pointer-use" }); continue; }
     const decision = decisions.find((d) => d.lo === o.lo && d.hi === o.hi);
     if (decision) report.closed.push({ ...o, how: decision.how });
     else report.open.push(o);
@@ -182,7 +194,16 @@ export function formatObligationBlock(report: SplitObligationReport): string {
     lines.push(`  decided: ${report.closed.map((c) => `${hex4(c.lo)}/${hex4(c.hi)} ${c.how}`).join(", ")}`);
   }
   if (report.probable.length > 0) {
-    lines.push(`  from probable code, listed and NOT an obligation: ${report.probable.map((p) => `${hex4(p.lo)}/${hex4(p.hi)}`).join(", ")}`);
+    const fromProbable = report.probable.filter((p) => p.why !== "no-pointer-use");
+    const noPointer = report.probable.filter((p) => p.why === "no-pointer-use");
+    if (fromProbable.length > 0) lines.push(`  from probable code, listed and NOT an obligation: ${fromProbable.map((p) => `${hex4(p.lo)}/${hex4(p.hi)}`).join(", ")}`);
+    if (noPointer.length > 0) {
+      lines.push(
+        `  probable, listed and NOT an obligation — the zero-page pair is never used as a pointer ((zp),y, (zp,x), jmp (zp)): `
+        + `${noPointer.map((p) => `${hex4(p.lo)}/${hex4(p.hi)}${p.pointerBase !== undefined ? ` -> $${p.pointerBase.toString(16).toUpperCase().padStart(2, "0")}/$${((p.pointerBase + 1) & 0xff).toString(16).toUpperCase().padStart(2, "0")}` : ""}`).join(", ")}`,
+        "  (coordinates, width/height?) Declare or reject one with a splitTables[] entry if you read it differently.",
+      );
+    }
   }
   lines.push(`  ${SPLIT_LIMIT_SENTENCE}`);
   return lines.join("\n");
