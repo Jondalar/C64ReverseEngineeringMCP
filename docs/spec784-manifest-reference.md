@@ -20,6 +20,21 @@ first), then the extractor emits this JSON. Two tools consume it:
 > **contradicts** — it read that payload and read past the position the span claims.
 > Say "read in run X" / "not seen in run X" everywhere, never "used" / "unused".
 
+**Disk verdict.** `validate_extraction` opens with coverage ("run X reached 2 of 91
+payloads") and sorts every sector span of the manifest into four classes:
+
+| Class | Meaning | Fails? |
+|---|---|---|
+| matched | the span's track/sector is in the run's block reads | no |
+| not seen in this run | not read, and the run did not read that payload's spans on both sides of it (a leading or trailing gap, or a payload the run never reached) | no |
+| read past it | not read, but an earlier and a later span of the same payload were | yes |
+| mismatch | read, but its bytes landed (landing map of the same capture) where no claiming payload puts them. Judged for raw payloads with a `loadAddress` only; a packed payload lands elsewhere by design | yes |
+
+A loader that buffers a sector on the stack and copies it out afterwards is followed to
+the copy's destination: `runtime_loader_lens` lists the destination as the landing (with
+the page-1 buffer it came through), and a transfer that only fills page 1 as a `buffer`,
+never as a landing.
+
 `extract_disk` auto-emits this shape for the stock-DOS layer as `manifest.spec784.json`
 (LoaderModel `kernal-directory`). For the custom-loader stage you author it yourself.
 
