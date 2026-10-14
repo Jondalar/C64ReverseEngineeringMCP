@@ -36,7 +36,7 @@ export interface CrossArtifactHit {
 const CACHE_RELPATH = join("knowledge", ".cache", "address-index.json");
 
 /** Depth-bounded walk for `*_analysis.json` (mirrors the monitor inspect walk). */
-function findAnalysisJsons(projectDir: string): string[] {
+export function findAnalysisJsons(projectDir: string): string[] {
   const out: string[] = [];
   const walk = (d: string, depth: number): void => {
     if (depth > 6 || out.length > 256) return;

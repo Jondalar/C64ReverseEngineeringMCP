@@ -651,6 +651,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (annotationsAbs) cliArgs.push("--annotations", annotationsAbs);
     if (choice.path) cliArgs.push("--analysis", choice.path);
     else cliArgs.push("--no-analysis");
+    // The project's other files with code: where a zero-page pointer walk goes on when a call
+    // leaves this image (a pair handed to a resident routine is a pointer or not by what that
+    // routine does with it).
+    let calleeCatalogFile: string | undefined;
+    if (!noPlatformNames && resolvedPlatform === "c64") {
+      try {
+        const { buildCalleeCatalog } = await import("../project-knowledge/callee-catalog.js");
+        const catalog = buildCalleeCatalog(pd, sourceAbs);
+        if (catalog.length > 0) {
+          calleeCatalogFile = join(tmpdir(), `c64re-callees-${randomUUID()}.json`);
+          writeFileSync(calleeCatalogFile, JSON.stringify(catalog), "utf8");
+          cliArgs.push("--callee-catalog", calleeCatalogFile);
+        }
+      } catch { /* without the catalog a call out of the image is unknown flow, and the immediates stay literal */ }
+    }
     cliArgs.push(sourceAbs, outAbs);
     const entries = seeds.map((seed) => hex(seed).slice(1)).join(",");
     if (reading.kind === "raw" || entries) cliArgs.push(entries);

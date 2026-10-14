@@ -147,6 +147,8 @@ interface PrgDisasmOptions {
   platform?: PlatformTag | "none";
   /** CRT hardware type of the cartridge these bytes belong to (the id at offset $16 of a .crt): decides what $DE00-$DFFF is called. Absent = not known, and the window is named neutrally. */
   cartridgeType?: number;
+  /** JSON file listing the project's other files with code (CalleeCatalogEntry[]): where a pointer walk may continue when a call leaves this image. Absent = calls out of the image are unknown flow. */
+  calleeCatalogPath?: string;
   // Spec 741 (Slice A): relocated regions to render as
   // .pseudopc / .logical blocks at their runtime PC while keeping the
   // stored bytes byte-exact. Absent → rendering is unchanged.
@@ -1458,16 +1460,391 @@ function applyKernalAbiOperandOverrides(context: RenderAnalysisContext): void {
   }
 }
 
+const POINTER_USE_STEP_BUDGET = 4000;
+const POINTER_USE_CALL_DEPTH = 2;
+const POINTER_USE_CALLER_LIMIT = 16;
+
+/**
+ * One other file of the project that holds code which may be resident at an address this
+ * listing calls into. The MCP side writes the list (`--callee-catalog`); the renderer reads a
+ * file's bytes only when a pointer walk leaves the image and reaches an address inside one of
+ * the `codeRanges`. Read-only: nothing from these files is ever rendered.
+ */
+export interface CalleeCatalogEntry {
+  owner: string;
+  path: string;
+  loadAddress: number;
+  codeRanges: Array<[number, number]>;
+}
+
+let activeCalleeCatalog: CalleeCatalogEntry[] = [];
+const calleeImageCache = new Map<string, PrgImage | null>();
+
+function loadCalleeCatalog(path: string | undefined): CalleeCatalogEntry[] {
+  calleeImageCache.clear();
+  if (!path || !existsSync(path)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as CalleeCatalogEntry[];
+    return Array.isArray(parsed) ? parsed.filter((e) => e && typeof e.path === "string" && Array.isArray(e.codeRanges)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function calleeImage(entry: CalleeCatalogEntry): PrgImage | undefined {
+  if (!calleeImageCache.has(entry.path)) {
+    try {
+      calleeImageCache.set(entry.path, readPrg(entry.path));
+    } catch {
+      calleeImageCache.set(entry.path, null);
+    }
+  }
+  return calleeImageCache.get(entry.path) ?? undefined;
+}
+
+/** The other files that have code at `target` (a recorded code range AND bytes that cover it). */
+function calleeCandidates(target: number): Array<{ entry: CalleeCatalogEntry; image: PrgImage }> {
+  const found: Array<{ entry: CalleeCatalogEntry; image: PrgImage }> = [];
+  for (const entry of activeCalleeCatalog) {
+    if (!entry.codeRanges.some(([from, to]) => target >= from && target <= to)) continue;
+    const image = calleeImage(entry);
+    if (!image || target < image.loadAddress || target >= image.loadAddress + image.data.length) continue;
+    found.push({ entry, image });
+  }
+  return found;
+}
+
+interface PointerUseResult {
+  /** a path from the setup reaches a dereference of the pair's low cell */
+  pointer: boolean;
+  /** set when the verdict hangs on a callee that is resident in several files that disagree */
+  ambiguous?: string;
+}
+
+// Is the zero-page pointer `low`/`low+1`, just built by stores, DEREFERENCED by the code that
+// runs next, before either cell is overwritten?
+//
+// Walks the instructions that can execute after `startAfter`: fall-through, both arms of a
+// branch, `jmp abs`, and into the callee of a `jsr` (at most POINTER_USE_CALL_DEPTH deep,
+// counted across files; a call below that bound is stepped over only when everything it can
+// reach is shown to leave both cells alone); a callee's `rts` returns to the instruction after its `jsr`. A path
+// ends at a store to either cell (except a borrowed cell whose value was saved with `lda cell` /
+// `pha` or into the operand of a later `lda #imm`, and comes back with `pla` / `sta cell` or that
+// `lda #imm` / `sta cell`), at `rti`/`brk`, and at anything the walk cannot follow: an
+// indirect jump, a `jmp`/`jsr` into bytes this listing did not decode. A `jsr` to a ROM
+// routine the platform names (KERNAL, BASIC) is stepped over.
+// A `jsr`/`jmp` that leaves the image is looked up in the project's other files
+// (`--callee-catalog`): the files whose recorded code covers the target are walked from there
+// with the same rules, their instructions decoded on demand from their bytes. Several files
+// resident at that address are all walked; they must AGREE (every one dereferences, or none
+// does) - when they disagree nothing tells them apart, the path proves nothing and the verdict
+// carries `ambiguous`. No catalog, or no file with code there: unknown flow, the path ends.
+// When the routine that built the pointer returns (`rts` with nothing to return to), the walk
+// continues behind each `jsr` that calls that routine - a "set the pointer" helper is used by
+// its caller, one level up.
+//
+// `pointer` is true only when a path reaches `lda (low),y` / `(low,x)` or `jmp ($00low)`. A scan
+// proves presence, never absence: a pointer whose use is out of reach reads as "no use", and
+// the immediates stay literal bytes. `lda $f0` / `cmp $f0` read the cell as a plain operand
+// and prove nothing.
+function zpPointerDereferencedAfter(
+  context: RenderAnalysisContext,
+  setupInstructionAddress: number,
+  startAfter: InstructionFact,
+  low: number,
+): PointerUseResult {
+  const high = (low + 1) & 0xff;
+  const isCell = (value: number | undefined): boolean => value === low || value === high;
+  const isRomRoutine = (address: number): boolean => {
+    if (platformOff()) return false;
+    return platformNode(activePlatform as PlatformTag, address)?.kind === "rom";
+  };
+
+  interface View {
+    id: string;
+    fetch(address: number): InstructionFact | undefined;
+    contains(address: number): boolean;
+  }
+  const ownEnd = context.prg.loadAddress + context.prg.data.length - 1;
+  const ownView: View = {
+    id: "",
+    fetch: (address) => context.instructions.get(address),
+    contains: (address) => address >= context.prg.loadAddress && address <= ownEnd,
+  };
+  const foreignViews = new Map<string, View>();
+  const viewOf = (entry: CalleeCatalogEntry, image: PrgImage): View => {
+    let view = foreignViews.get(entry.path);
+    if (!view) {
+      const decoded = new Map<number, InstructionFact | undefined>();
+      view = {
+        id: entry.path,
+        fetch: (address) => {
+          if (!decoded.has(address)) decoded.set(address, decodeInstructionFactAtAddress(image, address));
+          return decoded.get(address);
+        },
+        contains: (address) => address >= image.loadAddress && address < image.loadAddress + image.data.length,
+      };
+      foreignViews.set(entry.path, view);
+    }
+    return view;
+  };
+
+  // `returns`: the path masks (see `scan`) with which the code can come back to its caller
+  interface Scan { deref: boolean; returns: Set<number> }
+  const memo = new Map<string, Scan>();
+  const patchSaved = new Set<number>(); // operand bytes a cell was saved into
+  let budget = POINTER_USE_STEP_BUDGET;
+  let ambiguous: string | undefined;
+  let callers: number[] | undefined;
+  let expanded = false;
+
+  const callersOfSetupRoutine = (): number[] => {
+    if (callers) return callers;
+    callers = [];
+    const entries = new Set<number>();
+    for (const ins of context.instructions.values()) {
+      if (ins.mnemonic === "jsr" && ins.targetAddress !== undefined && ins.targetAddress <= setupInstructionAddress) entries.add(ins.targetAddress);
+    }
+    const candidates = [...entries].sort((x, y) => y - x).slice(0, 8);
+    for (const entry of candidates) {
+      // the nearest routine start from which the setup store is reachable without calling out
+      const walked = new Set<number>();
+      const stack = [entry];
+      let reached = false;
+      let guard = 1500;
+      while (stack.length > 0 && guard > 0 && !reached) {
+        const at = stack.pop()!;
+        if (walked.has(at)) continue;
+        walked.add(at);
+        const ins = context.instructions.get(at);
+        if (!ins) continue;
+        guard -= 1;
+        if (ins.address === setupInstructionAddress) { reached = true; break; }
+        if (ins.mnemonic === "rts" || ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+        if (ins.mnemonic === "jmp") {
+          if (ins.addressingMode === "abs" && ins.targetAddress !== undefined) stack.push(ins.targetAddress);
+          continue;
+        }
+        if (ins.addressingMode === "rel" && ins.targetAddress !== undefined) stack.push(ins.targetAddress);
+        stack.push((ins.address + ins.size) & 0xffff);
+      }
+      if (!reached) continue;
+      for (const ins of context.instructions.values()) {
+        if (ins.mnemonic === "jsr" && ins.targetAddress === entry) callers.push((ins.address + ins.size) & 0xffff);
+      }
+      break;
+    }
+    if (callers.length > POINTER_USE_CALLER_LIMIT) callers = [];
+    return callers;
+  };
+
+  // The walk into code that is not in this image: every file with code at `target`.
+  const scanExternal = (target: number, depth: number, mask: number): Scan => {
+    const candidates = calleeCandidates(target);
+    if (candidates.length === 0) return { deref: false, returns: new Set() };
+    const results = candidates.map((c) => scan(viewOf(c.entry, c.image), target, depth, false, mask));
+    const derefs = results.filter((r) => r.deref).length;
+    if (derefs === results.length) return { deref: true, returns: new Set() };
+    if (derefs > 0) {
+      ambiguous = `callee $${formatHex16(target)} ambiguous: ${results.length} residents`;
+      return { deref: false, returns: new Set() };
+    }
+    return { deref: false, returns: new Set(results.flatMap((r) => [...r.returns])) };
+  };
+
+  // A call below the depth bound is not explored for a dereference; it may still be shown to
+  // leave the cells alone. Everything it can reach (any depth, within a step budget) must be
+  // decodable, store to neither cell and read neither as a pointer; a ROM routine is stepped
+  // over, and a call into another file is held to the same test. Anything else - an indirect
+  // jump, an undecoded target, an exhausted budget - means the cells may change: not transparent.
+  const transparentMemo = new Map<string, boolean>();
+  const transparent = (view: View, start: number): boolean => {
+    const key = `${view.id}|${start}`;
+    const known = transparentMemo.get(key);
+    if (known !== undefined) return known;
+    transparentMemo.set(key, true); // a loop back into itself adds nothing
+    let ok = true;
+    let guard = 3000;
+    const todo = [start];
+    const walked = new Set<number>();
+    while (ok && todo.length > 0) {
+      const at = todo.pop()!;
+      if (walked.has(at)) continue;
+      walked.add(at);
+      const ins = view.fetch(at);
+      if (!ins || guard <= 0) { ok = false; break; }
+      guard -= 1;
+      const mode = ins.addressingMode;
+      if ((mode === "(zp),y" || mode === "(zp,x)") && ins.operandValue !== undefined && (ins.operandValue & 0xff) === low) { ok = false; break; }
+      if ((ins.mnemonic === "sta" || ins.mnemonic === "stx" || ins.mnemonic === "sty")
+        && (mode === "zp" || (mode === "abs" && (ins.operandValue ?? 0x100) < 0x100)) && isCell(ins.operandValue)) { ok = false; break; }
+      const next = (ins.address + ins.size) & 0xffff;
+      if (ins.mnemonic === "rts" || ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+      if (ins.mnemonic === "jmp" || ins.mnemonic === "jsr") {
+        const target = ins.targetAddress;
+        if (ins.mnemonic === "jmp" && mode !== "abs") { ok = false; break; }
+        if (target === undefined) { ok = false; break; }
+        if (!isRomRoutine(target)) {
+          if (view.contains(target)) todo.push(target);
+          else {
+            const candidates = calleeCandidates(target);
+            if (candidates.length === 0 || !candidates.every((c) => transparent(viewOf(c.entry, c.image), target))) { ok = false; break; }
+          }
+        }
+        if (ins.mnemonic === "jsr") todo.push(next);
+        continue;
+      }
+      if (mode === "rel" && ins.targetAddress !== undefined) todo.push(ins.targetAddress);
+      todo.push(next);
+    }
+    transparentMemo.set(key, ok);
+    return ok;
+  };
+
+  const scan = (view: View, start: number, depth: number, setupLevel: boolean, entryMask = 0): Scan => {
+    const key = `${view.id}|${start}|${depth}|${entryMask}`;
+    if (!setupLevel) {
+      const known = memo.get(key);
+      if (known) return known;
+      memo.set(key, { deref: false, returns: new Set() });
+    }
+    const finish = (result: Scan): Scan => {
+      if (!setupLevel) memo.set(key, result);
+      return result;
+    };
+    // `mask` is per path. Bit 0 / 1: the low / high cell's value is saved on the stack
+    // (`lda cell` / `pha`, or stored into the operand of a later `lda #imm` / `sta cell`). Bit 2 / 3: that cell has been overwritten since. Bit 4 / 5: the save went into a patch operand. A saved cell may be
+    // overwritten (the routine borrows it) and `pla` / `sta cell` puts the value back; a deref
+    // while a cell is overwritten reads the borrower's value, not the pointer. An unsaved cell
+    // that is overwritten ends the path.
+    const queue: Array<[number, number]> = [[start, entryMask]];
+    const seen = new Set<string>();
+    const returns = new Set<number>();
+    const onReturn = (returnMask: number): void => {
+      if (!setupLevel) { returns.add(returnMask); return; }
+      if (expanded) return;
+      expanded = true;
+      for (const returnTo of callersOfSetupRoutine()) queue.push([returnTo, 0]);
+    };
+    while (queue.length > 0 && budget > 0) {
+      const [at, mask] = queue.pop()!;
+      const seenKey = `${at}|${mask}`;
+      if (seen.has(seenKey)) continue;
+      seen.add(seenKey);
+      const ins = view.fetch(at);
+      if (!ins) continue;
+      budget -= 1;
+      const mode = ins.addressingMode;
+      if ((mask & 12) === 0) {
+        if ((mode === "(zp),y" || mode === "(zp,x)") && ins.operandValue !== undefined && (ins.operandValue & 0xff) === low) return finish({ deref: true, returns: new Set() });
+        if (ins.mnemonic === "jmp" && mode === "ind" && ins.operandValue === low) return finish({ deref: true, returns: new Set() });
+      }
+      const next = (ins.address + ins.size) & 0xffff;
+      if (ins.mnemonic === "lda" && mode === "zp" && isCell(ins.operandValue)) {
+        const following = view.fetch(next);
+        const bit = ins.operandValue === low ? 1 : 2;
+        if (following?.mnemonic === "pha") {
+          queue.push([next, mask | bit]);
+          continue;
+        }
+        // saved into the operand of a later `lda #imm` / `sta cell` (self-modifying code)
+        if (following?.mnemonic === "sta" && following.addressingMode === "abs" && following.operandValue !== undefined && following.operandValue >= 0x100) {
+          const patched = view.fetch(following.operandValue - 1);
+          const afterPatched = patched ? view.fetch(patched.address + patched.size) : undefined;
+          if (patched?.mnemonic === "lda" && patched.addressingMode === "imm" && afterPatched?.mnemonic === "sta"
+            && afterPatched.addressingMode === "zp" && afterPatched.operandValue === ins.operandValue) {
+            patchSaved.add(following.operandValue);
+            queue.push([next, mask | bit | (bit << 4)]);
+            continue;
+          }
+        }
+      }
+      if (ins.mnemonic === "lda" && mode === "imm") {
+        const store = view.fetch(next);
+        if (store && store.mnemonic === "sta" && store.addressingMode === "zp" && isCell(store.operandValue)
+          && (mask & ((store.operandValue === low ? 1 : 2) << 4)) !== 0 && patchSaved.has(ins.address + 1)) {
+          const bit = store.operandValue === low ? 1 : 2;
+          queue.push([(store.address + store.size) & 0xffff, mask & ~(bit | (bit << 2) | (bit << 4))]);
+          continue;
+        }
+      }
+      if (ins.mnemonic === "pla") {
+        const store = view.fetch(next);
+        if (store && store.mnemonic === "sta" && store.addressingMode === "zp" && isCell(store.operandValue)
+          && (mask & (store.operandValue === low ? 1 : 2)) !== 0) {
+          const bit = store.operandValue === low ? 1 : 2;
+          queue.push([(store.address + store.size) & 0xffff, mask & ~(bit | (bit << 2))]);
+          continue;
+        }
+      }
+      if ((ins.mnemonic === "sta" || ins.mnemonic === "stx" || ins.mnemonic === "sty")
+        && (mode === "zp" || (mode === "abs" && (ins.operandValue ?? 0x100) < 0x100)) && isCell(ins.operandValue)) {
+        const bit = ins.operandValue === low ? 1 : 2;
+        if ((mask & bit) !== 0) queue.push([next, mask | (bit << 2)]);
+        continue;
+      }
+      if (ins.mnemonic === "rts") { onReturn(mask); continue; }
+      if (ins.mnemonic === "rti" || ins.mnemonic === "brk") continue;
+      if (ins.mnemonic === "jmp") {
+        const target = ins.targetAddress;
+        if (mode !== "abs" || target === undefined) continue;
+        if (view.contains(target)) { queue.push([target, mask]); continue; }
+        if (isRomRoutine(target) || depth >= POINTER_USE_CALL_DEPTH) continue;
+        const outcome = scanExternal(target, depth + 1, mask);
+        if (outcome.deref) return finish({ deref: true, returns: new Set() });
+        for (const returnMask of outcome.returns) onReturn(returnMask);
+        continue;
+      }
+      if (ins.mnemonic === "jsr") {
+        const target = ins.targetAddress;
+        if (target === undefined) continue;
+        if (isRomRoutine(target)) { queue.push([next, mask]); continue; }
+        if (depth >= POINTER_USE_CALL_DEPTH) {
+          const inView = view.contains(target);
+          const candidates = inView ? [] : calleeCandidates(target);
+          const clear = inView
+            ? view.fetch(target) !== undefined && transparent(view, target)
+            : candidates.length > 0 && candidates.every((c) => transparent(viewOf(c.entry, c.image), target));
+          if (clear) queue.push([next, mask]);
+          continue;
+        }
+        let outcome: Scan;
+        if (view.contains(target)) {
+          if (!view.fetch(target)) continue;
+          outcome = scan(view, target, depth + 1, false, mask);
+        } else {
+          outcome = scanExternal(target, depth + 1, mask);
+        }
+        if (outcome.deref) return finish({ deref: true, returns: new Set() });
+        for (const returnMask of outcome.returns) queue.push([next, returnMask]);
+        continue;
+      }
+      if (mode === "rel" && ins.targetAddress !== undefined) queue.push([ins.targetAddress, mask]);
+      queue.push([next, mask]);
+    }
+    return finish({ deref: false, returns });
+  };
+
+  const verdict = scan(ownView, (startAfter.address + startAfter.size) & 0xffff, 0, true);
+  return verdict.deref ? { pointer: true } : { pointer: false, ...(ambiguous ? { ambiguous } : {}) };
+}
+
 // Detect zero-page pointer construction:
 //
 //   lda #lo   /   sta $fb
 //   lda #hi   /   sta $fc
 //
 // (or with X/Y, or with the high half stored first). When the combined
-// (hi<<8)|lo points at a labelled address AND the low cell is dereferenced
-// somewhere in the listing (`(zp),y`, `(zp,x)`, `jmp ($00xx)`), rewrite the immediate operands as
-// `#<label` / `#>label` so the pointer becomes relocatable in source form. Both
-// halves must be present; a lone half, or a pair nothing dereferences, stays literal.
+// (hi<<8)|lo points at a labelled address AND THIS PAIR is dereferenced
+// before either cell is overwritten (`(zp),y`, `(zp,x)`, `jmp ($00xx)` - in the
+// same routine or in a callee, see `zpPointerDereferencedAfter`), rewrite the
+// immediate operands as `#<label` / `#>label` so the pointer becomes relocatable
+// in source form. The use may be in a file other than this one: a `jsr` out of the
+// image is followed into the project's other files when they are named by
+// `--callee-catalog`. A zero-page cell that is a pointer ELSEWHERE in the listing
+// proves nothing about this store: engines keep a shared pool of pointer cells
+// and also pass plain coordinates through the same bytes. Both halves must be
+// present; a lone half, or a pair no path dereferences, stays literal.
 function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
   interface ZpStoreEvent {
     listIndex: number;
@@ -1520,20 +1897,6 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
     });
   }
 
-  // A byte that happens to equal a label's low byte, stored to a zero-page cell, is a
-  // constant until something dereferences the cell as a pointer: `(zp),y`, `(zp,x)`, or
-  // `jmp ($00xx)` through a vector built in zero page. Without one the pair stays the
-  // literal it is.
-  const dereferenced = new Set<number>();
-  for (const inst of instructions) {
-    if (inst.operandValue === undefined) continue;
-    if (inst.addressingMode === "(zp),y" || inst.addressingMode === "(zp,x)") {
-      dereferenced.add(inst.operandValue & 0xff);
-    } else if (inst.addressingMode === "ind" && inst.operandValue < 0x100) {
-      dereferenced.add(inst.operandValue);
-    }
-  }
-
   const PAIR_WINDOW = 8;
   for (let i = 0; i < events.length; i += 1) {
     const a = events[i]!;
@@ -1551,10 +1914,18 @@ function applyZpPointerSetupOverrides(context: RenderAnalysisContext): void {
       } else {
         continue;
       }
-      if (!dereferenced.has(low.zpAddress)) continue;
+      // One setup is straight-line code. A call, branch or jump between the two stores means the
+      // halves belong to different setups (the high half of one, the low half of the next).
+      let straightLine = true;
+      for (let between = a.listIndex + 1; between < b.listIndex; between += 1) {
+        if (instructions[between]!.isControlFlow) { straightLine = false; break; }
+      }
+      if (!straightLine) continue;
       const pointer = ((high.immediateValue & 0xff) << 8) | (low.immediateValue & 0xff);
       const label = resolvePointerLabel(pointer, context);
       if (!label) continue;
+      const lastStore = context.instructions.get(b.storeInstructionAddress)!;
+      if (!zpPointerDereferencedAfter(context, b.storeInstructionAddress, lastStore, low.zpAddress).pointer) continue;
       if (!context.operandOverrides.has(low.immediateInstructionAddress)) {
         context.operandOverrides.set(low.immediateInstructionAddress, `#<${label}`);
       }
@@ -2591,13 +2962,28 @@ function renderCopyFact(fact: CopyRoutineFact): string {
   return `// SEMANTICS copy-loop ${src || "dynamic source"}${moreSrc ? moreSrc : ""} -> ${dest}${moreDest} via ${fact.indexRegister.toUpperCase()}`;
 }
 
-function renderPointerFact(fact: IndirectPointerConstructionFact): string {
+// The analyzer reports every lda/sta/lda/sta pair into adjacent zero-page cells; whether the pair
+// is a POINTER is decided here, by the same flow walk that decides the `#<label` halves. A pair
+// no path dereferences is two bytes (a rectangle's corner, a width and a height), and the
+// listing says so instead of calling it a pointer.
+function renderPointerFact(fact: IndirectPointerConstructionFact, context: RenderAnalysisContext): string {
   const zpLow = `$${formatHex8(fact.zeroPageBase)}`;
   const zpHigh = `$${formatHex8((fact.zeroPageBase + 1) & 0xff)}`;
-  if (fact.constantTarget !== undefined) {
-    return `// SEMANTICS zp-pointer ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}`;
+  let lastStore: InstructionFact | undefined;
+  for (let at: number | undefined = fact.start, step = 0; at !== undefined && step < 4; step += 1) {
+    lastStore = context.instructions.get(at);
+    at = lastStore ? lastStore.address + lastStore.size : undefined;
   }
-  return `// SEMANTICS zp-pointer ${zpLow}/${zpHigh} built dynamically`;
+  const use = lastStore !== undefined && lastStore.address + lastStore.size - 1 === fact.end
+    ? zpPointerDereferencedAfter(context, lastStore.address, lastStore, fact.zeroPageBase)
+    : { pointer: false };
+  const dereferenced = use.pointer;
+  const kind = dereferenced ? "zp-pointer" : "zp-pair";
+  const note = dereferenced ? "" : ` (${(use as PointerUseResult).ambiguous ?? "no pointer use reached"})`;
+  if (fact.constantTarget !== undefined) {
+    return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}${note}`;
+  }
+  return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} built dynamically${note}`;
 }
 
 function renderTableFact(fact: TableUsageFact): string {
@@ -3294,7 +3680,7 @@ function renderCodeSegment(
       lines.push(renderCopyFact(fact));
     }
     for (const fact of context.pointerFactsByStart.get(instruction.address) ?? []) {
-      lines.push(renderPointerFact(fact));
+      lines.push(renderPointerFact(fact, context));
     }
     for (const fact of context.tableFactsByStart.get(instruction.address) ?? []) {
       lines.push(renderTableFact(fact));
@@ -4242,6 +4628,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
   activeCartridgeType = options.cartridgeType;
+  activeCalleeCatalog = loadCalleeCatalog(options.calleeCatalogPath);
   const resolvedPrgPath = resolve(prgPath);
   const prg = options.raw ? readRawImage(resolvedPrgPath, options.raw) : readPrg(resolvedPrgPath);
   const { report: analysisReport, path: usedAnalysisPath } = maybeLoadAnalysis(

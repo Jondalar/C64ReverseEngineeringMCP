@@ -148,6 +148,7 @@ function main(): void {
     // verb had no way to pass it, so a caller whose annotations lived under a name no
     // `<stem>_annotations.json` was going to match had to move the file.
     let annotationsPath: string | undefined;
+    let calleeCatalogPath: string | undefined;
     let noAnalysis = false;
     let cartridgeType: number | undefined;
     const remaining: string[] = [];
@@ -172,6 +173,9 @@ function main(): void {
         analysisPath = args[i].slice("--analysis=".length);
       } else if (args[i] === "--annotations" && args[i + 1]) {
         annotationsPath = args[i + 1];
+        i += 1;
+      } else if (args[i] === "--callee-catalog" && args[i + 1]) {
+        calleeCatalogPath = resolve(args[i + 1]);
         i += 1;
       } else if (args[i].startsWith("--annotations=")) {
         annotationsPath = args[i].slice("--annotations=".length);
@@ -231,6 +235,7 @@ function main(): void {
       noAnalysis,
       platform,
       ...(cartridgeType !== undefined ? { cartridgeType } : {}),
+      ...(calleeCatalogPath ? { calleeCatalogPath } : {}),
       relocations,
     });
     // Which files the RENDERER actually read. The wrapper around this verb used to
@@ -263,6 +268,7 @@ function main(): void {
     let annotationsPath: string | undefined;
     let analysisFlagPath: string | undefined;
     let relocationsPath: string | undefined;
+    let rawCalleeCatalogPath: string | undefined;
     let noAnalysis = false;
     let cartridgeType: number | undefined;
     const remaining: string[] = [];
@@ -300,6 +306,9 @@ function main(): void {
       } else if (flag === "--relocations") {
         relocationsPath = takeValue(flag, inline, args[i + 1]);
         if (inline === undefined) i += 1;
+      } else if (flag === "--callee-catalog") {
+        rawCalleeCatalogPath = resolve(takeValue(flag, inline, args[i + 1]));
+        if (inline === undefined) i += 1;
       } else if (flag === "--no-analysis") {
         noAnalysis = true;
       } else {
@@ -322,6 +331,7 @@ function main(): void {
       platform,
       ...(cartridgeType !== undefined ? { cartridgeType } : {}),
       raw: { loadAddress, offset, length },
+      ...(rawCalleeCatalogPath ? { calleeCatalogPath: rawCalleeCatalogPath } : {}),
       annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
       // Spec 741's relocated rendering is not a property of the PRG header: bytes
       // stored at one address and executed at another arrive just as often with no
