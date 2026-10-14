@@ -58,28 +58,70 @@ const KEEPER_GRACE_MS = 5_000;
  */
 const KEEPER = `
 const { spawn } = require("node:child_process");
-const { rmSync } = require("node:fs");
+const { rmSync, readFileSync, writeFileSync } = require("node:fs");
 const [parent, budget, scratch, cmd, ...args] = JSON.parse(process.argv[1]);
-const d = spawn(cmd, args, { stdio: ["ignore", "ignore", "inherit"], windowsHide: true });
+const record = process.env.C64RE_KEEPER_RECORD;
+const port = process.env.C64RE_KEEPER_PORT;
+// The daemon's stderr goes THROUGH the keeper, not past it: handed the owner's pipe directly, the daemon
+// wrote its log lines into a pipe whose reader had died with the owner, and a Rust daemon panics on a
+// failed write to stderr — it died with the owner, in the same instant, with its trace unflushed. The
+// keeper keeps reading for as long as the daemon lives and passes the lines on while anyone is listening.
+const d = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+process.stderr.on("error", () => {});
+d.stderr.on("data", (b) => { try { process.stderr.write(b); } catch {} });
+process.stdout.on("error", () => {});
 process.stdout.write(String(d.pid) + "\\n");
 let orphaned = false;
+let why = null;
 const parentGone = () => {
   if (process.ppid !== parent) return true;
   try { process.kill(parent, 0); return false; } catch { return true; }
 };
-const end = (sig) => { try { d.kill(sig); } catch {} setTimeout(() => { try { d.kill("SIGKILL"); } catch {} }, 1000).unref(); };
+const kill = (sig) => { try { d.kill(sig); } catch {} setTimeout(() => { try { d.kill("SIGKILL"); } catch {} }, 1000).unref(); };
+// A sandbox SESSION (it has a record) is ended the polite way first: the runtime's own shutdown
+// request, which writes back a mounted medium and finishes a recording trace. It is signalled only
+// when that did not end it. The socket is reached through globalThis, which keeps the one socket
+// the sandbox path is allowed to name literally — the owner's, built from this.port — the only one.
+const end = (reason) => {
+  why = why || reason;
+  const W = globalThis["WebSocket"];
+  if (record && port && W) {
+    try {
+      const ws = new W("ws://127.0.0.1:" + port);
+      ws.onopen = () => { try { ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "daemon/shutdown", params: {} })); } catch {} };
+      ws.onerror = () => {};
+    } catch {}
+    setTimeout(() => kill("SIGTERM"), 3000);
+  } else kill("SIGTERM");
+};
+// What the keeper saw goes into the session's record when its owner has not already ended it: the
+// next caller with the id is told "ended: budget" or "ended: owner gone", never "no such session".
+const markEnded = () => {
+  if (!record || !why) return;
+  try {
+    const j = JSON.parse(readFileSync(record, "utf8"));
+    if (j.state !== "running") return;
+    j.state = "ended";
+    j.reason = why;
+    j.outcome = why;
+    j.endedAt = new Date().toISOString();
+    writeFileSync(record, JSON.stringify(j, null, 2) + "\\n");
+  } catch {}
+};
 d.on("exit", (code) => {
   // Asked again here, not only by the poll: measured, the daemon could be gone before
   // the poll had noticed the caller was, and its scratch stayed behind.
+  if (!why && (orphaned || parentGone())) why = "owner gone";
+  markEnded();
   if ((orphaned || parentGone()) && scratch) { try { rmSync(scratch, { recursive: true, force: true }); } catch {} }
   process.exit(code ?? 1);
 });
 d.on("error", () => process.exit(127));
-setTimeout(() => end("SIGTERM"), budget);
+setTimeout(() => end("budget"), budget);
 setInterval(() => {
-  if (!orphaned && parentGone()) { orphaned = true; end("SIGTERM"); }
+  if (!orphaned && parentGone()) { orphaned = true; end("owner gone"); }
 }, 500);
-for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => end("SIGTERM"));
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => kill("SIGTERM"));
 `;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -110,6 +152,12 @@ export interface SandboxOptions {
    *  `c64-ntsc`). Omitted: the runtime's default. A name it cannot run is refused by the
    *  runtime at startup, and that refusal is what `start` throws. */
   model?: string;
+  /** Spec 906 — the record file of a sandbox SESSION (`runtime_sandbox_start`). When set, the keeper ends the
+   *  daemon the polite way (the runtime's own shutdown request, so a recording trace is finished) and writes
+   *  why into this record if its owner has not already: "budget" or "owner gone". */
+  recordFile?: string;
+  /** Spec 906 — told when the daemon exits by itself (a crash, a runtime that quit), not when `close` ended it. */
+  onExit?: (why: string) => void;
 }
 
 export class SandboxSession {
@@ -147,7 +195,10 @@ export class SandboxSession {
     ], {
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...childEnv("sandbox"), C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port) },
+      env: {
+        ...childEnv("sandbox"), C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port),
+        ...(opts.recordFile ? { C64RE_KEEPER_RECORD: opts.recordFile, C64RE_KEEPER_PORT: String(port) } : {}),
+      },
     });
     s.child.stdout?.once("data", (b: Buffer) => {
       const pid = Number.parseInt(b.toString(), 10);
@@ -155,7 +206,7 @@ export class SandboxSession {
         s.daemonPid = pid;
         // Spec 902 D1 — a sandbox is in the ledger too, so `c64re down` ends it. It is never held
         // back by the hold (D3): it has a budget and ends itself.
-        s.registered = registerProcess({ pid, kind: "sandbox", port, project: projectDir, startedBy: "sandbox" });
+        s.registered = registerProcess({ pid, kind: "sandbox", port, project: projectDir, startedBy: "sandbox", owner: process.pid });
       }
     });
     let stderr = "";
@@ -163,7 +214,10 @@ export class SandboxSession {
     s.child.stderr?.on("data", (b: Buffer) => { stderr += b.toString(); });
     s.child.once("exit", (code) => {
       exited = true;
-      if (!s.closed) s.endedBecause = `the runtime exited with code ${code}`;
+      if (!s.closed) {
+        s.endedBecause = `the runtime exited with code ${code}`;
+        opts.onExit?.(s.endedBecause);
+      }
       s.failAllPending(new Error(s.endedBecause ?? "the runtime exited"));
     });
 
@@ -253,7 +307,9 @@ export class SandboxSession {
         resolve: (v) => { clearTimeout(timer); resolve(v as T); },
         reject: (e) => { clearTimeout(timer); reject(e); },
       });
-      this.ws!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params: { session_id: SESSION_ID, ...params } }));
+      // The session is the daemon's own, whatever name the caller's tool call carried (a session
+      // id `sb-…` names THIS object; the machine inside it is `integrated-1`): it is set last.
+      this.ws!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params: { ...params, session_id: SESSION_ID } }));
     });
   }
 
@@ -284,4 +340,7 @@ export class SandboxSession {
 
   /** Why the sandbox went away, when it did so on its own. */
   get ended(): string | null { return this.endedBecause; }
+
+  /** The temp dir the daemon keeps its project scratch in (removed on close), when this session made one. */
+  get scratchDir(): string | null { return this.ownTmp; }
 }

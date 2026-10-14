@@ -15,11 +15,15 @@
 // under the state directory (c64u-bridge/state.ts). A switch made by any of them is followed by
 // the others on their next call and announced to them.
 //
-// Sandboxes, reels and scenario runs are NOT reached through here: they start their own
-// private emulator daemons (`src/reel/sandbox-session.ts`) whichever backend is active.
+// One-shot sandboxes, reels and scenario runs are NOT reached through here: they start their own
+// private emulator daemons (`src/reel/sandbox-session.ts`) whichever backend is active. A sandbox
+// SESSION (`runtime_sandbox_start`, Spec 906) is: a call carrying its session id (`sb-…`) is routed
+// to that sandbox's daemon below, ahead of the active backend, whichever backend that is.
 
 import { emulatorDaemon, runtimeHealth as emulatorHealth } from "./daemon-client.js";
-import { RuntimeMethods, type BackendIdentity } from "./runtime-methods.js";
+import { RuntimeMethods, type BackendIdentity, type BackendNotification } from "./runtime-methods.js";
+import { isSandboxId } from "./sandbox-parity.js";
+import { callSandbox, callTraceReader } from "./sandbox-sessions.js";
 import { UltimateRest, UltimateRestError } from "./c64u/rest.js";
 import { RpcLink, RpcLinkError } from "./c64u/rpc-link.js";
 import { classifyIdent, discoverUltimates, type DiscoverTarget, type FoundDevice, type UltimateIdent } from "./c64u/discovery.js";
@@ -143,14 +147,51 @@ export async function activeIdentity(): Promise<BackendIdentity> {
 }
 
 /**
+ * Spec 906 D3 — the routing layer between the tools and the backends. A call whose `session_id` is a
+ * sandbox session's (`sb-…`) goes to THAT sandbox's own daemon — never to the active backend, whatever
+ * it is, a C64 Ultimate included — and the machine it reaches is the sandbox's. Every other call goes
+ * to the active backend exactly as before. The session id travels in the call's own params, which is
+ * where every typed wrapper on `RuntimeMethods` puts it, so a tool that takes a `session_id` works on
+ * a sandbox without knowing there is one.
+ *
+ * `trace/read` names a FILE, not a session. With a C64 Ultimate selected the device refuses every
+ * `trace/*` (it has no store); a store file a sandbox wrote is read by an emulator of its own
+ * instead (a private reader daemon), so a capture is not unreadable just because the human chose the
+ * hardware for the shared session.
+ */
+class RoutedRuntime extends RuntimeMethods {
+  get kind(): "emulator" | "c64u" { return activeBackend().kind; }
+  setProjectDir(dir: string | undefined): void { activeBackend().setProjectDir(dir); }
+  onNotification(handler: (n: BackendNotification) => void): () => void { return activeBackend().onNotification(handler); }
+  describe(): Promise<BackendIdentity> { return activeBackend().describe(); }
+  call<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
+    const sid = params.session_id;
+    if (isSandboxId(sid)) return callSandbox<T>(sid, method, params, timeoutMs);
+    const b = activeBackend();
+    if (method === "trace/read" && b.kind === "c64u") return callTraceReader<T>(method, params, timeoutMs);
+    return b.call<T>(method, params, timeoutMs);
+  }
+}
+const routed = new RoutedRuntime();
+
+/**
  * The tools' door: every property is the active backend's, looked up at call time. A tool
- * that imported this before a `select` reaches the new backend on its next call.
+ * that imported this before a `select` reaches the new backend on its next call. The typed
+ * wrappers every backend inherits from `RuntimeMethods` run on the routing layer, so the `call`
+ * they end in is the one that knows about sandbox sessions.
  */
 export const runtimeDaemon: RuntimeMethods = new Proxy({} as RuntimeMethods, {
   get(_t, prop) {
-    const b = activeBackend() as unknown as Record<string | symbol, unknown>;
+    if (prop === "call") return routed.call.bind(routed);
+    const inherited = (RuntimeMethods.prototype as unknown as Record<string | symbol, unknown>)[prop];
+    let b: Record<string | symbol, unknown>;
+    // A selection that cannot be resolved (a broken C64RE_RUNTIME_BACKEND) fails every call that needs
+    // the active backend; a sandbox session does not, so the wrapper runs on the routing layer regardless.
+    try { b = activeBackend() as unknown as Record<string | symbol, unknown>; }
+    catch (e) { if (typeof inherited === "function") return (inherited as (...a: unknown[]) => unknown).bind(routed); throw e; }
     const v = b[prop];
-    return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(b) : v;
+    if (typeof v !== "function") return v;
+    return (v as (...a: unknown[]) => unknown).bind(v === inherited ? routed : b);
   },
   has(_t, prop) { return prop in (activeBackend() as object); },
 });

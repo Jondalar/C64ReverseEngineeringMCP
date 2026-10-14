@@ -190,6 +190,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // it harder to explain afterwards. It replaces orchestration rather than adding
   // to it: one call instead of start/mount/type/run/render against the wrong machine.
   "runtime_sandbox_run",
+  // Spec 906 — the same private machine, KEPT: start for a purpose, drive with every runtime_* tool
+  // that takes a session_id, end on reached/failed (or let the budget do it). Default for the reason
+  // 836 gave for the one-shot door, and one more: the alternative for an LLM that needs to step,
+  // breakpoint or trace is the shared machine, which is the human's and every other project's.
+  "runtime_sandbox_start", "runtime_sandbox_end", "runtime_sandbox_list",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
   // Spec 766 — runtime_monitor: the one-tool monitor REPL (whole interactive
   // monitor in one call). A default product tool, not advanced.
@@ -413,8 +418,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * become eight doors (create, variant, run, list, choose, derive_delta, verify_build, delete),
  * plus four anchor doors, plus three retired names kept callable for one release (a name outside
  * this set is not callable at all): 195 - 8 + 15 = 202. The three aliases leave after a release
- * and the surface goes back to 199. */
-export const DEFAULT_TIER_CAP = 202;
+ * and the surface goes back to 199.
+ *
+ * Raised to 205 for the sandbox session's three doors (runtime_sandbox_start, _end, _list). A
+ * session is only safe because it has a stated purpose, a budget and an end; a door a caller cannot
+ * FIND sends that caller to the shared machine, which is exactly what the session exists to stop. */
+export const DEFAULT_TIER_CAP = 205;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

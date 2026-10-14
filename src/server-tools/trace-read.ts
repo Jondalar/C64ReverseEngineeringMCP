@@ -17,11 +17,16 @@
 // not a quiet switch to a different reader.
 //
 // Ops the daemon's `trace/read` accepts (TRX64 `TRACE_READ_OPS`):
-//   index · store_fn · map · swimlane · swimlane_text · taint · taint_text
-// plus `query_events` / `follow_path` / `profile_loader`, which are known to the
-// wire contract but have no native reader yet — the daemon answers those with an
-// explicit error rather than reinstating a spawn. The raw `sql` passthrough is
-// DROPPED (Spec 802 OQ1); `store_fn`/`safeQuery` is the query door.
+//   index · store_fn · map · swimlane · swimlane_text · taint · taint_text ·
+//   query_events · follow_path · profile_loader
+// (measured against the pinned daemon, 0.13.0: each op answers; `profile_loader`
+// refuses missing arguments by name). The raw `sql` passthrough is DROPPED
+// (Spec 802 OQ1); `store_fn`/`safeQuery` is the query door.
+//
+// The path names a FILE, not a session, so the read does not depend on which machine
+// wrote it: it goes to the active backend's daemon, or — when a C64 Ultimate is the
+// selected backend and the device has no store to read — to an emulator reader of its
+// own (`runtime/backend.ts`). A store written by a sandbox session reads the same way.
 
 import { isAbsolute, resolve as resolvePath } from "node:path";
 

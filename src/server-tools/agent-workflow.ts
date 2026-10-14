@@ -141,6 +141,21 @@ function persistState(projectRoot: string, projectName: string, state: AgentStat
   return updated;
 }
 
+/**
+ * Spec 906 — add one entry to a project's step log from code, in the shape `agent_record_step` writes
+ * (history entry with the current role, `lastCompletedStep`, NEXT.md rewritten). Used when something
+ * that is not a tool call ends — a sandbox session on its budget, its idle limit, its owner's death —
+ * and its outcome belongs in the project's record. Throws when the directory is not a project; the
+ * caller decides whether that matters.
+ */
+export function recordAgentStepFromCode(projectRoot: string, step: string, note?: string): void {
+  const service = new ProjectKnowledgeService(projectRoot);
+  const project = service.getProjectStatus().project;
+  const prev = loadAgentState(projectRoot);
+  const history = [...prev.history, { at: nowIso(), role: prev.role, step, ...(note ? { note } : {}) }].slice(-HISTORY_LIMIT);
+  persistState(projectRoot, project.name, { ...prev, lastCompletedStep: step, history });
+}
+
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
