@@ -338,3 +338,23 @@ The boundary is read off the bytes — you never have to guess a data-tail lengt
 and you never have to drop the `code` classification to get a byte-identical
 rebuild. The same line appears, naming the segment end instead, when an
 instruction would cross the end of a `code` range you declared.
+
+## A cartridge bank on its own
+
+A bank carved off a cartridge is listed like any raw block: `disasm` with `load_address`
+(`"8000"`, `"$8000"` and `"0x8000"` are all `$8000`; a JSON number is taken as given, so
+`8000` is `$1F40`) — with or without `relocations`.
+
+- **Where the names go.** `space` and `bank` decide the address space the graph files the
+  annotation names under. `space: "crt"` with a `bank` (or a `bank` alone) files them under
+  that cartridge bank, so a `model_assert` boundary in space `crt` at that bank holds them;
+  `ram` and `drv` file them under the owner. A space the graph does not have, `crt` with no
+  bank, or a bank beside `ram` is refused. The choice sticks with the import until another is
+  stated, and stating another moves the nodes.
+- **What `$DE00` is called.** The cartridge I/O window `$DE00-$DFFF` is named for the cartridge
+  the bytes belong to, not for EasyFlash: the CRT header's hardware type decides (GMod2: the
+  control register with bank bits, EEPROM CS/CLK/DI and DO on bit 7 of a read; EasyFlash:
+  `EF_BANK` / `EF_CTRL`; Magic Desk, Ocean and MegaByter have their own). The type is the one
+  recorded for the bytes — through the artifact's lineage, the directory `extract_crt` wrote
+  them to, or the project's only cartridge — and the answer's `Cartridge:` line says which. Where
+  no type is known the comment is the neutral `cartridge I/O $DE00`.

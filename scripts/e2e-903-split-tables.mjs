@@ -187,6 +187,12 @@ try {
   const afterReject = await disasm();
   check(openCount(afterReject) === 5 && !openLines(afterReject).some((l) => l.includes(`$${tables.tf.lo} / `)), "E2 the rejected table leaves the open list; five remain", afterReject.split("\n").filter((l) => /Split tables/.test(l)).join());
   check(/decided: \$[0-9A-F]{4}\/\$[0-9A-F]{4} rejected/.test(afterReject), "E3 …and the list says it was decided, and how");
+  // the schema a host sees: both writing doors declare the field (a host that cached an older tool list refuses it as an extra field)
+  const listed = (await mcp.rpc("tools/list", {})).result?.tools ?? [];
+  const schemaOf = (name) => listed.find((t) => t.name === name)?.inputSchema?.properties ?? {};
+  const fragmentProps = schemaOf("merge_annotations").fragments?.items?.properties ?? {};
+  check(!!schemaOf("write_annotations").splitTables && !!fragmentProps.splitTables,
+    "E3b write_annotations and merge_annotations' fragments both declare splitTables in their input schema", JSON.stringify({ write: Object.keys(schemaOf("write_annotations")), fragment: Object.keys(fragmentProps) }));
   const critRej = await call("project_critique", { min_severity: "blocking" });
   check((critRej.match(FINDING) ?? []).length === 5, "E4 the critic sees five now", `${(critRej.match(FINDING) ?? []).length}`);
   if (phaseOf() < 5) await advance(5, "fixture: back at phase 5");
