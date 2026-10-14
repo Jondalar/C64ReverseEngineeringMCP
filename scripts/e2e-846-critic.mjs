@@ -72,7 +72,7 @@ try {
       ["$F3 is read by nothing in 07_game.prg", "read"],
       ["nothing writes to $C000 during the boot", "write"],
       ["$4800-$53FF is unreferenced", "any"],
-      ["the handler at $1BC9 is never called", "call"],
+      ["the handler at $1BC9 is never called", "caller"],
       ["only $3E83 writes to disk", "write"],
       // Object position. Ultima VI's real wording, which the first cut did not match.
       ["create.prg writes nothing to $0203", "write"],
@@ -294,17 +294,17 @@ try {
   //
   // Three tape files load into the same window ($1000-$1FFF) at different times, so the
   // graph holds nodes of three owners at the same numeric addresses. The fixture mirrors
-  // the reporter's: a claim about F1's bytes, a REFERENCES edge that belongs to F3.
+  // the reporter's: a claim about F1's bytes, a REFERENCES edge that belongs to F3 (from an entry at $1004: a source at the target's own address would be identity, not a use).
   const seed48 = () => {
     const dir = newProject(); dirs.push(dir);
     const store = GraphStore.open(dir);
     const gen = (id, kind, name) => ({ id, kind, name, origin: "static", confidence: "certain" });
     store.replaceGenerated("test", null, [
-      gen(rid("megavault_f3", "entry", 0x1008), "entry", "f3_entry"),
+      gen(rid("megavault_f3", "entry", 0x1004), "entry", "f3_entry"),
       gen(rid("megavault_f3", "segment", 0x1008), "segment", "f3_seg"),
       gen(rid("megavault_f1", "segment", 0x1008), "segment", "f1_seg"),
     ], [
-      { from: rid("megavault_f3", "entry", 0x1008), type: "REFERENCES", to: rid("megavault_f3", "segment", 0x1008), evidenceKey: "a", origin: "static", confidence: "certain" },
+      { from: rid("megavault_f3", "entry", 0x1004), type: "REFERENCES", to: rid("megavault_f3", "segment", 0x1008), evidenceKey: "a", origin: "static", confidence: "certain" },
     ]);
     store.close();
     return dir;

@@ -21,16 +21,67 @@
 
 import { parseId } from "../knowledge-graph/ids.js";
 
-/** Edge types, grouped by the verb a claim would use about them. */
-const VERB_EDGES: Record<string, readonly string[]> = {
+/**
+ * Edge types, grouped by the verb a claim would use about them. These are the ONLY edge
+ * types that can refute a claim: a type not listed for the verb is either structure or
+ * identity (STRUCTURAL_EDGES) or unknown, and an unknown type never refutes — a scan proves
+ * presence, never absence, and an edge nobody classified proves nothing about this claim.
+ *
+ *   read    READS, USES_ZP, READS_INDIRECT (reads the pointer bytes), REFERENCES_DATA
+ *   write   WRITES
+ *   call    the control-flow edges: CALLS, CALLS_ROM, JUMPS_TO (also the rts-dispatch jump),
+ *           BRANCHES_TO
+ *   caller  "has no caller" / "nothing calls it" / "not reachable": control flow, plus the
+ *           ways a 6502 reaches code without a jsr — REFERENCES_DATA (a pointer / table /
+ *           copy-source reference to the address) and HANDLES_IRQ / HANDLES_NMI (an
+ *           interrupt entry)
+ *   any     "unreferenced" / "unused": anything that really touches the address — every
+ *           type above plus USES_HARDWARE, EXECUTES (a traced run executed it) and the
+ *           human REFERENCES relation (a `link_entities` "references" link)
+ */
+const CONTROL_FLOW = ["CALLS", "CALLS_ROM", "JUMPS_TO", "BRANCHES_TO"] as const;
+const VERB_EDGES = {
   read: ["READS", "USES_ZP", "READS_INDIRECT", "REFERENCES_DATA"],
   write: ["WRITES"],
-  call: ["CALLS", "CALLS_ROM", "JUMPS_TO", "BRANCHES_TO"],
-  // "unreferenced" / "unused" makes no distinction — anything touching it refutes it.
-  any: [],
-};
+  call: [...CONTROL_FLOW],
+  caller: [...CONTROL_FLOW, "REFERENCES_DATA", "HANDLES_IRQ", "HANDLES_NMI"],
+  any: [...CONTROL_FLOW, "READS", "WRITES", "USES_ZP", "READS_INDIRECT", "WRITES_INDIRECT", "REFERENCES_DATA", "REFERENCES", "USES_HARDWARE", "HANDLES_IRQ", "HANDLES_NMI", "EXECUTES"],
+} as const satisfies Record<string, readonly string[]>;
+
+/**
+ * Edges that say how the graph is built, not that anything uses an address: RESOLVES_TO
+ * (an address node and the routine at that address are one thing), CONTAINS (a routine
+ * and its labels), SIGNATURE (a routine's own derived signature, a self-edge), PASSES
+ * (which argument a call passes — rides on a CALLS edge that is judged itself). Never a
+ * counter-example, and not worth a "not checked" note either.
+ */
+const STRUCTURAL_EDGES = ["RESOLVES_TO", "CONTAINS", "SIGNATURE", "PASSES"] as const;
 
 type Verb = keyof typeof VERB_EDGES;
+
+/** The edge types that can refute a claim with this verb — named in every answer. */
+export function consideredEdgeTypes(verb: Verb): readonly string[] {
+  return VERB_EDGES[verb];
+}
+
+/**
+ * Source and target are the same place, so the edge is no evidence of use "from elsewhere":
+ * a flow edge whose source routine spans the target (an internal branch, recursion), and any
+ * edge but a data access whose source sits at the target's own address. Data accesses
+ * (READS / WRITES / USES_*) are exempt from the second rule: a routine that reads or
+ * patches its own bytes did read or write them.
+ */
+function selfClause(verb: Verb): string {
+  const flow: string[] = [...CONTROL_FLOW];
+  if (verb === "caller") flow.push("REFERENCES_DATA");
+  const spans = verb === "call" || verb === "caller" || verb === "any"
+    ? `(e.type IN (${flow.map((t) => `'${t}'`).join(",")}) AND n.address BETWEEN f.address AND COALESCE(f.end_address, f.address)) OR `
+    : "";
+  // NOT EXISTS, not a join: a node can have a generated and a human row, and only one of
+  // them may carry the span (the human row has no end_address).
+  return `AND NOT EXISTS (SELECT 1 FROM nodes f WHERE f.id = e.from_id AND (f.owner IS n.owner OR f.owner IS NULL OR n.owner IS NULL) AND (${spans}`
+    + `(e.type NOT IN ('READS','WRITES','READS_INDIRECT','WRITES_INDIRECT','USES_ZP','USES_HARDWARE') AND f.address = n.address)))`;
+}
 
 export interface NegativeClaim {
   /** The phrase that made this a negative claim. */
@@ -62,14 +113,17 @@ const NEGATIVE_PATTERNS: ReadonlyArray<readonly [RegExp, Verb]> = [
   [/\b(?:nothing|no one|nobody|no code|no routine)\s+(?:ever\s+)?writes?\b/iu, "write"],
   [/\bnever\s+written\b/iu, "write"],
   [/\bwritten by (?:nothing|no one|nobody)\b/iu, "write"],
-  [/\b(?:nothing|no one|nobody)\s+(?:ever\s+)?calls?\b/iu, "call"],
-  [/\bnever\s+called\b/iu, "call"],
-  [/\bnot\s+(?:reachable|called)\b/iu, "call"],
+  [/\b(?:nothing|no one|nobody)\s+(?:ever\s+)?calls?\b/iu, "caller"],
+  [/\bnever\s+called\b/iu, "caller"],
+  [/\bnot\s+(?:reachable|called)\b/iu, "caller"],
   [/\bunreferenced\b/iu, "any"],
   [/\bnot\s+referenced\b/iu, "any"],
   [/\b(?:is|are)\s+(?:completely\s+)?unused\b/iu, "any"],
   [/\bnever\s+(?:used|touched|accessed)\b/iu, "any"],
-  [/\bno\s+(?:references?|readers?|writers?|callers?)\b/iu, "any"],
+  [/\bno\s+callers?\b/iu, "caller"],
+  [/\bno\s+readers?\b/iu, "read"],
+  [/\bno\s+writers?\b/iu, "write"],
+  [/\bno\s+references?\b/iu, "any"],
 ];
 
 /** "only $3E83 writes" / "only $3E83 reads" — an ONLY is a negative about all the rest. */
@@ -213,8 +267,8 @@ function firstCounterExample(
   range?: { start: number; end: number },
   owners?: ReadonlySet<string>,
 ): CounterExample | undefined {
-  const types = VERB_EDGES[claim.verb];
-  const typeClause = types.length > 0 ? `AND e.type IN (${types.map(() => "?").join(",")})` : "";
+  const types: readonly string[] = VERB_EDGES[claim.verb];
+  const typeClause = `AND e.type IN (${types.map(() => "?").join(",")})`;
   const subject = owners && owners.size > 0 ? [...owners] : undefined;
   const ownerClause = (col: string) => subject ? `AND (${col} IS NULL OR ${col} IN (${subject.map(() => "?").join(",")}))` : "";
   const ownerArgs = subject ?? [];
@@ -243,7 +297,7 @@ function firstCounterExample(
   for (const span of spans) {
     const rows = db.prepare(
       `SELECT e.type, e.from_id, e.to_id, n.address, n.owner FROM edges e JOIN nodes n ON n.id = e.to_id
-       WHERE n.address BETWEEN ? AND ? ${ownerClause("n.owner")} ${typeClause} LIMIT 1`,
+       WHERE n.address BETWEEN ? AND ? ${ownerClause("n.owner")} ${typeClause} ${selfClause(claim.verb)} LIMIT 1`,
     ).all(span.start, span.end, ...ownerArgs, ...types) as Array<{ type: string; from_id: string; to_id: string; address: number; owner: string | null }>;
     const hit = rows[0];
     if (hit) return { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: hit.address, owner: hit.owner ?? undefined };
@@ -255,16 +309,50 @@ function firstCounterExample(
     // against the very project whose rebuild it cost. Every id form ends in four hex
     // digits, so a suffix match finds them; it is an unindexed scan, which is why it is
     // only done for single addresses and not for a range of thousands. The suffix also
-    // matches project ids, so with a subject the target's own owner is read off the id.
+    // matches project ids, so with a subject the target's own owner is read off the id. Only
+    // targets that are NOT a row in `nodes`: those the join above has already judged, with the
+    // self-edge rule, and must not be admitted again through this door.
     if (span.start === span.end) {
       const suffix = span.start.toString(16).padStart(4, "0");
       const dangling = db.prepare(
         `SELECT e.type, e.from_id, e.to_id FROM edges e
-         WHERE substr(e.to_id, -4) = ? ${typeClause} LIMIT ${subject ? 200 : 1}`,
+         WHERE substr(e.to_id, -4) = ? ${typeClause} AND NOT EXISTS (SELECT 1 FROM nodes t WHERE t.id = e.to_id) LIMIT ${subject ? 200 : 1}`,
       ).all(suffix, ...types) as Array<{ type: string; from_id: string; to_id: string }>;
       const d = dangling.find((x) => !subject || ownerOfId(x.to_id) === undefined || subject.includes(ownerOfId(x.to_id)!));
       if (d) return { edgeType: d.type, from: d.from_id, to: d.to_id, address: span.start, owner: ownerOfId(d.to_id) };
     }
   }
   return undefined;
+}
+
+/**
+ * Edge types that land on the claimed address and that nobody has classified — neither a
+ * use of an address (any verb) nor structure: human relation kinds such as DOCUMENTS /
+ * DEPENDS_ON / LOADS / STORES / MAPS_TO. The claim was NOT checked against them. The caller
+ * reports them as "not checked" — they neither refute the claim nor clear it.
+ */
+export function uncheckedEdgeTypes(
+  db: GraphDb,
+  claim: NegativeClaim,
+  range?: { start: number; end: number },
+  owners?: ReadonlySet<string>,
+): string[] {
+  // Known kinds are classified: the verb's own (judged), the other verbs' (a jump is no read),
+  // structure. Only a kind outside all of those is unchecked.
+  const skip = [...VERB_EDGES.any, ...STRUCTURAL_EDGES];
+  const notIn = `AND e.type NOT IN (${skip.map(() => "?").join(",")})`;
+  const subject = owners && owners.size > 0 ? [...owners] : undefined;
+  const ownerClause = subject ? `AND (n.owner IS NULL OR n.owner IN (${subject.map(() => "?").join(",")}))` : "";
+  const spans = claim.onlyAddress !== undefined
+    ? [{ start: claim.onlyAddress, end: claim.onlyAddress }]
+    : range && claim.onlyAddress === undefined ? [range] : claim.addresses.map((a) => ({ start: a, end: a }));
+  const out = new Set<string>();
+  for (const span of spans) {
+    const rows = db.prepare(
+      `SELECT DISTINCT e.type FROM edges e JOIN nodes n ON n.id = e.to_id
+       WHERE n.address BETWEEN ? AND ? ${ownerClause} ${notIn}`,
+    ).all(span.start, span.end, ...(subject ?? []), ...skip) as Array<{ type: string }>;
+    for (const r of rows) out.add(r.type);
+  }
+  return [...out].sort();
 }
