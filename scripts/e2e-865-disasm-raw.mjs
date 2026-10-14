@@ -85,10 +85,15 @@ const call = async (name, args) => {
 };
 
 /** The listing's body: everything after the `.pc =` line, trimmed, blanks dropped. */
+// The body of a listing: what follows `.pc`, without the block that defines the I/O register names the
+// instructions use (the operand `$D020` reads `vic_border`, defined there).
 const body = (asm) => {
   const lines = asm.split("\n");
   const at = lines.findIndex((l) => /^\s+\.pc = /.test(l));
-  return lines.slice(at + 1).map((l) => l.trim()).filter(Boolean);
+  const rest = lines.slice(at + 1);
+  const block = rest.findIndex((l) => l.startsWith("// I/O registers this listing names"));
+  const without = block < 0 ? rest : [...rest.slice(0, block), ...rest.slice(block).slice(rest.slice(block).findIndex((l) => l.trim() === "") + 1)];
+  return without.map((l) => l.trim()).filter(Boolean);
 };
 const sha = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 /** Every file under `dir` matching `re`, relative to it. */
@@ -140,7 +145,7 @@ try {
   check(/\.pc = \$C000 "code"/.test(asm1), "the first instruction sits at $C000", /(\s+\.pc = .*)/.exec(asm1)?.[1]?.trim());
   check(b1[0] === "WC000:" && b1[1] === "lda  #$00", "the body starts with the block's first instruction", b1.slice(0, 2).join(" | "));
   for (const [want, what] of [
-    ["sta  $D020", "the border write"],
+    ["sta  vic_border", "the border write (sta $D020)"],
     ["lda  $C100,x", "the indexed load"],
     ["bne  WC007", "the branch, to a label of its own"],
     ["jsr  $FFD2", "the KERNAL call"],
@@ -244,7 +249,7 @@ try {
     output_asm: "analysis/raw-disasm/seeded_at_c003.asm",
   });
   const seededBody = body(readFileSync(/^Output: (.+)$/m.exec(seeded)[1], "utf8"));
-  check(seededBody.some((l) => l.startsWith("lda  #$41")) && seededBody.some((l) => l.startsWith("sta  $D020")),
+  check(seededBody.some((l) => l.startsWith("lda  #$41")) && seededBody.some((l) => l.startsWith("sta  vic_border")),
     "with the entry point the code at +3 is there", seededBody.join(" | "));
   check(seededBody.some((l) => l === ".byte $AD"),
     "…and the byte the seed broke out of an instruction is data, so the bytes still add up",

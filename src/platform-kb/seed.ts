@@ -22,7 +22,7 @@ import {
   type C64RefKnowledgeAnnotation,
   type C64RefKnowledgeEntry,
 } from "../c64ref-rom-knowledge.js";
-import { EXTENSION_SOURCE, loadExtensionRegions, loadExtensions } from "./extensions.js";
+import { EXTENSION_SOURCE, loadExtensionRegions, loadExtensions, loadIoRegisters, loadIoWindows } from "./extensions.js";
 import { loadAbi } from "./abi.js";
 import {
   PLATFORM_KB_DDL,
@@ -31,6 +31,7 @@ import {
   platformNodeId,
   platformRegionId,
   type PlatformAbiRow,
+  type PlatformIoWindow,
   type PlatformNodeRow,
   type PlatformRegionRow,
   type PlatformTag,
@@ -92,7 +93,7 @@ export function snapshotPresent(repoRoot: string): boolean {
   return existsSync(defaultC64RefKnowledgePath(repoRoot));
 }
 
-function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: PlatformRegionRow[]; abi: PlatformAbiRow[]; meta: Record<string, string> } {
+function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: PlatformRegionRow[]; abi: PlatformAbiRow[]; windows: PlatformIoWindow[]; meta: Record<string, string> } {
   const knowledge = loadC64RefRomKnowledge(defaultC64RefKnowledgePath(repoRoot));
   const nodes = new Map<string, PlatformNodeRow>();
   const regions = new Map<string, PlatformRegionRow>();
@@ -127,7 +128,7 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
     // paragraph is not ours to ship. `c64ref_lookup` still serves the prose
     // from the local snapshot for whoever built one.
     const id = platformNodeId(platform, kind, entry.address);
-    nodes.set(id, { id, platform, kind, address: entry.address, symbol, name, description: null, source, layer: "generated", origin: "imported", confidence: "certain" });
+    nodes.set(id, { id, platform, kind, address: entry.address, symbol, name, description: null, ioName: null, source, layer: "generated", origin: "imported", confidence: "certain" });
   }
 
   for (const ext of loadExtensions(repoRoot)) {
@@ -135,9 +136,19 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
     const id = platformNodeId(ext.platform, kind, ext.address);
     nodes.set(id, {
       id, platform: ext.platform, kind, address: ext.address,
-      symbol: ext.symbol ?? null, name: ext.name, description: clip(ext.description),
+      symbol: ext.symbol ?? null, name: ext.name, description: clip(ext.description), ioName: null,
       source: ext.source ?? EXTENSION_SOURCE, layer: "generated", origin: "imported", confidence: "certain",
     });
+  }
+
+  // The listing name of each I/O register goes ONTO the node the book already produced (its
+  // Mapping label and heading stay), or onto a fresh one where the book has none.
+  for (const reg of loadIoRegisters()) {
+    const kind = platformKindForAddress(reg.platform, reg.address);
+    const id = platformNodeId(reg.platform, kind, reg.address);
+    const existing = nodes.get(id);
+    if (existing) existing.ioName = reg.ioName;
+    else nodes.set(id, { id, platform: reg.platform, kind, address: reg.address, symbol: null, name: reg.heading, description: null, ioName: reg.ioName, source: EXTENSION_SOURCE, layer: "generated", origin: "imported", confidence: "certain" });
   }
 
   for (const ext of loadExtensionRegions()) {
@@ -158,6 +169,7 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
     nodes: [...nodes.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     regions: [...regions.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     abi: loadAbi(), // Spec 826 D4 — already sorted
+    windows: loadIoWindows(),
     meta,
   };
 }
@@ -174,9 +186,11 @@ function writeStore(path: string, rows: ReturnType<typeof buildRows>): void {
     const meta = db.prepare("INSERT INTO platform_meta (key, value) VALUES (?, ?)");
     for (const key of Object.keys(rows.meta).sort()) meta.run(key, rows.meta[key]!);
     const node = db.prepare(
-      "INSERT INTO platform_node (id, platform, kind, address, symbol, name, description, source, layer, origin, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO platform_node (id, platform, kind, address, symbol, name, description, io_name, source, layer, origin, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
     );
-    for (const n of rows.nodes) node.run(n.id, n.platform, n.kind, n.address, n.symbol, n.name, n.description, n.source, n.layer, n.origin, n.confidence);
+    for (const n of rows.nodes) node.run(n.id, n.platform, n.kind, n.address, n.symbol, n.name, n.description, n.ioName, n.source, n.layer, n.origin, n.confidence);
+    const win = db.prepare("INSERT INTO platform_io_window (platform, start_address, end_address, period, chip) VALUES (?,?,?,?,?)");
+    for (const w of rows.windows) win.run(w.platform, w.startAddress, w.endAddress, w.period, w.chip);
     const region = db.prepare("INSERT INTO platform_region (id, platform, start_address, end_address, name, source) VALUES (?,?,?,?,?,?)");
     for (const r of rows.regions) region.run(r.id, r.platform, r.startAddress, r.endAddress, r.name, r.source);
     const abi = db.prepare("INSERT INTO platform_abi (platform, address, location, role, note, source) VALUES (?,?,?,?,?,?)");
@@ -197,9 +211,9 @@ export function platformKbContentHash(path: string): string {
   try {
     const hash = createHash("sha256");
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{ name: string }>).map((r) => r.name);
-    for (const table of ["platform_meta", "platform_node", "platform_region", "platform_abi"]) {
+    for (const table of ["platform_meta", "platform_node", "platform_region", "platform_abi", "platform_io_window"]) {
       if (!tables.includes(table)) continue; // a schema-1 store has no abi table: its hash covers what it has
-      const orderBy = table === "platform_meta" ? "key" : table === "platform_abi" ? "platform, address, role, location" : "id";
+      const orderBy = table === "platform_meta" ? "key" : table === "platform_abi" ? "platform, address, role, location" : table === "platform_io_window" ? "platform, start_address" : "id";
       for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${orderBy}`).all()) {
         hash.update(JSON.stringify(row, Object.keys(row as object).sort()));
         hash.update("\n");

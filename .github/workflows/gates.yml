@@ -405,6 +405,16 @@ jobs:
       - name: Split low/high tables are declared, and a found one is decided (Spec 903)
         run: npm run e2e:903
 
+      # Spec 908 — I/O registers have names in every listing. One synthetic PRG over $0801-$EFFF
+      # (so $D000-$DFFF is inside the image) assembled from a listing here, synthetic .crt banks,
+      # MCP over stdio: every register's name in the graph and a mirror, the operands and the
+      # equate block in both dialects, a human label that wins, a memoryMap that says the window
+      # is RAM for one routine, the cartridge window by type, and memoryMap through
+      # write_annotations / merge_annotations / the loader. No ROMs, no game bytes, no runtime.
+      # The rebuild checks need KickAssembler / 64tass and skip loudly without them.
+      - name: I/O registers have names in every listing (Spec 908)
+        run: npm run e2e:908
+
       # A cartridge bank listed on its own — hermetic: synthetic .crt images and one 8 KiB bank
       # of synthetic code, MCP over stdio. Where disasm files the names (space / bank, so a
       # crt-space boundary holds them), how load_address is read (one address rule, with

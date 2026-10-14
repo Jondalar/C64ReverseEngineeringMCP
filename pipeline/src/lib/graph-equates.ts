@@ -27,9 +27,11 @@ export interface ListingEquateResult {
 }
 
 export interface ListingEquateRequest {
-  projectDir: string;
+  projectDir?: string;
   space: "c64" | "drive8";
   addresses: number[];
+  /** names the platform proposes (the I/O registers); the project's own name for the address wins */
+  proposals?: Array<{ address: number; name: string }>;
   defined: Array<[string, number]>;
   definedElsewhere?: string[];
 }

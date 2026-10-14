@@ -82,7 +82,9 @@ const listingOf = (out) => {
   const p = /^Output: (.+)$/m.exec(out)?.[1];
   return p && existsSync(p) ? readFileSync(p, "utf8") : "";
 };
-const commentsFor = (asm, re) => asm.split("\n").filter((l) => re.test(l)).join("\n");
+// the instruction lines that match: since Spec 908 an operand in the window reads as the cartridge's register NAME (the
+// address is in the equate), so the comment is found on the line that names the register
+const commentsFor = (asm, re) => asm.split("\n").filter((l) => /^ {6}[a-z]{3}\s/.test(l) && re.test(l)).join("\n");
 
 let main;
 try {
@@ -152,33 +154,33 @@ try {
   check(existsSync(join(proj, gmod2.chip)), "C0 extract_crt wrote the GMod2 bank (hardware type 60)", gmod2.out.split("\n").slice(0, 3).join(" | "));
   const c1 = await call("disasm", { path: gmod2.chip, load_address: "8000", import_graph: false });
   const asm1 = listingOf(c1);
-  const de00 = commentsFor(asm1, /\$DE00/i);
+  const de00 = commentsFor(asm1, /\sgmod2_ctrl\s/);
   check(/GMod2 control register/.test(de00) && !/EasyFlash|EF_BANK/.test(asm1), "C1 a store to $DE00 in a GMod2 bank reads as the GMod2 control register", de00);
   check(/EEPROM DI/.test(de00) && /EEPROM CLK/.test(de00) && /EEPROM CS/.test(de00) && /bit 7 = EEPROM DO/.test(de00), "C2 …naming the bank bits, the EEPROM CS/CLK/DI and DO on bit 7 of a read", de00);
   check(/Cartridge: GMod2 \(CRT hardware type 60, from /.test(c1), "C3 the answer says which cartridge it took and why", c1.split("\n").filter((l) => /Cartridge/.test(l)).join(" | "));
-  check(/GMod2 control register/.test(commentsFor(asm1, /\$DE02/i)),
-    "C4 the IO1 page is one register on a GMod2: $DE02 is it too", commentsFor(asm1, /\$DE02/i));
-  check(!/GMod2|EasyFlash|EF_/.test(commentsFor(asm1, /\$DF00/i)), "C4b …and IO2 ($DF00) is not claimed for it", commentsFor(asm1, /\$DF00/i));
+  check(/GMod2 control register/.test(commentsFor(asm1, /gmod2_ctrl\+\$02/)),
+    "C4 the IO1 page is one register on a GMod2: $DE02 is it too (gmod2_ctrl+$02)", commentsFor(asm1, /gmod2_ctrl\+\$02/));
+  check(!/GMod2|EasyFlash|EF_/.test(commentsFor(asm1, /cart_io_df00/)) && commentsFor(asm1, /cart_io_df00/) !== "", "C4b …and IO2 ($DF00) is not claimed for it", commentsFor(asm1, /cart_io_df00/));
 
   const ef = await extract(32, "easyflash");
   const c5 = await call("disasm", { path: ef.chip, load_address: "8000", import_graph: false });
   const asm5 = listingOf(c5);
-  check(/EF_BANK EasyFlash bank register/.test(asm5) && /EF_CTRL/.test(asm5), "C5 an EasyFlash bank still reads EF_BANK / EF_CTRL", commentsFor(asm5, /\$DE0[02]/i));
+  check(/EF_BANK EasyFlash bank register/.test(asm5) && /EF_CTRL/.test(asm5), "C5 an EasyFlash bank still reads EF_BANK / EF_CTRL", commentsFor(asm5, /\sef_(bank|ctrl)\s/));
 
   const md = await extract(19, "magicdesk");
   const c6 = await call("disasm", { path: md.chip, load_address: "8000", import_graph: false });
   const asm6 = listingOf(c6);
-  check(/Magic Desk bank register/.test(asm6) && !/EasyFlash|EF_/.test(asm6), "C6 a Magic Desk bank reads as the Magic Desk register", commentsFor(asm6, /\$DE00/i));
+  check(/Magic Desk bank register/.test(asm6) && !/EasyFlash|EF_/.test(asm6), "C6 a Magic Desk bank reads as the Magic Desk register", commentsFor(asm6, /magicdesk_bank/));
 
   const loose = put("loose_bank.bin");
   const c7 = await call("disasm", { path: loose, load_address: "8000", import_graph: false });
   const asm7 = listingOf(c7);
   check(/cartridge I\/O \$DE00/.test(asm7) && /cartridge I\/O \$DE02/.test(asm7) && !/EasyFlash|EF_|GMod2|Magic Desk/.test(asm7),
-    "C7 bytes of no known cartridge (three types in the project, none theirs) get the neutral \"cartridge I/O $DE00\"", commentsFor(asm7, /\$DE0/i));
+    "C7 bytes of no known cartridge (three types in the project, none theirs) get the neutral \"cartridge I/O $DE00\"", commentsFor(asm7, /cart_io_de0/));
   check(!/Cartridge:/.test(c7), "C8 …and the answer claims no cartridge", c7.split("\n").filter((l) => /Cartridge/.test(l)).join(" | "));
   // the sibling chip of the GMod2, after the others exist: lineage still decides, not the project's mix
   const c9 = await call("disasm", { path: gmod2.chip, load_address: "8000", import_graph: false });
-  check(/GMod2 control register/.test(listingOf(c9)), "C9 with three cartridges in the project, the GMod2's own bank is still read as a GMod2 (lineage, not majority)", c9.split("\n").filter((l) => /Cartridge|refus|Output/.test(l)).join(" | ") + commentsFor(listingOf(c9), /\$DE00/i));
+  check(/GMod2 control register/.test(listingOf(c9)), "C9 with three cartridges in the project, the GMod2's own bank is still read as a GMod2 (lineage, not majority)", c9.split("\n").filter((l) => /Cartridge|refus|Output/.test(l)).join(" | ") + commentsFor(listingOf(c9), /gmod2_ctrl/));
   const noPlatform = await call("disasm", { path: gmod2.chip, load_address: "8000", import_graph: false, platform: "none" });
   check(!/EasyFlash|EF_BANK|GMod2 control/.test(listingOf(noPlatform)), "C10 platform none names nothing, as before");
   main.mcp.stop();
@@ -193,7 +195,7 @@ try {
   const none = await openProject("none");
   writeFileSync(join(none.proj, "artifacts/stray.bin"), BANK);
   const c12 = await none.call("disasm", { path: "artifacts/stray.bin", load_address: "8000", import_graph: false });
-  check(/cartridge I\/O \$DE00/.test(listingOf(c12)) && !/EF_BANK|EasyFlash/.test(listingOf(c12)), "C12 a project with no cartridge at all: neutral, never EasyFlash", commentsFor(listingOf(c12), /\$DE00/i));
+  check(/cartridge I\/O \$DE00/.test(listingOf(c12)) && !/EF_BANK|EasyFlash/.test(listingOf(c12)), "C12 a project with no cartridge at all: neutral, never EasyFlash", commentsFor(listingOf(c12), /cart_io_de00/));
   solo.mcp.stop();
   none.mcp.stop();
 } catch (e) {

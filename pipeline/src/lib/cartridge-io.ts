@@ -42,6 +42,46 @@ function registerText(hardwareType: number, address: number): string | undefined
   }
 }
 
+export interface CartridgeIoRegister {
+  /** the name an operand reads and an equate defines */
+  name: string;
+  /** the address the name is defined at; the operand adds `address - base` when it is another one */
+  base: number;
+}
+
+/**
+ * The NAME a store to the cartridge I/O window reads as in a listing (Spec 908 D1) — the same
+ * rule as the comment above, one level up: the type has its own register for the address, else
+ * the neutral `cart_io_deXX`, which claims nothing about the hardware.
+ *
+ * GMod2, Magic Desk and Ocean answer with one register for the whole IO1 page, so every address
+ * there is that register plus its distance from $DE00. MegaByter decodes A1: clear is the bank
+ * register, set the mode register, repeating every four bytes.
+ */
+export function cartridgeIoRegister(address: number, hardwareType: number | undefined): CartridgeIoRegister | undefined {
+  if (address < 0xde00 || address > 0xdfff) return undefined;
+  const neutral: CartridgeIoRegister = { name: `cart_io_${hex16(address)}`, base: address };
+  if (hardwareType === undefined) return neutral;
+  const inIo1 = address <= 0xdeff;
+  switch (hardwareType) {
+    case EASYFLASH:
+      if (address === 0xde00) return { name: "ef_bank", base: 0xde00 };
+      if (address === 0xde02) return { name: "ef_ctrl", base: 0xde02 };
+      return neutral;
+    case 60:
+      return inIo1 ? { name: "gmod2_ctrl", base: 0xde00 } : neutral;
+    case 19:
+      return inIo1 ? { name: "magicdesk_bank", base: 0xde00 } : neutral;
+    case 5:
+      return inIo1 ? { name: "ocean_bank", base: 0xde00 } : neutral;
+    case 86:
+      if (!inIo1) return neutral;
+      return (address & 2) === 0 ? { name: "megabyter_bank", base: 0xde00 } : { name: "megabyter_mode", base: 0xde02 };
+    default:
+      return neutral;
+  }
+}
+
 /**
  * The comment to print for a store/load at `address` in the cartridge I/O window, instead of what the
  * platform store says — or undefined to leave the store's answer alone.

@@ -117,6 +117,22 @@ export interface ImmediateAnnotation {
   comment?: string;
 }
 
+/**
+ * What a stretch of the I/O window IS at run time, where the machine's default is not it.
+ *
+ * `$D000-$DFFF` is I/O while `$01` says so (the default) and RAM or character ROM otherwise; the
+ * bytes cannot say which, because the banking is the program's state, not an operand. The project
+ * declares it. `routines` limits the declaration to the code of those routines (a depacker that
+ * writes under the I/O window with `$01` at `$34`): a routine is its entry address and everything
+ * reachable from it by fall-through, branches and `jmp` — a `jsr` callee is its own routine.
+ */
+export interface MemoryMapAnnotation {
+  start: string;        // hex address inside $D000-$DFFF
+  end: string;          // hex address inside $D000-$DFFF, inclusive
+  as: "io" | "ram" | "charrom";
+  routines?: string[];  // hex entry addresses; absent = the declaration holds for the whole listing
+}
+
 export interface AnnotationsFile {
   version: number;
   binary: string;       // which PRG this annotates
@@ -127,6 +143,7 @@ export interface AnnotationsFile {
   jumpTables?: JumpTableAnnotation[];
   splitTables?: SplitTableAnnotation[];
   immediates?: ImmediateAnnotation[];
+  memoryMap?: MemoryMapAnnotation[];
 }
 
 export interface PointerTableIndexEntry {
@@ -163,11 +180,19 @@ export interface ImmediateIndexEntry {
   annotation: ImmediateAnnotation;
 }
 
+export interface MemoryMapIndexEntry {
+  start: number;
+  end: number;
+  as: MemoryMapAnnotation["as"];
+  /** the entry addresses the declaration is limited to; empty = the whole listing */
+  routines: number[];
+}
+
 // One annotation entry the loader could not apply (tolerant skip — the rest still
 // apply). `hint` names the likely fix (e.g. a mistyped field key) so the drop is
 // actionable in the tool output instead of silently lost.
 export interface SkippedAnnotation {
-  section: "segment" | "label" | "routine" | "pointerTable" | "jumpTable" | "splitTable" | "immediate";
+  section: "segment" | "label" | "routine" | "pointerTable" | "jumpTable" | "splitTable" | "immediate" | "memoryMap";
   reason: string;
   hint?: string;
 }
@@ -181,6 +206,8 @@ export interface AnnotationsIndex {
   jumpTables: JumpTableIndexEntry[];
   splitTables: SplitTableIndexEntry[];
   immediatesByAddress: Map<number, ImmediateIndexEntry>;
+  /** Spec 908 D3 — what the project says $D000-$DFFF is at run time, in file order (a later entry wins where two overlap) */
+  memoryMap: MemoryMapIndexEntry[];
   // Entries dropped during indexing (tolerant skip). Surfaced by disasm_prg so a
   // mistyped field key (`addr`/`name`) is visible, not silently lost.
   skipped: SkippedAnnotation[];
@@ -438,8 +465,44 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     jumpTables,
     splitTables,
     immediatesByAddress,
+    memoryMap: indexMemoryMap(annotations.memoryMap, noteSkip),
     skipped,
   };
+}
+
+/** The I/O window: a `memoryMap` entry outside it declares nothing the listing could act on. */
+const IO_WINDOW_FIRST = 0xd000;
+const IO_WINDOW_LAST = 0xdfff;
+
+function indexMemoryMap(entries: MemoryMapAnnotation[] | undefined, noteSkip: (s: SkippedAnnotation) => void): MemoryMapIndexEntry[] {
+  const out: MemoryMapIndexEntry[] = [];
+  for (const [i, entry] of (entries ?? []).entries()) {
+    const start = parseHex(entry?.start);
+    const end = parseHex(entry?.end);
+    const where = `memoryMap[${i}]`;
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      noteSkip({ section: "memoryMap", reason: `${where}: unparseable range start=${entry?.start} end=${entry?.end}`, hint: mistypedKeyHint(entry, "start", ["from", "begin", "addr", "address"]) });
+      continue;
+    }
+    if (end < start || start < IO_WINDOW_FIRST || end > IO_WINDOW_LAST) {
+      noteSkip({ section: "memoryMap", reason: `${where}: $${start.toString(16).toUpperCase()}-$${end.toString(16).toUpperCase()} is not a range inside $D000-$DFFF`, hint: "memoryMap says what the I/O window is at run time; nothing outside it" });
+      continue;
+    }
+    if (entry.as !== "io" && entry.as !== "ram" && entry.as !== "charrom") {
+      noteSkip({ section: "memoryMap", reason: `${where}: as=${JSON.stringify(entry.as)}`, hint: 'as is "io", "ram" or "charrom"' });
+      continue;
+    }
+    const routines: number[] = [];
+    let bad = false;
+    for (const r of entry.routines ?? []) {
+      const address = parseHex(r);
+      if (Number.isNaN(address)) { noteSkip({ section: "memoryMap", reason: `${where}: unparseable routine address ${JSON.stringify(r)}` }); bad = true; break; }
+      routines.push(address & 0xffff);
+    }
+    if (bad) continue;
+    out.push({ start, end, as: entry.as, routines });
+  }
+  return out;
 }
 
 // Normalize a hand-written annotations JSON into a safe shape: a non-object file or a
@@ -459,6 +522,7 @@ function normalizeAnnotationsFile(raw: unknown): AnnotationsFile {
     jumpTables: arr(obj.jumpTables) as JumpTableAnnotation[],
     splitTables: arr(obj.splitTables) as SplitTableAnnotation[],
     immediates: arr(obj.immediates) as ImmediateAnnotation[],
+    memoryMap: arr(obj.memoryMap) as MemoryMapAnnotation[],
   };
 }
 

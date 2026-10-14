@@ -70,7 +70,7 @@ export interface ResolutionInput {
 
 // ------------------------------------------------------------------- claims
 
-type ClaimKind = "segment" | "label" | "routine" | "name" | "split" | "immediate";
+type ClaimKind = "segment" | "label" | "routine" | "name" | "split" | "immediate" | "memoryMap";
 type NameFrom = "segment" | "label" | "routine";
 
 interface Claim {
@@ -111,6 +111,11 @@ function describeSplit(e: Record<string, unknown>): string {
 
 function describeSegment(e: Record<string, unknown>): string {
   return `${$(String(e.start))}-${$(String(e.end))}  ${String(e.kind)}${e.label ? `  "${String(e.label)}"` : ""}`;
+}
+
+function describeMemory(e: Record<string, unknown>): string {
+  const routines = Array.isArray(e.routines) && e.routines.length > 0 ? `, only the code of ${(e.routines as string[]).map($).join(", ")}` : ", everywhere";
+  return `${$(String(e.start))}-${$(String(e.end))}  ${String(e.as)}${routines}`;
 }
 
 function describeImmediate(e: Record<string, unknown>): string {
@@ -161,7 +166,7 @@ export function planMerge(
   const problems: Problem[] = [];
   for (const [i, f] of fragments.entries()) {
     const origin = f.path ? f.path : `fragments[${i}]`;
-    let sections: RawSections = { segments: f.segments, labels: f.labels, routines: f.routines, pointerTables: f.pointerTables, jumpTables: f.jumpTables, splitTables: f.splitTables, immediates: f.immediates };
+    let sections: RawSections = { segments: f.segments, labels: f.labels, routines: f.routines, pointerTables: f.pointerTables, jumpTables: f.jumpTables, splitTables: f.splitTables, immediates: f.immediates, memoryMap: f.memoryMap };
     if (f.path) {
       const read = readSections(f.path);
       if ("refusal" in read) return { refusal: `REFUSED — fragment ${f.name ?? `fragments[${i}]`}: ${read.refusal}\n\nNothing was written.` };
@@ -214,6 +219,11 @@ export function planMerge(
     for (const t of doc.splitTables ?? []) {
       const entry = { ...t } as unknown as Record<string, unknown>;
       claim("split", `${t.lo}-${t.hi}`, frag, `${t.count ?? ""}|${t.adjust ?? 0}|${t.base ?? ""}|${t.reject ?? ""}`, describeSplit(entry), entry);
+    }
+    // a range is claimed by its bounds; two readings that call it the same thing agree, whatever routines they name
+    for (const m of doc.memoryMap ?? []) {
+      const entry = { ...m } as unknown as Record<string, unknown>;
+      claim("memoryMap", `${m.start}-${m.end}`, frag, m.as, describeMemory(entry), entry);
     }
   }
 
@@ -320,9 +330,9 @@ export function planMerge(
     return false;
   };
 
-  // ---- 4a. stage one: the segments and the split tables
+  // ---- 4a. stage one: the segments, the split tables and the memory map
   for (const c of [...byKey.values()].sort(byAddress)) {
-    if (c.kind !== "segment" && c.kind !== "split") continue;
+    if (c.kind !== "segment" && c.kind !== "split" && c.kind !== "memoryMap") continue;
     if (new Set(c.claims.map((x) => x.signature)).size > 1) settle(c);
   }
 
@@ -485,7 +495,7 @@ export function planMerge(
   }
 
   // ---- 6. build the merged document, winners applied
-  const merged: RawSections = { segments: [], labels: [], routines: [], pointerTables: [], jumpTables: [], splitTables: [], immediates: [] };
+  const merged: RawSections = { segments: [], labels: [], routines: [], pointerTables: [], jumpTables: [], splitTables: [], immediates: [], memoryMap: [] };
   /** Comments that belonged to an entry a resolution removed, by address. */
   const rescued = new Map<string, string[]>();
   const rescue = (address: string, entry: Record<string, unknown>): void => {
@@ -588,6 +598,18 @@ export function planMerge(
     merged.immediates!.push({ ...(resolvedEntry.get(key) ?? list[0]!.entry) });
   }
 
+  // the memory map: in the order the fragments gave it (a later range wins where two overlap), a range once
+  for (const c of [...byKey.values()].filter((x) => x.kind === "memoryMap")) {
+    if (removed.has(c.key)) { notes.push(`${c.key} removed by its resolution.`); continue; }
+    const resolved = resolvedEntry.get(c.key);
+    if (resolved) { (merged.memoryMap as Array<Record<string, unknown>>).push({ ...resolved }); continue; }
+    const first = { ...c.claims[0]!.entry } as Record<string, unknown>;
+    // agreeing readings hold for the union of the routines they name — and for everywhere if any of them names none
+    if (c.claims.some((x) => !Array.isArray(x.entry.routines) || (x.entry.routines as unknown[]).length === 0)) delete first.routines;
+    else first.routines = [...new Set(c.claims.flatMap((x) => x.entry.routines as string[]))];
+    (merged.memoryMap as Array<Record<string, unknown>>).push(first);
+  }
+
   // the optional sections are additive: they carry no id the graph keys on
   for (const { doc } of named) {
     for (const t of doc.pointerTables ?? []) merged.pointerTables!.push(t as unknown as Record<string, unknown>);
@@ -633,6 +655,10 @@ function normaliseKey(raw: string): string {
   const k = (kind ?? "").trim().toLowerCase();
   const tail = rest.join(":").trim();
   if (k === "name") return `name:${tail}`;
+  if (k === "memorymap") {
+    const [lo, hi] = tail.split(/[-/]/u).map((x) => canonHex(x.trim().replace(/^\$/u, "")));
+    return lo && hi ? `memoryMap:${lo}-${hi}` : `memoryMap:${tail}`;
+  }
   if (k === "split") {
     const [lo, hi] = tail.split(/[-/]/u).map((x) => canonHex(x.trim().replace(/^\$/u, "")));
     return lo && hi ? `split:${lo}-${hi}` : `split:${tail}`;
@@ -644,16 +670,17 @@ function normaliseKey(raw: string): string {
 /** An entry a resolution supplies directly — checked the same way as any other. */
 function buildOne(c: Contest, value: Record<string, unknown>): { entry: Record<string, unknown>; described: string } | { refusal: string } {
   const template = c.claims[0]!.entry;
-  const section = c.kind === "segment" ? "segments" : c.kind === "split" ? "splitTables" : "immediates";
+  const section = c.kind === "segment" ? "segments" : c.kind === "split" ? "splitTables" : c.kind === "memoryMap" ? "memoryMap" : "immediates";
   // a value may state only what it changes; the rest comes from the first claim, so a
   // pure change is `{ end: "8305" }` and nothing else.
   const entry: Record<string, unknown> = { ...template, ...value };
   if (c.kind === "split") { const [lo, hi] = c.address.split("-"); entry.lo = lo; entry.hi = hi; }
+  else if (c.kind === "memoryMap") { const [start, end] = c.address.split("-"); entry.start = start; entry.end = end; }
   else entry[c.kind === "segment" ? "start" : "address"] = c.address;
   const built = buildAnnotationsDocument({ [section]: [entry] } as RawSections, "");
   if (built.problems.length > 0) return { refusal: built.problems.map((p) => p.reason).join("; ") };
-  const out = (built.doc[section as "segments" | "splitTables" | "immediates"] as unknown as Record<string, unknown>[])[0]!;
-  const described = c.kind === "segment" ? describeSegment(out) : c.kind === "split" ? describeSplit(out) : describeImmediate(out);
+  const out = (built.doc[section as "segments" | "splitTables" | "immediates" | "memoryMap"] as unknown as Record<string, unknown>[])[0]!;
+  const described = c.kind === "segment" ? describeSegment(out) : c.kind === "split" ? describeSplit(out) : c.kind === "memoryMap" ? describeMemory(out) : describeImmediate(out);
   return { entry: out, described };
 }
 
@@ -679,7 +706,8 @@ export function renderContests(contests: Contest[]): string {
   const example = first.kind === "segment" ? 'end: "8305", kind: "pointer_table"'
     : first.kind === "routine" || first.kind === "label" ? 'label: "exit_door_probe"'
     : first.kind === "immediate" ? 'label: "exit_door_probe"'
-    : first.kind === "split" ? "count: 9" : 'label: "exit_door_probe"';
+    : first.kind === "split" ? "count: 9"
+    : first.kind === "memoryMap" ? 'as: "ram"' : 'label: "exit_door_probe"';
   lines.push(`  { key: "${first.key}", value: { ${example} }, why: "<why>" }`);
   lines.push("");
   lines.push("or remove the entry (for a `name:` key: every site of the name) — the answer is recorded the same way:");
@@ -704,7 +732,10 @@ export interface ResolutionRecord {
 /** One resolution, as the finding that outlives the session. */
 export function resolutionFinding(entry: MergePlan["settled"][number], outputPath: string): ResolutionRecord {
   const { contest, resolution, winning } = entry;
-  const label = contest.kind === "name" ? `name "${contest.key.slice(5)}"` : contest.kind === "split" ? `split table ${contest.address.replace("-", "/")}` : `${contest.kind} ${$(contest.address)}`;
+  const label = contest.kind === "name" ? `name "${contest.key.slice(5)}"`
+    : contest.kind === "split" ? `split table ${contest.address.replace("-", "/")}`
+    : contest.kind === "memoryMap" ? `memory map ${contest.address.split("-").map($).join("-")}`
+    : `${contest.kind} ${$(contest.address)}`;
   const w = resolution.winner;
   const losers = w ? [...new Set(contest.claims.map((c) => c.fragment))].filter((f) => f !== w.split(":")[0]) : [];
   const heading = resolution.delete
@@ -729,7 +760,9 @@ export function resolutionFinding(entry: MergePlan["settled"][number], outputPat
     ? String((winning.entry as { end?: string }).end ?? contest.address)
     : contest.kind === "split"
       ? (start + (Number.isInteger(splitCount) && splitCount > 0 ? splitCount - 1 : 0)).toString(16)
-      : contest.address;
+      : contest.kind === "memoryMap"
+        ? contest.address.split("-")[1]!
+        : contest.address;
   return {
     id: `annmerge-${contest.key.replace(/[^A-Za-z0-9]+/gu, "-").toLowerCase()}`,
     title: `Merge resolution: ${heading}`,

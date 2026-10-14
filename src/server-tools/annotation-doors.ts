@@ -80,6 +80,13 @@ const immediateSchema = z.object({
   comment: z.string().optional(),
 }).passthrough();
 
+const memoryMapSchema = z.object({
+  start: hexAddress.describe("First address of the range, inside $D000-$DFFF"),
+  end: hexAddress.describe("Last address of the range (inclusive), inside $D000-$DFFF"),
+  as: z.string().optional().describe("What the range is at run time: `io` (registers; the default), `ram` (what $01 = $34 shows) or `charrom`"),
+  routines: z.array(z.string()).optional().describe("Entry addresses: the declaration holds only for the code of these routines (their entry and what it reaches by fall-through, branches and jmp). Absent: it holds everywhere."),
+}).passthrough();
+
 export const ANNOTATION_SECTION_SCHEMAS = {
   segments: segmentSchema,
   labels: labelSchema,
@@ -88,6 +95,7 @@ export const ANNOTATION_SECTION_SCHEMAS = {
   jumpTables: jumpTableSchema,
   splitTables: splitTableSchema,
   immediates: immediateSchema,
+  memoryMap: memoryMapSchema,
 };
 
 export function registerAnnotationDoors(server: McpServer, context: ServerToolContext): void {
@@ -105,7 +113,9 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
     + "Not for combining what several sessions or subagents wrote (use merge_annotations, which names every contradiction and records who won), "
     + "not for a first guess to review by hand (use propose_annotations, which writes a draft), and not for rendering the listing afterwards (use disasm). "
     + "It will not replace an existing file unless you pass overwrite. "
-    + "Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/splitTables/immediates, binary, overwrite. "
+    + "A range of $D000-$DFFF that is RAM (or character ROM) at run time instead of I/O — a depacker writing under the window — is declared by `memoryMap[]`: { start, end, as: \"ram\", routines?: [entry…] }, "
+    + "so its stores are not named as register writes; a human label at an I/O address wins over the register name, which wins nowhere the map says RAM. "
+    + "Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/splitTables/immediates/memoryMap, binary, overwrite. "
     + "Returns: the path written, what went into it, and the next call that applies it.",
     {
       project_dir: z.string().optional(),
@@ -119,12 +129,13 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       jumpTables: z.array(jumpTableSchema).optional(),
       splitTables: z.array(splitTableSchema).optional().describe("Split low/high tables: declare ({lo, hi, count, adjust?, base?}) or reject ({lo, hi, reject}) — the two ways to close a found one."),
       immediates: z.array(immediateSchema).optional(),
+      memoryMap: z.array(memoryMapSchema).optional().describe("What stretches of $D000-$DFFF are at run time where the default (I/O) is not it: { start, end, as: io|ram|charrom, routines? }."),
       overwrite: z.boolean().optional().describe("Replace an existing annotations file (default false — a hand-edited file is not clobbered by accident)."),
     },
     safeHandler("write_annotations", async (args: {
       project_dir?: string; prg_path?: string; output_path?: string; binary?: string;
       segments?: unknown[]; labels?: unknown[]; routines?: unknown[];
-      pointerTables?: unknown[]; jumpTables?: unknown[]; splitTables?: unknown[]; immediates?: unknown[];
+      pointerTables?: unknown[]; jumpTables?: unknown[]; splitTables?: unknown[]; immediates?: unknown[]; memoryMap?: unknown[];
       overwrite?: boolean;
     }) => {
       const pd = context.projectDir({ projectDir: args.project_dir }, true);
@@ -136,7 +147,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       const image = imageSpanOf(pd, args.prg_path);
       const { doc, problems, notes } = buildAnnotationsDocument({
         segments: args.segments, labels: args.labels, routines: args.routines,
-        pointerTables: args.pointerTables, jumpTables: args.jumpTables, splitTables: args.splitTables, immediates: args.immediates,
+        pointerTables: args.pointerTables, jumpTables: args.jumpTables, splitTables: args.splitTables, immediates: args.immediates, memoryMap: args.memoryMap,
       }, binary, image);
       if ((args.splitTables?.length ?? 0) > 0 && !image) {
         notes.push("splitTables: no prg_path, so the tables were not held to the image's span here — the renderer refuses an entry outside it.");
@@ -191,10 +202,11 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
     jumpTables: z.array(jumpTableSchema).optional(),
     splitTables: z.array(splitTableSchema).optional(),
     immediates: z.array(immediateSchema).optional(),
+    memoryMap: z.array(memoryMapSchema).optional(),
   }).passthrough();
 
   const resolutionSchema = z.object({
-    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210` / `routine:64BF` (the name an address carries, whichever records name it), `immediate:85CF`, `split:1021-102A` or `name:main_loop`"),
+    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210` / `routine:64BF` (the name an address carries, whichever records name it), `immediate:85CF`, `split:1021-102A`, `memoryMap:D000-DFFF` (one range declared as two different things) or `name:main_loop`"),
     winner: z.string().optional().describe("The fragment whose claim wins, by name; `A:routine` / `A:label` / `A:segment` when fragment A names the address twice. For a `name:` key it is the fragment whose ADDRESS keeps the name."),
     value: z.record(z.unknown()).optional().describe("An entry neither fragment proposed, stating only what it changes — e.g. { label: \"exit_door_probe\" }. Not combined with `winner` or `delete`."),
     delete: z.boolean().optional().describe("Remove the contested entry instead of keeping one reading: the address's name (label, routine and segment label), the segment, the split table, the immediate; for a `name:` key, every site of the name. Recorded like any resolution."),

@@ -105,7 +105,8 @@ monitor's label column, so in such a project no name ever wraps there.
   "jumpTables":   [ { "start": "1100", "end": "111F", "kind": "jmp", "comment": "..." } ],  // kind: jmp | jsr | word
   "splitTables":  [ { "lo": "1021", "hi": "102A", "count": 9, "adjust": 0, "base": "handlers", "comment": "..." },
                     { "lo": "2000", "hi": "2010", "reject": "string table indexed by a counter, not addresses" } ],
-  "immediates":   [ { "address": "0820", "kind": "lo-of", "label": "sprite_ptr", "comment": "..." } ] // kind: lo-of | hi-of
+  "immediates":   [ { "address": "0820", "kind": "lo-of", "label": "sprite_ptr", "comment": "..." } ], // kind: lo-of | hi-of
+  "memoryMap":    [ { "start": "D000", "end": "DFFF", "as": "ram", "routines": ["C000"] } ]         // what $D000-$DFFF is at run time; see below
 }
 ```
 
@@ -178,6 +179,57 @@ A declaration is also knowledge: the graph holds one table node per entry and an
 it to each in-image target (`graph_edges` on a handler shows the table that points at it),
 and a rejection is recorded on the table's node with its reason, so a later reader sees
 it was decided and not missed.
+
+## I/O registers in the listing, and `memoryMap`
+
+An absolute operand in `$D000-$DFFF` is named in the listing, in KickAssembler and in 64tass,
+whether or not the image itself covers those addresses (a game that runs with `$01 = $35` and keeps
+sprite data under the I/O window does). The names are one scheme, lower-case and chip-prefixed, at
+most 20 characters:
+
+| Window | Names |
+|---|---|
+| VIC-II `$D000-$D02E` | `vic_spr0_x` … `vic_spr7_y`, `vic_spr_x_msb`, `vic_ctrl1`, `vic_raster`, `vic_ctrl2`, `vic_mem`, `vic_irq`, `vic_irq_mask`, `vic_border`, `vic_bg0` … `vic_bg3`, `vic_spr0_col` … `vic_spr7_col`, … |
+| SID `$D400-$D41C` | `sid_v1_freq_lo` … `sid_v3_sr`, `sid_filter_lo`, `sid_filter_hi`, `sid_filter_res`, `sid_volume`, `sid_pot_x`, `sid_pot_y`, `sid_osc3`, `sid_env3` |
+| Colour RAM `$D800-$DBFF` | `color_ram`, a cell as `color_ram+$28` |
+| CIA 1 / CIA 2 | `cia1_pra` … `cia1_icr`, `cia1_cra`, `cia1_crb`; `cia2_pra` … `cia2_crb` |
+| Cartridge `$DE00-$DFFF` | by the cartridge type: `ef_bank`, `ef_ctrl` (EasyFlash), `gmod2_ctrl`, `magicdesk_bank`, `ocean_bank`, `megabyter_bank`, `megabyter_mode`; any other type or none: `cart_io_de00` … |
+
+A chip that repeats itself answers at its mirrors: `$D051` is `vic_ctrl1+$40`, `$D420` is
+`sid_v1_freq_lo+$20`. An address the chip has no register at (`$D02F`) stays an address. The names
+are defined once, in an equate block at the head of the listing that holds exactly the ones used;
+`graph_find $D011` returns the same name with the book's heading, and the book's own label
+(`SCROY`) still finds it by search.
+
+**Who decides what an address is called**, strongest first:
+
+1. a **human label** at the address (`labels[]`, a routine, a segment label, or a name in the graph) —
+   `scroll_ctl` at `$D011` makes every operand to `$D011` read `scroll_ctl` (and `$D051` read
+   `scroll_ctl+$40`), and the register name is not emitted;
+2. a **`memoryMap`** entry that says the window is not I/O for that instruction — its operand reads like
+   any other address (a data label, or the raw address) and carries no register comment;
+3. the platform's **register name**.
+
+A name past the project's length limit, one that is a mnemonic, or one the listing already uses for
+another address is not used; the listing says so under the equate block and prints the address.
+
+`memoryMap` says what `$D000-$DFFF` is at run time where the default (I/O) is not it. The bytes cannot
+say: whether `sta $D011` writes the VIC-II or RAM depends on `$01`, which is program state. A depacker
+that writes under the window with `$01 = $34` is declared once:
+
+```jsonc
+"memoryMap": [ { "start": "D000", "end": "DFFF", "as": "ram", "routines": ["C000"] } ]
+```
+
+- `start`/`end`: a range inside `$D000-$DFFF`; anything else is refused by `write_annotations` and skipped
+  (and reported) by the loader.
+- `as`: `io` (the default), `ram` or `charrom`. A later entry wins where two ranges overlap.
+- `routines`: entry addresses. The declaration then holds only for the code of those routines — the entry
+  and everything reachable from it by fall-through, branches and `jmp`. A routine it `jsr`s is a routine of
+  its own and is not included. Absent, the declaration holds for the whole listing.
+- the same range twice is one claim (its routines joined); the same range as two different things is a
+  contradiction — refused by `write_annotations`, and by `merge_annotations` as `memoryMap:D000-DFFF`,
+  naming both readings.
 
 ## Exact field names (the ones that bite)
 
@@ -356,5 +408,7 @@ A bank carved off a cartridge is listed like any raw block: `disasm` with `load_
   control register with bank bits, EEPROM CS/CLK/DI and DO on bit 7 of a read; EasyFlash:
   `EF_BANK` / `EF_CTRL`; Magic Desk, Ocean and MegaByter have their own). The type is the one
   recorded for the bytes — through the artifact's lineage, the directory `extract_crt` wrote
-  them to, or the project's only cartridge — and the answer's `Cartridge:` line says which. Where
-  no type is known the comment is the neutral `cartridge I/O $DE00`.
+  them to, or the project's only cartridge — and the answer's `Cartridge:` line says which. The
+  operand reads as the type's register (`gmod2_ctrl`, `ef_bank`, `magicdesk_bank`, …; see
+  *I/O registers in the listing*) with the register description as the comment. Where no type
+  is known the operand is the neutral `cart_io_de00` and the comment `cartridge I/O $DE00`.
