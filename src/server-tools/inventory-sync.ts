@@ -21,7 +21,7 @@ import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/r
 import { diagnoseEmptyPattern, howToDeclare, howToSilenceToolOutput, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
 function textContent(text: string) {
@@ -68,6 +68,37 @@ export interface ProjectInventorySyncResult {
 // project. When this runs inside an MCP tool that talks stdio JSON-RPC, the
 // blocked loop can't service the transport and the client drops the connection
 // as unresponsive. Yielding (`breathe()`) between phases keeps the loop alive.
+/**
+ * Re-label a `manifest.json` that is registered as something other than a manifest.
+ * The shape of the file decides: `header` + `chips[]` is an extract_crt manifest,
+ * `diskName` + `files[]` an extract_disk one. A file that is neither is left alone.
+ */
+export function repairMisregisteredManifests(service: ProjectKnowledgeService): number {
+  let repaired = 0;
+  for (const artifact of service.listArtifacts()) {
+    if (artifact.kind === "manifest") continue;
+    if (!/(^|[\\/])manifest\.json$/i.test(artifact.relativePath)) continue;
+    if (!existsSync(artifact.path)) continue;
+    let parsed: { header?: unknown; chips?: unknown; diskName?: unknown; files?: unknown };
+    try { parsed = JSON.parse(readFileSync(artifact.path, "utf8")); } catch { continue; }
+    const role = parsed.header && Array.isArray(parsed.chips) ? "crt-manifest"
+      : typeof parsed.diskName === "string" && Array.isArray(parsed.files) ? "disk-manifest"
+        : undefined;
+    if (!role) continue;
+    service.saveArtifact({
+      id: artifact.id,
+      kind: "manifest",
+      scope: "generated",
+      title: artifact.title,
+      path: artifact.path,
+      role,
+      format: "json",
+    });
+    repaired += 1;
+  }
+  return repaired;
+}
+
 export async function runProjectInventorySync(
   service: ProjectKnowledgeService,
   projectRoot: string,
@@ -110,6 +141,12 @@ export async function runProjectInventorySync(
   }
   remainingProblems.push(...emptyPatternNotes);
   await breathe();
+
+  // 2b. Older versions of extract_crt left the first cartridge's manifest.json
+  // registered as a `prg` disasm-target (the payload auto-chain disassembled it as
+  // code and re-labelled the record). The file is still the manifest: restore the
+  // record from what it says it is, before the manifests are imported below.
+  repairMisregisteredManifests(service);
 
   // 3. Import disk/CRT/PRG manifests when present. importManifestArtifact uses
   // stable ids + a purge-then-resave, so re-importing the same manifest is a

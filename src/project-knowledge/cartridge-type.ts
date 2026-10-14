@@ -56,8 +56,9 @@ function typeOf(artifact: ArtifactLike): number | undefined {
 }
 
 const isCartridgeRecord = (a: ArtifactLike): boolean => a.role === "crt-manifest" || a.role === "cartridge-image" || a.kind === "crt";
-// `extract_crt` always names its manifest `manifest.json`; a row for it that another door re-registered under a
-// different role (as a listing's input) is still the same file and still records the type
+// extract_crt registers its manifest as `crt-manifest` and project_inventory_sync restores that role on a row an
+// older version had re-labelled (disasm-target / prg). The name match only covers an old project that has not
+// been synced since; once it has, the role alone decides.
 const isManifestFile = (a: ArtifactLike): boolean => a.role === "crt-manifest" || /(^|[\\/])manifest\.json$/iu.test(a.path);
 
 export function cartridgeTypeFor(artifacts: ArtifactLike[], sourceAbs: string, sourceArtifactId?: string): CartridgeTypeHit | undefined {

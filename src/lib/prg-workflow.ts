@@ -211,7 +211,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
         `Disassemble PRG: ${basename(prgAbs)}`,
         { prg_path: opts.prgPath, output_asm: asmPath, analysis_json: analysisPath },
         [
-          { path: prgAbs, kind: "prg", scope: "input", role: "disasm-target" },
+          { path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "disasm-target" },
           { path: analysisPath, kind: "other", scope: "analysis", role: "analysis-json", format: "json" },
         ],
         [
@@ -370,6 +370,13 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
   const artifact = service.listArtifacts().find((entry) => entry.id === sourceArtifactId);
   if (!artifact) {
     throw new Error(`Entity ${opts.payloadId} references missing artifact ${sourceArtifactId}.`);
+  }
+
+  // A manifest describes bytes, it is not bytes. An entity whose only artifact is
+  // the extraction manifest used to be disassembled as if the JSON were code, and
+  // the registration then re-labelled the manifest as a disasm-target PRG.
+  if (artifact.kind === "manifest" || artifact.role === "crt-manifest" || artifact.role === "disk-manifest") {
+    throw new Error(`Entity ${opts.payloadId} resolves to the extraction manifest ${artifact.relativePath}, not to payload bytes. Link the extracted file (payloadSourceArtifactId) before running the workflow.`);
   }
 
   // Resolve load address. Payload entities carry payloadLoadAddress; other
