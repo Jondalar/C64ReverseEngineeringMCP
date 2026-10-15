@@ -13,6 +13,9 @@
 
 export const GRAPH_SCHEMA_VERSION = 2;
 
+/** `meta.cart_grammar`: this graph speaks `crt/<cart>/<bank>`. A graph created now carries it from birth; an older one gets it from the migration. */
+export const CART_GRAMMAR_STAMP = "909";
+
 /**
  * The cartridge token out of a node id, as a virtual column: `<slug>:crt/<cart>/<bank>:...` and
  * `<slug>:crt/<cart>:cartridge` both give `<cart>`. Derived from the id and never written, so it

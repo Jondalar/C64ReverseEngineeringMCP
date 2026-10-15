@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type ProjectIdParts } from "./ids.js";
 import { canonicalJson } from "./json.js";
-import { CART_COLUMN_EXPR, GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
+import { CART_COLUMN_EXPR, CART_GRAMMAR_STAMP, GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
 
 export interface NodeInput {
   /** Either a finished id or the parts it is derived from — never both. */
@@ -151,7 +151,11 @@ export class GraphStore {
       if (version === undefined) {
         writeTx(this.db, () => {
           this.db.exec(GRAPH_DDL);
-          if (this.getMeta("schema_version") === undefined) this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
+          if (this.getMeta("schema_version") === undefined) {
+            this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
+            // born in the cartridge grammar: nothing to migrate, and no later write to stamp it
+            this.setMeta("cart_grammar", CART_GRAMMAR_STAMP);
+          }
         });
       }
       const settled = version ?? this.getMeta("schema_version");

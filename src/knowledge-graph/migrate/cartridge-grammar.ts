@@ -24,12 +24,12 @@ import { readCrtHeader, sha256OfFile } from "../../project-knowledge/cartridge-i
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import { cartOfArtifact, readCartridges, registerCartridge, type CartridgeRecord } from "../cartridges.js";
 import { deriveCartridgeId, parseLegacyCrtId, UNPLACED_CART } from "../ids.js";
-import { GRAPH_SCHEMA_VERSION } from "../schema.js";
+import { CART_GRAMMAR_STAMP, GRAPH_SCHEMA_VERSION } from "../schema.js";
 import { GraphStore, graphPath, readProjectSlug } from "../store.js";
 import { writeTx } from "../write-tx.js";
 import { annotationId } from "./schema-822.js";
 
-export const CART_GRAMMAR = "909";
+export const CART_GRAMMAR = CART_GRAMMAR_STAMP;
 export const CART_MIGRATION_META = "cart_migration";
 export const CART_REDERIVE_META = "cart_rederive_pending";
 

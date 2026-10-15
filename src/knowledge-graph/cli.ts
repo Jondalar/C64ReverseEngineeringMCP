@@ -13,6 +13,7 @@ import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
 import { exportGraphRecords } from "./export.js";
+import { ensureCartridgeGrammar } from "./migrate/cartridge-grammar.js";
 import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
 import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
 import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef, shortestPath, subgraph, type EdgeKind, type Focus, type OriginFilter } from "./cards.js";
@@ -115,6 +116,9 @@ function edgeLine(e: EdgeHit): string {
 
 export async function runGraphCli(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
+  // A graph written before cartridges had names is moved before any verb reads it (the chips are read again from each
+  // cartridge's own extract the next time the project is opened by a tool).
+  if (args.verb !== "help") { try { ensureCartridgeGrammar(args.project); } catch (e) { process.stderr.write(`cartridge grammar: ${e instanceof Error ? e.message : String(e)}\n`); } }
   const out = (human: string, json: unknown) => {
     if (args.json) process.stdout.write(`${JSON.stringify(json, null, 2)}\n`);
     else process.stdout.write(`${human}\n`);
