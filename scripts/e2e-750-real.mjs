@@ -14,6 +14,7 @@
 //
 // Set C64RE_REAL_CRT / C64RE_REAL_ANALYSIS to point it elsewhere.
 
+import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 
@@ -42,7 +43,7 @@ const ok = (name, cond, detail = "") => {
 
 // ── the container reader, against a real .crt ────────────────────────────────
 if (CRT && existsSync(CRT)) {
-  const { crtReader } = await import(dist("project-knowledge/lut-medium.js"));
+  const { crtReader } = await import(pathToFileURL(dist("project-knowledge/lut-medium.js")).href);
   const { reader, banks, note } = crtReader(CRT);
   ok("a real .crt parses into CHIP packets", banks > 0, note);
 
@@ -59,7 +60,7 @@ if (CRT && existsSync(CRT)) {
   // honest: it must not flood a real image. The number is deliberately generous — the
   // point is to notice a regression into the 4-per-window sieve it started as, not to
   // pin a hit rate.
-  const { detectTables } = await import(dist("project-knowledge/lut-detect.js"));
+  const { detectTables } = await import(pathToFileURL(dist("project-knowledge/lut-detect.js")).href);
   let windows = 0, candidates = 0;
   for (let bank = 0; bank < 128; bank++) {
     for (const from of [0x8000, 0xa000]) {
@@ -85,7 +86,7 @@ if (CRT && existsSync(CRT)) {
 
 // ── the ANCHOR, against a real analysis report ───────────────────────────────
 if (ANALYSIS && existsSync(ANALYSIS)) {
-  const { indexedAccesses, anchorCandidates } = await import(dist("project-knowledge/lut-detect.js"));
+  const { indexedAccesses, anchorCandidates } = await import(pathToFileURL(dist("project-knowledge/lut-detect.js")).href);
   const report = JSON.parse(readFileSync(ANALYSIS, "utf8"));
   const ins = report.codeAnalysis?.instructions ?? [];
   ok("a real analysis report carries disassembled instructions", ins.length > 0, `${ins.length}`);

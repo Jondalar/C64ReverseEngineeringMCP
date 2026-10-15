@@ -2,7 +2,7 @@
 // workflow and that oracle / drive-only / maintenance / legacy tools are NOT in
 // default and NOT required by any normal playbook. Static + deterministic.
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,7 +13,7 @@ console.log("Spec 729 E2E-F/G — tool boundaries\n");
 
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
 const matrix = JSON.parse(readFileSync(join(ROOT, "docs/mcp-tool-usecase-matrix.json"), "utf8"));
-const tier = await import(`${ROOT}/dist/server-tools/tier-tools.js`);
+const tier = await import(pathToFileURL(`${ROOT}/dist/server-tools/tier-tools.js`).href);
 const allNames = inv.tools.map((t) => t.name);
 const def = allNames.filter((n) => tier.tierForTool(n) === "default");
 const defSet = new Set(def);

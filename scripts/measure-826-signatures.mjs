@@ -6,22 +6,23 @@
 //
 //   npm run measure:826            [C64RE_MEASURE_PROJECT=<dir> overrides the project]
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { argsDomain, formatArgs, formatSignature, signatureOf } = await import(join(ROOT, "dist/knowledge-graph/query-signatures.js"));
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { argsDomain, formatArgs, formatSignature, signatureOf } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-signatures.js")).href);
 
 const WASTELAND = process.env.C64RE_MEASURE_PROJECT ?? "/Users/alex/Development/C64/Cracking/Wasteland_EF";
 
 async function buildFixture() {
-  const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-  const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-  const { resolveAddresses } = await import(join(ROOT, "dist/knowledge-graph/producers/resolve.js"));
-  const { seedSignatures } = await import(join(ROOT, "dist/knowledge-graph/producers/signatures.js"));
+  const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+  const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+  const { resolveAddresses } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/resolve.js")).href);
+  const { seedSignatures } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/signatures.js")).href);
   const project = mkdtempSync(join(tmpdir(), "c64re-826-measure-"));
   mkdirSync(join(project, "knowledge"), { recursive: true });
   mkdirSync(join(project, "analysis"), { recursive: true });

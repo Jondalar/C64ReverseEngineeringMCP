@@ -3,11 +3,12 @@
 // Verify each next-T/S link byte is valid. If chain breaks with
 // invalid link, GCR decode bug pinpointed.
 
+import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const { G64Parser } = await import(`${repoRoot}/dist/disk/g64-parser.js`);
+const { G64Parser } = await import(pathToFileURL(`${repoRoot}/dist/disk/g64-parser.js`).href);
 
 const g64 = new G64Parser(readFileSync(resolve(repoRoot, "samples/motm.g64")));
 

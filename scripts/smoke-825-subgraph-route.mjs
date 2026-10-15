@@ -16,6 +16,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run smoke:825-routes
 
+import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
@@ -27,7 +28,7 @@ const server = join(ROOT, "dist/workspace-ui/server.js");
 const cli = join(ROOT, "dist/cli.js");
 const pipeline = join(ROOT, "dist/pipeline/cli.cjs");
 if (!existsSync(server) || !existsSync(cli) || !existsSync(pipeline)) { console.error("dist missing — run npm run build"); process.exit(2); }
-const { DatabaseSync } = await import(join(ROOT, "dist/platform-kb/sqlite-quiet.js"));
+const { DatabaseSync } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/sqlite-quiet.js")).href);
 
 let pass = 0;
 let failCount = 0;

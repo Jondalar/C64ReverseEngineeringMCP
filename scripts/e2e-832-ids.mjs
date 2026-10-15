@@ -8,6 +8,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-ids
 
+import { pathToFileURL } from "node:url";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,10 +22,10 @@ const check = (c, m) => (c ? ok(m) : fail(m));
 
 console.log("Spec 832 — D5 tool output is not debt, D6 an id does not describe\n");
 
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 const { scanRegistrationDelta, listCandidateFiles, toolOwnerOf } =
-  await import(join(ROOT, "dist/lib/registration-delta.js"));
-const { auditProject } = await import(join(ROOT, "dist/project-knowledge/audit.js"));
+  await import(pathToFileURL(join(ROOT, "dist/lib/registration-delta.js")).href);
+const { auditProject } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/audit.js")).href);
 
 const project = mkdtempSync(join(tmpdir(), "c64re-832-"));
 const service = new ProjectKnowledgeService(project);

@@ -24,7 +24,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -38,7 +38,7 @@ if (!existsSync(cliCjs)) { console.error("dist/pipeline/cli.cjs missing — run 
 // assembleSource is the product byte-compare gate.
 let assembleSource;
 try {
-  ({ assembleSource } = await import(join(ROOT, "dist/assemble-source.js")));
+  ({ assembleSource } = await import(pathToFileURL(join(ROOT, "dist/assemble-source.js")).href));
 } catch (e) {
   console.error("cannot import dist/assemble-source.js — run `npm run build:mcp`:", e.message);
   process.exit(2);
@@ -84,7 +84,7 @@ function proposeAnnotations(analysisJson, draftPath) {
 // directly (deterministic), mirroring scripts/sprint40-smoke.mjs.
 let demoteBrokenCodeIslands;
 try {
-  ({ demoteBrokenCodeIslands } = await import(join(ROOT, "dist/pipeline/analysis/pipeline.cjs")));
+  ({ demoteBrokenCodeIslands } = await import(pathToFileURL(join(ROOT, "dist/pipeline/analysis/pipeline.cjs")).href));
 } catch (e) {
   console.error("cannot import pipeline.cjs — run `npm run build`:", e.message);
   process.exit(2);
@@ -376,7 +376,7 @@ for (const variant of [
 
 // Issue #43 — EquateRegistry: an exact repeat is refused, a conflicting pair is let through.
 try {
-  const { EquateRegistry } = await import(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
+  const { EquateRegistry } = await import(pathToFileURL(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs")).href);
   const reg = new EquateRegistry();
   const first = reg.equate("W10EA", "$10ea");
   const repeat = reg.equate("W10EA", "$10EA", "  // x");

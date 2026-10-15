@@ -22,14 +22,14 @@
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildD64 } = await import(join(ROOT, "dist/disk/d64-builder.js"));
-const { extractDiskImage } = await import(join(ROOT, "dist/disk-extractor.js"));
-const { buildDiskSpec784Manifest, writeDiskSpec784Manifest } = await import(join(ROOT, "dist/server-tools/disk-spec784-manifest.js"));
-const { validateManifest } = await import(join(ROOT, "dist/server-tools/loader-manifest.js"));
-const { createDiskParser } = await import(join(ROOT, "dist/disk/index.js"));
+const { buildD64 } = await import(pathToFileURL(join(ROOT, "dist/disk/d64-builder.js")).href);
+const { extractDiskImage } = await import(pathToFileURL(join(ROOT, "dist/disk-extractor.js")).href);
+const { buildDiskSpec784Manifest, writeDiskSpec784Manifest } = await import(pathToFileURL(join(ROOT, "dist/server-tools/disk-spec784-manifest.js")).href);
+const { validateManifest } = await import(pathToFileURL(join(ROOT, "dist/server-tools/loader-manifest.js")).href);
+const { createDiskParser } = await import(pathToFileURL(join(ROOT, "dist/disk/index.js")).href);
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };

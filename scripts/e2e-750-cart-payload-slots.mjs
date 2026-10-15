@@ -7,7 +7,7 @@
 // The cart twin of e2e-bug031-disk-payload-spans.mjs.
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,7 +17,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("Spec 750.1b — cartridge-layout overlays payload slot spans, scoped per image\n");
 
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-750cart-"));
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "750cart" });
 

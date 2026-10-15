@@ -30,6 +30,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:820-2
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -38,10 +39,10 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-const { buildReport, resolveProjectGraph } = await import(join(ROOT, "dist/server-tools/inspect-range.js"));
-const { buildXrefIndexDetailed } = await import(join(ROOT, "dist/project-knowledge/address-index.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+const { buildReport, resolveProjectGraph } = await import(pathToFileURL(join(ROOT, "dist/server-tools/inspect-range.js")).href);
+const { buildXrefIndexDetailed } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/address-index.js")).href);
 const { renderRamStateMarkdown, resolveRamAccesses } = require(join(ROOT, "dist/pipeline/analysis/ram-state.cjs"));
 const { buildEvidenceGraph } = require(join(ROOT, "dist/pipeline/analysis/evidence-graph.cjs"));
 const { extractVicEvidence } = require(join(ROOT, "dist/pipeline/analysis/c64-hardware.cjs"));

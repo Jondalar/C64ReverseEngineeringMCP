@@ -19,6 +19,7 @@
 //
 // Exit 0 = pass, 1 = fail.   node scripts/e2e-826-runtime-args.mjs   (after npm run build:mcp)
 
+import { pathToFileURL } from "node:url";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,13 +28,13 @@ process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
 process.env.C64RE_RUNTIME_AUTOSTART = "0";
 const ROOT = resolve(import.meta.dirname, "..");
 
-const { importRuntimeTrace, RUNTIME_EDGE_TYPES } = await import(join(ROOT, "dist/knowledge-graph/producers/runtime.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { observedArgs, observedDomain } = await import(join(ROOT, "dist/knowledge-graph/query-runtime.js"));
-const { nodeCard, edgesWalk } = await import(join(ROOT, "dist/knowledge-graph/cards.js"));
-const { formatNode, formatEdges } = await import(join(ROOT, "dist/knowledge-graph/format.js"));
-const { encodeFileHeader, encodeCpuStep, encodeMemAccess, TraceOp, ACCESS_READ, ACCESS_WRITE } = await import(join(ROOT, "dist/trace/binary-format.js"));
+const { importRuntimeTrace, RUNTIME_EDGE_TYPES } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/runtime.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { observedArgs, observedDomain } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-runtime.js")).href);
+const { nodeCard, edgesWalk } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/cards.js")).href);
+const { formatNode, formatEdges } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/format.js")).href);
+const { encodeFileHeader, encodeCpuStep, encodeMemAccess, TraceOp, ACCESS_READ, ACCESS_WRITE } = await import(pathToFileURL(join(ROOT, "dist/trace/binary-format.js")).href);
 
 let pass = 0;
 let failCount = 0;
@@ -207,7 +208,7 @@ graph.close();
 // ---------------------------------------------------------------- D8 — the human abi, on its own line, never merged
 let humanTried = false;
 try {
-  const { annotate } = await import(join(ROOT, "dist/knowledge-graph/migrate/human.js"));
+  const { annotate } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/human.js")).href);
   humanTried = true;
   annotate(project, { nodeId: SVC, kind: "abi", title: "abi", body: "A = mode (01 read / 02 write / 03 finish)" });
   graph = Graph.open(project);
@@ -220,7 +221,7 @@ try {
   check(same(c2.signature.in, card.signature.in) && same(c2.argsDomain, card.argsDomain), "the computed sets and the domain are unchanged by the human row");
   // attrs.abi on the human node row (the annotations.json door) is the fallback
   graph.close();
-  const { nameNode } = await import(join(ROOT, "dist/knowledge-graph/migrate/human.js"));
+  const { nameNode } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/human.js")).href);
   nameNode(project, { id: LOOP, kind: "routine", name: "loop_named", attrs: { abi: "X = count" } });
   graph = Graph.open(project);
   check(nodeCard(graph, graph.resolve(LOOP)).signature?.humanAbi === "X = count", "attrs.abi on the human row is the fallback when no abi annotation exists");

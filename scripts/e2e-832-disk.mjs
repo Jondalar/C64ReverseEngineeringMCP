@@ -8,6 +8,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-disk
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,10 +22,10 @@ const check = (c, m) => (c ? ok(m) : fail(m));
 
 console.log("Spec 832 — what the disk tools claim\n");
 
-const { extractFileFromChain, loadAddressRejection } = await import(join(ROOT, "dist/disk/base.js"));
-const { buildDiskSpec784Manifest } = await import(join(ROOT, "dist/server-tools/disk-spec784-manifest.js"));
-const { manifestSchemaNames, readManifestKnowledge } = await import(join(ROOT, "dist/project-knowledge/manifest-import.js"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { extractFileFromChain, loadAddressRejection } = await import(pathToFileURL(join(ROOT, "dist/disk/base.js")).href);
+const { buildDiskSpec784Manifest } = await import(pathToFileURL(join(ROOT, "dist/server-tools/disk-spec784-manifest.js")).href);
+const { manifestSchemaNames, readManifestKnowledge } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/manifest-import.js")).href);
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 
 // ---------------------------------------------------------------- the predicate
 //
@@ -240,8 +241,8 @@ try {
 // overlaps, with any real one buried among them.
 {
   const { diskSectorAllocation, formatSectorMap, formatSectorOwners, SECTOR_MAP_LEGEND } =
-    await import(join(ROOT, "dist/disk-custom-lut.js"));
-  const { SECTORS_PER_TRACK } = await import(join(ROOT, "dist/disk/base.js"));
+    await import(pathToFileURL(join(ROOT, "dist/disk-custom-lut.js")).href);
+  const { SECTORS_PER_TRACK } = await import(pathToFileURL(join(ROOT, "dist/disk/base.js")).href);
 
   const dir = mkdtempSync(join(tmpdir(), "c64re-alloc-"));
   try {
@@ -318,7 +319,7 @@ try {
       `a DEL entry that owns blocks still claims and still collides (${r2.overlapsCount} overlaps, ${(r2.ignored ?? []).length} ignored)`);
 
     // …and the DOOR hands it over, rather than keeping it in the process.
-    const { registerMediaTools } = await import(join(ROOT, "dist/server-tools/media.js"));
+    const { registerMediaTools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/media.js")).href);
     const handlers = new Map();
     registerMediaTools(
       { tool: (name, _d, _s, handler) => handlers.set(name, handler) },

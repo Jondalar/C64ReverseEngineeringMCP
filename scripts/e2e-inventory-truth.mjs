@@ -16,7 +16,7 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,12 +30,12 @@ const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
 
 const { ProjectKnowledgeService, VERSION_TIE_QUESTION_CAP, VERSION_TIE_CLASS_TITLE } =
-  await import(join(ROOT, "dist/project-knowledge/service.js"));
-const { runProjectInventorySync } = await import(join(ROOT, "dist/server-tools/inventory-sync.js"));
-const { classifyTopRankTie, rankCandidate, orderCandidatesBestFirst, subjectIdForArtifact } = await import(join(ROOT, "dist/project-knowledge/artifact-versions.js"));
-const { matchesGlob, scanRegistrationDelta } = await import(join(ROOT, "dist/lib/registration-delta.js"));
+  await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
+const { runProjectInventorySync } = await import(pathToFileURL(join(ROOT, "dist/server-tools/inventory-sync.js")).href);
+const { classifyTopRankTie, rankCandidate, orderCandidatesBestFirst, subjectIdForArtifact } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/artifact-versions.js")).href);
+const { matchesGlob, scanRegistrationDelta } = await import(pathToFileURL(join(ROOT, "dist/lib/registration-delta.js")).href);
 const { readInventoryDeclaration, howToDeclare, INVENTORY_PATTERNS_FILE, suggestedKindFor } =
-  await import(join(ROOT, "dist/project-knowledge/inventory-patterns.js"));
+  await import(pathToFileURL(join(ROOT, "dist/project-knowledge/inventory-patterns.js")).href);
 
 const tmpProject = (prefix) => {
   const p = mkdtempSync(join(tmpdir(), prefix));
@@ -432,10 +432,10 @@ const openVersionQuestions = (svc) =>
 // "Files registered: 0", and there was no door that takes a row back out.
 {
   head(10, "a bulk a tool wrote costs something to register, and can be taken back out");
-  const { slotReport } = await import(join(ROOT, "dist/slots/state.js"));
+  const { slotReport } = await import(pathToFileURL(join(ROOT, "dist/slots/state.js")).href);
   let unregisterProjectFiles;
   try {
-    ({ unregisterProjectFiles } = await import(join(ROOT, "dist/server-tools/registration.js")));
+    ({ unregisterProjectFiles } = await import(pathToFileURL(join(ROOT, "dist/server-tools/registration.js")).href));
   } catch (e) { check(false, "the registration module loads", e.message); }
 
   const proj = tmpProject("c64re-toolbulk-");
@@ -538,7 +538,7 @@ const openVersionQuestions = (svc) =>
   }
 
   // A moved file (same bytes) is repointed, a gone file with uncited same-path versions is retired.
-  const { moveProjectFile } = await import(join(ROOT, "dist/server-tools/registration.js"));
+  const { moveProjectFile } = await import(pathToFileURL(join(ROOT, "dist/server-tools/registration.js")).href);
   const mk = (rel, bytes) => { write(proj, rel, Buffer.from(bytes)); };
   const rebuild = (rel, a, b) => {   // register, then change the bytes: a same-path versions[] entry
     mk(rel, a);
@@ -669,7 +669,7 @@ const openVersionQuestions = (svc) =>
   const adv = r1.remainingProblems.join("\n");
   check(/"glob":"input\/misc\/\*\.prg","kind":"prg","scope":"input","role":"source-prg"/.test(adv) && !/"role":"payload"/.test(adv.split("input/misc")[1] ?? ""),
     "the advice for an unmatched input PRG is scope input / role source-prg, not payload");
-  const { suggestPatternFor } = await import(join(ROOT, "dist/project-knowledge/inventory-patterns.js"));
+  const { suggestPatternFor } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/inventory-patterns.js")).href);
   check(suggestPatternFor(["input/x/a.d64"]).role === "source-disk" && suggestPatternFor(["input/x/a.crt"]).role === "source-cart"
     && suggestPatternFor(["input/x/a.d81"]).role === undefined && suggestPatternFor(["analysis/x/a.prg"]).role === "payload",
     "d64 -> source-disk, crt -> source-cart, d81 -> no role, and outside input/ the PRG suggestion is unchanged");
@@ -725,8 +725,8 @@ const openVersionQuestions = (svc) =>
 // ───────────────────── 5 — unregister_files and a multi-version subject whose file is gone
 {
   head(5, "a row whose file is gone leaves a multi-version subject while a sibling survives; the last one stays");
-  const { unregisterProjectFiles } = await import(join(ROOT, "dist/server-tools/registration.js"));
-  const { auditProject } = await import(join(ROOT, "dist/project-knowledge/audit.js"));
+  const { unregisterProjectFiles } = await import(pathToFileURL(join(ROOT, "dist/server-tools/registration.js")).href);
+  const { auditProject } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/audit.js")).href);
   const setup = async (name) => {
     const proj = tmpProject("c64re-unreg-versions-");
     const svc = new ProjectKnowledgeService(proj);
@@ -785,8 +785,8 @@ const openVersionQuestions = (svc) =>
 // ───────────────────────────────── 5 — an output outside the project is never registered
 {
   head(5, "a file outside the project root is written, not registered, and the answer says so");
-  const { registerToolKnowledge } = await import(join(ROOT, "dist/project-knowledge/integration.js"));
-  const { insideProject } = await import(join(ROOT, "dist/lib/inside-project.js"));
+  const { registerToolKnowledge } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/integration.js")).href);
+  const { insideProject } = await import(pathToFileURL(join(ROOT, "dist/lib/inside-project.js")).href);
   const proj = tmpProject("c64re-outside-proj-");
   const elsewhere = mkdtempSync(join(tmpdir(), "c64re-outside-scratch-"));
   write(proj, "artifacts/inside.gif", "GIF89a");

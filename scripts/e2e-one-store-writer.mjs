@@ -33,7 +33,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -134,7 +134,7 @@ const isOutput = (rel) => !NOT_AN_OUTPUT.some((re) => re.test(rel));
   check(/pipelineArgvFromMcp\(command, args\)/.test(execArgv),
     "the one spawn in the file uses it", execArgv.replace(/\s+/g, " ").slice(0, 96));
 
-  const { pipelineArgvFromMcp } = await import(join(ROOT, "dist/run-cli.js"))
+  const { pipelineArgvFromMcp } = await import(pathToFileURL(join(ROOT, "dist/run-cli.js")).href)
     .catch(() => ({ pipelineArgvFromMcp: undefined }));
   const argv = typeof pipelineArgvFromMcp === "function"
     ? pipelineArgvFromMcp("analyze-prg", ["/p/a.prg", "/p/a.json"])

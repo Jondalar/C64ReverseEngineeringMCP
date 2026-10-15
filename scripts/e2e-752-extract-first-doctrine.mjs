@@ -3,7 +3,7 @@
 // (Later slices S2-S8 append their own sections to this gate.)
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,7 +13,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("Spec 752 — extract-first grounding doctrine\n");
 console.log("S1 — doctrine text + default steering provisioning\n");
 
-const { ensureDefaultSteering, EXTRACT_FIRST_MARKER } = await import(`${ROOT}/dist/server-tools/steering-defaults.js`);
+const { ensureDefaultSteering, EXTRACT_FIRST_MARKER } = await import(pathToFileURL(`${ROOT}/dist/server-tools/steering-defaults.js`).href);
 
 // Fresh project → steering.md created with the extract-first block.
 const dir = mkdtempSync(join(tmpdir(), "c64re-752-"));
@@ -47,8 +47,8 @@ ok(/Trace is not grounding/i.test(doctrine), "S1 agent-doctrine.md states trace-
 // S3/S4/S5 — L2 auto-chain: analyse+disasm every extracted payload, soft-fail.
 // ===========================================================================
 console.log("\nS3/S4/S5 — L2 extract auto-chain (analyse+disasm payloads, soft-fail)\n");
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
-const { autoAnalyzeExtractedPayloads, summarizeAutoChain } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
+const { autoAnalyzeExtractedPayloads, summarizeAutoChain } = await import(pathToFileURL(`${ROOT}/dist/lib/extract-auto-chain.js`).href);
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-752c-"));
 const svc = new ProjectKnowledgeService(proj);
@@ -144,7 +144,7 @@ ok(!tagged(f4), "S7 addressRange without a file/payload tag → not tagged (pred
 // S8 — agent_next_step routes an ungrounded finding to grounding (above trace).
 // ===========================================================================
 console.log("\nS8 — agent_next_step ungrounded rung (above annotate/trace/record)\n");
-const { computeNextStep } = await import(`${ROOT}/dist/server-tools/agent-step.js`);
+const { computeNextStep } = await import(pathToFileURL(`${ROOT}/dist/server-tools/agent-step.js`).href);
 
 // Project with ONLY an ungrounded finding + clean inventory → rung 7b fires.
 const sp = mkdtempSync(join(tmpdir(), "c64re-752f-"));
@@ -174,8 +174,8 @@ ok(!/ungrounded/i.test(ns2.primary.why), "S8 control (no ungrounded) → rung do
 // 64tass role, steering token idempotency. (Adversarial-review hardening.)
 // ===========================================================================
 console.log("\nReview fixes — real-disk L2 relink + L1 indirect validation\n");
-const { extractDiskImage } = await import(`${ROOT}/dist/disk-extractor.js`);
-const { linkExtractedPayloadFiles } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
+const { extractDiskImage } = await import(pathToFileURL(`${ROOT}/dist/disk-extractor.js`).href);
+const { linkExtractedPayloadFiles } = await import(pathToFileURL(`${ROOT}/dist/lib/extract-auto-chain.js`).href);
 
 // Real disk: a disk-file entity (born internal, source=manifest) must be
 // relinked to a real PRG and then auto-disassembled.
@@ -228,7 +228,7 @@ ok(!(fTass.tags ?? []).includes("ungrounded"), "REVIEW 64tass-source role counts
 // Steering idempotency keys on the hidden token even if the heading is edited.
 const tk = mkdtempSync(join(tmpdir(), "c64re-752j-"));
 mkdirSync(join(tk, "knowledge"), { recursive: true });
-const steeringMod = await import(`${ROOT}/dist/server-tools/steering-defaults.js`);
+const steeringMod = await import(pathToFileURL(`${ROOT}/dist/server-tools/steering-defaults.js`).href);
 const steeringTokens = Object.entries(steeringMod)
   .filter(([k, v]) => k.endsWith("_TOKEN") && typeof v === "string")
   .map(([, v]) => v);

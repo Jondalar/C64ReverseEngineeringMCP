@@ -19,18 +19,19 @@
 //
 // Exit 0 = pass, 1 = fail.   node scripts/e2e-826-boundaries.mjs   (after npm run build:mcp)
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-const { importAnnotationFile } = await import(join(ROOT, "dist/knowledge-graph/migrate/migrate.js"));
-const { boundaries, boundaryEntries, formatBoundaries } = await import(join(ROOT, "dist/knowledge-graph/query-boundaries.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+const { importAnnotationFile } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/migrate.js")).href);
+const { boundaries, boundaryEntries, formatBoundaries } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-boundaries.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
 
 let pass = 0;
 let failCount = 0;

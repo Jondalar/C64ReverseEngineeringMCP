@@ -15,6 +15,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:838-paths
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -25,7 +26,7 @@ const {
   idDirUnder, idDirIn, ensureIdDirIn, idFileUnder,
   payloadOutputDir, PAYLOAD_OUTPUT_BASE,
   WINDOWS_RESERVED_CHARS, DOS_DEVICE_NAMES,
-} = await import(join(ROOT, "dist/lib/id-path.js"));
+} = await import(pathToFileURL(join(ROOT, "dist/lib/id-path.js")).href);
 
 let pass = 0;
 let failCount = 0;

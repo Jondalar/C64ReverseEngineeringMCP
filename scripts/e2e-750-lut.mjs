@@ -16,6 +16,7 @@
 // a test that only checks the right answer would pass against a resolver that ignores
 // the flag entirely.
 
+import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
@@ -24,7 +25,7 @@ const dist = (p) => join(ROOT, "dist", p);
 if (!existsSync(dist("project-knowledge/lut-resolver.js"))) {
   console.error("build:mcp first"); process.exit(2);
 }
-const { resolveLutRows, checkDescriptor, formatLutProbe } = await import(dist("project-knowledge/lut-resolver.js"));
+const { resolveLutRows, checkDescriptor, formatLutProbe } = await import(pathToFileURL(dist("project-knowledge/lut-resolver.js")).href);
 
 let pass = 0; const fails = [];
 const ok = (name, cond, detail = "") => {
@@ -183,7 +184,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
   const { tmpdir } = await import("node:os");
 
   const projectDir = mkdtempSync(join(tmpdir(), "c64re-750-"));
-  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
   new ProjectKnowledgeService(projectDir).initProject({ name: "750 gate" });
 
   // A tiny .crt with one CHIP packet: a columns-layout table in bank 0's window.
@@ -306,7 +307,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 {
   const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
-  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
 
   const projectDir = mkdtempSync(join(tmpdir(), "c64re-750v-"));
   const svc = new ProjectKnowledgeService(projectDir);
@@ -371,7 +372,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 {
   const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
-  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
 
   const projectDir = mkdtempSync(join(tmpdir(), "c64re-750e-"));
   const svc = new ProjectKnowledgeService(projectDir);
@@ -441,7 +442,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // against, and it would do it while looking like progress.
 {
   const { detectTables, detectColumnsLayout, detectPackedLayout, formatProposals, SEMANTICS_FROM_CODE } =
-    await import(dist("project-knowledge/lut-detect.js"));
+    await import(pathToFileURL(dist("project-knowledge/lut-detect.js")).href);
 
   // A columns-layout table: pitch 64, 16 rows. lo half arbitrary, hi half all inside
   // the cart window — the lo/hi signature.
@@ -518,7 +519,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // already resolved it. These checks assert the grounding, not a hit rate.
 {
   const { indexedAccesses, anchorCandidates, formatAnchored } =
-    await import(dist("project-knowledge/lut-detect.js"));
+    await import(pathToFileURL(dist("project-knowledge/lut-detect.js")).href);
 
   const ins = [
     // One routine walking a four-column table at a pitch of 16.
@@ -570,7 +571,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // into the loader's own code, and a dispatch that lets an index steer control.
 {
   const { detectSectorLoads, detectDispatch, formatEntryPoints } =
-    await import(dist("project-knowledge/loader-entrypoint-detect.js"));
+    await import(pathToFileURL(dist("project-knowledge/loader-entrypoint-detect.js")).href);
 
   // A load routine at $2000, called from four sites with four DIFFERENT positions —
   // plus one site that passes the same pair twice, which must not inflate the count.
@@ -687,7 +688,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 
 // ── 16. the schema says what an address MEANS on each medium ─────────────────
 {
-  const { registerProjectKnowledgeTools } = await import(dist("project-knowledge/mcp-tools.js"));
+  const { registerProjectKnowledgeTools } = await import(pathToFileURL(dist("project-knowledge/mcp-tools.js")).href);
   const schemas = new Map();
   registerProjectKnowledgeTools(
     { tool: (name, _d, schema) => schemas.set(name, schema), prompt: () => {} },
@@ -718,7 +719,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // off-by-two folded into every address by hand. Nothing in the framing could say "the
 // table is in RAM, and here is the payload it came from".
 try {
-  const { payloadReader } = await import(dist("project-knowledge/lut-medium.js"));
+  const { payloadReader } = await import(pathToFileURL(dist("project-knowledge/lut-medium.js")).href);
   const { writeFileSync, mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   if (typeof payloadReader !== "function") throw new Error("lut-medium exports no payloadReader");
@@ -805,7 +806,7 @@ try {
       { role: "sector", width: 1, at: 0x20, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
     ],
   };
-  const { LutColumnRoleSchema } = await import(dist("project-knowledge/types.js"));
+  const { LutColumnRoleSchema } = await import(pathToFileURL(dist("project-knowledge/types.js")).href);
   ok("18a `side` is a column role in the schema, not a tolerated string",
     (LutColumnRoleSchema?.options ?? []).includes("side"),
     (LutColumnRoleSchema?.options ?? []).join(","));
@@ -828,7 +829,7 @@ try {
   const { tmpdir } = await import("node:os");
 
   const projectDir = mkdtempSync(join(tmpdir(), "c64re-750f-"));
-  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
   new ProjectKnowledgeService(projectDir).initProject({ name: "750 framing" });
 
   // The payload as an extract would leave it: a .prg with its 2-byte load word.

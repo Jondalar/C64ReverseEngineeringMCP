@@ -16,16 +16,17 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:819
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
 
 let pass = 0;
 let failCount = 0;
@@ -102,8 +103,8 @@ graph.close();
 // ---------------------------------------------------------------- 826.0 T1 / T2 / T5
 
 {
-  const { resolveAddresses, ambiguousAddresses } = await import(join(ROOT, "dist/knowledge-graph/producers/resolve.js"));
-  const { PlatformKb } = await import(join(ROOT, "dist/platform-kb/read.js"));
+  const { resolveAddresses, ambiguousAddresses } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/resolve.js")).href);
+  const { PlatformKb } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/read.js")).href);
   const analyze = (prgPath, analysisPath, load) => execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prgPath, analysisPath, load], { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, C64RE_PROJECT_DIR: project } });
   const makePrg = (name, load, size, parts) => {
     const img = new Uint8Array(size).fill(0xea);
@@ -171,8 +172,8 @@ graph.close();
   g.close();
 
   // T7 — an artifact needs a machine: drive code declared c1541 seeds under drv/ with 1541 ROM / ZP / VIA ids
-  const { contextForOwner, declareMachine, declaredMachines } = await import(join(ROOT, "dist/knowledge-graph/producers/machine.js"));
-  const { ownerFromAnalysisPath } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+  const { contextForOwner, declareMachine, declaredMachines } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/machine.js")).href);
+  const { ownerFromAnalysisPath } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
   mkdirSync(join(project, "analysis", "drivecode"), { recursive: true });
   const drvImg = new Uint8Array(0x100).fill(0xea);
   drvImg.set([0x20, 0xe9, 0xf5, 0xa5, 0x31, 0x8d, 0x00, 0x18, 0x60], 0); // $0300: jsr $F5E9 ; lda $31 ; sta $1800 ; rts

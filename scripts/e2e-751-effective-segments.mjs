@@ -4,7 +4,7 @@
 // _analysis.json + _annotations.json non-destructively.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -14,9 +14,9 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("Spec 751.1 — server effective-segments overlay (parity + override + load)\n");
 
 // Server port (ESM).
-const srv = await import(`${ROOT}/dist/project-knowledge/effective-segments.js`);
+const srv = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/effective-segments.js`).href);
 // Pipeline port (CJS) — the reference algorithm.
-const plMod = await import(`${ROOT}/dist/pipeline/lib/effective-segments.cjs`);
+const plMod = await import(pathToFileURL(`${ROOT}/dist/pipeline/lib/effective-segments.cjs`).href);
 const plBuild = plMod.buildEffectiveSegments ?? plMod.default?.buildEffectiveSegments;
 ok(typeof srv.buildEffectiveSegments === "function", "server buildEffectiveSegments exported");
 ok(typeof plBuild === "function", "pipeline buildEffectiveSegments importable (CJS)");
@@ -99,8 +99,8 @@ ok(loaded2.segments.length === 1 && loaded2.segments[0].kind === "code" && loade
 // ===========================================================================
 console.log("\nSpec 751.7 — integration (memory-map + annotated-listing + findings, non-destructive)\n");
 
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
-const { mapSegmentKindToEntityKind } = await import(`${ROOT}/dist/project-knowledge/analysis-import.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
+const { mapSegmentKindToEntityKind } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/analysis-import.js`).href);
 
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-751int-"));
 const svc = new ProjectKnowledgeService(projectDir);

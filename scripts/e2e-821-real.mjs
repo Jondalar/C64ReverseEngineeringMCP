@@ -14,6 +14,7 @@
 //
 // Exit 0 = pass (or skipped), 1 = fail.   npm run e2e:821-real
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -37,14 +38,14 @@ if (!CAPTURE || !existsSync(CAPTURE)) {
   process.exit(0);
 }
 
-const { emulatorDaemon: runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js")); // Spec 889: the default backend
+const { emulatorDaemon: runtimeDaemon } = await import(pathToFileURL(join(ROOT, "dist/runtime/daemon-client.js")).href); // Spec 889: the default backend
 let traceReadCalls = 0;
 runtimeDaemon.traceRead = async () => { traceReadCalls += 1; throw new Error("trace/read must not be called"); };
-const { importRuntimeTrace } = await import(join(ROOT, "dist/knowledge-graph/producers/runtime.js"));
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { pointerTargets, unexplained, irqHandlers, runs } = await import(join(ROOT, "dist/knowledge-graph/query-runtime.js"));
+const { importRuntimeTrace } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/runtime.js")).href);
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { pointerTargets, unexplained, irqHandlers, runs } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-runtime.js")).href);
 
 let pass = 0;
 const fails = [];

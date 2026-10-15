@@ -17,20 +17,21 @@
 // Every §5 assert except the runtime one (`args_observed`, another slice).
 // Exit 0 = pass, 1 = fail.   npm run e2e:826
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-const { resolveAddresses } = await import(join(ROOT, "dist/knowledge-graph/producers/resolve.js"));
-const { seedSignatures } = await import(join(ROOT, "dist/knowledge-graph/producers/signatures.js"));
-const { signatureOf, argsDomain, formatSignature, formatArgs } = await import(join(ROOT, "dist/knowledge-graph/query-signatures.js"));
-const { effects, MNEMONICS } = await import(join(ROOT, "dist/knowledge-graph/isa-6502.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+const { resolveAddresses } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/resolve.js")).href);
+const { seedSignatures } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/signatures.js")).href);
+const { signatureOf, argsDomain, formatSignature, formatArgs } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-signatures.js")).href);
+const { effects, MNEMONICS } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/isa-6502.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
 
 let pass = 0;
 let failCount = 0;

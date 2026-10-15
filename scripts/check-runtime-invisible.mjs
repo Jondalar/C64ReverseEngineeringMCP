@@ -17,6 +17,7 @@
 //   node scripts/check-runtime-invisible.mjs
 //   node scripts/check-runtime-invisible.mjs --list   # show every scanned surface
 
+import { pathToFileURL } from "node:url";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, join, relative } from "node:path";
 
@@ -129,7 +130,7 @@ const DIST = join(ROOT, "dist/runtime/setup-recipe.js");
 if (!existsSync(DIST)) {
   console.log(`  SKIPPED the recipe checks — run \`npm run build:mcp\` first (${relative(ROOT, DIST)}).`);
 } else {
-  const { EXPECTED_RUNTIME_PROTOCOL, runtimeSetupRecipe } = await import(DIST);
+  const { EXPECTED_RUNTIME_PROTOCOL, runtimeSetupRecipe } = await import(pathToFileURL(DIST).href);
 
   check("the expected protocol epoch is an integer", Number.isInteger(EXPECTED_RUNTIME_PROTOCOL),
     `epoch=${EXPECTED_RUNTIME_PROTOCOL}`);

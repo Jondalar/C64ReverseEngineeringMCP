@@ -9,6 +9,7 @@
 //   5. Special keys: Escape → ← (LARROW), Tab → RUN_STOP, PageUp → RESTORE, F2 → F1+shift
 //   7. Config save/load round-trip (temp file)
 
+import { pathToFileURL } from "node:url";
 import { resolve as resolvePath } from "node:path";
 import { mkdirSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,11 +19,11 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 
 // Build must have run first.
 const { parseVicercText, sdlKeysymToCode } =
-  await import(`${repoRoot}/dist/input/vicerc-loader.js`);
+  await import(pathToFileURL(`${repoRoot}/dist/input/vicerc-loader.js`).href);
 const { translateKey } =
-  await import(`${repoRoot}/dist/input/keymap.js`);
+  await import(pathToFileURL(`${repoRoot}/dist/input/keymap.js`).href);
 const { loadInputConfig, saveInputConfig, bootstrapFromVicerc, defaultInputConfig } =
-  await import(`${repoRoot}/dist/input/input-config.js`);
+  await import(pathToFileURL(`${repoRoot}/dist/input/input-config.js`).href);
 
 const results = [];
 function test(name, ok, detail = "") {

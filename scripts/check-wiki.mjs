@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WIKI = join(ROOT, "docs/wiki");
@@ -35,7 +35,7 @@ const pages = readdirSync(WIKI).filter((f) => f.endsWith(".md"));
 ok(pages.length > 0, "0 there are pages to check", pages.join(", "));
 
 // ---- the live surfaces the pages have to agree with -------------------------
-const { parseFeature, parseStep } = await import(`${ROOT}/dist/project-knowledge/scenario-gherkin.js`);
+const { parseFeature, parseStep } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/scenario-gherkin.js`).href);
 const inventory = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
 const toolNames = new Set(inventory.tools.map((t) => t.name));
 

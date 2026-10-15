@@ -9,7 +9,7 @@ import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,7 +17,7 @@ const cli = join(ROOT, "dist/cli.js");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
 // A throwaway project, never the repo: the MCPs onboard into it, and the daemons serve it.
 const PROJECT = mkdtempSync(join(tmpdir(), "c64re-744-race-"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 new ProjectKnowledgeService(PROJECT).initProject({ name: "744 race" });
 const PORT = 14748;
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;

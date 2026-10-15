@@ -7,6 +7,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-lut
 
+import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -19,7 +20,7 @@ const check = (c, m) => (c ? ok(m) : fail(m));
 
 console.log("Spec 832 §8 — a class limit is not a missing field\n");
 
-const { checkDescriptor } = await import(join(ROOT, "dist/project-knowledge/lut-resolver.js"));
+const { checkDescriptor } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/lut-resolver.js")).href);
 
 const base = { layout: "packed", start: 0xc0b6, rowCount: 12, identity: { scheme: "row-index" }, columns: [{ role: "destination", at: 0, width: 2 }] };
 

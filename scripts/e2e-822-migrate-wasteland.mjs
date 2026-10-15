@@ -18,6 +18,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:822
 
+import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,13 +66,13 @@ if (!existsSync(legacySource("entities.json"))) {
   process.exit(0);
 }
 
-const { migrateProject } = await import(join(ROOT, "dist/knowledge-graph/migrate/migrate.js"));
-const { canonicalDump822, humanLayerHash } = await import(join(ROOT, "dist/knowledge-graph/migrate/schema-822.js"));
-const { nameNode, assignSubsystem, answerQuestion, linkNodes } = await import(join(ROOT, "dist/knowledge-graph/migrate/human.js"));
-const { searchAnnotations, annotations, subsystem, resolveLayer, findWithLayer } = await import(join(ROOT, "dist/knowledge-graph/query-human.js"));
-const { GraphStore, graphPath } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+const { migrateProject } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/migrate.js")).href);
+const { canonicalDump822, humanLayerHash } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/schema-822.js")).href);
+const { nameNode, assignSubsystem, answerQuestion, linkNodes } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/human.js")).href);
+const { searchAnnotations, annotations, subsystem, resolveLayer, findWithLayer } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-human.js")).href);
+const { GraphStore, graphPath } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
 
 let pass = 0;
 let failCount = 0;
@@ -328,7 +329,7 @@ function humanLayerDumpHas(dbx, id) { return dbx.prepare("SELECT 1 FROM question
 // ---------------------------------------------------------------- 5. concurrency: 2 × 200 through the door, none lost
 
 const child = `
-  const { recordFinding, openStore } = await import(${JSON.stringify(join(ROOT, "dist/knowledge-graph/migrate/human.js"))});
+  const { recordFinding, openStore } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/human.js")).href)});
   const [project, tag] = process.argv.slice(1);
   const store = openStore(project);
   for (let i = 0; i < 200; i += 1) recordFinding(store, { kind: "observation", title: tag + " finding " + i, summary: "concurrent write " + i, tags: [tag], addressRange: { start: 0x1000 + i, end: 0x1000 + i } });
@@ -358,7 +359,7 @@ store.close();
 // open is a no-op; 2 × 200 concurrent save_finding THROUGH THE SERVICE land
 // 400/400 (the JSON path this replaced lost 200 of 400 — recorded in §"Built").
 {
-  const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
   const cut = mkdtempSync(join(tmpdir(), "c64re-822-cut-"));
   mkdirSync(join(cut, "knowledge"), { recursive: true });
   for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
@@ -423,7 +424,7 @@ store.close();
   check(/^ann:/.test(saved.id) && svc.listFindings().some((f) => f.id === saved.id && f.tags.includes("gate-822")), `save_finding through the service → ${saved.id}, listed back`);
   check(!legacyFiles.some((f) => existsSync(join(cut, "knowledge", f))), "no legacy JSON file reappeared after the write");
   const svcChild = `
-    const { ProjectKnowledgeService } = await import(${JSON.stringify(join(ROOT, "dist/project-knowledge/service.js"))});
+    const { ProjectKnowledgeService } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href)});
     const [project, tag] = process.argv.slice(1);
     const svc = new ProjectKnowledgeService(project);
     for (let i = 0; i < 200; i += 1) svc.saveFinding({ kind: "observation", title: tag + " finding " + i, tags: [tag], addressRange: { start: 0x1000 + i, end: 0x1000 + i } });
@@ -458,8 +459,8 @@ check(stderr === "", "c64re graph stats on the migrated graph: stderr empty");
 // 18 owners WL1 carried on 2026-09-06), then the 16 annotation files are re-imported
 // (force) so the rule judges them against real extents.
 {
-  const { importAnnotationFile } = await import(join(ROOT, "dist/knowledge-graph/migrate/migrate.js"));
-  const { boundaries, boundaryEntries, formatBoundaries } = await import(join(ROOT, "dist/knowledge-graph/query-boundaries.js"));
+  const { importAnnotationFile } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/migrate.js")).href);
+  const { boundaries, boundaryEntries, formatBoundaries } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-boundaries.js")).href);
   const analysisFiles = findFiles(WASTELAND, "_analysis.json");
   const tSeed = process.hrtime.bigint();
   let seeded = 0;

@@ -8,7 +8,7 @@
 import { mkdtempSync, mkdirSync, cpSync, existsSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -20,7 +20,7 @@ console.log("Spec 740.1 — project search/wiki Wasteland acceptance\n");
 // written on Windows ends its lines in \r\n; the heading and comment matches anchor on
 // `$`, and saw none of them: every doc collapsed into one section, every comment vanished.
 {
-  const { buildProjectSearchIndex: build } = await import(join(ROOT, "dist/project-knowledge/project-search.js"));
+  const { buildProjectSearchIndex: build } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-search.js")).href);
   const p = mkdtempSync(join(tmpdir(), "c64re-740-crlf-"));
   mkdirSync(join(p, "knowledge"), { recursive: true });
   mkdirSync(join(p, "docs"), { recursive: true });
@@ -45,8 +45,8 @@ if (!["graph.sqlite", "findings.json"].some((f) => existsSync(join(WASTELAND, "k
   process.exit(fail === 0 ? 0 : 1);
 }
 
-const mod = await import(join(ROOT, "dist/project-knowledge/project-search.js"));
-const wiki = await import(join(ROOT, "dist/project-knowledge/project-wiki.js"));
+const mod = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-search.js")).href);
+const wiki = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-wiki.js")).href);
 const { buildProjectSearchIndex, searchIndex, findRelated, writeIndexCache } = mod;
 
 // tmp project copy (knowledge + docs + views + CLAUDE.md). Skip analysis/ (huge).

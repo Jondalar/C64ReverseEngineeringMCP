@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,13 +58,13 @@ const HAVE_64TASS = spawnSync("64tass", ["--version"], { stdio: "ignore" }).stat
 
 console.log("Spec 898 — the VIC-20 and the TED machines are platforms\n");
 
-const schema = await import(join(ROOT, "dist/platform-kb/schema.js"));
-const { PlatformKb } = await import(join(ROOT, "dist/platform-kb/read.js"));
-const ids = await import(join(ROOT, "dist/knowledge-graph/ids.js"));
-const { seedProject } = await import(join(ROOT, "dist/knowledge-graph/producers/seed-project.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
-const { assembleSource } = await import(join(ROOT, "dist/assemble-source.js"));
+const schema = await import(pathToFileURL(join(ROOT, "dist/platform-kb/schema.js")).href);
+const { PlatformKb } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/read.js")).href);
+const ids = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/ids.js")).href);
+const { seedProject } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/seed-project.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
+const { assembleSource } = await import(pathToFileURL(join(ROOT, "dist/assemble-source.js")).href);
 const twin = require(join(ROOT, "dist/pipeline/lib/platform-kb.cjs"));
 const kb = new PlatformKb(join(ROOT, "resources/platform-kb.sqlite"));
 
@@ -360,7 +360,7 @@ try {
   check(await tok("vic20", { load_address: "1201" }) === 0x1201, "…a given load_address wins ($1201, the +8K VIC-20)");
   check(await tok("vic20", { load_address: "0401" }) === 0x0401, "…and $0401, the +3K VIC-20");
   check(await tok(undefined, {}, projB) === 0x1001, "no argument in a project whose default is vic20: $1001");
-  const { defaultLoadAddresses } = await import(join(ROOT, "dist/project-knowledge/platform-default.js"));
+  const { defaultLoadAddresses } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/platform-default.js")).href);
   check(JSON.stringify(defaultLoadAddresses("vic20")) === JSON.stringify([0x1001, 0x0401, 0x1201]), "the VIC-20 offers $1001, $0401, $1201, in that order");
   check(JSON.stringify(defaultLoadAddresses("plus4")) === JSON.stringify([0x1001]) && JSON.stringify(defaultLoadAddresses("c64")) === JSON.stringify([0x0801]), "the TED machines offer $1001; the C64 $0801");
   // a refusal that asks for load_address offers them — and a header always wins
@@ -376,10 +376,10 @@ try {
   // ── 8 D7: an annotate region over an I/O window is met by its access sites ──
   head(8, "an annotate boundary over the I/O window is satisfied by its sites");
   {
-    const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-    const { assertBoundary } = await import(join(ROOT, "dist/model/store.js"));
-    const { saveContract } = await import(join(ROOT, "dist/contract/contract.js"));
-    const { verdict } = await import(join(ROOT, "dist/critic/run.js"));
+    const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+    const { assertBoundary } = await import(pathToFileURL(join(ROOT, "dist/model/store.js")).href);
+    const { saveContract } = await import(pathToFileURL(join(ROOT, "dist/contract/contract.js")).href);
+    const { verdict } = await import(pathToFileURL(join(ROOT, "dist/critic/run.js")).href);
     const SLUG = "d7";
     // sites: [{ at, stores: [addr…], human?: name }]; the boundary asks for `want` over [start, end]
     async function scenario({ tag, owner, sites, start, end }) {
@@ -476,7 +476,7 @@ try {
   const f0801 = basicFacts(projA, "k_c64_0801");
   check(f0801.basicSegs.length === 1 && f0801.sysEntries[0] === atC64Start.target, "c64 at $0801: BASIC segment and SYS entry, as before", JSON.stringify(f0801));
   // the pipeline's start set is the store-side default list, one for one
-  const { defaultLoadAddresses: dla } = await import(join(ROOT, "dist/project-knowledge/platform-default.js"));
+  const { defaultLoadAddresses: dla } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/platform-default.js")).href);
   for (const tag of ["c64", "c1541", "vic20", "plus4"]) {
     check(JSON.stringify(twin.basicStartAddresses(tag)) === JSON.stringify(dla(tag)), `basicStartAddresses(${tag}) equals defaultLoadAddresses(${tag})`, JSON.stringify(twin.basicStartAddresses(tag)));
   }
@@ -685,11 +685,11 @@ function makeD64(files) {
   // ── 11 the acceptance run ───────────────────────────────────────────────────
   head(11, "unowned I/O boundary, colour RAM, preview, one-name rows, range-true stores");
   {
-    const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-    const { assertBoundary } = await import(join(ROOT, "dist/model/store.js"));
-    const { saveContract } = await import(join(ROOT, "dist/contract/contract.js"));
-    const { verdict } = await import(join(ROOT, "dist/critic/run.js"));
-    const { declareMachine } = await import(join(ROOT, "dist/knowledge-graph/producers/machine.js"));
+    const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+    const { assertBoundary } = await import(pathToFileURL(join(ROOT, "dist/model/store.js")).href);
+    const { saveContract } = await import(pathToFileURL(join(ROOT, "dist/contract/contract.js")).href);
+    const { verdict } = await import(pathToFileURL(join(ROOT, "dist/critic/run.js")).href);
+    const { declareMachine } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/machine.js")).href);
     // D-A: a boundary with NO owner, in a project with NO default machine
     async function unowned({ edges, declared, human }) {
       const d = mkdtempSync(join(tmpdir(), "c64re-898da-"));

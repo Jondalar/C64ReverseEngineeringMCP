@@ -27,7 +27,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 import vm from "node:vm";
 
@@ -591,7 +591,7 @@ section("8  UI: the player's stream rate");
     }
     globalThis.window = { AudioContext: FakeCtx, addEventListener() {}, removeEventListener() {} };
     globalThis.AudioWorkletNode = FakeNode;
-    const { WebAudioPlayer, DEFAULT_STREAM_RATE } = await import(file);
+    const { WebAudioPlayer, DEFAULT_STREAM_RATE } = await import(pathToFileURL(file).href);
 
     eq(DEFAULT_STREAM_RATE, 44100, "the default stream rate is 44100");
     const p0 = new WebAudioPlayer();

@@ -8,6 +8,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:827
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
@@ -16,8 +17,8 @@ const ROOT = resolve(import.meta.dirname, "..");
 const {
   traceRoot, projectKey, traceDirForProject, defaultTraceOut,
   syncClientFor, syncWarning, recordTracePointer, tracePointerPath,
-} = await import(join(ROOT, "dist/trace/trace-location.js"));
-const { resolveTraceOut } = await import(join(ROOT, "dist/server-tools/runtime-trace-sink.js"));
+} = await import(pathToFileURL(join(ROOT, "dist/trace/trace-location.js")).href);
+const { resolveTraceOut } = await import(pathToFileURL(join(ROOT, "dist/server-tools/runtime-trace-sink.js")).href);
 
 let pass = 0;
 let failCount = 0;

@@ -2,7 +2,7 @@
 // against the full inventory + the tier-tools registry (the exact logic the
 // server.tool() gate uses). Static + deterministic; no server boot.
 import { readFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,7 +12,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("Spec 722.3a — probe-tool-surface\n");
 
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
-const tier = await import(`${ROOT}/dist/server-tools/tier-tools.js`);
+const tier = await import(pathToFileURL(`${ROOT}/dist/server-tools/tier-tools.js`).href);
 const { DEFAULT_TOOLS, tierForTool, DEFAULT_TIER_CAP } = tier;
 
 const allNames = inv.tools.map((t) => t.name);
