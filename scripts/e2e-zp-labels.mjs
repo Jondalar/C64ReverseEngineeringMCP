@@ -102,7 +102,7 @@ try {
       else skip(`${tag}: 64tass rebuild`, "64tass not on PATH");
 
       if (platform === "c64" && mode === "analysis") {
-        check(/lda\s+ptrLo\s+\/\/ A = FREKZP/.test(asm), "the platform name stays as a hint behind the user's name");
+        check(!/lda\s+ptrLo\s+\/\/.*FREKZP/.test(asm), "the user's name stands alone: no platform meaning behind it (#88)");
       }
       if (platform === "none") check(!/FREKZP|TXTPTR/.test(asm), "platform none: no platform name");
     }

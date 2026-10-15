@@ -816,8 +816,8 @@ function operandTextFromFact(
       return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},x`;
     case "zp,y":
       return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},y`;
-    // the human's name wins over the platform's for the operand; the platform name
-    // stays in the line comment as a hint
+    // the human's name wins over the platform's for the operand; an I/O register's
+    // description stays in the line comment (zero page: the human name stands alone)
     case "abs":
       return ioName ?? annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`;
     case "abs,x":
