@@ -27,7 +27,9 @@ export function repoRoot(): string {
 export function resolveTrx64Cli(): string {
   const override = process.env.C64RE_TRX64CLI_BIN?.trim();
   if (override) return override;
-  return resolvePath(repoRoot(), "..", "TRX64", "target", "release", "trx64cli");
+  // `.exe` on Windows (#106): without it `existsSync` refused a built binary.
+  const bin = process.platform === "win32" ? "trx64cli.exe" : "trx64cli";
+  return resolvePath(repoRoot(), "..", "TRX64", "target", "release", bin);
 }
 
 export function hexToBytes(hex: string): Uint8Array {
