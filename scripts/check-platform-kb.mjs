@@ -25,7 +25,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
@@ -64,7 +65,8 @@ function walk(dir, out = []) {
 
 const offenders = [];
 for (const file of [...walk(join(ROOT, "src")), ...walk(join(ROOT, "pipeline/src"))]) {
-  const rel = relative(ROOT, file);
+  // ALLOW names files with "/": on Windows relative() answers with "\\"
+  const rel = relative(ROOT, file).split(sep).join("/");
   if (ALLOW.has(rel)) continue;
   const lines = readFileSync(file, "utf8").split("\n");
   let hits = 0;
@@ -82,8 +84,8 @@ if (!failures.length) ok("no address→name table outside src/platform-kb/extens
 
 // ---------------------------------------------------------------- 2. identical
 
-const { verifyPlatformKb, defaultPlatformKbPath } = await import(join(ROOT, "dist/platform-kb/seed.js"));
-const { PlatformKb } = await import(join(ROOT, "dist/platform-kb/read.js"));
+const { verifyPlatformKb, defaultPlatformKbPath } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seed.js")).href);
+const { PlatformKb } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/read.js")).href);
 const storePath = defaultPlatformKbPath(ROOT);
 if (!existsSync(storePath)) {
   fail("resources/platform-kb.sqlite missing — run npm run build:platform-kb");
@@ -147,9 +149,9 @@ try {
     else if (!n.source.startsWith("secondary: ")) fail(`${platform} $${address.toString(16)} source "${n.source}" is not marked secondary`);
   }
   {
-    const { VIC20_SECONDARY_ROWS, PLUS4_SECONDARY_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/secondary.js"));
-    const { VIC20_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/vic20.js"));
-    const { PLUS4_ROWS } = await import(join(ROOT, "dist/platform-kb/seeds/plus4.js"));
+    const { VIC20_SECONDARY_ROWS, PLUS4_SECONDARY_ROWS } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seeds/secondary.js")).href);
+    const { VIC20_ROWS } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seeds/vic20.js")).href);
+    const { PLUS4_ROWS } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seeds/plus4.js")).href);
     for (const [platform, secondary, primary] of [["vic20", VIC20_SECONDARY_ROWS, VIC20_ROWS], ["plus4", PLUS4_SECONDARY_ROWS, PLUS4_ROWS]]) {
       const taken = new Set(primary.map((r) => r[0]));
       for (const row of secondary) {
@@ -168,8 +170,8 @@ try {
   }
   // Colour RAM at its normal VIC-20 place: a marked secondary region, nothing in the ROM source covers it.
   {
-    const { VIC20_SECONDARY_REGIONS } = await import(join(ROOT, "dist/platform-kb/seeds/secondary.js"));
-    const { VIC20_REGIONS } = await import(join(ROOT, "dist/platform-kb/seeds/vic20.js"));
+    const { VIC20_SECONDARY_REGIONS } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seeds/secondary.js")).href);
+    const { VIC20_REGIONS } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/seeds/vic20.js")).href);
     for (const [start, end, name, source] of VIC20_SECONDARY_REGIONS) {
       if (!/^secondary: \S/.test(source) || !/\bp\.\d+/.test(source)) fail(`vic20 region $${start.toString(16)}: source "${source}" lacks the "secondary: " marker or a page cite`);
       if (VIC20_REGIONS.some((r) => r[0] <= end && r[1] >= start)) fail(`vic20 region $${start.toString(16)}: overlaps a ROM-source region`);
@@ -206,7 +208,7 @@ try {
 
 // ---------------------------------------------------------------- 4b. Spec 826 D4 — the ABI rows ARE the spec
 try {
-  const { abiNames } = await import(join(ROOT, "dist/platform-kb/abi.js"));
+  const { abiNames } = await import(pathToFileURL(join(ROOT, "dist/platform-kb/abi.js")).href);
   const names = abiNames();
   const entries = kb.abiEntries("c64");
   if (entries.length !== names.size) fail(`platform_abi covers ${entries.length} entries, abi.ts names ${names.size}`);
