@@ -2,7 +2,7 @@
 
 ## VICE
 
-C64RE MCP contains no emulator (Spec 806, 2026-08-12) — the TypeScript headless
+C64RE MCP contains no emulator — the TypeScript headless
 runtime whose portions were derived from, ported from, or validated against VICE
 is deleted, and so is the vendored reSID copy that went with it. What remains
 here having been READ from VICE is the monitor's verb set and expression syntax,

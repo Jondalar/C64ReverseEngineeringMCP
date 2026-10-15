@@ -12,7 +12,7 @@ Discovery (phases 1-2) and Reverse Engineering (phases 3-7).
 
 Use this when reverse-engineering any `.prg`, `.crt`, `.d64`, or `.g64` with the `c64re` MCP tools.
 
-## Runtime backend: TRX64 by default (Spec 771)
+## Runtime backend: TRX64 by default
 
 The default runtime backend is **TRX64** (the native Rust daemon). The
 in-repo TypeScript runtime is the **fallback / parity check**. Leitregel:

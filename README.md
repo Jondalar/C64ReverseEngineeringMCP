@@ -48,7 +48,7 @@ Findings, entities, relations, payloads, flows, open questions — linked to the
 and addresses they came from. Runtime evidence is registered as an artifact and attached
 to a finding.
 
-Since Spec 822.2 all of it lives in **one graph** per project
+All of it lives in **one graph** per project
 (`knowledge/graph.sqlite`), not in a folder of JSON files. Two layers: what the
 analysers derived and what a human asserted, kept apart and never overwriting each
 other. Routines carry a computed signature — which registers they take, return, clobber

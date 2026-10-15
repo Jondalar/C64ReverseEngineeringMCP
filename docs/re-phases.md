@@ -139,7 +139,7 @@ artifact stays at its frozen phase, counts as "done" for
 completion-percentage math, and is skipped by `propose_next`
 unless the user opts back in.
 
-## Workflow Templates (Spec 046)
+## Workflow Templates
 
 `start_re_workflow` sets `ProjectProfile.workflow`, which filters the **required**
 phases in the per-artifact status checklist and the phase rows `agent_propose_next`
@@ -155,9 +155,9 @@ surfaces (`src/agent-orchestrator/workflows.ts` — `requiredPhasesFor` /
 | `bugfix` | 1, 5, 7 | Reproduce a known bug, patch, verify. |
 
 The template only changes which phases are *required* / *surfaced*; the PHASE_TOOLS
-allow-lists (Spec 034) are unchanged.
+allow-lists are unchanged.
 
-## Master + Worker Pattern (Spec 035)
+## Master + Worker Pattern
 
 Strongly recommended:
 

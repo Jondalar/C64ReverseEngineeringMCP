@@ -130,7 +130,7 @@ export function recordTracePointer(projectDir: string, entry: TracePointer): str
       }
     }
     entries.push(entry);
-    writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, note: "Spec 827 — captures live outside the project; this file says where.", traces: entries }, null, 2)}\n`);
+    writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, note: "Captures live outside the project; this file says where.", traces: entries }, null, 2)}\n`);
     return path;
   } catch {
     return undefined;

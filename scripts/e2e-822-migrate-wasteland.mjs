@@ -378,7 +378,7 @@ store.close();
   const tCut = process.hrtime.bigint();
   const svc = new ProjectKnowledgeService(cut);
   const msCut = Number(process.hrtime.bigint() - tCut) / 1e6;
-  check(legacyFiles.every((f) => !existsSync(join(cut, "knowledge", f)) && existsSync(join(cut, "knowledge", "_legacy-822", f))), `opening the project cut it over: the five legacy files moved to knowledge/_legacy-822/ (${msCut.toFixed(0)} ms)`);
+  check(legacyFiles.every((f) => !existsSync(join(cut, "knowledge", f)) && existsSync(join(cut, "knowledge", "_legacy-json", f))), `opening the project cut it over: the five legacy files moved to knowledge/_legacy-json/ (${msCut.toFixed(0)} ms)`);
   check(existsSync(join(cut, "knowledge", "flows.json")) && existsSync(join(cut, "knowledge", "artifacts.json")), "flows.json and artifacts.json stay JSON (not knowledge / regenerable)");
   const cutStore = GraphStore.open(cut, { readOnly: true });
   const cutRuns = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE dry_run = 0").get().n);
@@ -391,7 +391,7 @@ store.close();
   eq(cutLedger, legacyTotal, "cut-over ledger = the same legacy records the migration gate read");
   check(Boolean(cutoverAt), `meta.cutover_at stamped (${cutoverAt})`);
   const timeline = readFileSync(join(cut, "session", "timeline.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  check(timeline.some((e) => /Spec 822 cut-over/.test(e.title)), "the cut-over is a timeline event");
+  check(timeline.some((e) => /^Cut-over:/.test(e.title)), "the cut-over is a timeline event");
   const status = svc.getProjectStatus();
   eq(status.counts.findings, claimsN + findingAnnN, "project_status counts findings from the graph (claims + prose)");
   eq(status.counts.openQuestions, questionsN, "project_status counts open questions from the graph");
@@ -410,7 +410,7 @@ store.close();
   const questions = svc.listOpenQuestions();
   check(questions.length === questionsN && questions.every((q) => q.status && q.priority), `listOpenQuestions = ${questions.length} (heuristic prompts are claim validation state, not rows)`);
   // an alias from the legacy era still resolves through the ledger
-  const legacyEntity = JSON.parse(readFileSync(join(cut, "knowledge", "_legacy-822", "entities.json"), "utf8")).items.find((e) => e.name === "area_load_orchestrator" && e.kind === "routine");
+  const legacyEntity = JSON.parse(readFileSync(join(cut, "knowledge", "_legacy-json", "entities.json"), "utf8")).items.find((e) => e.name === "area_load_orchestrator" && e.kind === "routine");
   check(legacyEntity && svc.getEntity(legacyEntity.id)?.id === orch?.id, `a legacy entity id resolves to its graph node through the ledger (${legacyEntity?.id} → ${orch?.id})`);
   // second open: no second migration, nothing moved
   const t2 = process.hrtime.bigint();

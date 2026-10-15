@@ -49,7 +49,7 @@ for (const page of pages) {
   const name = basename(page, ".md");
 
   // 1. no page cites a spec number — the wiki describes behaviour, not bookkeeping.
-  const specs = [...text.matchAll(/\bSpec\s+\d+/g)].map((m) => m[0]);
+  const specs = [...text.matchAll(/\bSpecs?\s+\d+/g)].map((m) => m[0]);
   ok(specs.length === 0, `${name}: cites no spec number`, specs.join(", ") || "clean");
 
   // 2. the backend stays unnamed.

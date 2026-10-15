@@ -1,6 +1,6 @@
 # Keystone Schema — the Medium → Payload spine (binding contract)
 
-Decided earlier (pre-workflow-cockpit), never written down → the cockpit (Spec 773)
+Decided earlier (pre-workflow-cockpit), never written down → the cockpit
 was grafted onto the OLD BAM-coupled disk-view instead of this. This file IS the
 contract. **It must carry through Extraction → Storage → View → Build.** If a layer
 diverges from it, that layer is wrong, not this.

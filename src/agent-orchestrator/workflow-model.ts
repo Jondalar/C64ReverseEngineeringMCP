@@ -188,7 +188,7 @@ export const C64RE_WORKFLOW_STEPS = [
     title: "Patch / change / validate loop",
     completionChecks: ["change-validated"],
     branches: ["runtime-trace", "record-knowledge"],
-    blockedUntil: "Spec 711",
+    blockedUntil: "the code-overlay loop ships",
   },
 ] as const;
 

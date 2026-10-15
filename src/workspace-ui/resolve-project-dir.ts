@@ -26,7 +26,7 @@ export function resolveProjectDir(
   if (!raw) {
     throw new Error(
       "No project directory. Pass `--project <dir>` or set C64RE_PROJECT_DIR. "
-      + "There is no cwd fallback (Spec 724.3 — the workspace must be explicit "
+      + "There is no cwd fallback (the workspace must be explicit "
       + "about which project it serves).",
     );
   }

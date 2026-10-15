@@ -2241,7 +2241,7 @@ function QuestionsPanel({
         <button type="button" className="inspector-chip" onClick={clearSelection} disabled={busy || selected.size === 0}>
           Clear selection
         </button>
-        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchRevaluate} title="Phase 1 sweep (deterministic) + Phase 2 LLM task queued via UX3.">
+        <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={batchRevaluate} title="Phase 1 sweep (deterministic) + Phase 2 LLM task queued.">
           {busy ? "..." : `Re-evaluate ${selected.size}`}
         </button>
         <button type="button" className="inspector-chip" disabled={busy || selected.size === 0} onClick={() => applyBatch({ status: "deferred" })}>

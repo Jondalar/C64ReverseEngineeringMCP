@@ -364,7 +364,7 @@ function Build-Backend-Unused {` : ``}  $repo = Get-Repo
     if (Test-Path $server) { Write-Warning '[ui.ps1] npm not on PATH - starting the build already in dist\\'; return }
     throw '[ui.ps1] npm not on PATH and dist\\workspace-ui\\server.js is missing. Install Node.js 22+ and run "npm install; npm run build" in the repo once.'
   }
-  # Spec 885 D6 - compile only when src\\ changed since the last build (~11 s saved
+  # Compile only when src\\ changed since the last build (~11 s saved
   # on every start of an unchanged checkout). -NoBuild skips even the check.
   $node = Get-Command 'node.exe' -ErrorAction SilentlyContinue
   $stale = Join-Path $repo 'scripts\\build-if-stale.mjs'

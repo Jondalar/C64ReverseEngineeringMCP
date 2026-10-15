@@ -1,7 +1,7 @@
 # C64Ref knowledge and the platform knowledge base
 
 Local snapshot of [mist64/c64ref](https://github.com/mist64/c64ref) — BASIC and
-KERNAL ROM commentaries, the KERNAL API references, and since Spec 817 the
+KERNAL ROM commentaries, the KERNAL API references, and since the platform knowledge store the
 zero-page / RAM memory maps (`src/c64mem/`), the I/O register maps
 (`src/c64io/`) and the canonical symbol list (`symbols.txt`).
 
@@ -16,10 +16,10 @@ The SQLite store is what every consumer reads: the disassembly renderer
 (`pipeline/src/lib/platform-kb.ts`), the MCP half (`src/platform-kb/read.ts`),
 `inspect_address_range`. It is readable from both compilation halves, which is
 why it exists — the four hand-typed tables it replaced could not be shared and
-drifted apart (Spec 817 §1–2).
+drifted apart.
 
 Node ids are derived, never assigned: `c64:io:d018`, `c64:rom:ffd2`,
-`c64:zp:0001`, `c1541:io:1800`, `vic20:io:9005`, `plus4:io:ff19` (Spec 818 D1 grammar). The
+`c64:zp:0001`, `c1541:io:1800`, `vic20:io:9005`, `plus4:io:ff19`. The
 kind is a function of the address on each machine's memory map (`platformKindForAddress`,
 kept in both halves): VIC-20 I/O is `$9000-$9FFF`, TED I/O `$FD00-$FF3F`. Re-seeding is idempotent; the gate proves it.
 

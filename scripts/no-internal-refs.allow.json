@@ -1,0 +1,13 @@
+{
+  "comment": "Real exceptions to scripts/check-no-internal-refs.mjs. One entry per {file, match}; the reason says why the string has to stay. An entry that stops matching fails the check, so this list can shrink and never silently grow.",
+  "entries": [
+    { "file": "src/knowledge-graph/migrate/migrate.ts", "match": "_legacy-822", "reason": "Directory name an earlier release parked the legacy JSON stores in. Existing projects still hold their files there, so the reader must keep looking in it. Never written." },
+    { "file": "src/knowledge-graph/migrate/migrate.ts", "match": "split-table-903", "reason": "Edge rule id earlier releases wrote into edges.evidence. The re-derive purge must still match it or old table edges would be duplicated. Never written." },
+    { "file": "src/knowledge-graph/migrate/schema-822.ts", "match": "schema_822", "reason": "Meta key an earlier release stamped the record schema with. Opening such a graph must recognise it, and the migration deletes it. Never written." },
+    { "file": "src/lib/registration-delta.ts", "match": "spec784", "reason": "Name of the extraction manifest earlier releases wrote into analysis/. Existing projects hold it and it must stay classed as the tool's manifest. Never written." },
+    { "file": "src/project-knowledge/manifest-import.ts", "match": "spec784", "reason": "Artifact role earlier releases registered the extraction manifest under. Existing project records carry it and the importer must still accept it. Never written." },
+    { "file": "src/server-tools/registration.ts", "match": "spec784", "reason": "Glob for the extraction manifest name earlier releases wrote, so it is still registered. Never written." },
+    { "file": "src/server-tools/steering-defaults.ts", "match": "spec752", "reason": "Hidden idempotency token earlier releases put into steering.md. Without recognising it the block would be appended a second time. Never written." },
+    { "file": "src/server-tools/steering-defaults.ts", "match": "spec748", "reason": "Hidden idempotency token earlier releases put into steering.md. Without recognising it the block would be appended a second time. Never written." }
+  ]
+}

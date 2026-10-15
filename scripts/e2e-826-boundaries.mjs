@@ -126,15 +126,15 @@ eq(r2.attached + r2.dataBlocks + r2.splits + r2.unseen, 0, "nobody_annotations.j
 // ---------------------------------------------------------------- the outcomes
 
 graph = Graph.open(project);
-const T3 = (e) => e.layer === "human" && e.origin === "imported" && e.confidence === "inferred" && e.evidence.rule === "826.0-T3";
+const T3 = (e) => e.layer === "human" && e.origin === "imported" && e.confidence === "inferred" && e.evidence.rule === "human-boundary";
 
 // label inside a routine, no twin → CONTAINS
 const contains = graph.edgesInto(L("1025"), ["CONTAINS"]);
-check(contains.length === 1 && contains[0].from === R("1020") && T3(contains[0]), `CONTAINS W1020 → sub_exit ($1025): human / imported / inferred / rule 826.0-T3`);
+check(contains.length === 1 && contains[0].from === R("1020") && T3(contains[0]), `CONTAINS W1020 → sub_exit ($1025): human / imported / inferred / rule human-boundary`);
 check(graph.containerOf(L("1025")).some((n) => n.id === R("1020")), "containerOf(sub_exit) = W1020");
 check(graph.labels(R("1020")).some((n) => n.id === L("1025") && n.name === "sub_exit"), "labels(W1020) lists sub_exit under its human name");
 // label with a twin → nothing from the rule
-check(!graph.edgesInto(L("1022"), ["CONTAINS"]).some(T3), "loop ($1022, has a twin): no 826.0-T3 edge — the normal case");
+check(!graph.edgesInto(L("1022"), ["CONTAINS"]).some(T3), "loop ($1022, has a twin): no human-boundary edge — the normal case");
 check(graph.resolve(L("1022")).name === "loop" && graph.resolve(L("1022")).attrs.boundary === undefined, "loop: human name on the twin, no boundary attr");
 
 // label outside every routine → data_block + boundary
@@ -153,7 +153,7 @@ const reads = graph.edgesOutOf(R("1000")).filter((e) => e.type === "READS" && e.
 check(reads.length === 2 && reads.every((e) => e.toNode.name === "my_table") && reads.some((e) => e.evidence.via === A("1400")) && reads.some((e) => e.evidence.via === A("1405")), `edgesOutOf(W1000): both READS land on my_table — via ${A("1400")} (first byte) and via ${A("1405")} (inside the range)`);
 // 826.0 T4 range rule: an address INSIDE the table resolves to it, offset said
 const inside = graph.store.db.prepare("SELECT to_id, evidence FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO'").all(A("1405"));
-check(inside.length === 1 && inside[0].to_id === D("1400") && JSON.parse(inside[0].evidence).offset === 5 && JSON.parse(inside[0].evidence).rule === "826.0-T4", `RESOLVES_TO ${A("1405")} → my_table with offset 5 (the range rule)`);
+check(inside.length === 1 && inside[0].to_id === D("1400") && JSON.parse(inside[0].evidence).offset === 5 && JSON.parse(inside[0].evidence).rule === "containment-resolve", `RESOLVES_TO ${A("1405")} → my_table with offset 5 (the range rule)`);
 check(graph.edgesInto(D("1400")).filter((e) => e.type === "READS").length === 2, "edgesInto(my_table) counts both READS through the aliases");
 check(graph.readers(0x1400).some((e) => e.from === R("1000")), "readers($1400) still answers W1000");
 

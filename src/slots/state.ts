@@ -658,7 +658,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           (f.tags ?? []).some((t) => /^slot:S15$/i.test(t)) && (f.tags ?? []).some((t) => /^method:chains$/i.test(t)));
         return byChains
           ? { slot, status: "filled", detail: `${explicit[0]}, established by walking the chains` }
-          : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy (issue #24)` };
+          : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy` };
       }
       // S5 says what the list actually READ out of it. The count decides whether
       // four other slots apply, and it used to be invisible: a claim that parsed

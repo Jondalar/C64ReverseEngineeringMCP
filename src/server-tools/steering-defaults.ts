@@ -14,7 +14,9 @@ import { dirname, join } from "node:path";
 /** Human-readable heading marker. */
 export const EXTRACT_FIRST_MARKER = "Extract-first grounding";
 /** Stable hidden token idempotency keys on (survives a heading hand-edit). */
-export const EXTRACT_FIRST_TOKEN = "<!-- spec752-steering-v1 -->";
+export const EXTRACT_FIRST_TOKEN = "<!-- steering:extract-first-v1 -->";
+/** What projects steered before the rename carry. Still recognised, never written. */
+export const EXTRACT_FIRST_LEGACY_TOKEN = "<!-- spec752-steering-v1 -->";
 
 /** The per-project operational rule (L2 + the L1 reminder). The universal law
  *  lives in docs/agent-doctrine.md; this is the always-in-context steering. */
@@ -33,7 +35,7 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
 - **Trace ≠ grounding.** Trace/stats/heuristics describe runtime *behaviour* — *when/where*
   something runs. They never say *what* a block IS; that comes from the extract + its
   disassembly. Do not reach for tracing/statistics to ground a file/payload claim.
-- **Record the ROW, not just the payload (Spec 750).** When the loader you disassembled
+- **Record the ROW, not just the payload.** When the loader you disassembled
   reads a TABLE — a cartridge index, a disk directory, any custom LUT — describe the
   table with \`declare_lut_descriptor\` and attach each payload to the row that claims
   it with \`link_payload_to_lut_row\`. Registering the extracted bytes records WHAT is
@@ -47,7 +49,9 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
 
 /** Spec 748.2 (BUG-032) — the record + reconcile discipline. */
 export const RECONCILE_MARKER = "Record + reconcile discipline";
-export const RECONCILE_TOKEN = "<!-- spec748-2-steering-v1 -->";
+export const RECONCILE_TOKEN = "<!-- steering:record-reconcile-v1 -->";
+/** What projects steered before the rename carry. Still recognised, never written. */
+export const RECONCILE_LEGACY_TOKEN = "<!-- spec748-2-steering-v1 -->";
 export const RECONCILE_STEERING = `${RECONCILE_TOKEN}
 ## ${RECONCILE_MARKER} — always apply
 - **Record after every step.** After an analysis/trace step that establishes
@@ -85,7 +89,7 @@ export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
   like the LUT; the block→payload model stays medium-uniform — this is Discovery
   start-order, not a BAM branch.
 - **After the loader is annotated: author a per-project extractor, then
-  trace-validate + bulk-register (Spec 784).** Write a small per-project extractor
+  trace-validate + bulk-register.** Write a small per-project extractor
   (any language) from the annotated loader that emits the manifest (loaderModels[]
   + payloads[] with **full** medium_spans + derivedBy) — the fast bulk path. Do NOT
   hand-pass start-sectors. Then: (a) \`runtime_trace_start\` domains
@@ -97,7 +101,7 @@ export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
   the validated payloads with derivedBy. Physics (bits→blocks) is per-medium; the
   block→payload model above is uniform. **Emulation is the validation oracle /
   physics-blocked fallback — never the default bulk path.**
-- **A read-set proves USED, never UNUSED — say "in run X" (Spec 785 §2.1).** A capture
+- **A read-set proves USED, never UNUSED — say "in run X".** A capture
   shows what THAT run read. A block or bank it never touched is **not seen in that
   run**, not unused: a run that stopped at the title screen says nothing about the bank
   level 90 needs. So \`validate_extraction\` never fails a span merely for being unseen;
@@ -117,7 +121,7 @@ export const TOOLING_DISCIPLINE_STEERING = `${TOOLING_DISCIPLINE_TOKEN}
 - **Never reimplement what the tooling already ships.** Do not hand-write your own
   disassembler / extractor / packer (Python or anything) to route around a dropped MCP or
   a missing tool. The pipeline delivers it byte-identical already
-  (\`pipeline/src/lib/prg-disasm.ts\`: Spec 720 function-boxes, auto-labels, cross-refs).
+  (\`pipeline/src/lib/prg-disasm.ts\`: function boxes, auto-labels, cross-refs).
   Reflexively rebuilding it = double work + new bugs (byte-loss, unresolved symbols). If
   work truly must continue while disconnected, run the EXISTING pipeline scripts directly
   (node/tsx \`pipeline/\`) — never a reimplementation.
@@ -136,10 +140,10 @@ export const COMMIT_STEERING = `${COMMIT_TOKEN}
   project (\`git add -A; git commit -m "…"\`). The server cannot commit for you — \`agent_onboard\`
   tells you how many files under \`knowledge/\` are still uncommitted.`;
 
-interface SteeringBlock { token: string; marker: string; body: string; }
+interface SteeringBlock { token: string; marker: string; body: string; legacyToken?: string; }
 const STEERING_BLOCKS: SteeringBlock[] = [
-  { token: EXTRACT_FIRST_TOKEN, marker: EXTRACT_FIRST_MARKER, body: EXTRACT_FIRST_STEERING },
-  { token: RECONCILE_TOKEN, marker: RECONCILE_MARKER, body: RECONCILE_STEERING },
+  { token: EXTRACT_FIRST_TOKEN, marker: EXTRACT_FIRST_MARKER, body: EXTRACT_FIRST_STEERING, legacyToken: EXTRACT_FIRST_LEGACY_TOKEN },
+  { token: RECONCILE_TOKEN, marker: RECONCILE_MARKER, body: RECONCILE_STEERING, legacyToken: RECONCILE_LEGACY_TOKEN },
   { token: CRACK_DISCOVERY_TOKEN, marker: CRACK_DISCOVERY_MARKER, body: CRACK_DISCOVERY_STEERING },
   { token: TOOLING_DISCIPLINE_TOKEN, marker: TOOLING_DISCIPLINE_MARKER, body: TOOLING_DISCIPLINE_STEERING },
   { token: COMMIT_TOKEN, marker: COMMIT_MARKER, body: COMMIT_STEERING },
@@ -161,7 +165,7 @@ export function ensureDefaultSteering(projectRoot: string): "created" | "appende
   let content = readFileSync(path, "utf8");
   let appended = false;
   for (const block of STEERING_BLOCKS) {
-    if (content.includes(block.token) || content.includes(block.marker)) continue;
+    if (content.includes(block.token) || (block.legacyToken && content.includes(block.legacyToken)) || content.includes(block.marker)) continue;
     content = content.replace(/\s*$/, "") + "\n\n" + block.body + "\n";
     appended = true;
   }

@@ -866,9 +866,9 @@ export class ProjectKnowledgeService {
     this.storage = new ProjectKnowledgeStorage(resolve(projectRoot));
     this.storage.ensureProjectStructure();
     this.records = new KnowledgeRecords(this.storage.paths.root);
-    // Spec 822.2 cut-over: a project that still carries the legacy JSON stores is
+    // Cut-over: a project that still carries the legacy JSON stores is
     // migrated on open (idempotent by the ledger, logged to the timeline) and the
-    // files parked under knowledge/_legacy-822/. A fresh project never had them.
+    // files parked under knowledge/_legacy-json/. A fresh project never had them.
     // Spec 909 D6: a graph written before cartridges had identities moves to crt/<cart>/<bank> first, so the
     // cut-over below (and everything after it) only ever meets the one grammar.
     ensureCartridgeGrammar(this.storage.paths.root);
@@ -4350,7 +4350,7 @@ export class ProjectKnowledgeService {
         kind: "note",
         title: `Ungrounded finding (L1): ${finding.title}`,
         findingId: finding.id,
-        summary: "No backing extract artifact — cite the _disasm.asm / _analysis.json via artifact_ids (Spec 752 L1). A trace anchor or heuristic is not grounding.",
+        summary: "No backing extract artifact — cite the _disasm.asm / _analysis.json via artifact_ids. A trace anchor or heuristic is not grounding.",
       });
     }
     // Spec 052: in-band auto-resolution. Walk auto-resolvable

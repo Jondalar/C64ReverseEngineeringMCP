@@ -634,7 +634,7 @@ const server = createServer((req, res) => {
   // with no MCP twin (825 §7). Anything but GET on /api/graph/* is 405.
   if (requestUrl.pathname.startsWith("/api/graph/") && req.method !== "GET") {
     res.setHeader("Allow", "GET");
-    send(res, jsonResponse(405, { error: `${req.method ?? "?"} is not allowed on ${requestUrl.pathname} — the graph routes are read-only GETs (825 D9)`, allow: ["GET"] }));
+    send(res, jsonResponse(405, { error: `${req.method ?? "?"} is not allowed on ${requestUrl.pathname} — the graph routes are read-only GETs`, allow: ["GET"] }));
     return;
   }
   if (requestUrl.pathname.startsWith("/api/graph/") && req.method === "GET") {
@@ -1677,7 +1677,7 @@ const server = createServer((req, res) => {
           return;
         }
         if (!payload.artifactId || typeof payload.address !== "number" || typeof payload.length !== "number" || !payload.kind) {
-          send(res, jsonResponse(400, { error: "Missing artifactId/address/length/kind. /api/graphics-marks now routes to service methods (Bug 23 stage 2) and needs the full segment payload." }));
+          send(res, jsonResponse(400, { error: "Missing artifactId/address/length/kind. /api/graphics-marks now routes to service methods and needs the full segment payload." }));
           return;
         }
         const service = new ProjectKnowledgeService(projectDir);

@@ -20,7 +20,7 @@
 // described capability-first. `scripts/probe-tool-surface.mjs` reports any tool
 // not covered here.
 //
-// Classification source: docs/tool-surface-classification.md (Spec 722.2).
+// Classification source: docs/_archive/tool-surface-classification.md.
 
 export type ToolTier = "default" | "advanced";
 

@@ -622,7 +622,7 @@ export function resolveRamAccesses(
   return {
     ramAccesses: collectRamAccessesFromGraph(lookup.edges, pools, report.platform ?? "c64"),
     source: "graph",
-    note: `Access table: knowledge graph ${lookup.path} (owner ${lookup.owner}, ${lookup.edges.length} Spec 820 access edges).`,
+    note: `Access table: knowledge graph ${lookup.path} (owner ${lookup.owner}, ${lookup.edges.length} access edges).`,
   };
 }
 

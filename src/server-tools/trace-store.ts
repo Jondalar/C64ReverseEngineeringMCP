@@ -127,7 +127,7 @@ function resolveRelativeStore(input: string, context: ServerToolContext, project
     throw new Error([
       `trace store path "${input}" is relative and no project could be resolved, so there is nothing to resolve it against.`,
       `Pass project_dir, or an absolute store path.`,
-      `Spec 827 keeps a capture OUTSIDE the project: captures live under the per-user trace dir `
+      `A capture is kept OUTSIDE the project: captures live under the per-user trace dir `
         + `(${traceRoot()}/<project key>) and <project>/runtime/traces.json records where each one went.`,
       error instanceof Error ? error.message : String(error),
     ].join("\n"));
@@ -156,7 +156,7 @@ function resolveRelativeStore(input: string, context: ServerToolContext, project
     `trace store not found for "${input}" in project ${proj}.`,
     `Tried:`,
     ...tried.map((t) => `  ${t}`),
-    `Spec 827 keeps a capture OUTSIDE the project: captures live under ${traceDirForProject(proj)} `
+    `A capture is kept OUTSIDE the project: captures live under ${traceDirForProject(proj)} `
       + `and ${tracePointerPath(proj)} records where each one went.`,
     known.length
       ? `That pointer file lists ${known.length} capture(s): ${known.slice(-5).join(", ")}`
@@ -198,7 +198,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Report the DuckDB trace-store status — runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
     safeHandler("trace_store_info", async ({ project_dir, path }) => {
       const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
@@ -219,7 +219,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "List named trace anchors (saved cycle/PC markers) for a run. Use to see bookmarked points in a trace. Not for finding the nearest one (use trace_store_anchor_find). Inputs: run id. Returns: anchors.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
     safeHandler("trace_store_anchor_list", async ({ project_dir, path }) => {
       const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
@@ -238,7 +238,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Find the trace anchor nearest a cycle/PC. Use to jump to a bookmarked point. Not for listing all (use trace_store_anchor_list). Inputs: run id, cycle/PC. Returns: nearest anchor.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       name: z.string().describe("Anchor name (alphanumeric/underscore/dash only)."),
       limit: z.number().int().positive().max(10000).optional().describe("Max occurrences to return (default 200)."),
     },
@@ -257,7 +257,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Return the most-executed PCs in a trace run (hot spots). Use to find where time goes. Not for a specific PC's events (use trace_store_query). Inputs: run id, limit. Returns: ranked PCs.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       cpu: z.enum(["c64", "drive8"]).describe("CPU side."),
       limit: z.number().int().positive().max(200).optional().describe("Max rows (default 20)."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Hotspot ranking is the archetypal 'reached for statistics instead of reading the code' — it CONFIRMS where a routine you already located spends time; it is not how you find structure. Fishing (no address / no rationale) is refused — read first (disasm / inspect_address_range / project_search)."),
@@ -279,7 +279,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes). Use to debug loader/bus protocols from durable evidence. Not for CPU PCs (use trace_store_top_pcs). Inputs: run id, lane/value filters. Returns: bus events.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       addr: z.string().describe("Address as hex (e.g. $DD00, 0xDD00, DD00) or decimal."),
       limit: z.number().int().positive().max(10000).optional().describe("Max rows (default 100)."),
     },
@@ -306,7 +306,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range). Use for durable trace evidence. Not for live state (use runtime_monitor_*). Inputs: query filters. Returns: matching rows.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       sql: z.string().describe("Read-only SELECT or WITH query."),
       limit: z.number().int().positive().max(2000).optional().describe("Max rows returned (default 200)."),
     },
@@ -330,7 +330,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "Reconstruct a per-page RAM memory map from a trace store: which pages are CODE (executed), DATA-W (written — incl. indirect STA (zp),Y targets the decode path can't see), DATA-R (read-only), or untouched; per-region write/read/mutation counts (old≠new = the persistence surface) + writer-PC count; and a 'provably free' free-hole list (untouched this run AND not static-occupied). Use for porting/footprint work (free EF-legal RAM, what mutates). Optional static_ranges reconciles with the module load-map. Coverage = THIS RUN ONLY (a trace is one path) — this is runtime behaviour, NOT identity grounding. Not for 'what is this block' (extract+disasm). Inputs: store path, cpu, optional static_ranges. Returns: ASCII page map + region table + free holes.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
-      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (a capture is kept outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       cpu: z.enum(["c64", "drive8"]).optional().describe("CPU side (default c64)."),
       static_ranges: z.array(z.object({
         from: z.number().int().describe("Inclusive start address."),

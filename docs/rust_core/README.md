@@ -12,7 +12,6 @@ TypeScript MCP, project-knowledge, trace, UI, and agent APIs.
 - [high-level-plan.md](high-level-plan.md) — staged migration plan.
 - [vsf-inspired-snapshot-contract.md](vsf-inspired-snapshot-contract.md)
   — post-VIC-FIX snapshot contract derived from VICE VSF lessons.
-- [specs/](specs/) — implementation spec stubs.
 
 ## Core Decision
 

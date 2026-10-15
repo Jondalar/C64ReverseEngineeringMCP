@@ -151,7 +151,7 @@ export function graphFirstVerdict(
       "Then read this file if you still need the text — the refusal is once per session per",
       "file, and it does not come back for this one.",
       "",
-      "The listing is not the knowledge. It is the rendering of it (Spec 822.2).",
+      "The listing is not the knowledge. It is the rendering of it.",
     ].join("\n"),
   };
 }

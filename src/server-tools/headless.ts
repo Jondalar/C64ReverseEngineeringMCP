@@ -320,8 +320,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-trace gate): the read-derived reason for this trace — a concrete $address you are investigating + what you READ that points there (a routine, annotation, or finding). E.g. \"$C000 should hold the manual-check result; input routine at $B800 stores the typed word there\". Fishing (no address / no rationale) is refused — read the code first (disasm / inspect_address_range / project_search), form the hypothesis, THEN trace to confirm it."),
       domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism", "cart-read"])).optional()
-        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Two ARMED-ONLY read-set lanes, both produced by the runtime rather than in-process: 'drive-mechanism' arms the 1541 head + block-read (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens; 'cart-read' arms the cartridge bank residency lane (Spec 785) — feed it to validate_extraction to diff a manifest's cart slot spans. Neither belongs in a parity trace."),
-      output: z.string().optional().describe("Path (abs or under the project) for the trace store. Omit it: the default is the per-user trace directory outside the project (Spec 827). A path inside a OneDrive/Dropbox/iCloud folder is obeyed but warned about."),
+        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Two ARMED-ONLY read-set lanes, both produced by the runtime rather than in-process: 'drive-mechanism' arms the 1541 head + block-read (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens; 'cart-read' arms the cartridge bank residency lane — feed it to validate_extraction to diff a manifest's cart slot spans. Neither belongs in a parity trace."),
+      output: z.string().optional().describe("Path (abs or under the project) for the trace store. Omit it: the default is the per-user trace directory outside the project. A path inside a OneDrive/Dropbox/iCloud folder is obeyed but warned about."),
     },
     safeHandler("runtime_trace_start", async ({ session_id, hypothesis, domains, output }) => {
       // Read-before-trace discipline gate: refuse a fished trace (no read-derived
@@ -666,7 +666,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
               `that is decided in the workbench UI's requester, not by a tool.`;
         } catch (e) {
           projectLine = `Project: unknown — the runtime cannot compare (${e instanceof Error ? e.message : String(e)}); ` +
-            `a runtime without Spec 858 has no project/set`;
+            `this runtime does not support project/set`;
         }
       }
       const render = (v: unknown, none: string) =>

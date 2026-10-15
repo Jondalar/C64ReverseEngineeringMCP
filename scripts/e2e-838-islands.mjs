@@ -174,7 +174,7 @@ const asmOn = render(prg1, join(dir1, "on.json"), join(dir1, "on.asm"));
 const seededSegment = asmOn.split("\n").filter((l) => /graph named a seed|graph seed/.test(l));
 check(seededSegment.some((l) => l.includes("cross_owner_call") && l.includes("overlay_a")), "a promoted segment names the cross-owner seed and its caller");
 check(seededSegment.some((l) => l.includes("human_routine")), "…and the human-routine seed");
-check(/Code seeds \(Spec 838 D3\)/.test(asmOn), "the listing header carries the seed ledger");
+check(/Code seeds/.test(asmOn), "the listing header carries the seed ledger");
 check(/overlay_b/.test(asmOn), "…including the address the graph handed to a different owner");
 
 console.log("\nDoctrine rule 1 — an absent graph is a NAMED reason, never a silent zero\n");

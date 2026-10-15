@@ -125,7 +125,7 @@ const counts = (dir) => {
   new ProjectKnowledgeService(dir);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
 
-  check(existsSync(join(dir, "knowledge", "_legacy-822", "entities.json")), "the legacy stores moved under knowledge/_legacy-822/");
+  check(existsSync(join(dir, "knowledge", "_legacy-json", "entities.json")), "the legacy stores moved under knowledge/_legacy-json/");
   const c = counts(dir);
   info(`after the cut-over (${ms.toFixed(0)} ms): ${JSON.stringify(c)}`);
 
@@ -211,7 +211,7 @@ const counts = (dir) => {
   }
   const c = counts(dir);
   info(`with the budget capped at one file: ${JSON.stringify(c)}`);
-  check(existsSync(join(dir, "knowledge", "_legacy-822", "entities.json")), "the cut-over itself still completed");
+  check(existsSync(join(dir, "knowledge", "_legacy-json", "entities.json")), "the cut-over itself still completed");
   check(c.owners819 === 1, `exactly one owner was seeded under the cap (${c.owners819})`);
   const timeline = readFileSync(join(dir, "session", "timeline.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   const note = timeline.find((e) => /cut-over/i.test(e.title ?? ""));
@@ -228,7 +228,7 @@ const counts = (dir) => {
   let threw;
   try { new ProjectKnowledgeService(dir); } catch (e) { threw = e; }
   check(threw === undefined, `opening the project did not throw (${threw?.message?.slice(0, 80) ?? "clean"})`);
-  check(existsSync(join(dir, "knowledge", "_legacy-822", "entities.json")), "the legacy stores still moved");
+  check(existsSync(join(dir, "knowledge", "_legacy-json", "entities.json")), "the legacy stores still moved");
   const c = counts(dir);
   check(c.edges819 > 0, `and the analysis that IS readable was still seeded (${c.edges819} edges)`);
 }

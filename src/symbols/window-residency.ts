@@ -205,7 +205,7 @@ async function byBytes(
       resident: {
         owner: w.owner,
         by: "bytes",
-        evidence: `${e.matched}/${e.compared} of ${w.owner}'s own code bytes around ${hex4(input.address)} are the bytes in memory (Spec 804 residency)`,
+        evidence: `${e.matched}/${e.compared} of ${w.owner}'s own code bytes around ${hex4(input.address)} are the bytes in memory (window residency)`,
       },
       evidence,
     };

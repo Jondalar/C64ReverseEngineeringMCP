@@ -306,10 +306,10 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   const t0 = process.hrtime.bigint();
   // D3 — refused by name, before anything is read.
   if (options.origin !== undefined && options.origin !== ORIGIN) {
-    throw new IdRuleError("runtime-origin", `a runtime import writes origin="${ORIGIN}" only — "${options.origin}" refused (821 D3: runtime confirms, never promotes)`);
+    throw new IdRuleError("runtime-origin", `a runtime import writes origin="${ORIGIN}" only — "${options.origin}" refused (runtime confirms, never promotes)`);
   }
   if (options.confidence !== undefined && options.confidence !== CONFIDENCE) {
-    throw new IdRuleError("runtime-confidence", `a runtime import writes confidence="${CONFIDENCE}" only — "${options.confidence}" refused (821 D3)`);
+    throw new IdRuleError("runtime-confidence", `a runtime import writes confidence="${CONFIDENCE}" only — "${options.confidence}" refused`);
   }
   const tracePath = resolve(options.tracePath);
   if (!existsSync(tracePath)) throw new Error(`no capture at ${tracePath}`);

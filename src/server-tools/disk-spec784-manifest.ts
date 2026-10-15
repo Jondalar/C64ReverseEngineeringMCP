@@ -1,7 +1,7 @@
 // Spec 784 (GAP 2) — emit a Spec-784 loader manifest for the stock-DOS layer.
 //
 // extract_disk already imports each CBM-DOS file as a `disk-file` entity WITH its full
-// sector-chain medium spans (manifest-import.ts). This module ADDS the Spec-784 manifest
+// sector-chain medium spans (manifest-import.ts). This module ADDS the extraction manifest
 // shape — the same the per-project custom-loader extractor emits — so:
 //   (1) validate_extraction can diff the DOS layer against the loader-lens read-set, and
 //   (2) the DOS files carry an explicit `kernal-directory` LoaderModel + `derivedBy`.
@@ -16,10 +16,13 @@ import { join, relative, basename } from "node:path";
 import type { ExtractedDiskManifest } from "../disk-extractor.js";
 import { validateManifest, type LoaderManifest } from "./loader-manifest.js";
 
+/** The name this tool writes. Projects extracted before the rename hold `manifest.spec784.json`; the readers (registration patterns, the unregistered-file delta) still accept that name. */
+export const EXTRACTION_MANIFEST_NAME = "extraction-manifest.json";
+
 const KERNAL_DIRECTORY_MODEL = "kernal-directory";
 const CUSTOM_LUT_MODEL = "custom-lut";
 
-/** Build a Spec-784 manifest from an extract_disk result. `projectRoot` anchors each
+/** Build a extraction manifest from an extract_disk result. `projectRoot` anchors each
  *  payload's `bytesPath` (register_payloads_from_manifest resolves it relative to the
  *  project). Returns null when no file yields a registerable span. */
 export function buildDiskSpec784Manifest(
@@ -114,7 +117,7 @@ export interface DiskSpec784Result {
   modelCount: number;
 }
 
-/** Build + validate + write `manifest.spec784.json` next to the legacy manifest.
+/** Build + validate + write `extraction-manifest.json` next to the legacy manifest.
  *  Returns null when there is nothing to register; throws if the built manifest fails
  *  its own Spec-784 self-check (a bug in this builder, surfaced loudly). */
 export function writeDiskSpec784Manifest(
@@ -126,10 +129,10 @@ export function writeDiskSpec784Manifest(
 
   const check = validateManifest(manifest);
   if (!check.ok) {
-    throw new Error(`extract_disk built an invalid Spec-784 manifest:\n- ${check.errors.join("\n- ")}`);
+    throw new Error(`extract_disk built an invalid extraction manifest:\n- ${check.errors.join("\n- ")}`);
   }
 
-  const path = join(extracted.outputDir, "manifest.spec784.json");
+  const path = join(extracted.outputDir, EXTRACTION_MANIFEST_NAME);
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
   return { path, payloadCount: manifest.payloads.length, modelCount: manifest.loaderModels.length };
 }

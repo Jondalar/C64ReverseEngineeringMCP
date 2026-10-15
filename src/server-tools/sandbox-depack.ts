@@ -65,7 +65,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
         initial_x: z.number().int().min(0).max(255).optional(),
         initial_y: z.number().int().min(0).max(255).optional(),
       })).optional().describe(
-        "Spec 805 — depack N payloads in ONE runtime process instead of N. Every field ABOVE is the shared template (the resident loader, entry_pc, the zeropage convention, the caps); each item overrides only what differs — normally just offset/length/dest. This is the campaign case: one depacker, many chunks. Measured 18x faster than the same payloads one call at a time, because a process start costs ~740 ms and the depack itself costs milliseconds. Results are byte-identical to running them singly, and a payload that fails is reported in its own slot without sinking the rest.",
+        "Depack N payloads in ONE runtime process instead of N. Every field ABOVE is the shared template (the resident loader, entry_pc, the zeropage convention, the caps); each item overrides only what differs — normally just offset/length/dest. This is the campaign case: one depacker, many chunks. Measured 18x faster than the same payloads one call at a time, because a process start costs ~740 ms and the depack itself costs milliseconds. Results are byte-identical to running them singly, and a payload that fails is reported in its own slot without sinking the rest.",
       ),
     },
     async (args) => {

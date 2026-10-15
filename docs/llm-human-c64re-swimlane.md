@@ -60,7 +60,7 @@ Default-visible:
 - Analysis/disassembly: `analyze`, `disasm`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`
 - Headless Runtime: `runtime_session_start`, `runtime_media_mount`, `runtime_session_run`, `runtime_type`, `runtime_joystick`, `runtime_render_screen`, `runtime_checkpoint_capture`
 - Monitor/inspect: `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_until`, `runtime_resolve_pc`, `runtime_vic_inspect_at`
-- Trace capture/control: `runtime_trace_start`, `runtime_mark`, `runtime_trace_finalize` (all on the default surface, Spec 746 — the LLM starts a live trace on the running session, no cold-boot)
+- Trace capture/control: `runtime_trace_start`, `runtime_mark`, `runtime_trace_finalize` (all on the default surface — the LLM starts a live trace on the running session, no cold-boot)
 - Trace/evidence: `runtime_query_events`, `trace_store_*`, `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`
 
 Not default:
@@ -69,7 +69,7 @@ Not default:
 - Maintenance/backfill/repair/bulk.
 - Old runtime modes, lockstep switches, legacy paths.
 
-## 5. What the swimlane is built from — the `.c64retrace` (Spec 726.B / 746.x)
+## 5. What the swimlane is built from — the `.c64retrace`
 
 The swimlane (offline stepping: `C64 A X Y SP $00 $01 NV-BDIZC LIN CYC` + the 1541
 lane + PC/IRQ + media/cart bytes) is reconstructed from the trace's authoritative

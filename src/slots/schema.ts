@@ -157,7 +157,7 @@ export const SLOTS: readonly SlotDef[] = [
     fills: "a finding tagged `slot:S15` naming the spare blocks and carrying its method: `method:chains` (every chain walked and subtracted from the medium) settles it; `method:bam` is a hypothesis and stays one",
     required: { when: "S2", note: "applies once a medium is registered — the answer is owed before anything writes to it, not after" },
     teeth: "report", doors: [],
-    because: "Issue #24, Crazy News side 1: the BAM's free list and actual occupancy are disjoint in BOTH directions — all 30 blocks it calls free are in use by an asset, and all 78 genuinely spare blocks are marked allocated. A patch step asked the BAM for a spare block, got T1/S1, and overwrote the chain head of another asset; the symptom surfaced much later and elsewhere, as executing data on the in-game screen. S4 says how the GAME addresses its payloads and was answered correctly. A custom loader that addresses sectors directly has no reason to keep the BAM truthful, and this one does not.",
+    because: "Crazy News side 1: the BAM's free list and actual occupancy are disjoint in BOTH directions — all 30 blocks it calls free are in use by an asset, and all 78 genuinely spare blocks are marked allocated. A patch step asked the BAM for a spare block, got T1/S1, and overwrote the chain head of another asset; the symptom surfaced much later and elsewhere, as executing data on the in-game screen. S4 says how the GAME addresses its payloads and was answered correctly. A custom loader that addresses sectors directly has no reason to keep the BAM truthful, and this one does not.",
   },
 ] as const;
 
@@ -205,7 +205,7 @@ export const CONTAINER_SLOTS: ReadonlyMap<SlotId, "system" | "container" | "comp
 ]);
 
 export const KNOWN_PENDING_DOORS: ReadonlyMap<string, string> = new Map([
-  ["runtime_inject_range", "Spec 843 D10 — built on branch spec-843-inspect, not yet merged to master. Remove this entry when it lands."],
+  ["runtime_inject_range", "built on a branch that is not yet merged to master. Remove this entry when it lands."],
 ]);
 
 export const COMPLETENESS_WORDS = [

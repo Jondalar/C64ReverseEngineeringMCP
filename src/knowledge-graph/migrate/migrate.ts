@@ -100,7 +100,7 @@ export interface MigrateSummary {
   files: FileSummary[];
   humanLayerHash: string;
   cutoverAt: string;
-  /** how many legacy records were read from knowledge/_legacy-822/ instead of knowledge/ */
+  /** how many legacy records were read from the parked-stores directory instead of knowledge/ */
   legacyDirFiles: string[];
 }
 
@@ -173,9 +173,11 @@ export const HUMAN_KIND: Record<string, string> = {
   chip: "chip", "cartridge-bank": "bank", "disk-track": "track", other: "other",
 };
 
-/** The six legacy stores 822 migrates; after the cut-over they live under knowledge/_legacy-822/. */
+/** The six legacy stores 822 migrates; after the cut-over they live under knowledge/_legacy-json/. */
 export const LEGACY_STORE_FILES = ["entities.json", "findings.json", "relations.json", "open-questions.json", "labels.user.json"] as const;
-export const LEGACY_DIR = "_legacy-822";
+export const LEGACY_DIR = "_legacy-json";
+/** What the directory was called before the rename. Projects cut over earlier still hold their files there; the readers look in both, nothing writes it. */
+export const LEGACY_DIR_OLD = "_legacy-822";
 
 // ------------------------------------------------------------------ helpers
 
@@ -945,9 +947,11 @@ export interface AnnotationFileResult extends FileSummary, BoundaryCounts {
 /** The bytes the annotations are about, for the one thing the file alone cannot say: what a split table points at. */
 export interface AnnotatedImage { loadAddress: number; data: Uint8Array }
 
-const SPLIT_TABLE_RULE = "split-table-903";
+const SPLIT_TABLE_RULE = "split-table";
+/** The id graphs written before the rename carry; the purge below matches both. */
+const LEGACY_SPLIT_TABLE_RULE = "split-table-903";
 
-const BOUNDARY_RULE = "826.0-T3";
+const BOUNDARY_RULE = "human-boundary";
 /** a human `segment` of these kinds names code, not data — it gets no data_block */
 const CODE_SEGMENT_KINDS: ReadonlySet<string> = new Set(["code", "probable_code"]);
 
@@ -1318,7 +1322,7 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   for (const e of boundaryEdges) writer.edge(e);
   // the table edges are re-derived whenever the bytes are at hand, and dropped with the file's rows when it changed
   if (options.image || (previous !== undefined && changed)) {
-    db.prepare("DELETE FROM edges WHERE producer = ? AND json_extract(evidence, '$.rule') = ? AND json_extract(evidence, '$.table_source') = ?").run(migrated, SPLIT_TABLE_RULE, rel);
+    db.prepare("DELETE FROM edges WHERE producer = ? AND json_extract(evidence, '$.rule') IN (?, ?) AND json_extract(evidence, '$.table_source') = ?").run(migrated, SPLIT_TABLE_RULE, LEGACY_SPLIT_TABLE_RULE, rel);
   }
   for (const e of tableEdges) writer.edge(e);
   if ((fs.dataBlocks > 0 || retiring || tableAddrTargets > 0) && ctx.store) resolveAddressesIn(ctx.store, { inTransaction: true });
@@ -1327,12 +1331,14 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
 
 // ------------------------------------------------------------------ reading the legacy stores
 
-/** knowledge/<file> if present, else knowledge/_legacy-822/<file> (after the cut-over). */
+/** knowledge/<file> if present, else knowledge/_legacy-json/<file>, else the old directory name (after the cut-over). */
 function legacyPath(knowledge: string, file: string, legacyDirFiles: string[]): string {
   const live = join(knowledge, file);
   if (existsSync(live)) return live;
   const moved = join(knowledge, LEGACY_DIR, file);
-  if (existsSync(moved)) legacyDirFiles.push(file);
+  if (existsSync(moved)) { legacyDirFiles.push(file); return moved; }
+  const movedOld = join(knowledge, LEGACY_DIR_OLD, file);
+  if (existsSync(movedOld)) { legacyDirFiles.push(file); return movedOld; }
   return moved;
 }
 

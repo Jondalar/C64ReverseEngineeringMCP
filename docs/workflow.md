@@ -5,7 +5,7 @@
 > binding five-phase project **lifecycle** (Onboarding · Discovery · Reverse Engineering ·
 > Build · Release) defined in
 > [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
-> §2A + [`../specs/_archive/773-workflow-cockpit-lifecycle.md`](../specs/_archive/773-workflow-cockpit-lifecycle.md).
+> §2A.
 > Its data-transform-named phases (structural-enrichment, runtime-aggregation, view-build,
 > …) are the persistence substrate, NOT the human-facing top-level structure.
 
@@ -122,7 +122,7 @@ C64RE has one runtime:
 
 - **TRX64** — the runtime backend (native Rust daemon,
   auto-discovered / spawned as the sibling `../TRX64/target/release/trx64-daemon
-  --stream`, Spec 771). It produces the bytes, events, and machine-state that
+  --stream`). It produces the bytes, events, and machine-state that
   drive analysis, and owns the runtime / instrument / trace / checkpoint stack
   (`.c64re` snapshots, `.c64retrace` timelines).
   There is no fallback and nothing to A/B against; a missing daemon is an

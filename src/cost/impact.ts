@@ -335,7 +335,7 @@ function preserveSet(
           return {
             locs: at,
             how:
-              `read backwards from ${hex4(range.end)} through ${routine ? nameOf(routine) : hex4(from)} (§3.3), ` +
+              `read backwards from ${hex4(range.end)} through ${routine ? nameOf(routine) : hex4(from)}, ` +
               (signature
                 ? `starting from what its caller expects at the return — ${signature.how}`
                 : `and conservative at the return, because no signature says what the caller expects`),

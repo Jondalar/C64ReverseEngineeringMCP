@@ -125,7 +125,7 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
       .all(owner) as Array<{ type: AccessEdgeType; to_id: string; evidence: string }>;
     if (rows.length === 0) {
       const owners = (db.prepare("SELECT DISTINCT owner FROM edges WHERE producer = '820' ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
-      return { status: "absent", owner, path, reason: `${path} holds no Spec 820 rows for owner "${owner}" (${describeSeededOwners(owners, owner)}) — c64re graph seed --owner ${owner}` };
+      return { status: "absent", owner, path, reason: `${path} holds no access rows for owner "${owner}" (${describeSeededOwners(owners, owner)}) — c64re graph seed --owner ${owner}` };
     }
     const edges: AccessEdge[] = [];
     for (const row of rows) {
@@ -331,7 +331,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       // graph's owner claim is still the best answer anyone has.
       const theirs = targetOwner !== undefined && targetOwner !== owner ? windowFor(windows, targetOwner) : undefined;
       if (targetOwner !== undefined && targetOwner !== owner && (!theirs || theirs.space !== window.space)) {
-        skipped.push({ address, detail: `${from}, but Spec 826 RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, and this project records no window for "${targetOwner}", so the graph's owner claim still decides (Spec 838's subtraction, which a window replaces where there is one)` });
+        skipped.push({ address, detail: `${from}, but RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, and this project records no window for "${targetOwner}", so the graph's owner claim still decides (the seed subtraction, which a window replaces where there is one)` });
         continue;
       }
       const jumpOnly = [...byOwner.values()].every((v) => v.type === "JUMPS_TO");
@@ -349,7 +349,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       if (ownerOfId(target) !== owner) continue;
       const kind = target.split(":")[2] ?? "?";
       if (kind !== "routine" && kind !== "label") continue;
-      add(a.address, "resolved_alias", `Spec 826 RESOLVES_TO ${target}`);
+      add(a.address, "resolved_alias", `RESOLVES_TO ${target}`);
     }
 
     return {

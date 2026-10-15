@@ -95,7 +95,7 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     section: "given",
     form: 'Given the mark "<name>"',
     sample: 'Given the mark "before-death"',
-    doc: "Start from a named anchor in the checkpoint ring (Spec 809).",
+    doc: "Start from a named anchor in the checkpoint ring.",
   },
   {
     section: "given",

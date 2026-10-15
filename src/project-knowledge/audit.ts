@@ -297,7 +297,7 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       severity: "medium",
       title: "The same file is registered more than once",
       paths: pathProblems.duplicates.slice(0, 20).map(({ artifact, first }) => `${artifact.id}: ${artifact.relativePath} (also ${first.id})`),
-      whyItMatters: "Two records for one file split what the project knows about it: findings, entities and the graph can cite either id, and each sees only half. On Windows the pipeline and the server spelled a path two ways until issue #28, which is how this happened.",
+      whyItMatters: "Two records for one file split what the project knows about it: findings, entities and the graph can cite either id, and each sees only half. On Windows the pipeline and the server spelled a path two ways in an earlier release, which is how this happened.",
       suggestedFix: "Keep the record the project's entities and findings cite, move any references from the other to it, then remove the other.",
     });
   }
@@ -414,7 +414,7 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
     addFinding(findings, {
       id: "snapshot-disk-usage",
       severity: "low",
-      title: `Spec 025 snapshots: ${snapshotUsage.fileCount} files, ${formatBytes(snapshotUsage.bytes)}`,
+      title: `Artifact snapshots: ${snapshotUsage.fileCount} files, ${formatBytes(snapshotUsage.bytes)}`,
       paths: snapshotUsage.topArtifacts.map((entry) => `${entry.artifactId}: ${entry.fileCount} files, ${formatBytes(entry.bytes)}`),
       whyItMatters: "Snapshots preserve prior bytes for rollback. Trace files dwarf this; surface only as informational.",
       suggestedFix: "Prune <root>/snapshots/<artifact-id>/<old-hash>.bin if disk pressure becomes a concern.",

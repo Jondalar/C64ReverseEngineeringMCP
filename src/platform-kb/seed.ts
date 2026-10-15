@@ -158,7 +158,7 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
 
   const meta: Record<string, string> = {
     schema_version: String(PLATFORM_KB_SCHEMA_VERSION),
-    seeder: "spec-817",
+    seeder: "platform-kb",
     source_repo: knowledge.sourceRepo,
     source_revision: knowledge.sourceRevision,
     source_files: String(knowledge.sourceFiles.length),

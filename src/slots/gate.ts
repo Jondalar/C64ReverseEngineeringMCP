@@ -77,7 +77,7 @@ function slotRefusal(door: string, blocking: SlotState[]): string {
   return [
     `# ${door} refused — a required slot is empty.`,
     "",
-    "Spec 844: the same questions come up in every multi-disk project, so they are not",
+    "The same questions come up in every multi-disk project, so they are not",
     "questions but a schema. This door delivers something that depends on a slot nobody",
     "has filled yet:",
     "",
@@ -118,7 +118,7 @@ export async function checkCompletenessClaim(
     `Measured: ${report.coverage.covered} of ${report.coverage.total} bytes are inside a known`,
     `address range — ${pct} %, against a threshold of ${thr} %.`,
     "",
-    "Spec 833's rule, one level up: a project may not claim what it did not do. In the",
+    "The honesty rule, one level up: a project may not claim what it did not do. In the",
     "corpus, Neuromancer's own documentation says EXHAUSTIVE at roughly 15 % coverage —",
     "which is why this word is gated and not merely counted.",
     "",

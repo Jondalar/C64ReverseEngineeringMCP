@@ -1,7 +1,7 @@
 # Project rules
 
 Provisioned into `<project>/.claude/rules/` by `project_init` and re-synced by
-`agent_onboard`. Spec 849.
+`agent_onboard`.
 
 These are the third steering layer. The first two speak at the edges of a session —
 `CLAUDE.md` and the project steering at onboarding, the slot gates and the critic at

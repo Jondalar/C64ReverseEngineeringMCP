@@ -25,10 +25,10 @@ import { formatOwners, formatRemoveOwner, listOwners, removeOwner, UnknownOwnerE
 const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
 
   find <$addr|id|name>          nodes at an address, one id, or a name substring
-  node <ref>                    the card for one node (823)
-  edges <ref> [--in|--out|--both] [--kind K] [--origin O] [--depth 1|2]   the neighbourhood walk (823)
-  overview [--focus F]          the project's structural map (823)
-  subgraph [--scope S] [--depth N] [--kinds K,K] [--origin O]   825: the whole scope in one body (all | owner:<stem> | bank:<n> | cart:<token>[/<bank>] | subsystem:<id> | focus:<ref>)
+  node <ref>                    the card for one node
+  edges <ref> [--in|--out|--both] [--kind K] [--origin O] [--depth 1|2]   the neighbourhood walk
+  overview [--focus F]          the project's structural map
+  subgraph [--scope S] [--depth N] [--kinds K,K] [--origin O]   the whole scope in one body (all | owner:<stem> | bank:<n> | cart:<token>[/<bank>] | subsystem:<id> | focus:<ref>)
   callers <id>                  CALLS / CALLS_ROM into a node
   callees <id>                  CALLS / CALLS_ROM out of a node
   readers <$addr>               READS into the node(s) at an address
@@ -38,34 +38,34 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   routines [--owner <stem>]     routine nodes
   labels <routine-id>           labels a routine CONTAINS
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
-  seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
-  resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
-  machine [<owner> <c64|c1541|vic20|plus4>] 826.0 T7: declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
-  boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze
-  signature <ref>               826: a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
-  args <ref>                    826: what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
+  seed [--owner <stem>]         run the producers (control flow, memory access, resolve) over every _analysis.json (or one)
+  resolve                       the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
+  machine [<owner> <c64|c1541|vic20|plus4>] declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
+  boundaries [--entries]        where a human drew a routine boundary the control-flow pass did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze
+  signature <ref>               a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
+  args <ref>                    what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
-  import-trace <file.c64retrace> [--owner <stem>] [--cart <token>]   821: import a trace run (origin=runtime rows; --cart: the cartridge, default the one whose image was mounted)
-  remove-run <run-id>           821: drop one run's rows
+  import-trace <file.c64retrace> [--owner <stem>] [--cart <token>]   import a trace run (origin=runtime rows; --cart: the cartridge, default the one whose image was mounted)
+  remove-run <run-id>           drop one run's rows
   remove-owner [<owner>] [--dry-run]   drop everything one owner's renders and analyses put in the graph (generated rows + the rows its annotation file imported; door-written rows stay); no owner lists the owners
-  runs                          821: imported runs
-  observations <id|$addr>       821: runtime rows for a node or address
-  pointer-targets <$zp>         821: what a zero-page pointer actually pointed at
-  unconfirmed <routine-id>      821: static access edges no run observed
-  unexplained                   821: runtime rows with no static edge
-  irq-handlers                  821: HANDLES_IRQ / HANDLES_NMI from the runs
-  migrate [--dry-run]           822: migrate knowledge/*.json into the graph (idempotent, incremental)
-  export [--out <dir>]          822.2: write the graph back into the legacy record shapes (knowledge/export/*.json) for humans and git diff
-  annotations-import <file> [--force]   822.2: the annotation-file door — import <stem>_annotations.json into the human layer
-  annotations <id>              822: annotations + claims on a node
-  search <text>                 822: full-text search over annotations
-  subsystems | subsystem <name> 822: the subsystem layer
-  name <id> <name>              822: the human door — name a node (human row, never touched by re-analysis)
-  link <from> <TYPE> <to>       822: a human edge
-  assign-subsystem <name> <id…> 822: put nodes into a subsystem
-  dump                          canonical dump of the generated layer (818 D6)
+  runs                          imported runs
+  observations <id|$addr>       runtime rows for a node or address
+  pointer-targets <$zp>         what a zero-page pointer actually pointed at
+  unconfirmed <routine-id>      static access edges no run observed
+  unexplained                   runtime rows with no static edge
+  irq-handlers                  HANDLES_IRQ / HANDLES_NMI from the runs
+  migrate [--dry-run]           migrate knowledge/*.json into the graph (idempotent, incremental)
+  export [--out <dir>]          write the graph back into the legacy record shapes (knowledge/export/*.json) for humans and git diff
+  annotations-import <file> [--force]   the annotation-file door — import <stem>_annotations.json into the human layer
+  annotations <id>              annotations + claims on a node
+  search <text>                 full-text search over annotations
+  subsystems | subsystem <name> the subsystem layer
+  name <id> <name>              the human door — name a node (human row, never touched by re-analysis)
+  link <from> <TYPE> <to>       a human edge
+  assign-subsystem <name> <id…> put nodes into a subsystem
+  dump                          canonical dump of the generated layer
   stats                         row counts and meta`;
 
 interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: number; focus?: string; limit?: number; out?: string; force?: boolean; scope?: string; kinds?: string; bank?: number; cart?: string }

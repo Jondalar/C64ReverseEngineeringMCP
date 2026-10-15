@@ -94,7 +94,7 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
         content: [{
           type: "text" as const,
           text: [
-            "Severity belongs to the CHECK, not to the instance (Spec 846 D3).",
+            "Severity belongs to the CHECK, not to the instance.",
             "blocking = a downstream claim is unsafe while it stands.",
             "important = the model is weaker than it looks.  nice-to-have = hygiene.",
             "",

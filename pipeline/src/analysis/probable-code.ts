@@ -320,7 +320,7 @@ function probeIsland(
 
   const reasons = [
     fallsIntoConfirmedCode
-      ? `Linear probe decoded ${instructions.length} consecutive instructions and fell through into confirmed code at ${formatAddress(last.fallthroughAddress!)} (Spec 838 D3 — the island did not run out of room, it ran into proven code).`
+      ? `Linear probe decoded ${instructions.length} consecutive instructions and fell through into confirmed code at ${formatAddress(last.fallthroughAddress!)} (the island did not run out of room, it ran into proven code).`
       : `Linear probe decoded ${instructions.length} consecutive instructions before a structured terminator.`,
     `${controlFlowCount} control-flow instruction(s) were observed inside the island.`,
     usefulStoreCount >= 2

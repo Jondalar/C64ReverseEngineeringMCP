@@ -229,18 +229,18 @@ export function buildXrefIndexDetailed(projectDir: string, options: { source?: "
           rows = countOwnerRows(store, owner);
           seeded = true;
         } catch (error) {
-          notes.push(`[820.2] xref index: seeding ${stem} on demand failed (${error instanceof Error ? error.message : String(error)}) — entries from the JSON walk`);
+          notes.push(`xref index: seeding ${stem} on demand failed (${error instanceof Error ? error.message : String(error)}) — entries from the JSON walk`);
           if (!store && existsSync(path)) store = GraphStore.open(projectDir, { readOnly: true });
         }
       }
       if (rows > 0 && store) {
         xrefs.push(...xrefsFromGraph(store, owner, stem));
         sources[stem] = seeded ? "graph-seeded" : "graph";
-        if (seeded) notes.push(`[820.2] xref index: ${stem} seeded on demand (819+820) into ${path}`);
+        if (seeded) notes.push(`xref index: ${stem} seeded on demand (819+820) into ${path}`);
         continue;
       }
       if (!notes.some((n) => n.includes(`seeding ${stem}`))) {
-        notes.push(`[820.2] xref index: knowledge graph ABSENT for ${stem} (${store ? `${path} holds no rows for owner ${owner}` : `no ${path}`}${canSeed ? "" : "; no knowledge/project.json to seed from"}) — entries from the JSON walk`);
+        notes.push(`xref index: knowledge graph ABSENT for ${stem} (${store ? `${path} holds no rows for owner ${owner}` : `no ${path}`}${canSeed ? "" : "; no knowledge/project.json to seed from"}) — entries from the JSON walk`);
       }
       xrefs.push(...xrefsFromJson(p, stem));
       sources[stem] = "json";

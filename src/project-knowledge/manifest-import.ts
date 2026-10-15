@@ -556,12 +556,12 @@ const crtManifestReader: ManifestReader = {
 };
 
 // Spec 832 D3 — the shape `register_payloads_from_manifest` accepts. It is written
-// by this repo (extract_disk emits manifest.spec784.json) and by every per-project
+// by this repo (extract_disk emits extraction-manifest.json) and by every per-project
 // extractor, and until now the knowledge importer refused it on its role while the
 // registration tool read it happily. Same file, one answer.
 const loaderManifestReader: ManifestReader = {
-  schema: "loader-manifest (Spec 784: {manifestVersion:1, loaderModels[], payloads[]})",
-  roles: ["loader-manifest", "extraction-manifest", "spec784-manifest"],
+  schema: "loader-manifest ({manifestVersion:1, loaderModels[], payloads[]})",
+  roles: ["loader-manifest", "extraction-manifest", "spec784-manifest" /* the role name before the rename: still read */],
   read(artifact, raw) {
     if (!isRecord(raw) || raw.manifestVersion === undefined) {
       return { reason: "no `manifestVersion`" };
@@ -644,7 +644,7 @@ const loaderManifestReader: ManifestReader = {
       ].filter(Boolean).join(" "),
       confidence: 1,
       status: "confirmed" as const,
-      evidence: [buildArtifactEvidence(artifact, "Spec-784 manifest import")],
+      evidence: [buildArtifactEvidence(artifact, "Extraction manifest import")],
       entityIds: entities.map((entity) => entity.id),
       artifactIds: [artifact.id],
       tags: ["manifest-import", "extraction-manifest"],

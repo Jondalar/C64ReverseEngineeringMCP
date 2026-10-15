@@ -274,7 +274,7 @@ export function consumeRegisterFlags(argv: string[]): string[] {
 // file stopped being the store when the knowledge graph took over: every reader
 // and writer of an entity goes to `knowledge/graph.sqlite`, and a project that
 // still has the JSON file gets it folded in once, on open, and moved aside to
-// `knowledge/_legacy-822/`. So this helper re-created a store that the next
+// `knowledge/_legacy-json/`. So this helper re-created a store that the next
 // project open swept away again — in one day's work on one project it left 32
 // archived copies behind, and each round gave the same payload a fresh id
 // because the duplicate check only looked inside the file it had just lost.
