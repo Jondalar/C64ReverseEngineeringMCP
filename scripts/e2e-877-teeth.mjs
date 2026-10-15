@@ -124,7 +124,7 @@ try {
     check("render_docs refuses while the promise is owed", !g.allowed,
       (g.refusal ?? "").split("\n")[0] ?? "(allowed)");
     const r = g.refusal ?? "";
-    check("the refusal names the spec number", /877/.test(r));
+    check("the refusal says the door PUBLISHES (it names no internal id)", /PUBLISHES/.test(r) && !/\b877\b/.test(r));
     check("the refusal names the MEASURED number", /33\.3 %/.test(r), r.split("\n").find((l) => /%/.test(l)));
     check("the refusal names what the contract ASKED for", /90 %/.test(r));
     check("the refusal names the shortest path to clearing it",
