@@ -10,12 +10,13 @@
 //      daemon ends, the next tool call starts a fresh one and its answer SAYS so, and
 //      runtime_keep_alive forever is reported as kept alive.
 // Needs a TRX64 daemon that carries Spec 887.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -27,7 +28,7 @@ const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PAS
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PORT = Number(process.env.E2E_886_PORT || 4387);
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
-const listener = () => { try { return Number(execSync(`lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t`).toString().trim().split("\n")[0]) || 0; } catch { return 0; } };
+const listener = () => listenerPids(PORT)[0] || 0;
 const killPort = () => { const p = listener(); if (p) try { process.kill(p, "SIGKILL"); } catch {} };
 const until = async (cond, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(200); } return cond(); };
 

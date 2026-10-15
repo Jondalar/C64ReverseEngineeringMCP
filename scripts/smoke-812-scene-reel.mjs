@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -271,8 +272,7 @@ const { SandboxSession } = await import(pathToFileURL(`${ROOT}/dist/reel/sandbox
   const box = await SandboxSession.start({ budgetMs: 30_000 });
   const port = box.port;
   const listening = async () => {
-    const cp = await import("node:child_process");
-    return cp.execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN 2>/dev/null | grep -c LISTEN || true`, { encoding: "utf8" }).trim();
+    return String(listenerPids(port).length);
   };
   ok(Number(await listening()) === 1, "31 a sandbox holds its own port while it lives", `port ${port}`);
   await box.close();

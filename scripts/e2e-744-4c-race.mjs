@@ -5,12 +5,13 @@
 //   Part 1 — two daemons on the same port → loser exits 0, winner keeps serving.
 //   Part 2 — N MCPs starting simultaneously (eager warm-start) → exactly ONE
 //            listener on the port, and every MCP shares that one daemon.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -28,8 +29,8 @@ const portOpen = () => new Promise((res) => { const w = new WebSocket(ENDPOINT);
 // LISTEN-only filter — we kill the daemon (the listener), NEVER this gate's own
 // client sockets to the port (without the filter, lsof returns our connections too
 // and `kill -9` would SIGKILL the gate itself mid-run → spurious exit 137).
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch { /* none */ } };
-const listenerCount = () => { try { const out = execSync(`lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t`, { encoding: "utf8" }); return new Set(out.split("\n").map((s) => s.trim()).filter(Boolean)).size; } catch { return 0; } };
+const killPort = () => killPortListeners(PORT);
+const listenerCount = () => listenerPids(PORT).length;
 const waitPort = async (want, ms) => { const start = Date.now(); while (Date.now() - start < ms) { if ((await portOpen()) === want) return true; await sleep(200); } return false; };
 
 console.log("Spec 744.4c — daemon START RACE: exactly one owner, losers exit clean\n");

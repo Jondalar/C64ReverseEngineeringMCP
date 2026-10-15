@@ -23,6 +23,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, statSync, mkdirSync, rmSync } from "node:fs";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
@@ -39,11 +40,11 @@ const PEAK_DELTA_MAX_MIB = 1200;  // rss(peak) - rss(baseline): leak would be > 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 // The process that holds the port IS the daemon. `daemon.pid` is the node wrapper
 // (runtime-daemon.mjs) around it, whose RSS sat at a flat 43 MiB while the daemon itself
 // grew 148 → 334 MiB — so checks 5 and 6 measured nothing until 2026-10-02.
-const listenerPid = () => { try { return Number(execSync(`lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t`).toString().trim().split("\n")[0]) || 0; } catch { return 0; } };
+const listenerPid = () => listenerPids(PORT)[0] || 0;
 const rssMiB = (pid) => { try { return Math.round(Number(execSync(`ps -o rss= -p ${pid}`).toString().trim()) / 1024); } catch { return -1; } };
 
 let wsId = 1;
