@@ -1,6 +1,6 @@
 # Spec 906 — The LLM starts its own full runtime for a purpose, works in it, and ends it
 
-**Status:** BUILT and merged (2026-10-14); open for the reporter's retest on #78. Local gate 114/114 (1477 s) on a clone of the branch against TRX64 0.13.0; `e2e:906-refusals` (63 checks, hermetic, in `gates.yml`) and `e2e:906` (193 checks with `C64RE_E2E_LONG=1`, 191 without; daemons of its own) green. S1–S7 below, each with its test; what the spec left open is in §5.
+**Status:** DONE (2026-10-15). The reporter's retest on #78 passed on Windows with their PR #85 (the keeper is detached on Windows, so owner-gone cleanup survives a hard kill); #78 closed. Ships in C64RE 0.9.1. Local gate 114/114 (1477 s) on a clone of the branch against TRX64 0.13.0; `e2e:906-refusals` (63 checks, hermetic, in `gates.yml`) and `e2e:906` (193 checks with `C64RE_E2E_LONG=1`, 191 without; daemons of its own) green. S1–S7 below, each with its test; what the spec left open is in §5.
 **Repo:** C64RE. The daemon is the same binary on its own port (`--headless`), so every capability
 is already there; what is missing is C64RE reaching it. TRX64 gets a part only where a scenario
 shows the daemon is the limit (D8), by decision recorded in §5, delegated to the TRX64 session.

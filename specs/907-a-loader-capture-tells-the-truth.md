@@ -1,6 +1,6 @@
 # Spec 907 — A loader capture says where the bytes landed and which sector they came from
 
-**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 is not released: C64RE's D3 path needs a TRX64 release to produce 0x37 in real captures; until then real captures are 0x35 and read-past is report-only. S6 (the reporter's retest on #77) is by hand.
+**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 D2 is released in TRX64 0.13.1 and C64RE 0.9.1 pins it, so new captures are 0x37; older 0x35 captures stay report-only for read-past. S6 (the reporter's retest on #77) is by hand.
 **Repo:** both. TRX64: which sector a drive read is credited to (P2). C64RE: the landing map (P1),
 the verdict (P3), the decoder for what TRX64 adds. Leitregel: the drive's facts are a runtime
 capability → TRX64; what they mean for an extraction → C64RE.
@@ -226,4 +226,4 @@ tests `e2e-loader-lens.mjs`, `e2e-loader-lens-file.mjs`, `e2e-validate-extractio
 - **Sector `0xff`** is a taken visit with a source `T<n>/S255`; it matches no manifest span (a manifest
   cannot name a headerless sector) and so lists as an unclaimed read.
 - **Not built:** no re-credit of old `0x35` captures (the skew is not recoverable from the record).
-- **Open:** S6 on the reporter's IM II capture; it needs a TRX64 release for the capture to be `0x37`.
+- **Open:** S6 on the reporter's IM II capture, recaptured with TRX64 0.13.1 so it is `0x37`.
