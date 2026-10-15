@@ -16,7 +16,8 @@
 //
 //   C64RE_RUNTIME_BIN=<trx64-daemon> npm run e2e:issue91-sandbox-media-copy
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { d64WithPrg } from "./lib/d64-fixture.mjs";
 import { Harness, ROOT, findDaemon, load, loopPrg, makeChecker, scratchDirs, sleep } from "./lib/e2e-906-harness.mjs";
@@ -36,6 +37,12 @@ if (!DAEMON) {
 process.env.C64RE_RUNTIME_BIN = DAEMON;
 console.log(`runtime: ${DAEMON}`);
 
+// A private temp dir for this run and every process it starts: the scratch check below scans the
+// temp dir, and another gate or sandbox running on this machine at the same time makes its own
+// c64re-reel-* there.
+const ownTmp = mkdtempSync(join(tmpdir(), "c64re-91-tmp-"));
+process.env.TMPDIR = ownTmp;
+process.on("exit", () => { try { rmSync(ownTmp, { recursive: true, force: true }); } catch { /* best effort */ } });
 const scratchBefore = new Set(scratchDirs());
 const H = new Harness("c64re-91-");
 const proj = await H.project("proj");
