@@ -32,6 +32,11 @@ let failCount = 0;
 const ok = (m) => { pass += 1; console.log(`  PASS  ${m}`); };
 const fail = (m) => { failCount += 1; console.log(`  FAIL  ${m}`); };
 const check = (c, m) => (c ? ok(m) : fail(m));
+let skipCount = 0;
+const skip = (m) => { skipCount += 1; console.log(`  SKIP  ${m}`); };
+// A name with ':' cannot exist on Windows (NTFS reads "a:b" as file "a", stream "b"), so a
+// project written before Spec 838 cannot carry one there, and its fixture cannot be built.
+const LEGACY_IMPOSSIBLE = process.platform === "win32";
 
 console.log("Spec 838 D1 — an entity id is not a path\n");
 console.log(`(running on ${process.platform}; every rule below is asserted for Windows regardless)\n`);
@@ -174,13 +179,17 @@ check(true, "every hostile id in the table is mkdir-able on this host too");
 
 console.log("\n--- 7. a project written before Spec 838 is not orphaned ---");
 const legacyProject = mkdtempSync(join(tmpdir(), "c64re-838-legacy-"));
-const legacyDir = join(legacyProject, "artifacts", "generated", "payloads", "crazy-news-c64:ram", "loader:payload:0801");
-mkdirSync(legacyDir, { recursive: true });
-writeFileSync(join(legacyDir, "widget_analysis.json"), "{}\n");
-const found = payloadOutputDir(legacyProject, reported);
-check(found.legacy === true, "a pre-existing directory under the raw id is recognised as legacy");
-check(resolve(found.absolute) === resolve(legacyDir), `…and read where it is (${found.relative})`);
-check(existsSync(join(found.absolute, "widget_analysis.json")), "…so the analysis already written there is still the one that is found");
+if (LEGACY_IMPOSSIBLE) {
+  skip("a pre-existing directory under the raw id is recognised as legacy — a ':' directory cannot exist on win32, so no project here has one");
+} else {
+  const legacyDir = join(legacyProject, "artifacts", "generated", "payloads", "crazy-news-c64:ram", "loader:payload:0801");
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(join(legacyDir, "widget_analysis.json"), "{}\n");
+  const found = payloadOutputDir(legacyProject, reported);
+  check(found.legacy === true, "a pre-existing directory under the raw id is recognised as legacy");
+  check(resolve(found.absolute) === resolve(legacyDir), `…and read where it is (${found.relative})`);
+  check(existsSync(join(found.absolute, "widget_analysis.json")), "…so the analysis already written there is still the one that is found");
+}
 const freshFound = payloadOutputDir(project, reported);
 check(freshFound.legacy === false && !freshFound.relative.includes(":"),
   `a project without one gets the portable name (${freshFound.relative})`);
@@ -194,9 +203,13 @@ const f2 = idFileUnder(filesDir, "cp:loader/1", ".json");
 check(windowsRejects(f2.name.replace(/\.json$/u, "")) === undefined, `a hostile id gives a legal file name (${f2.name})`);
 const f3 = idFileUnder(filesDir, "nul", ".json");
 check(!isDosDeviceName(f3.name), `a device id with an extension is still not a device (${f3.name})`);
-writeFileSync(join(filesDir, "weird:id.json"), "{}\n");
-const f4 = idFileUnder(filesDir, "weird:id", ".json");
-check(f4.legacy === true && f4.name === "weird:id.json", "a file written before Spec 838 keeps being written where it is");
+if (LEGACY_IMPOSSIBLE) {
+  skip("a file written before Spec 838 keeps being written where it is — on win32 'weird:id.json' is an NTFS stream, not a file");
+} else {
+  writeFileSync(join(filesDir, "weird:id.json"), "{}\n");
+  const f4 = idFileUnder(filesDir, "weird:id", ".json");
+  check(f4.legacy === true && f4.name === "weird:id.json", "a file written before Spec 838 keeps being written where it is");
+}
 
 console.log("\n--- 9. deviceSafeName: the narrow guard for a name the host already accepted ---");
 check(deviceSafeName("Wasteland") === "Wasteland", "an ordinary image stem is untouched — no existing project directory moves");
@@ -216,5 +229,5 @@ console.log(`\n--- report ---`);
 console.log(`hostile ids exercised: ${HOSTILE.length}`);
 console.log(`reported id → ${safeSegment(reported)}`);
 console.log(`temp projects: ${project}, ${legacyProject}`);
-console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 838 paths: ${pass} pass, ${failCount} fail.`);
+console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 838 paths: ${pass} pass, ${failCount} fail${skipCount ? `, ${skipCount} skipped (${process.platform})` : ""}.`);
 process.exit(failCount ? 1 : 0);
