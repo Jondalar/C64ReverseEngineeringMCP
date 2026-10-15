@@ -18,8 +18,8 @@
 // This module is the registry in THIS process; `backend.ts` routes a tool call whose `session_id` is
 // a sandbox's here. It never touches the shared endpoint.
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { SandboxSession } from "../reel/sandbox-session.js";
 import { assertNotShared } from "../reel/run-sandbox.js";
 import { bootSandbox } from "../reel/session-boot.js";
@@ -213,18 +213,11 @@ export async function startSandboxSession(o: StartSandboxOptions): Promise<Start
   live.set(id, entry);
   try {
     assertNotShared(box.port);
-    // A medium is mounted as a COPY in the session's scratch: the runtime writes a mounted disk or
-    // cartridge back to the file it was opened from when the machine ends, and a session that
+    // A medium is mounted as a COPY in the session's scratch (SandboxSession.copyMedium): the runtime
+    // writes a mounted disk or cartridge back to the file it was opened from, and a session that
     // debugs a copy protection (or just a LOAD that saves) must not change the project's image.
-    let mediaCopy: string | undefined;
-    if (o.mediaPath) {
-      const scratch = box.scratchDir;
-      if (!scratch) throw new Error("the sandbox has no scratch directory to hold its copy of the medium");
-      const dir = join(scratch, "media");
-      mkdirSync(dir, { recursive: true });
-      mediaCopy = join(dir, basename(o.mediaPath));
-      copyFileSync(o.mediaPath, mediaCopy);
-    }
+    // Media mounted later go through the same door, whatever tool mounts them.
+    const mediaCopy = o.mediaPath ? box.copyMedium(o.mediaPath) : undefined;
     const booted = await bootSandbox(box.call.bind(box) as Parameters<typeof bootSandbox>[0], {
       mediaPath: mediaCopy, run: o.run, driveType: o.driveType,
     });

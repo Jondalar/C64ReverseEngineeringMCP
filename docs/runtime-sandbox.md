@@ -184,9 +184,14 @@ naming the four and their purposes.
 `.d64`, `.g64`, `.d81`, `.prg` or a `.c64re` snapshot, by content; `drive_type`, `model`
 and `run` as for the one-call run), and **paused** at the cycle the answer names. A session
 advances only when a tool runs it, which is what makes the same calls replay to the same
-bytes. A medium is mounted as a **copy** in the sandbox's scratch: the runtime writes a
-mounted disk or cartridge back to its file when the machine ends, and the project's image
-is never changed by a sandbox.
+bytes. Every medium a sandbox mounts, at the start or later (`runtime_media_mount`,
+`runtime_media_swap`, `runtime_swap_disk_and_continue`, the monitor's `mount`, an `insert`
+step of a run or a reel), is mounted as a **copy** in the sandbox's scratch: the runtime
+writes a mounted disk or cartridge back to the file it was given — on eject, on
+`runtime_media_persist`, and when the machine ends — so the sandbox is never handed the
+project's path. The same file mounted again gets the same copy, with what the program
+wrote to it. The copy goes with the sandbox; the project's image is byte-identical after a
+run or a session, however it ends. There is no write-back option.
 
 **Every runtime tool, the same.** The routing is by session id: `sb-…` goes to that
 sandbox's daemon, anything else to the active backend as before. The verdict per tool lives
