@@ -159,7 +159,10 @@ check(sandboxMod.sharedRuntimePort({ C64RE_RUNTIME_ENDPOINT: "ws://host:9999" })
 // ── E. the budget is written down, and it is what ends the machine ───────────
 console.log("\nE. the budget-and-die contract is intact");
 check(/ENDS ITSELF|ends itself/i.test(spawner), "the spawner still states the ends-itself contract");
-check(/detached: false/.test(spawner), "the daemon is a CHILD, so it cannot outlive the process");
+// the keeper is detached only on Windows (a job object would kill it with a hard-killed owner);
+// the daemon is the keeper's own attached child, so it cannot outlive the keeper
+check(/detached: process\.platform === "win32"/.test(spawner) && /const d = spawn\(cmd, args, \{(?![^}]*detached)[^}]*\}\)/.test(spawner),
+  "the daemon is a CHILD of its keeper, so it cannot outlive it; the keeper is detached on Windows only");
 check(/s\.reaper = setTimeout/.test(spawner), "a reaper is armed at start, before the machine is used");
 check(/void s\.close\(\)/.test(spawner), "…and it closes the sandbox when it fires, listener or not");
 check(/rmSync\(this\.ownTmp/.test(spawner), "…and the scratch dir it made is removed with it");
