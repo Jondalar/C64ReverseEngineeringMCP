@@ -938,8 +938,10 @@ function generateInstructionComment(
     }
   }
 
-  // 3. Zero-page stores/loads with known meaning (platform overlay first)
-  if (mode === "zp" && operand !== undefined) {
+  // 3. Zero-page stores/loads with known meaning. A human label on the operand wins:
+  // the platform's name for the byte (KERNAL/BASIC) would duplicate or contradict it,
+  // and is plainly wrong where the program banks the ROMs out.
+  if (mode === "zp" && operand !== undefined && annotatedOperandName(operand) === undefined) {
     const zp = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, operand);
     if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
