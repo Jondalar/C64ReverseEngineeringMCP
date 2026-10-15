@@ -3,11 +3,12 @@
 // tools (type/joystick/mark/load_prg) were not, so the LLM could SEE the human's
 // session but not DRIVE it. Acceptance (from the bug): runtime_type "HALLO ALEX"
 // appears on the shared session's live screen.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -17,7 +18,7 @@ const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 
 console.log("BUG-028 — input/drive tools route to the shared daemon session\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }

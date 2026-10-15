@@ -5,11 +5,12 @@
 // relative path resolves into the CALLER's project; the result is the one
 // MediaIngressResult shape; a SECOND MCP shares the session; no private session
 // leaks. This is the convergence — no legacy mountMedia/swapDisk fork.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -20,7 +21,7 @@ const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 
 console.log("Spec 744.4c slice 2b — media converges to the shared ingest op\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }

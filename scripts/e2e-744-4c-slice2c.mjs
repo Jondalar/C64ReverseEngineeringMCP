@@ -3,12 +3,13 @@
 // save_vsf, load_vsf, memory_access_map, vic_inspect_at. CRITICAL extra check:
 // media_persist + save_vsf write THROUGH to the caller's host file (Spec 742) —
 // the file must actually appear/change on disk.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, statSync, rmSync, copyFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -19,7 +20,7 @@ const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 
 console.log("Spec 744.4c slice 2c — remaining session-attached tools route to the daemon\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }

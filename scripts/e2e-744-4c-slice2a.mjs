@@ -3,11 +3,12 @@
 // runtime_monitor_registers / monitor_memory / monitor_disasm / step_into /
 // breakpoint_* operates on the SAME daemon session the UI sees, and breakpoint
 // state is shared across two separate MCP processes (= one shared machine).
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -17,7 +18,7 @@ const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 
 console.log("Spec 744.4c slice 2a — debug/step + monitor tools route to the shared daemon\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }

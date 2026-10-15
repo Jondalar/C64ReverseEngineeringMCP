@@ -2,13 +2,14 @@
 // the BUG-027-B3 zombie) holds the port but never answers ping. Before this fix,
 // ensureDaemon saw the port held ("already-up") and never replaced it, so no session
 // came up. Now: liveness-probe (ping) detects stall → kill the wedged proc → respawn.
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
+import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -17,7 +18,7 @@ const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+const killPort = () => killPortListeners(PORT);
 const listening = () => new Promise((res) => { const w = new WebSocket(ENDPOINT); const t = setTimeout(() => { w.terminate(); res(false); }, 1200); w.once("open", () => { clearTimeout(t); w.close(); res(true); }); w.once("error", () => { clearTimeout(t); res(false); }); });
 
 console.log("Spec 746.x — daemon STALL self-heal (detect wedged daemon, kill, respawn)\n");
