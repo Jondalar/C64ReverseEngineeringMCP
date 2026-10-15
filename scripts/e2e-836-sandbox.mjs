@@ -159,10 +159,13 @@ check(sandboxMod.sharedRuntimePort({ C64RE_RUNTIME_ENDPOINT: "ws://host:9999" })
 // ── E. the budget is written down, and it is what ends the machine ───────────
 console.log("\nE. the budget-and-die contract is intact");
 check(/ENDS ITSELF|ends itself/i.test(spawner), "the spawner still states the ends-itself contract");
-// the keeper is detached only on Windows (a job object would kill it with a hard-killed owner);
-// the daemon is the keeper's own attached child, so it cannot outlive the keeper
-check(/detached: process\.platform === "win32"/.test(spawner) && /const d = spawn\(cmd, args, \{(?![^}]*detached)[^}]*\}\)/.test(spawner),
-  "the daemon is a CHILD of its keeper, so it cannot outlive it; the keeper is detached on Windows only");
+// The keeper is attached everywhere but Windows, where an attached child dies in the same instant as a
+// hard-killed owner (libuv job object) and could not end the daemon the polite way (#78). The daemon itself
+// is always the keeper's attached child, and the keeper ends it when the owner is gone.
+check(/detached: (?:false|process\.platform === "win32")/.test(spawner)
+  && /const d = spawn\(cmd, args, \{ stdio:[^}]*\}\)/.test(spawner) && !/const d = spawn\([^)]*detached/.test(spawner)
+  && /parentGone\(\)\) \{ orphaned = true; end\("owner gone"\)/.test(spawner),
+  "the daemon is a CHILD of the keeper, and the keeper ends it when the owner is gone, so it cannot outlive the process");
 check(/s\.reaper = setTimeout/.test(spawner), "a reaper is armed at start, before the machine is used");
 check(/void s\.close\(\)/.test(spawner), "…and it closes the sandbox when it fires, listener or not");
 check(/rmSync\(this\.ownTmp/.test(spawner), "…and the scratch dir it made is removed with it");
