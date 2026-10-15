@@ -168,7 +168,7 @@ eq(G.generatedNodes822, 4989, "generated nodes from the JSON (4,612 analysis + 3
 eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='addr'"), 363, "shared addr nodes (RAM behaviour, 363 addresses)");
 eq(m1.nodesByKind.entry, 2684, "entry nodes under their owners (8,176 entry-point entities)");
 eq(m1.nodesByKind.segment, 1565, "segment nodes under their owners (9,208 segment entities)");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='chip'"), 128, "chip nodes (256 chips over 2 cart images → 128 crt/<bank> nodes)");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='chip'"), 128, "chip nodes (256 chips over 2 extracts of ONE cart image → 128 crt/<cart>/<bank> nodes; Spec 909: the cartridge is the image, not the extract)");
 eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='bank'"), 64, "bank nodes");
 eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='payload'"), 185, "payload nodes (183 area assets + 4 disk files → 2: prodos, 2.0 twice each)");
 eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind IN ('routine','label')"), 0, "822 never writes generated routine/label rows (819's ids)");
@@ -211,7 +211,7 @@ eq(e31.length, 58, "$0031: evidence rows");
 const newest = e31[0] ? JSON.parse(e31[0].attrs) : {};
 check(c31[0] && c31[0].value === newest.value && c31[0].score === newest.score && c31[0].updated_at === e31[0].captured_at, `$0031: the claim carries the NEWEST run's value/score (${newest.value} ${newest.score} @ ${e31[0]?.captured_at})`);
 check(c31[0] && db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'generated'").get(a31), "$0031: the shared addr node exists");
-const hexKeys = db.prepare("SELECT id FROM nodes WHERE producer = '822'").all().filter((r) => !/^[a-z0-9\-]+:(ram|crt|drv)(\/[a-z0-9_.\-]+)?:[a-z_]+:[0-9a-f]{4}$/.test(r.id) && !/^[a-z0-9\-]+:sub:/.test(r.id));
+const hexKeys = db.prepare("SELECT id FROM nodes WHERE producer = '822'").all().filter((r) => !/^[a-z0-9\-]+:((ram|drv)(\/[a-z0-9_.\-]+)?|crt\/[a-z0-9][a-z0-9\-]{0,23}\/[0-9a-f]{2,4}):[a-z_]+:[0-9a-f]{4}$/.test(r.id) && !/^[a-z0-9\-]+:sub:/.test(r.id));
 eq(hexKeys.length, 0, "every 822 id obeys the 818 grammar");
 store.close();
 

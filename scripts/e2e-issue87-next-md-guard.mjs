@@ -47,6 +47,8 @@ try {
   client = new Client({ name: "e2e87", version: "1" });
   await client.connect(new StdioClientTransport({
     command: process.execPath, args: [join(root, "dist", "cli.js")],
+    // no daemon: on a machine that HAS the runtime binary an MCP server started without this warm-starts one on :4312 and the
+    // leak check (Spec 902) names this test as the one that left it
     env: { ...process.env, C64RE_PROJECT_DIR: dir, C64RE_RUNTIME_AUTOSTART: "0" }, stderr: "ignore",
   }));
   const text = (r) => r.content.map((c) => c.text).join("\n");

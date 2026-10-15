@@ -1753,6 +1753,11 @@ export const CartridgeSpanClassSummarySchema = z.object({
 export const CartridgeLayoutCartridgeSchema = z.object({
   artifactId: IdSchema,
   title: z.string().min(1),
+  /** Spec 909 — the cartridge token (graph ids are `crt/<cart>/<bank>`), the role the owner gave it, and its type by name */
+  cart: z.string().optional(),
+  role: z.enum(["source", "target", "other"]).optional(),
+  roleDeclared: z.boolean().optional(),
+  cartridgeType: z.string().optional(),
   cartridgeName: z.string().optional(),
   hardwareType: z.number().int().nonnegative().optional(),
   exrom: z.number().int().nonnegative().optional(),

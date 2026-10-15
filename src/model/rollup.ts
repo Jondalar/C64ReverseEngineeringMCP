@@ -14,8 +14,10 @@ import { MEMBER_KINDS } from "./types.js";
 import { listBoundaries } from "./store.js";
 
 /** Does this boundary's range hold that address, under its space/owner rule? */
-function holds(b: ModelNode, space: string, owner: string | null, address: number): boolean {
+function holds(b: ModelNode, space: string, owner: string | null, address: number, cart: string | null = null): boolean {
   if (b.space !== space) return false;
+  // Spec 909: a cartridge boundary binds the nodes of ITS cartridge — bank 0 of one image is not bank 0 of another.
+  if (b.cart !== null && b.cart !== cart) return false;
   // A boundary that names an owner binds only that owner's nodes; one that does not
   // spans the space. That is how "the loader" (one file) and "low RAM" (whatever is
   // there) can both be expressed without a second mechanism.
@@ -24,15 +26,15 @@ function holds(b: ModelNode, space: string, owner: string | null, address: numbe
 }
 
 /** Every boundary that contains the address — the membership a reader means by "contains". */
-function containing(boundaries: ModelNode[], space: string, owner: string | null, address: number): ModelNode[] {
-  return boundaries.filter((b) => holds(b, space, owner, address));
+function containing(boundaries: ModelNode[], space: string, owner: string | null, address: number, cart: string | null = null): ModelNode[] {
+  return boundaries.filter((b) => holds(b, space, owner, address, cart));
 }
 
 /** Innermost wins: a component inside a container claims its members. Used for `direct` and for D4. */
-function pick(boundaries: ModelNode[], space: string, owner: string | null, address: number): ModelNode | undefined {
+function pick(boundaries: ModelNode[], space: string, owner: string | null, address: number, cart: string | null = null): ModelNode | undefined {
   let best: ModelNode | undefined;
   for (const b of boundaries) {
-    if (!holds(b, space, owner, address)) continue;
+    if (!holds(b, space, owner, address, cart)) continue;
     if (!best || (b.end - b.start) < (best.end - best.start)) best = b;
   }
   return best;
@@ -50,6 +52,7 @@ function nestedIn(outer: ModelNode, boundaries: ModelNode[]): ModelNode[] {
     b.id !== outer.id
     && b.space === outer.space
     && (outer.owner === null || outer.owner === b.owner)
+    && outer.cart === b.cart
     && b.start >= outer.start && b.end <= outer.end
     && (b.end - b.start) < (outer.end - outer.start));
 }
@@ -70,8 +73,8 @@ export async function modelReport(projectDir: string, opts?: { owners?: Readonly
   try {
     const placeholders = MEMBER_KINDS.map(() => "?").join(",");
     const every = store.db.prepare(
-      `SELECT id, kind, name, space, owner, address FROM nodes WHERE kind IN (${placeholders}) GROUP BY id`,
-    ).all(...MEMBER_KINDS) as Array<{ id: string; kind: string; name: string | null; space: string; owner: string | null; address: number }>;
+      `SELECT id, kind, name, space, owner, cart, address FROM nodes WHERE kind IN (${placeholders}) GROUP BY id`,
+    ).all(...MEMBER_KINDS) as Array<{ id: string; kind: string; name: string | null; space: string; owner: string | null; cart: string | null; address: number }>;
     const fine = opts?.owners ? every.filter((n) => n.owner !== null && opts.owners!.has(n.owner)) : every;
 
     const owning = new Map<string, string>(); // fine node id -> INNERMOST container id (D4 rolls edges up by this)
@@ -87,14 +90,14 @@ export async function modelReport(projectDir: string, opts?: { owners?: Readonly
     for (const n of fine) {
       // Membership counts every boundary the node falls inside, not only the innermost:
       // a system boundary whose content is the containers nested in it contains them.
-      const inside = containing(boundaries, n.space, n.owner, n.address);
+      const inside = containing(boundaries, n.space, n.owner, n.address, n.cart);
       if (inside.length === 0) { orphans.push({ id: n.id, kind: n.kind, name: n.name, address: n.address }); continue; }
       for (const b of inside) {
         const m = membership.get(b.id)!;
         m.members++;
         m.byKind[n.kind] = (m.byKind[n.kind] ?? 0) + 1;
       }
-      const innermost = pick(boundaries, n.space, n.owner, n.address)!;
+      const innermost = pick(boundaries, n.space, n.owner, n.address, n.cart)!;
       owning.set(n.id, innermost.id);
       const d = membership.get(innermost.id)!;
       d.direct++;

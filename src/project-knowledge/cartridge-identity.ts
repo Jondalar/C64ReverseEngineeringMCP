@@ -57,7 +57,7 @@ interface HashEntry {
 // when the file itself changed.
 const hashCache = new Map<string, HashEntry>();
 
-function sha256OfFile(path: string): string | undefined {
+export function sha256OfFile(path: string): string | undefined {
   let stat: ReturnType<typeof statSync>;
   try {
     stat = statSync(path);
@@ -78,7 +78,7 @@ function sha256OfFile(path: string): string | undefined {
 /** Hardware type + name straight out of the .crt header (VICE CRT format:
  *  16-byte magic, BE32 header length, BE16 version, BE16 hardware type, EXROM,
  *  GAME, 6 reserved bytes, then a 32-byte NUL-padded name). */
-function readCrtHeader(path: string): { hardwareType?: number; name?: string } {
+export function readCrtHeader(path: string): { hardwareType?: number; name?: string } {
   let head: Buffer;
   try {
     head = readFileSync(path).subarray(0, 0x40);

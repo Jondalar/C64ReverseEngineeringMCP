@@ -56,6 +56,12 @@ per relevant artifact. No LLM annotations yet.
   `c64ref_lookup`.
 - **Done when**: every relevant artifact has a `*_analysis.json` and
   a `*_disasm.asm`; rebuild verification has been attempted.
+- **Headers**: a payload is headerless unless it is a PRG file (a file
+  from a disk directory, a `.prg` you gave, or a payload declared
+  `format: prg`). A cartridge chip is raw ROM and is listed at its bank
+  window (`$8000`/`$A000`/`$E000`). A chunk inside a cartridge has no load
+  address until you declare one — reading the loader's table is your
+  job, not the tool's. Nothing is read as an address out of the bytes.
 
 ## Phase 4 — Segment Analysis
 

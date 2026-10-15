@@ -14,7 +14,7 @@ import { derivePlatformId, isPlatformId, parseId, type Ctx } from "./ids.js";
 import { CONTROL_FLOW_TYPES, type EdgeRow, type Layer, type NodeRow } from "./schema.js";
 import { GraphStore } from "./store.js";
 
-export type AddrSpec = string | number | { address: number; space?: string; owner?: string; bank?: number };
+export type AddrSpec = string | number | { address: number; space?: string; owner?: string; bank?: number; cart?: string };
 
 export interface ResolvedNode {
   id: string;
@@ -25,6 +25,8 @@ export interface ResolvedNode {
   space: string;
   owner: string | null;
   bank: number | null;
+  /** Spec 909 — the cartridge a cartridge-space node is in (read out of its id); null elsewhere */
+  cart?: string | null;
   attrs: Record<string, unknown>;
   origin?: string;
   confidence?: string;
@@ -67,7 +69,7 @@ export interface PathOptions {
   maxDepth?: number;
 }
 
-function parseAddr(spec: AddrSpec): { address: number; space?: string; owner?: string; bank?: number } {
+function parseAddr(spec: AddrSpec): { address: number; space?: string; owner?: string; bank?: number; cart?: string } {
   if (typeof spec === "number") return { address: spec & 0xffff };
   if (typeof spec === "object") return { ...spec, address: spec.address & 0xffff };
   const text = spec.trim();
@@ -77,6 +79,7 @@ function parseAddr(spec: AddrSpec): { address: number; space?: string; owner?: s
 }
 
 function dangling(id: string): ResolvedNode {
+  let cart: string | null = null;
   let address = 0;
   let kind = "?";
   let space = "?";
@@ -84,9 +87,11 @@ function dangling(id: string): ResolvedNode {
     const p = parseId(id);
     if (p.form !== "subsystem") address = p.address;
     kind = p.form === "subsystem" ? "subsystem" : p.kind;
-    space = p.form === "project" ? p.ctx.space : p.form === "platform" ? p.kind : "sub";
+    space = p.form === "project" ? p.ctx.space : p.form === "platform" ? p.kind : p.form === "cartridge" ? "crt" : "sub";
+    if (p.form === "project" && p.ctx.cart !== undefined) cart = p.ctx.cart;
+    else if (p.form === "cartridge") cart = p.cart;
   } catch { /* unparseable ids are still reported, as dangling */ }
-  return { id, kind, name: null, address, endAddress: null, space, owner: null, bank: null, attrs: {}, layers: [], orphaned: false, platform: isPlatformId(id), dangling: true };
+  return { id, kind, name: null, address, endAddress: null, space, owner: null, bank: null, cart, attrs: {}, layers: [], orphaned: false, platform: isPlatformId(id), dangling: true };
 }
 
 function mergeRows(rows: NodeRow[]): ResolvedNode | undefined {
@@ -104,6 +109,7 @@ function mergeRows(rows: NodeRow[]): ResolvedNode | undefined {
     space: base.space,
     owner: base.owner,
     bank: base.bank,
+    cart: base.cart ?? null,
     attrs,
     origin: base.origin,
     confidence: human ? human.confidence : base.confidence,
@@ -143,7 +149,7 @@ export class Graph {
     // purpose: an addr node means "somebody referenced this", which is the
     // question, not the answer.
     this.generatedAtAddress = db.prepare(
-      "SELECT 1 AS n FROM nodes WHERE layer = 'generated' AND address = ? AND space = ? AND owner IS ? AND bank IS ? AND kind <> 'addr' LIMIT 1",
+      "SELECT 1 AS n FROM nodes WHERE layer = 'generated' AND address = ? AND space = ? AND owner IS ? AND bank IS ? AND cart IS ? AND kind <> 'addr' LIMIT 1",
     );
   }
 
@@ -165,7 +171,7 @@ export class Graph {
    * another artifact, not coverage.
    */
   private coveredByGenerated(n: ResolvedNode): boolean {
-    return this.generatedAtAddress.get(n.address, n.space, n.owner, n.bank) !== undefined;
+    return this.generatedAtAddress.get(n.address, n.space, n.owner, n.bank, n.cart ?? null) !== undefined;
   }
 
   /** mergeRows + the address half of `orphaned`. Every Graph verb answers through here. */
@@ -268,6 +274,7 @@ export class Graph {
     if (a.space) out = out.filter((n) => n.space === a.space);
     if (a.owner) out = out.filter((n) => n.owner === a.owner);
     if (a.bank !== undefined) out = out.filter((n) => n.bank === a.bank);
+    if (a.cart !== undefined) out = out.filter((n) => n.cart === a.cart);
     if (!a.space || a.space === "io" || a.space === "rom" || a.space === "ram") {
       for (const platform of this.platformTags()) {
         const p = this.platform?.node(platform, a.address);

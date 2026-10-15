@@ -561,6 +561,9 @@ export function CartridgePanel({
             <CartridgeMemoryGrid
               key={cartridge.artifactId}
               cartridgeName={cartridge.cartridgeName ?? cartridge.title}
+              cart={cartridge.cart}
+              role={cartridge.role}
+              roleDeclared={cartridge.roleDeclared}
               hardwareType={cartridge.hardwareType}
               exrom={cartridge.exrom}
               game={cartridge.game}

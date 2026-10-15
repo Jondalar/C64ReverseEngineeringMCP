@@ -58,3 +58,47 @@ The cart-type → slot-layout map currently covers:
 
 Anything outside the table falls back to a generic 8K/16K/Ultimax decision
 based on `exrom` / `game` lines plus observed chip load addresses.
+
+## Several cartridges in one project
+
+A project can hold more than one cartridge: the original of a port and the cartridge
+being built from it, two releases of one game, a rebuilt target next to the last one.
+Each is **its own place**.
+
+- **Identity.** The first `extract_crt` of an image mints a short name for the
+  cartridge from the image's file name (`gmod2-orig.crt` is `gmod2-orig`; a clash gets
+  a `-2`). The answer says so, with the type read from the `.crt` header. Every graph
+  id in cartridge space carries it: `crt/gmod2-orig/05` is bank 5 of that cartridge,
+  `<project>:crt/gmod2-orig:cartridge` is the cartridge itself.
+- **Same image, same cartridge.** Extracting the same file again, a rebuilt file at
+  the same path, or another file with the same bytes finds the cartridge again and
+  keeps everything named in it. A rebuild registered at a different path joins its
+  cartridge with `extract_crt cart=<name>`.
+- **Separate extracts.** The first cartridge extracts to `analysis/extracted`, each
+  further one to `analysis/extracted-<name>`. An output directory that already holds
+  another cartridge's extract is refused, never overwritten. The chip payloads, their
+  folders under `artifacts/generated/payloads/`, `list_payloads` and the default
+  listing paths (`analysis/raw-disasm/<name>/…`) are per cartridge.
+- **Type and role.** The type is the cartridge's own (the `$DE00-$DFFF` window of a
+  listing is named for it, whatever else the project holds). The role is what the
+  cartridge **is in this project** — `source`, `target` or `other` — and it is
+  *declared*, never inferred from the type or a file name:
+  `contract_set cartridges=[{cart:"gmod2-orig", role:"source"}, {cart:"ef-port", role:"target"}]`
+  (or `slot_record` S2). Until then both are `other`, and `project_status` says how to
+  declare it. `project_status` and `contract_show` list every cartridge with type and role.
+- **Asking.** `graph_find`, `graph_node`, `graph_edges`, `graph_path`,
+  `inspect_address_range`, `disasm` and `model_assert` take an optional `cart`.
+  Without it a question about "bank 0 `$8000`" is answered for every cartridge, each hit
+  naming its own; a write into cartridge space (`disasm space=crt bank=…`, `model_assert
+  space=crt`) takes the cartridge the bytes came from, else the project's only one, and
+  with several and none to tell it refuses (`crt-needs-cart`) and lists them.
+- **Traces.** A trace imported with `c64re graph import-trace` is filed under the
+  cartridge that was mounted when it was taken (matched by the image's hash, recorded
+  next to the capture when the trace is finalized). A mounted image that matches no
+  registered cartridge writes no cartridge-space node and says so.
+- **Older projects.** A project written before cartridges had names (ids `crt/<bank>`)
+  is moved the first time it is opened: every node is renamed to the cartridge its
+  source belongs to, a project with one cartridge moves everything to it, and what
+  nothing can place is kept under `crt/unplaced/<bank>` and **listed by name** in
+  `project_status`. The chips of each cartridge are read again from that cartridge's own
+  extract.

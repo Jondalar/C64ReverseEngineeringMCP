@@ -25,6 +25,8 @@ export interface ModelNode {
   level: ModelLevel;
   space: string;
   owner: string | null;
+  /** Spec 909 — for space crt: the cartridge this boundary is in; null = not a cartridge boundary */
+  cart: string | null;
   bank: number | null;
   start: number;
   end: number;

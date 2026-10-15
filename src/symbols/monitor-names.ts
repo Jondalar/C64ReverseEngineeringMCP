@@ -91,7 +91,7 @@ export async function substituteNames(
     }
     const text = `$${hit.address.toString(16).padStart(4, "0")}`;
     edits.push({ start: tok.start, end: tok.end, text });
-    substitutions.push({ token: tok.text, address: hit.address, origin: hit.entry.origin, payload: hit.entry.payload ? (hit.entry.payload.kind === "analysis" ? hit.entry.payload.owner : hit.entry.payload.kind === "crt" ? `crt bank ${hit.entry.payload.bank}` : hit.entry.payload.path) : null });
+    substitutions.push({ token: tok.text, address: hit.address, origin: hit.entry.origin, payload: hit.entry.payload ? (hit.entry.payload.kind === "analysis" ? hit.entry.payload.owner : hit.entry.payload.kind === "crt" ? `crt ${hit.entry.payload.cart} bank ${hit.entry.payload.bank}` : hit.entry.payload.path) : null });
   }
   let out = command;
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);

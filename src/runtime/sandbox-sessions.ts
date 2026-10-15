@@ -18,7 +18,8 @@
 // This module is the registry in THIS process; `backend.ts` routes a tool call whose `session_id` is
 // a sandbox's here. It never touches the shared endpoint.
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { SandboxSession } from "../reel/sandbox-session.js";
 import { assertNotShared } from "../reel/run-sandbox.js";
@@ -50,6 +51,8 @@ export interface SandboxRecord {
   projectDir: string;
   model?: string;
   media?: string;
+  /** Spec 909 — sha256 of the bytes mounted (the copy made at start): which image a capture of this session ran */
+  mediaSha256?: string;
   startedAt: string;
   deadline: string;
   budgetMinutes: number;
@@ -218,6 +221,11 @@ export async function startSandboxSession(o: StartSandboxOptions): Promise<Start
     // debugs a copy protection (or just a LOAD that saves) must not change the project's image.
     // Media mounted later go through the same door, whatever tool mounts them.
     const mediaCopy = o.mediaPath ? box.copyMedium(o.mediaPath) : undefined;
+    if (mediaCopy) {
+      // the image hash names the cartridge a later trace import files its nodes under
+      entry.rec.mediaSha256 = createHash("sha256").update(readFileSync(mediaCopy)).digest("hex");
+      writeJsonAtomic(recFile, entry.rec);
+    }
     const booted = await bootSandbox(box.call.bind(box) as Parameters<typeof bootSandbox>[0], {
       mediaPath: mediaCopy, run: o.run, driveType: o.driveType,
     });
@@ -375,9 +383,9 @@ export function listSandboxSessions(): SandboxRow[] {
 export function endedSandboxes(): EndInfo[] { return [...ended.values()]; }
 
 /** The live session of this process, or undefined (does not throw; for a tool that wants the binding). */
-export function sandboxBinding(id: string): { projectDir: string; port: number; purpose: string; deadline: string } | undefined {
+export function sandboxBinding(id: string): { projectDir: string; port: number; purpose: string; deadline: string; media?: string; mediaSha256?: string } | undefined {
   const e = live.get(id);
-  return e ? { projectDir: e.rec.projectDir, port: e.rec.port, purpose: e.rec.purpose, deadline: e.rec.deadline } : undefined;
+  return e ? { projectDir: e.rec.projectDir, port: e.rec.port, purpose: e.rec.purpose, deadline: e.rec.deadline, media: e.rec.media, mediaSha256: e.rec.mediaSha256 } : undefined;
 }
 
 /** Why an id is not callable: ended (with the reason and the time), not yours, or never was. */

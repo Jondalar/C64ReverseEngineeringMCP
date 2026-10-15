@@ -9,11 +9,12 @@ the same rows and duplicates cannot exist.
 c64:io:d018                                   platform: VIC memory control (VMCSB)
 c64:rom:ffd2                                  platform: KERNAL CHROUT
 wasteland:ram/block2_engine_0200:routine:1dd2 project: a routine in the resident engine
-wasteland:crt/07:routine:8000                 project: code in EasyFlash bank 7
+wasteland:crt/ef-port/07:routine:8000         project: code in bank 7 of the cartridge "ef-port"
+wasteland:crt/ef-port:cartridge               project: the cartridge itself (its type, its role)
 wasteland:ram:addr:c000                       project: an address, whoever is there
 ```
 
-The context token names **where the bytes are** (`ram/<artifact>`, `crt/<bank>`,
+The context token names **where the bytes are** (`ram/<artifact>`, `crt/<cart>/<bank>`,
 `drv/<artifact>`), not which `$01` configuration the CPU had — banking is part
 of identity from the first slice (Spec 818 D2).
 

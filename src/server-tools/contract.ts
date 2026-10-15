@@ -25,6 +25,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { loadContract, saveContract, formatContract, KICKOFF_QUESTIONS, type ProjectContract } from "../contract/contract.js";
 import { formatWaivers } from "../contract/standing.js";
+import { declareCartridgeRoles, formatCartridges, projectCartridges } from "../knowledge-graph/cartridge-context.js";
 
 export function registerContractTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -37,6 +38,9 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       const pd = context.projectDir({ projectDir: project_dir });
       const { contract, present } = loadContract(pd);
       const lines = [formatContract(contract, present)];
+      // Spec 909: the cartridges the project holds, each with its type and the role the owner gave it
+      const heldCarts = formatCartridges(projectCartridges(pd));
+      if (heldCarts.length > 0) lines.push("", ...heldCarts);
       // Spec 897 D2 — with a scope, say what it counts and what it sets aside, with the
       // numbers of each, so a reader of 99 % does not have to guess where the rest went.
       // The measured number for each ratio the contract promises goes with it, met or not.
@@ -102,6 +106,10 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       orphan_ratio: z.number().min(0).max(1).optional().describe("Fraction of nodes allowed outside every named boundary (846)."),
       waive: z.array(z.string()).optional().describe("Spec 877: promise ids to release, e.g. [\"namedRatio\"]. The refusal names the id. The measurement is unchanged — this opens the publishing doors, it does not mark the promise met."),
       unwaive: z.array(z.string()).optional().describe("Spec 897 D9: promise ids whose waiver to take back, e.g. [\"namedRatio\"]. Needs waive_reason and waived_by. Refused by name when the promise has no active waiver; the waiver itself is never deleted, it is listed as withdrawn."),
+      cartridges: z.array(z.object({
+        cart: z.string().describe("The cartridge's token, as project_status / extract_crt name it"),
+        role: z.enum(["source", "target", "other"]).describe("source = the original image a port starts from; target = the cartridge being built; other = anything else (the default for every cartridge until you say)"),
+      })).optional().describe("Spec 909: what each cartridge IS in this project. Declared, never inferred from the hardware type or a file name — a project that holds two cartridges and no declaration files neither as source or target. A cartridge the project does not hold is refused, naming the ones it does. Alone it only declares; with goal it also writes the contract."),
       waive_reason: z.string().optional().describe("Why this project ships short of the promise (or why the waiver is withdrawn), in the words the decision was made in. Required with waive or unwaive."),
       waived_by: z.string().optional().describe("Who is overruling (or withdrawing). Required with waive or unwaive, recorded verbatim, never defaulted — this is a human's decision and the server cannot tell a human's call from a run's."),
     },
@@ -112,6 +120,18 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       // Checked first, before a waiver can be recorded: a refused call writes nothing.
       const refused = await scopeRefused(pd, a.scope);
       if (refused) return { content: [{ type: "text" as const, text: refused }] };
+
+      // Spec 909 D3 — the roles of the cartridges are a declaration of their own and are written first.
+      let roleText = "";
+      if (a.cartridges?.length) {
+        if (a.waive?.length || a.unwaive?.length) {
+          return { content: [{ type: "text" as const, text: "# contract_set refused — cartridges and a waiver in one call. Say one thing at a time." }] };
+        }
+        const declared = declareCartridgeRoles(pd, a.cartridges);
+        if (!declared.ok) return { content: [{ type: "text" as const, text: `# contract_set refused — ${declared.refusal}` }] };
+        roleText = ["Cartridge roles declared:", ...formatCartridges(declared.cartridges)].join("\n");
+        if (a.goal === undefined) return { content: [{ type: "text" as const, text: roleText }] };
+      }
 
       // Spec 897 D9 — taking a waiver back is its own act too, and never the same call as
       // granting one.
@@ -156,7 +176,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
           "(Only a call that just waives — `waive` + `waive_reason` + `waived_by` — may omit it.)",
         ].join("\n") }] };
       }
-      return { content: [{ type: "text" as const, text: writeContract(pd, a) }] };
+      return { content: [{ type: "text" as const, text: roleText ? `${writeContract(pd, a)}\n\n${roleText}` : writeContract(pd, a) }] };
     },
   );
 

@@ -31,7 +31,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { PlatformKb } from "../../platform-kb/read.js";
 import { platformKindForAddress, type PlatformAbi, type PlatformTag } from "../../platform-kb/schema.js";
-import { deriveProjectId, derivePlatformId, parseId, platformForCtx, type Ctx } from "../ids.js";
+import { addrCtx, deriveProjectId, derivePlatformId, parseId, platformForCtx, type Ctx } from "../ids.js";
 import { contextForOwner } from "./machine.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { BRANCHES, effects, indexRegister, type Loc } from "../isa-6502.js";
@@ -867,7 +867,7 @@ function argsAt(o: OwnerCtx, ra: RoutineAnalysis, call: CallSite, kb: PlatformKb
   }
   const cellId = (a: number): string => {
     if (platformKindForAddress(o.tag, a) !== "ram") return derivePlatformId(o.tag, a);
-    return kb?.node(o.tag, a)?.id ?? deriveProjectId({ slug: o.slug, ctx: { space: o.ctx.space }, kind: "addr", address: a });
+    return kb?.node(o.tag, a)?.id ?? deriveProjectId({ slug: o.slug, ctx: addrCtx(o.ctx), kind: "addr", address: a });
   };
   const writesReg = (i: Instruction, r: Loc): boolean => {
     const mn = i.mnemonic.toLowerCase();
@@ -1034,7 +1034,7 @@ export function seedSignatures(options: SeedSignaturesOptions): SeedSignaturesRe
       const romId = kind === "rom" ? derivePlatformId(o.tag, target) : undefined;
       if (romId && !o.inImage(target) && kb?.abi(o.tag, target)) return { id: romId, rom: true };
       let addrId: string | undefined;
-      try { addrId = deriveProjectId({ slug: o.slug, ctx: { space: o.ctx.space }, kind: "addr", address: target }); } catch { addrId = undefined; }
+      try { addrId = deriveProjectId({ slug: o.slug, ctx: addrCtx(o.ctx), kind: "addr", address: target }); } catch { addrId = undefined; }
       if (addrId) {
         const r = resolvesTo.get(addrId) as { to_id: string } | undefined;
         if (r && r.to_id.includes(":routine:")) return { id: r.to_id };
@@ -1128,7 +1128,7 @@ export function seedSignatures(options: SeedSignaturesOptions): SeedSignaturesRe
             const rom = platformKindForAddress(o.tag, d.target) === "rom" && !o.inImage(d.target);
             if (rom) to = derivePlatformId(o.tag, d.target);
             else {
-              to = deriveProjectId({ slug: o.slug, ctx: { space: o.ctx.space }, kind: "addr", address: d.target });
+              to = deriveProjectId({ slug: o.slug, ctx: addrCtx(o.ctx), kind: "addr", address: d.target });
               if (!nodeIds.has(to)) { nodeIds.add(to); nodes.push({ id: to, kind: "addr", name: null, attrs: {}, origin: "static", confidence: "inferred" }); }
             }
           }

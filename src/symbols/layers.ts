@@ -22,7 +22,8 @@ export const BUILD_SYMBOLS_ROLE = "build-symbols";
 export interface NameLayers {
   entries: NameEntry[];
   relocations: Map<string, Relocation[]>;
-  crtOwners: Map<number, string[]>;
+  /** `${cart}/${bank}` -> the analyses seeded into that bank of that cartridge */
+  crtOwners: Map<string, string[]>;
   /** what was read, for the report */
   sources: { graph: boolean; graphNodes: number; symbolFiles: string[] };
 }
@@ -34,6 +35,7 @@ interface NodeRow {
   space: string;
   owner: string | null;
   bank: number | null;
+  cart: string | null;
   run_owner: string | null;
   address: number;
   end_address: number | null;
@@ -60,7 +62,7 @@ function readGraph(projectDir: string, out: NameLayers): void {
   try {
     out.sources.graph = true;
     const rows = store.db.prepare(
-      `SELECT id, layer, kind, space, owner, bank, run_owner, address, end_address, name, attrs FROM nodes
+      `SELECT id, layer, kind, space, owner, bank, cart, run_owner, address, end_address, name, attrs FROM nodes
        WHERE name IS NOT NULL AND name <> '' AND kind IN (${NAMED_KINDS.map(() => "?").join(",")})
        ORDER BY address, layer, id`,
     ).all(...NAMED_KINDS) as unknown as NodeRow[];
@@ -69,7 +71,7 @@ function readGraph(projectDir: string, out: NameLayers): void {
       if (!(r.layer === "human" ? HUMAN_KINDS : DERIVED_KINDS).includes(r.kind)) continue;
       let payload: PayloadRef | null = null;
       if (r.kind !== "addr") {
-        if (r.space === "crt" && r.bank !== null) payload = { kind: "crt", bank: r.bank };
+        if (r.space === "crt" && r.bank !== null && r.cart) payload = { kind: "crt", cart: r.cart, bank: r.bank };
         else if (r.owner) payload = { kind: "analysis", owner: r.owner };
       }
       let segmentKind: string | undefined;
@@ -109,12 +111,15 @@ function readGraph(projectDir: string, out: NameLayers): void {
     }
     // A cartridge bank's code comes from every analysis seeded into it.
     const crtRows = store.db.prepare(
-      "SELECT DISTINCT bank, run_owner FROM nodes WHERE space = 'crt' AND bank IS NOT NULL AND run_owner IS NOT NULL",
-    ).all() as unknown as Array<{ bank: number; run_owner: string }>;
+      "SELECT DISTINCT cart, bank, run_owner FROM nodes WHERE space = 'crt' AND bank IS NOT NULL AND cart IS NOT NULL AND run_owner IS NOT NULL",
+    ).all() as unknown as Array<{ cart: string; bank: number; run_owner: string }>;
     for (const row of crtRows) {
-      const list = out.crtOwners.get(row.bank) ?? [];
-      if (!list.includes(row.run_owner)) list.push(row.run_owner);
-      out.crtOwners.set(row.bank, list);
+      const key = `${row.cart}/${row.bank}`;
+      const list = out.crtOwners.get(key) ?? [];
+      // a run in cartridge space is owned as `<cart>.<stem>`; the analysis file is found by the stem
+      const stem = row.run_owner.startsWith(`${row.cart}.`) ? row.run_owner.slice(row.cart.length + 1) : row.run_owner;
+      if (!list.includes(stem)) list.push(stem);
+      out.crtOwners.set(key, list);
     }
   } finally {
     store.close();

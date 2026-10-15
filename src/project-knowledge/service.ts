@@ -22,6 +22,12 @@ import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload, type Import
 import { seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
 import { KnowledgeRecords } from "../knowledge-graph/records.js";
 import { ensureCutover } from "../knowledge-graph/cutover.js";
+import { GraphStore, graphPath, readProjectSlug } from "../knowledge-graph/store.js";
+import { syncCartridges, type SyncCartridgesOptions } from "./cartridge-registry.js";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { CART_REDERIVE_META, ensureCartridgeGrammar } from "../knowledge-graph/migrate/cartridge-grammar.js";
+import { linkExtractedPayloadFiles } from "../lib/extract-auto-chain.js";
+import type { RegisterCartridgeResult } from "../knowledge-graph/cartridges.js";
 import { importAnnotationFile, type LegacyInput } from "../knowledge-graph/migrate/migrate.js";
 import { normStem } from "../knowledge-graph/migrate/classify.js";
 import { describeManifestAttempts, importManifestKnowledge, readManifestKnowledge, type ManifestSkippedRow } from "./manifest-import.js";
@@ -848,6 +854,9 @@ export class PhaseGateRefusal extends Error {
   }
 }
 
+const rederiving = new Set<string>();
+const rederiveChecked = new Set<string>();
+
 export class ProjectKnowledgeService {
   readonly storage: ProjectKnowledgeStorage;
   /** Spec 822.2 — the graph is the store for findings, entities, relations, open questions and user labels. */
@@ -860,11 +869,62 @@ export class ProjectKnowledgeService {
     // Spec 822.2 cut-over: a project that still carries the legacy JSON stores is
     // migrated on open (idempotent by the ledger, logged to the timeline) and the
     // files parked under knowledge/_legacy-822/. A fresh project never had them.
+    // Spec 909 D6: a graph written before cartridges had identities moves to crt/<cart>/<bank> first, so the
+    // cut-over below (and everything after it) only ever meets the one grammar.
+    ensureCartridgeGrammar(this.storage.paths.root);
     ensureCutover(this.storage.paths.root);
+    this.rederivePendingCartridges();
+  }
+
+  /**
+   * Spec 909 D6, the last step: the migration renamed the cartridge nodes; the chips and banks of every cartridge are
+   * now read again from that cartridge's OWN manifest, which puts a second image's chips where they belong and points
+   * each at its own extracted file. Runs once (the pending list is cleared before it starts).
+   */
+  private rederivePendingCartridges(): void {
+    const root = this.storage.paths.root;
+    if (rederiving.has(root) || rederiveChecked.has(root) || !existsSync(graphPath(root))) return;
+    rederiveChecked.add(root);
+    let pending: string[] = [];
+    const store = GraphStore.open(root);
+    try {
+      const raw = store.getMeta(CART_REDERIVE_META);
+      if (!raw) return;
+      try { pending = JSON.parse(raw) as string[]; } catch { pending = []; }
+      store.setMeta(CART_REDERIVE_META, "[]");
+    } finally { store.close(); }
+    if (pending.length === 0) return;
+    rederiving.add(root);
+    try {
+      const have = new Set(this.listArtifacts().map((a) => a.id));
+      for (const id of pending) {
+        if (!have.has(id)) continue;
+        const art = this.getArtifactById(id);
+        if (!art || !existsSync(art.path)) continue;
+        try {
+          this.importManifestArtifact(id);
+          linkExtractedPayloadFiles(root, id);
+        } catch { /* a manifest that no longer reads keeps the nodes the rename gave it */ }
+      }
+    } finally { rederiving.delete(root); }
   }
 
   getProjectRoot(): string {
     return this.storage.paths.root;
+  }
+
+  /**
+   * Spec 909 D2 — mint or refresh the `cartridge` node of every extracted image (or of the manifests named).
+   * The first extract of an image's lineage mints its token; every later one finds it again.
+   */
+  registerCartridges(options: SyncCartridgesOptions = {}): RegisterCartridgeResult[] {
+    const root = this.storage.paths.root;
+    const store = GraphStore.open(root);
+    try {
+      return syncCartridges(store, readProjectSlug(root), this.storage.loadArtifacts().items, options);
+    } finally {
+      store.close();
+    }
   }
 
   initProject(input: InitProjectInput): ProjectMetadata {
@@ -2447,7 +2507,7 @@ export class ProjectKnowledgeService {
     /** Spec 903 D6 — the bytes annotated, so a split table's targets become edges */
     image?: { loadAddress: number; data: Uint8Array };
     /** the address space the nodes are filed under — `disasm`'s `space` / `bank`; see ImportAnnotationFileOptions */
-    ctxSpace?: { space: "ram" | "crt" | "drv"; bank?: number };
+    ctxSpace?: { space: "ram" | "crt" | "drv"; bank?: number; cart?: string };
   }): {
     routines: number;
     labels: number;
@@ -5001,6 +5061,8 @@ export class ProjectKnowledgeService {
       // Spec 750.2 — the addressing tables, so the views can draw the index as well
       // as what it indexes.
       lutDescriptors: this.storage.loadLutDescriptors().items,
+      // Spec 909 — the cartridges the graph holds, so a view can head each with its type and role
+      cartridges: projectCartridges(this.storage.paths.root),
     };
   }
 

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { artifactIsHeaderless } from "../project-knowledge/artifact-header.js";
+import { payloadSourceIsHeaded } from "../project-knowledge/artifact-header.js";
 import { basename, dirname, relative, resolve } from "node:path";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
@@ -142,7 +142,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     `Register input PRG: ${basename(prgAbs)}`,
     { prg_path: opts.prgPath },
     [],
-    [{ path: prgAbs, kind: "prg", scope: "input", role: "analysis-target" }],
+    [{ path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "analysis-target" }],
   );
   phases.push({ phase: "register-input", status: "done", output: prgAbs, artifact: inputReg.outputArtifactIds[0] });
 
@@ -161,7 +161,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
       "analyze",
       `Analyze PRG: ${basename(prgAbs)}`,
       { prg_path: opts.prgPath, output_json: analysisPath, entry_points: opts.entryPoints ?? [] },
-      [{ path: prgAbs, kind: "prg", scope: "input", role: "analysis-target" }],
+      [{ path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "analysis-target" }],
       [{ path: analysisPath, kind: "other", scope: "analysis", role: "analysis-json", format: "json" }],
     );
     artifactsWritten.push(analysisPath);
@@ -190,7 +190,11 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   }
 
   if (!blocked) {
-    const disasmArgs = [prgAbs, asmPath];
+    // Headerless bytes (loadAddress given) are listed by disasm-raw at that address; only a PRG
+    // is handed to disasm-prg, which reads its first two bytes as the load address.
+    const disasmArgs = opts.loadAddress !== undefined
+      ? [prgAbs, asmPath, "--load-address", `$${opts.loadAddress.toString(16).toUpperCase().padStart(4, "0")}`]
+      : [prgAbs, asmPath];
     // The analysis goes in by NAME. It used to be pushed as the third positional,
     // which is the entry-point slot whenever `entries` is empty — the shift that
     // made an explicit analysis lose to the stem-matched sidecar (BUG-055).
@@ -201,7 +205,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
       const row = new ProjectKnowledgeService(projectRoot).listArtifacts().find((art) => art.path === prgAbs);
       if (row?.symbolTables === "none") disasmArgs.push("--platform", "none");
     } catch { /* the listing renders with the machine's tables */ }
-    const disasmRun = await runCli("disasm-prg", disasmArgs, { projectDir: projectRoot });
+    const disasmRun = await runCli(opts.loadAddress !== undefined ? "disasm-raw" : "disasm-prg", disasmArgs, { projectDir: projectRoot });
     if (disasmRun.exitCode !== 0) {
       phases.push({ phase: "disasm", status: "blocked", reason: disasmRun.stderr || "disasm-prg failed", log: disasmRun.stdout });
       blocked = true;
@@ -384,12 +388,10 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
   // kinds (disk-file, cart-chunk) often carry it through addressRange.start.
   // If the artifact path ends in .prg, we can fall through to PRG-header mode.
   const explicitLoad = payload.payloadLoadAddress ?? payload.addressRange?.start;
-  // A record the store labels headerless (a raw block, an extract, a payload source written as
-  // kind prg + format raw) has no load header whatever its file is called.
-  const isPrg = payload.payloadFormat === "prg"
-    || (!artifactIsHeaderless(artifact) && artifact.relativePath.toLowerCase().endsWith(".prg"));
+  // Headed only when the payload is a PRG (artifact-header.ts); anything else is read from its explicit load address.
+  const isPrg = payloadSourceIsHeaded(payload.payloadFormat, artifact);
   if (explicitLoad === undefined && !isPrg) {
-    throw new Error(`Entity ${opts.payloadId} has no load address and the source artifact is not a PRG. Set payloadLoadAddress / addressRange before running the workflow.`);
+    throw new Error(`Entity ${opts.payloadId} has no load address and its source is not a PRG, so it is headerless bytes at no known address — nothing is read from the bytes. Declare the address (register_payload load_address, or link_payload_to_lut_row after declare_lut_descriptor) and run again.`);
   }
 
   // Spec 838 D1 — an entity id is not a path. `payload.id` is Spec 818's

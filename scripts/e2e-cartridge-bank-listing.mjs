@@ -24,6 +24,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { startMcp } from "./lib/mcp-stdio.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -96,8 +97,16 @@ try {
   head("A. disasm files the names under the space and bank it was given");
   const gm = put("gm_bank.bin");
   const plain = put("plain_bank.bin");
+  // Spec 909: a bank lives inside a cartridge. These loose bank files are banks of the ONE cartridge this project
+  // holds, so it is registered first (extract_crt) and the names are filed under it — the answer says so.
+  mkdirSync(join(proj, "media"), { recursive: true });
+  writeFileSync(join(proj, "media", "van-helsing.crt"), crtImage(60, "VAN HELSING"));
+  await call("extract_crt", { project_dir: proj, crt_path: "media/van-helsing.crt" });
   await call("write_annotations", { prg_path: gm, routines: [{ address: "8000", name: "bank_entry" }], labels: [{ address: "8011", label: "bank_tail" }] });
   await call("write_annotations", { prg_path: plain, routines: [{ address: "8300", name: "plain_entry" }] });
+  // what the registered cartridge's own extract already put in the graph (member kinds only) — the model counts it too
+  const memberNodes = () => { const db = new DatabaseSync(join(proj, "knowledge", "graph.sqlite"), { readOnly: true }); try { return Number(db.prepare("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE kind IN ('routine','segment','payload','data_block','entry')").get().n); } finally { db.close(); } };
+  const baseNodes = memberNodes();
   const a1 = await call("disasm", { path: gm, load_address: "8000", space: "crt", bank: 0 });
   check(/Graph: imported 1 routines/.test(a1), "A1 the listing is imported with space crt, bank 0", a1.split("\n").filter((l) => /Graph|refus/i.test(l)).join(" | "));
   const a2 = await call("disasm", { path: plain, load_address: "8000" });
@@ -106,8 +115,8 @@ try {
     name: "Van Helsing cartridge loader", level: "container", address_start: 0x8000, address_end: 0x9fff,
     space: "crt", bank: 0, description: "the bank 0 loader of the cartridge", evidence: ["gm_bank.bin listing"],
   });
-  check(/\[crt\]/.test(crtBoundary) && /contains: 1 routine/.test(crtBoundary), "A3 a crt-space boundary at bank 0 holds the routine", crtBoundary);
-  check(/1\/2 nodes placed, 1 orphaned/.test(crtBoundary), "A4 …and only that one: the bank listed with no space is not in it (it is RAM)", crtBoundary.split("\n").slice(-2).join(" | "));
+  check(/\[crt\/van-helsing\]/.test(crtBoundary) && /contains: 1 routine/.test(crtBoundary), "A3 a crt-space boundary at bank 0 holds the routine (and names the cartridge it is in)", crtBoundary);
+  check(new RegExp(`1/${baseNodes + 2} nodes placed, ${baseNodes + 1} orphaned`).test(crtBoundary), "A4 …and only that one: the bank listed with no space is not in it (it is RAM)", crtBoundary.split("\n").slice(-2).join(" | "));
   const bankOnly = put("bank_only.bin");
   await call("write_annotations", { prg_path: bankOnly, routines: [{ address: "8100", name: "bank_only_entry" }] });
   const a5 = await call("disasm", { path: bankOnly, load_address: "8000", bank: 0 });

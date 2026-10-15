@@ -37,7 +37,7 @@ Three properties do most of the work.
 c64:io:d018                          the VIC's memory control register
 c64:rom:ffd2                         the KERNAL's CHROUT
 myproj:ram/engine_0200:routine:1dd2  a routine in that payload
-myproj:crt/07:routine:8000           code in cartridge bank 7
+myproj:crt/ef-port/07:routine:8000   code in bank 7 of the cartridge "ef-port"
 ```
 
 Because the id is derived, re-running the analysis lands on exactly the same
@@ -46,8 +46,9 @@ routine cannot disagree about which row it is.
 
 **Banking is part of identity.** On a C64 the address `$8000` is not
 a place — it is a place *and* a configuration. The id names where the bytes
-live: `ram/<artifact>`, `crt/<bank>`, `drv/<artifact>`. A cartridge with sixty
-banks has sixty different `$8000`s and the graph never confuses them.
+live: `ram/<artifact>`, `crt/<cart>/<bank>`, `drv/<artifact>`. A cartridge with
+sixty banks has sixty different `$8000`s, and a project with two cartridges has two
+bank 0s: the graph never confuses them.
 
 **There are two layers, and re-analysis cannot touch the human one.** Everything
 a producer derives is the `generated` layer; everything a person asserts is the

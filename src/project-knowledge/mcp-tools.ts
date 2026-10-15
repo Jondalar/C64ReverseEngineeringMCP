@@ -1,4 +1,6 @@
 import { machineLines } from "./machine-report.js";
+import { formatCartridges, projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { formatCartridgeMigration, readCartridgeMigration } from "../knowledge-graph/migrate/cartridge-grammar.js";
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -151,6 +153,17 @@ const evidenceSchema = z.object({
   }).optional(),
   capturedAt: z.string().optional(),
 });
+
+/** Spec 909: the cartridges the project holds (type, role), and what the open did to the nodes of a pre-909 project. */
+function cartridgeStatusLines(root: string): string[] {
+  const out: string[] = [];
+  try { out.push(...formatCartridges(projectCartridges(root))); } catch { /* no graph yet */ }
+  try {
+    const migrated = readCartridgeMigration(root);
+    if (migrated) out.push(...formatCartridgeMigration(migrated));
+  } catch { /* no graph yet */ }
+  return out;
+}
 
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
@@ -370,6 +383,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Workflow state: ${status.paths.knowledgeWorkflowState}`,
         `Canonical docs: ${status.workflowPlan.canonicalDocPaths.join(", ") || "(none)"}`,
         `Canonical prompts: ${status.workflowPlan.canonicalPromptIds.join(", ") || "(none)"}`,
+        ...cartridgeStatusLines(root),
         ...docLines,
         ...processLines,
         ...mcpConfigWarnings(root),

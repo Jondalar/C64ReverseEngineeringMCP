@@ -93,7 +93,7 @@ export interface DiskLayoutDisk { artifactId: string; title: string; format: str
 export interface DiskLayoutView { title: string; disks: DiskLayoutDisk[] }
 export interface CartChip { [k: string]: unknown }
 export interface CartBank { [k: string]: unknown }
-export interface CartCartridge { id: string; title: string; cartridgeName?: string; hardwareType?: number; exrom?: number; game?: number; chips: CartChip[]; banks: CartBank[] }
+export interface CartCartridge { id: string; title: string; cart?: string; role?: "source" | "target" | "other"; cartridgeName?: string; hardwareType?: number; exrom?: number; game?: number; chips: CartChip[]; banks: CartBank[] }
 export interface CartridgeLayoutView { title: string; cartridges: CartCartridge[] }
 export interface AnnotatedListingEntry { id?: string; start: number; end: number; title: string; kind: string; status: string; comment?: string }
 export interface AnnotatedListingView { title: string; entries: AnnotatedListingEntry[] }

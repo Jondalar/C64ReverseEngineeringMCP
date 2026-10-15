@@ -32,9 +32,11 @@ export interface OwnerContext {
 }
 
 /** Spec 819 D7 — the ctx from what the artifact record already says: `platform` and `loadContexts[].bank`. */
-export function contextForArtifact(artifact: Pick<ArtifactRecord, "platform" | "loadContexts">, owner: string): Ctx {
+export function contextForArtifact(artifact: Pick<ArtifactRecord, "platform" | "loadContexts">, owner: string, cart?: string): Ctx {
   const bank = artifact.loadContexts?.find((c) => typeof c.bank === "number")?.bank;
-  if (bank !== undefined) return { space: "crt", bank };
+  // Spec 909: a bank lives inside a cartridge. Without one the ctx is incomplete and the id grammar refuses it
+  // by name (crt-needs-cart) — the caller finds the cartridge (cartridge-context.ts), nothing here guesses.
+  if (bank !== undefined) return { space: "crt", ...(cart !== undefined ? { cart } : {}), bank };
   if (artifact.platform === "c1541") return { space: "drv", owner };
   if (artifact.platform === "vic20" || artifact.platform === "plus4") return { space: "ram", owner, platform: artifact.platform };
   return { space: "ram", owner };
@@ -82,9 +84,9 @@ export function looksLikeDriveCode(owner: string, analysisPath?: string): boolea
 }
 
 /** The ctx an owner is seeded under: the artifact record's banks / platform, else the declared machine, else the C64 — and which. */
-export function contextForOwner(projectDir: string, owner: string, artifact?: Pick<ArtifactRecord, "platform" | "loadContexts"> | undefined, analysisPath?: string): OwnerContext {
+export function contextForOwner(projectDir: string, owner: string, artifact?: Pick<ArtifactRecord, "platform" | "loadContexts"> | undefined, analysisPath?: string, cart?: string): OwnerContext {
   if (artifact) {
-    const ctx = contextForArtifact(artifact, owner);
+    const ctx = contextForArtifact(artifact, owner, cart);
     const named = artifactMachine(artifact);
     if (ctx.space === "crt" || (named !== undefined && named !== "c64")) return { ctx, machine: named ?? "c64", source: "artifact" };
   }

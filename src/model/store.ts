@@ -29,6 +29,8 @@ export interface AssertBoundaryInput {
   evidence: string[];
   space?: "ram" | "crt" | "drv";
   owner?: string;
+  /** Spec 909: the cartridge, for space crt. Named, else the project's only one; with several and none named the call refuses. */
+  cart?: string;
   bank?: number;
   /** Set when the boundary arrived through slot_record (D7). */
   slot?: string;
@@ -56,7 +58,17 @@ export async function assertBoundary(projectDir: string, input: AssertBoundaryIn
   try {
     const slug = readProjectSlug(projectDir);
     const space = input.space ?? "ram";
-    const id = deriveSubsystemId(slug, `model.${slugify(input.name)}`);
+    // Spec 909 D7: a boundary in cartridge space is in ONE cartridge. Two cartridges' bank-0 loaders are two boundaries.
+    let cart: string | undefined;
+    if (space === "crt") {
+      const { chooseCartridge, readCartridges } = await import("../knowledge-graph/cartridges.js");
+      const picked = chooseCartridge(readCartridges(store.db), input.cart);
+      if (!picked.ok) throw new ModelBoundaryError(picked.refusal);
+      cart = picked.cart;
+    } else if (input.cart !== undefined) {
+      throw new ModelBoundaryError(`cart ${JSON.stringify(input.cart)} is a cartridge, and space ${JSON.stringify(space)} is not the cartridge — drop cart, or pass space "crt".`);
+    }
+    const id = deriveSubsystemId(slug, `model.${cart ? `${cart}.` : ""}${slugify(input.name)}`);
     store.upsertHuman({
       id,
       kind: "container",
@@ -68,6 +80,7 @@ export async function assertBoundary(projectDir: string, input: AssertBoundaryIn
         end: input.end,
         space,
         ...(input.owner ? { owner: input.owner } : {}),
+        ...(cart ? { cart } : {}),
         ...(input.bank !== undefined ? { bank: input.bank } : {}),
         ...(input.slot ? { slot: input.slot } : {}),
       },
@@ -77,7 +90,7 @@ export async function assertBoundary(projectDir: string, input: AssertBoundaryIn
     }, "845");
     return {
       id, name: input.name, level: input.level,
-      space, owner: input.owner ?? null, bank: input.bank ?? null,
+      space, owner: input.owner ?? null, cart: cart ?? null, bank: input.bank ?? null,
       start: input.start, end: input.end,
       description: input.description, evidence,
       ...(input.slot ? { slot: input.slot } : {}),
@@ -116,6 +129,7 @@ export function readBoundaries(db: { prepare(sql: string): { all(...params: unkn
       level: (typeof a.level === "string" ? a.level : "container") as ModelLevel,
       space: typeof a.space === "string" ? a.space : "ram",
       owner: typeof a.owner === "string" ? a.owner : null,
+      cart: typeof a.cart === "string" ? a.cart : null,
       bank: typeof a.bank === "number" ? a.bank : null,
       start: num(a.start, 0),
       end: num(a.end, num(a.start, 0)),

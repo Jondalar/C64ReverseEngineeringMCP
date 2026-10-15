@@ -442,6 +442,28 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       );
       const duckdbPath = stopped.index?.duckdbPath;
       const retracePath = stopped.index?.retracePath;
+      // Spec 909 D4 — the runtime names a mounted cartridge by file name and type, never by hash. What C64RE put into the
+      // machine it knows by hash; written next to the capture so an import can say which cartridge ran.
+      if (retracePath) {
+        try {
+          const cart = await runtimeDaemon.cartStatus(session_id).catch(() => null);
+          if (cart && typeof cart === "object") {
+            const { sandboxBinding } = await import("../runtime/sandbox-sessions.js");
+            const { writeCaptureMount } = await import("../trace/capture-mount.js");
+            const { basename } = await import("node:path");
+            const sb = sandboxBinding(session_id);
+            const sourceName = typeof cart.sourceName === "string" ? cart.sourceName : undefined;
+            const ours = sb?.mediaSha256 !== undefined && sb.media !== undefined && sourceName !== undefined && basename(sb.media) === sourceName;
+            writeCaptureMount(retracePath, {
+              v: 1, session: session_id, at: new Date().toISOString(),
+              cartridge: {
+                sourceName, type: typeof cart.type === "string" ? cart.type : undefined, bank: typeof cart.bank === "number" ? cart.bank : undefined,
+                ...(ours ? { sha256: sb!.mediaSha256, path: sb!.media } : {}),
+              },
+            });
+          }
+        } catch { /* the capture is complete without it; an import then falls back to the name the runtime reported */ }
+      }
       // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
       // Fully soft-fail: a failure here (incl. the dynamic import) must NEVER turn
       // a successful finalize into an error envelope.

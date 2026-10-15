@@ -104,8 +104,13 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
+      cart: z.string().optional().describe("For space=crt: the cartridge the boundary is in (default: the project's only cartridge; with several and none named the call refuses and lists them)."),
+      cartridges: z.array(z.object({
+        cart: z.string().describe("The cartridge's token, as project_status / extract_crt name it"),
+        role: z.enum(["source", "target", "other"]).describe("source = the original a port starts from; target = the cartridge being built; other = anything else"),
+      })).optional().describe("S2 (Medium): what each cartridge of the media set IS in this project. Declared, never inferred. Written with the answer; an unknown cartridge refuses the call and lists the ones the project holds."),
     },
-    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner }) => {
+    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner, cart, cartridges }) => {
       const pd = context.projectDir({ projectDir: project_dir }, true);
       const def = SLOT_BY_ID.get(slot)!;
 
@@ -183,6 +188,15 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         };
       }
 
+      // Spec 909 D3 — the roles of the cartridges the media set holds, declared with the answer
+      let roleText = "";
+      if (cartridges?.length) {
+        const { declareCartridgeRoles, formatCartridges } = await import("../knowledge-graph/cartridge-context.js");
+        const declared = declareCartridgeRoles(pd, cartridges);
+        if (!declared.ok) return { content: [{ type: "text" as const, text: `# slot_record refused — ${declared.refusal}` }] };
+        roleText = ["Cartridge roles declared:", ...formatCartridges(declared.cartridges)].join("\n");
+      }
+
       const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
       const rec = new KnowledgeRecords(pd);
       const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : []), ...(count !== undefined ? [`count:${count}`] : [])];
@@ -222,14 +236,20 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       let boundary = "";
       const level = CONTAINER_SLOTS.get(slot);
       if (level && boundary_name && address_start !== undefined && address_end !== undefined) {
-        const { assertBoundary } = await import("../model/store.js");
-        const node = await assertBoundary(pd, {
-          name: boundary_name, level,
-          start: address_start, end: address_end,
-          description: answer, evidence: [evidence], slot,
-          space, owner,
-        });
-        boundary = `Boundary asserted: ${level} "${node.name}" $${node.start.toString(16).padStart(4, "0")}-$${node.end.toString(16).padStart(4, "0")}`;
+        const { assertBoundary, ModelBoundaryError } = await import("../model/store.js");
+        try {
+          const node = await assertBoundary(pd, {
+            name: boundary_name, level,
+            start: address_start, end: address_end,
+            description: answer, evidence: [evidence], slot,
+            space, owner, cart,
+          });
+          boundary = `Boundary asserted: ${level} "${node.name}" $${node.start.toString(16).padStart(4, "0")}-$${node.end.toString(16).padStart(4, "0")}${node.cart ? ` in cartridge ${node.cart}` : ""}`;
+        } catch (error) {
+          // the finding is already recorded; say what the boundary needs instead of failing the whole answer
+          if (!(error instanceof ModelBoundaryError)) throw error;
+          boundary = `Boundary NOT asserted: ${error.message}`;
+        }
       } else if (level && !boundary_name) {
         boundary = `Note: ${slot} is container-shaped. Pass boundary_name with a range and it also lands in the model (model_read).`;
       }
@@ -251,6 +271,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
             report.missing.length > 0
               ? `Still open: ${report.missing.map((s) => `${s.slot.id} ${s.slot.name}`).join(", ")}`
               : "Every required slot is now filled.",
+            roleText ? `\n${roleText}` : "",
           ].filter(Boolean).join("\n"),
         }],
       };

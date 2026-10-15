@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartOfArtifact, chooseCartridge } from "../knowledge-graph/cartridges.js";
 import { isAbsolute, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -1069,9 +1071,10 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       lut: z.string().optional(),
       idx: z.number().int().nonnegative().optional(),
       asm_artifact_id: z.string().describe("ID of the ArtifactRecord for the .asm/.tas output."),
+      cart: z.string().optional().describe("The cartridge the chunk is in (its token, as project_status names it). Default: the cartridge the .asm descends from; with several in the project and none to tell, the call refuses and lists them."),
       summary: z.string().optional().describe("Optional human-readable note shown on the relation."),
     },
-    safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
+    safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, cart, summary }) => {
       try {
         const pd = pathDoorProjectDir(context, project_dir, lut_path);
         const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_cart_chunk_to_asm", pd);
@@ -1124,17 +1127,24 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         }
 
         const chunkKey = `${resolvedBank}:${resolvedSlot}:${resolvedOffset}:${resolvedLength}`;
-        const chunkTag = `cart-chunk:${chunkKey}`;
-
         const service = new (await import("../project-knowledge/service.js")).ProjectKnowledgeService(pd);
+        // Spec 909: a chunk is a chunk OF A CARTRIDGE — bank 3 of one image is not bank 3 of another.
+        const heldCarts = projectCartridges(pd);
+        let chunkCart: string | undefined;
+        if (heldCarts.length > 0 || cart !== undefined) {
+          const picked = chooseCartridge(heldCarts, cart, cartOfArtifact(service.listArtifacts(), heldCarts, asm_artifact_id));
+          if (!picked.ok) throw new Error(picked.refusal);
+          chunkCart = picked.cart;
+        }
+        const chunkTag = chunkCart ? `cart-chunk:${chunkCart}:${chunkKey}` : `cart-chunk:${chunkKey}`;
         const existingChunkEntity = service
           .listEntities({ kind: "code-segment" })
-          .find((entity) => entity.tags.includes(chunkTag));
+          .find((entity) => entity.tags.includes(chunkTag) || (chunkCart !== undefined && heldCarts.length === 1 && entity.tags.includes(`cart-chunk:${chunkKey}`)));
         const chunkEntity = service.saveEntity({
           id: existingChunkEntity?.id,
           kind: "code-segment",
-          name: `cart chunk ${chunkKey}`,
-          summary: summary ?? `Cart LUT chunk at bank ${resolvedBank} ${resolvedSlot} off $${resolvedOffset.toString(16).toUpperCase().padStart(4, "0")} (${resolvedLength} B)`,
+          name: `cart chunk ${chunkCart ? `${chunkCart} ` : ""}${chunkKey}`,
+          summary: summary ?? `Cart LUT chunk${chunkCart ? ` of cartridge ${chunkCart}` : ""} at bank ${resolvedBank} ${resolvedSlot} off $${resolvedOffset.toString(16).toUpperCase().padStart(4, "0")} (${resolvedLength} B)`,
           mediumSpans: [{
             kind: "slot",
             bank: resolvedBank,

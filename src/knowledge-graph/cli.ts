@@ -13,6 +13,7 @@ import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
 import { exportGraphRecords } from "./export.js";
+import { ensureCartridgeGrammar } from "./migrate/cartridge-grammar.js";
 import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
 import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
 import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef, shortestPath, subgraph, type EdgeKind, type Focus, type OriginFilter } from "./cards.js";
@@ -27,7 +28,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   node <ref>                    the card for one node (823)
   edges <ref> [--in|--out|--both] [--kind K] [--origin O] [--depth 1|2]   the neighbourhood walk (823)
   overview [--focus F]          the project's structural map (823)
-  subgraph [--scope S] [--depth N] [--kinds K,K] [--origin O]   825: the whole scope in one body (all | owner:<stem> | bank:<n> | subsystem:<id> | focus:<ref>)
+  subgraph [--scope S] [--depth N] [--kinds K,K] [--origin O]   825: the whole scope in one body (all | owner:<stem> | bank:<n> | cart:<token>[/<bank>] | subsystem:<id> | focus:<ref>)
   callers <id>                  CALLS / CALLS_ROM into a node
   callees <id>                  CALLS / CALLS_ROM out of a node
   readers <$addr>               READS into the node(s) at an address
@@ -46,7 +47,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
-  import-trace <file.c64retrace> [--owner <stem>]   821: import a trace run (origin=runtime rows)
+  import-trace <file.c64retrace> [--owner <stem>] [--cart <token>]   821: import a trace run (origin=runtime rows; --cart: the cartridge, default the one whose image was mounted)
   remove-run <run-id>           821: drop one run's rows
   remove-owner [<owner>] [--dry-run]   drop everything one owner's renders and analyses put in the graph (generated rows + the rows its annotation file imported; door-written rows stay); no owner lists the owners
   runs                          821: imported runs
@@ -67,7 +68,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
-interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: number; focus?: string; limit?: number; out?: string; force?: boolean; scope?: string; kinds?: string; bank?: number }
+interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: number; focus?: string; limit?: number; out?: string; force?: boolean; scope?: string; kinds?: string; bank?: number; cart?: string }
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -87,6 +88,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--scope") extra.scope = argv[++i];
     else if (a === "--kinds") extra.kinds = argv[++i];
     else if (a === "--bank") extra.bank = Number(argv[++i]);
+    else if (a === "--cart") extra.cart = argv[++i];
     else if (a === "--focus") extra.focus = argv[++i];
     else if (a === "--limit") extra.limit = Number(argv[++i]);
     else if (a === "--out") extra.out = argv[++i];
@@ -114,6 +116,9 @@ function edgeLine(e: EdgeHit): string {
 
 export async function runGraphCli(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
+  // A graph written before cartridges had names is moved before any verb reads it (the chips are read again from each
+  // cartridge's own extract the next time the project is opened by a tool).
+  if (args.verb !== "help") { try { ensureCartridgeGrammar(args.project); } catch (e) { process.stderr.write(`cartridge grammar: ${e instanceof Error ? e.message : String(e)}\n`); } }
   const out = (human: string, json: unknown) => {
     if (args.json) process.stdout.write(`${JSON.stringify(json, null, 2)}\n`);
     else process.stdout.write(`${human}\n`);
@@ -178,7 +183,7 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "import-trace") {
     const file = args.positional[0];
     if (!file) throw new Error("import-trace needs a .c64retrace path");
-    const r = importRuntimeTrace({ projectDir: args.project, tracePath: resolve(file), owner: args.owner });
+    const r = importRuntimeTrace({ projectDir: args.project, tracePath: resolve(file), owner: args.owner, ...(args.cart ? { cart: args.cart } : {}) });
     out(JSON.stringify(r), r);
     return;
   }

@@ -557,6 +557,16 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
           lines.push(``, `Full model incl. the edges between boundaries: \`model_read\`.`, ``, `---`);
         }
 
+        // Spec 909 — which cartridges this project holds, each with its type and role; and, once, what opening a project
+        // written before cartridges had names did to its nodes (including what it could not place, by name).
+        try {
+          const { formatCartridges, projectCartridges } = await import("../knowledge-graph/cartridge-context.js");
+          const { formatCartridgeMigration, readCartridgeMigration } = await import("../knowledge-graph/migrate/cartridge-grammar.js");
+          const heldCarts = formatCartridges(projectCartridges(projectRoot));
+          const moved = readCartridgeMigration(projectRoot);
+          if (heldCarts.length > 0 || moved) lines.push(``, `## ▤ Cartridges`, ...heldCarts, ...(moved ? formatCartridgeMigration(moved) : []), ``, `---`);
+        } catch { /* a project with no graph yet has none */ }
+
         if (pkg.openSlots.length > 0) {
           lines.push(``, `## ? Unanswered for this game (${pkg.openSlots.length} of 14)`);
           lines.push(`These are the same questions in every multi-disk project, so they are a SCHEMA, not a checklist. Doors that deliver something depending on an empty one will refuse until it is filled (\`slot_record\`).`);
