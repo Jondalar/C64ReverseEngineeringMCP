@@ -816,8 +816,8 @@ function operandTextFromFact(
       return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},x`;
     case "zp,y":
       return `${annotatedOperandName(operand) ?? `$${formatHex8(operand)}`},y`;
-    // the human's name wins over the platform's for the operand; the platform name
-    // stays in the line comment as a hint
+    // the human's name wins over the platform's for the operand; an I/O register's
+    // description stays in the line comment (zero page: the human name stands alone)
     case "abs":
       return ioName ?? annotatedOperandName(targetAddress) ?? targetExpression ?? `$${formatHex16(operand)}`;
     case "abs,x":
@@ -938,8 +938,10 @@ function generateInstructionComment(
     }
   }
 
-  // 3. Zero-page stores/loads with known meaning (platform overlay first)
-  if (mode === "zp" && operand !== undefined) {
+  // 3. Zero-page stores/loads with known meaning. A human label on the operand wins:
+  // the platform's name for the byte (KERNAL/BASIC) would duplicate or contradict it,
+  // and is plainly wrong where the program banks the ROMs out.
+  if (mode === "zp" && operand !== undefined && annotatedOperandName(operand) === undefined) {
     const zp = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, operand);
     if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;

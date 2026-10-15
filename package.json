@@ -70,6 +70,7 @@
     "e2e:issue79-negative-claim-owner": "npm run build:mcp && node scripts/e2e-issue79-negative-claim-owner.mjs",
     "e2e:issue84-negative-claim-edges": "npm run build:mcp && node scripts/e2e-issue84-negative-claim-edges.mjs",
     "e2e:issue87-next-md-guard": "npm run build:mcp && node scripts/e2e-issue87-next-md-guard.mjs",
+    "e2e:issue88-zp-human-label": "npm run build && node scripts/e2e-issue88-zp-human-label.mjs",
     "smoke:issue72-sandbox-io-ram": "npm run build:mcp && node scripts/smoke-issue72-sandbox-io-ram.mjs",
     "smoke:pipeline-version": "npm run build:mcp && node scripts/smoke-pipeline-version.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",

@@ -714,6 +714,9 @@ jobs:
       - name: A hand-written NEXT.md survives step records (#87)
         run: npm run e2e:issue87-next-md-guard
 
+      - name: A human zero-page label carries no platform meaning (#88)
+        run: npm run e2e:issue88-zp-human-label
+
       - name: An I/O store is not a RAM byte (#72)
         run: npm run smoke:issue72-sandbox-io-ram
 
