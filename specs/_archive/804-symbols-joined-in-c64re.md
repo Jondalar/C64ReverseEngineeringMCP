@@ -3,7 +3,7 @@
 **Status:** BUILT 2026-09-19 — both halves, on `spec-804-symbols-in-c64re` in C64RE and TRX64, merged into `master`/`main` 2026-09-19
 **Repos:** C64RE (the resolver, residency, the name layers, every surface that shows a
 name) + TRX64 (delivers bytes and address positions, and loses its own label machinery).
-**Number:** 804, moved from `../TRX64/docs/internal/804-symbolized-runtime.md` (2026-09-19). The
+**Number:** 804, moved from TRX64 `docs/804-symbolized-runtime.md` (2026-09-19; since deleted there). The
 old text is in TRX64's history; its §1 inventory is carried below, re-verified.
 
 ---
