@@ -187,13 +187,18 @@ export class SandboxSession {
     }
 
     const budget = opts.budgetMs ?? DEFAULT_BUDGET_MS;
-    // The keeper is the child; the daemon is ITS child. Not detached either way: neither
-    // may survive this command, and the keeper makes sure of it when this process cannot.
+    // The keeper is the child; the daemon is ITS child. Neither may survive this command, and
+    // the keeper makes sure of it when this process cannot. On POSIX it is not detached. On
+    // Windows it must be: libuv puts every attached child into a job object that kills it the
+    // instant this process is killed hard, so the keeper died with its owner and never ended the
+    // daemon the polite way (trace unfinalized, scratch left, record never "owner gone").
+    // Detached, it outlives the owner just long enough to do that; the daemon stays attached
+    // to the keeper, so it still cannot outlive the keeper.
     s.child = spawnHidden(process.execPath, [
       "-e", KEEPER,
       JSON.stringify([process.pid, budget + KEEPER_GRACE_MS, s.ownTmp ?? "", plan.cmd, ...plan.args]),
     ], {
-      detached: false,
+      detached: process.platform === "win32",
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...childEnv("sandbox"), C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port),

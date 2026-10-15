@@ -262,7 +262,9 @@ check(!pa.some((pc) => inRange(pc, "b") || inRange(pc, "shared")) && !pb.some((p
 check(storeOf(ra.fin).startsWith(H.traces) && storeOf(rb.fin).startsWith(H.traces) && storeOf(ra.fin) !== storeOf(rb.fin), "…each in the trace root, under its own project's key");
 const ptrA = JSON.parse(readFileSync(join(projA, "runtime", "traces.json"), "utf8"));
 const ptrB = JSON.parse(readFileSync(join(projB, "runtime", "traces.json"), "utf8"));
-check(JSON.stringify(ptrA).includes(storeOf(ra.fin)) && !JSON.stringify(ptrA).includes(storeOf(rb.fin)) && JSON.stringify(ptrB).includes(storeOf(rb.fin)), "each project's runtime/traces.json points at its own capture only");
+// a path is looked for as JSON writes it: on Windows every backslash in it is doubled there
+const names = (ptr, path) => JSON.stringify(ptr).includes(JSON.stringify(path).slice(1, -1));
+check(names(ptrA, storeOf(ra.fin)) && !names(ptrA, storeOf(rb.fin)) && names(ptrB, storeOf(rb.fin)), "each project's runtime/traces.json points at its own capture only");
 const sharedMoved = (await sharedS3Ws.call("session/state")).c64Cycles - sharedCycles0;
 check(sharedMoved >= 300000 && sharedMoved < 300064, "the shared session advanced exactly what was asked of it, nothing from the sandboxes", String(sharedMoved));
 check((await sharedS3Ws.call("trace/run/status", {})).active !== true, "…and no trace of the sandboxes is recording on it");

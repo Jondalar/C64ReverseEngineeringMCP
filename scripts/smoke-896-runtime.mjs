@@ -21,15 +21,15 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
-const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
-const { describeRunAdvance, planUntil } = await import(join(ROOT, "dist/runtime/session-run.js"));
+const { resolveDaemonSpawn } = await import(pathToFileURL(join(ROOT, "dist/runtime/resolve-daemon-spawn.js")).href);
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
+const { describeRunAdvance, planUntil } = await import(pathToFileURL(join(ROOT, "dist/runtime/session-run.js")).href);
 
 let pass = 0, fail = 0, skipped = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${String(d).replace(/\s+/g, " ").slice(0, 220)})` : ""}`); };
