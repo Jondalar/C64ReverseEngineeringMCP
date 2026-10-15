@@ -282,7 +282,7 @@ The persistent state lives in:
 - `knowledge/tasks.json`
 - `knowledge/artifacts.json`
 - `knowledge/notes.md`
-- `knowledge/agent-state.json` + `knowledge/NEXT.md` (managed by `agent_*` tools)
+- `knowledge/agent-state.json` + `knowledge/NEXT.md` (`agent-state.json` is managed by the `agent_*` tools; `NEXT.md` is regenerated only while it is missing or carries the auto-generated footer — a hand-written one is left alone)
 - `session/timeline.jsonl`
 
 The UI consumes rendered views from:
@@ -694,7 +694,7 @@ Before ending a session or major step:
 6. Register artifacts (`save_artifact`).
 7. Rebuild views (`build_all_views` if in doubt).
 8. Create a checkpoint when useful (`project_checkpoint`).
-9. Record the step (`agent_record_step`) with the next action queued. This rewrites `NEXT.md`.
+9. Record the step (`agent_record_step`) with the next action queued. This regenerates `NEXT.md` unless it is hand-written (then it is kept as is).
 10. Commit the project (`git add -A; git commit -m "…"`) after any step that changed `knowledge/` — contract, findings, annotations, steering. The project lives in git because those files are hand-authored and a wrong write over one is only recoverable from history; `agent_onboard` warns when the project is not in a repository and counts the uncommitted files under `knowledge/`. The server cannot commit for you.
 
 The next session must be able to continue from the knowledge store, not from chat history.
