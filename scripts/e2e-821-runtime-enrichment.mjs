@@ -56,7 +56,7 @@ writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schem
 const R = (a) => `s821:ram/fixture:routine:${a}`;
 const MAIN = R("1000"), HANDLER = R("1020"), BANK = R("1030");
 let store = GraphStore.open(project);
-store.replaceGenerated("819", "fixture", [
+store.replaceGenerated("control-flow", "fixture", [
   { id: MAIN, kind: "routine", name: "W1000", endAddress: 0x1017, attrs: { entry_source: "load", provenance: "confirmed_code" }, origin: "static", confidence: "certain" },
   { id: HANDLER, kind: "routine", name: "W1020", endAddress: 0x1023, attrs: { provenance: "confirmed_code" }, origin: "static", confidence: "certain" },
   { id: BANK, kind: "routine", name: "W1030", endAddress: 0x103a, attrs: { provenance: "confirmed_code" }, origin: "static", confidence: "certain" },
@@ -65,7 +65,7 @@ store.replaceGenerated("819", "fixture", [
 ]);
 // what a memory-access producer (820) would have written: the claim, with the target unknown where it is unknown
 const st = (from, type, to, pc, extra, confidence = "certain") => ({ from, type, to, evidenceKey: `pc:${pc.toString(16).padStart(4, "0")}`, origin: "static", confidence, evidence: { pc, ...extra } });
-store.replaceGenerated("820", "fixture", [], [
+store.replaceGenerated("memory-access", "fixture", [], [
   st(MAIN, "READS_INDIRECT", "c64:zp:0020", 0x1002, { pointer_zp: 0x20, mnemonic: "lda", addr_mode: "(zp),y" }, "heuristic"),
   st(MAIN, "READS_INDIRECT", "c64:zp:0020", 0x1005, { pointer_zp: 0x20, mnemonic: "lda", addr_mode: "(zp),y" }, "heuristic"),
   st(MAIN, "READS_INDIRECT", "c64:zp:0020", 0x1008, { pointer_zp: 0x20, mnemonic: "lda", addr_mode: "(zp),y" }, "heuristic"),
@@ -77,9 +77,9 @@ store.replaceGenerated("820", "fixture", [], [
   st(BANK, "WRITES", "c64:zp:0001", 0x1035, { mnemonic: "sta", addr_mode: "zp" }),
   st(BANK, "READS", "c64:rom:a000", 0x1037, { mnemonic: "lda", addr_mode: "abs" }),
 ]);
-const staticDump = (s) => s.canonicalDump().split("\n").filter((l) => l && !l.includes('"producer":"821"')).join("\n");
+const staticDump = (s) => s.canonicalDump().split("\n").filter((l) => l && !l.includes('"producer":"runtime-trace"')).join("\n");
 const staticBefore = staticDump(store);
-const staticRowsBefore = store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer <> '821'").get().n;
+const staticRowsBefore = store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer <> 'runtime-trace'").get().n;
 store.close();
 
 // ---------------------------------------------------------------- the capture
@@ -142,8 +142,8 @@ check(r1.pcSource === "retire", "accesses attributed to the retiring CPU_STEP, n
 const RUN = r1.runNodeId;
 let graph = Graph.open(project);
 const ev = (e) => e.evidence;
-const invariant = (db) => Number(db.prepare("SELECT (SELECT COUNT(*) FROM edges WHERE producer='821' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) + (SELECT COUNT(*) FROM nodes WHERE producer='821' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) AS n").get().n);
-check(invariant(graph.store.db) === 0, "invariant: producer='821' ⇒ origin=runtime ∧ confidence=observed ∧ layer=generated (0 violations)");
+const invariant = (db) => Number(db.prepare("SELECT (SELECT COUNT(*) FROM edges WHERE producer='runtime-trace' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) + (SELECT COUNT(*) FROM nodes WHERE producer='runtime-trace' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) AS n").get().n);
+check(invariant(graph.store.db) === 0, "invariant: producer='runtime-trace' ⇒ origin=runtime ∧ confidence=observed ∧ layer=generated (0 violations)");
 
 // D2/D3 — the indirect reads, confirmed beside the static unknown
 const out = graph.edgesOutOf(MAIN).filter((e) => e.origin === "runtime");
@@ -217,7 +217,7 @@ graph.close();
 // ---------------------------------------------------------------- D3 — confirmation adds rows, never updates
 store = GraphStore.open(project);
 check(staticDump(store) === staticBefore, "every non-821 row is byte-identical after the import (confirmation = a new row, never an update)");
-check(Number(store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer <> '821'").get().n) === Number(staticRowsBefore), `static row count unchanged (${staticRowsBefore})`);
+check(Number(store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer <> 'runtime-trace'").get().n) === Number(staticRowsBefore), `static row count unchanged (${staticRowsBefore})`);
 const h1 = store.contentHash();
 const c1 = store.counts();
 store.close();
@@ -246,7 +246,7 @@ store.close();
 writeFileSync(tracePath, buildCapture({ extraTail: true }));
 const r2 = importRuntimeTrace({ projectDir: project, tracePath, owner: "fixture" });
 graph = Graph.open(project);
-const ownerRows2 = Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='821' AND owner=?").get(RUN_ID).n);
+const ownerRows2 = Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='runtime-trace' AND owner=?").get(RUN_ID).n);
 const stray2 = graph.edgesOutOf("s821:ram:addr:2000").find((e) => e.type === "WRITES" && e.origin === "runtime");
 check(ownerRows2 === Object.values(r2.rows).reduce((x, y) => x + y, 0) - r2.rows.collapsedSpans && ev(stray2).count === 2 && JSON.stringify(ev(stray2).values) === "[0,1]", `same runId, different bytes → the run's rows replaced (${ownerRows2} rows, $D020 count now 2, values [0,1])`);
 check(runs(graph)[0].attrs.cycle_end === r2.cycleEnd && r2.cycleEnd > r1.cycleEnd, `the Run node is updated in place (cycle_end ${r1.cycleEnd} → ${r2.cycleEnd})`);
@@ -255,7 +255,7 @@ graph.close();
 
 const rm = removeRuntimeRun(project, RUN_ID);
 graph = Graph.open(project);
-check(rm.deletedEdges === ownerRows2 && Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='821'").get().n) === 0 && Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE kind='run'").get().n) === 0, `removing the run removes its ${rm.deletedEdges} edges and the run node`);
+check(rm.deletedEdges === ownerRows2 && Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='runtime-trace'").get().n) === 0 && Number(graph.store.db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE kind='run'").get().n) === 0, `removing the run removes its ${rm.deletedEdges} edges and the run node`);
 check(graph.edgesOutOf(MAIN).filter((e) => e.origin === "static").length === 6 && !graph.resolve("s821:ram:addr:2000").dangling, "static rows and the shared addr node survive the removal");
 graph.close();
 

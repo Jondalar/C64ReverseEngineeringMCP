@@ -143,7 +143,7 @@ the wrong one.
   every run. What is genuinely 810's is the NAME and WON. Building a "branch" beside it
   would give the repo two things with one job — the exact trap §4b below is about, walked
   into from the other direction. Vocabulary fixed 2026-08-17 in
-  `../../TRX64/docs/concepts-snapshots-scenarios-overlays.md` §6.
+  `../../../TRX64/docs/internal/concepts-snapshots-scenarios-overlays.md` §6.
 - **The reference is 810's, and it is NOT 796's.** A candidate's cached baseline is *the
   same replay without my patch* — "did my code change anything". An acceptance's baseline
   is *the state a human approved* — "does the machine still reach what we agreed was

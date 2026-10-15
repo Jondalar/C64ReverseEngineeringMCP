@@ -25,7 +25,7 @@ incomplete project, because completeness gets inferred from structure.
 `inspect_g64_syncs`, `inspect_g64_track` and `scan_g64_headers` answer this statically.
 Protection is a claim about *drive code*, so it is settled by reading drive code.
 
-**What refuses later.** S2 (medium) gates `extract_disk_custom_lut` until the GCR verdict
+**What refuses later.** The medium slot gates `extract_disk_custom_lut` until the GCR verdict
 — standard or custom — is recorded. And the substrate gate refuses runtime discovery on a
 standard-GCR medium outright: a packed payload on a DOS-readable disk is a depack problem,
 not a physics problem.

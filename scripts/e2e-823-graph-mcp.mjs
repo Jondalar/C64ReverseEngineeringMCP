@@ -56,7 +56,7 @@ function seedFixture() {
   writeFileSync(prgPath, prg);
   execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prgPath, analysisPath, "1000"], { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, C64RE_PROJECT_DIR: projectDir } });
   const seedOut = execFileSync(process.execPath, [cli, "graph", "seed", "--project", projectDir], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  check(/819: routines=/.test(seedOut), "c64re graph seed ran 819 + 820 on the fixture");
+  check(/control-flow: routines=/.test(seedOut), "c64re graph seed ran control flow + memory access on the fixture");
 }
 
 // ---------------------------------------------------------------- the server over stdio

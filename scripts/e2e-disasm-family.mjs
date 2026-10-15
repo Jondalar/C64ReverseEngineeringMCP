@@ -323,7 +323,7 @@ try {
               case "evidence": return "[]";
               case "origin": return "static";
               case "confidence": return "certain";
-              case "producer": return "820";
+              case "producer": return "memory-access";
               default: return /INT/i.test(c.type) ? 0 : "x";
             }
           };

@@ -27,10 +27,11 @@ import { has822Tables } from "./migrate/schema-822.js";
 import { resolveAddressesIn, type ResolveResult } from "./producers/resolve.js";
 import { GraphStore } from "./store.js";
 import { beginWrite, endWrite } from "./write-tx.js";
+import { RUNTIME_TRACE_PRODUCER } from "./producer-ids.js";
 
 /** meta key prefix of the marker a removal leaves: a project-wide seed pass skips the owner until something seeds or imports it by name. */
 export const OWNER_REMOVED_PREFIX = "owner_removed.";
-const RUNTIME_PRODUCER = "821";
+const RUNTIME_PRODUCER = RUNTIME_TRACE_PRODUCER;
 
 export interface OwnerSummary {
   owner: string;
@@ -98,11 +99,11 @@ function annotationFilesOf(db: DatabaseSync, owner: string): { files: string[]; 
     if (s.path) files.add(s.path);
   }
   const fromRows = db.prepare(
-    "SELECT DISTINCT json_extract(attrs, '$.source_path') AS p FROM nodes WHERE layer = 'human' AND producer = '822' AND json_extract(attrs, '$.source_path') IS NOT NULL",
+    "SELECT DISTINCT json_extract(attrs, '$.source_path') AS p FROM nodes WHERE layer = 'human' AND producer = 'knowledge-import' AND json_extract(attrs, '$.source_path') IS NOT NULL",
   ).all() as Array<{ p: string }>;
   for (const r of fromRows) if (ownerOfAnnotationFile(r.p) === owner) files.add(r.p);
   if (has822Tables(db)) {
-    const fromProse = db.prepare("SELECT DISTINCT source_path AS p FROM annotations WHERE producer = '822' AND source_path IS NOT NULL").all() as Array<{ p: string }>;
+    const fromProse = db.prepare("SELECT DISTINCT source_path AS p FROM annotations WHERE producer = 'knowledge-import' AND source_path IS NOT NULL").all() as Array<{ p: string }>;
     for (const r of fromProse) if (ownerOfAnnotationFile(r.p) === owner) files.add(r.p);
   }
   return { files: [...files].sort(), stems: stems.sort() };
@@ -143,7 +144,7 @@ export function listOwnersIn(store: GraphStore): OwnerSummary[] {
   const files = new Map<string, Set<string>>();
   const addFile = (owner: string, path: string) => { const set = files.get(owner) ?? new Set<string>(); set.add(path); files.set(owner, set); };
   for (const r of db.prepare(
-    "SELECT json_extract(attrs, '$.source_path') AS p, COUNT(*) AS n FROM nodes WHERE layer = 'human' AND producer = '822' AND json_extract(attrs, '$.source_path') IS NOT NULL GROUP BY p",
+    "SELECT json_extract(attrs, '$.source_path') AS p, COUNT(*) AS n FROM nodes WHERE layer = 'human' AND producer = 'knowledge-import' AND json_extract(attrs, '$.source_path') IS NOT NULL GROUP BY p",
   ).all() as Array<{ p: string; n: number }>) {
     const owner = ownerOfAnnotationFile(r.p);
     if (owner === undefined) continue;
@@ -213,14 +214,14 @@ export function removeOwnerIn(store: GraphStore, wanted: string, options: { dryR
     // generated: the owner's runs (every producer but the trace runs); `addr` is shared and handled below
     const ownedGenerated = "layer = 'generated' AND kind <> 'addr' AND producer <> ? AND (run_owner = ? OR (run_owner IS NULL AND owner = ?))";
     // human: only what the owner's annotation FILE imported — producer 822 with that file's path
-    const importedHuman = "layer = 'human' AND producer = '822' AND json_extract(attrs, '$.source_path') IN (SELECT path FROM rm_files)";
+    const importedHuman = "layer = 'human' AND producer = 'knowledge-import' AND json_extract(attrs, '$.source_path') IN (SELECT path FROM rm_files)";
     db.prepare(`INSERT OR IGNORE INTO rm_nodes (id) SELECT id FROM nodes WHERE ${ownedGenerated}`).run(RUNTIME_PRODUCER, owner, owner);
     db.prepare(`INSERT OR IGNORE INTO rm_nodes (id) SELECT id FROM nodes WHERE ${importedHuman}`).run();
 
     // ── edges: the owner's own, the file's own, then whatever that leaves dangling ──
     const edgeSets: Array<{ where: string; args: unknown[] }> = [
       { where: "layer = 'generated' AND producer <> ? AND owner = ?", args: [RUNTIME_PRODUCER, owner] },
-      { where: "layer = 'human' AND producer = '822' AND json_extract(evidence, '$.source_path') IN (SELECT path FROM rm_files)", args: [] },
+      { where: "layer = 'human' AND producer = 'knowledge-import' AND json_extract(evidence, '$.source_path') IN (SELECT path FROM rm_files)", args: [] },
     ];
     const recordEdges = (where: string, args: unknown[]) => {
       db.prepare(`INSERT OR IGNORE INTO rm_edges (from_id, type, to_id) SELECT from_id, type, to_id FROM edges WHERE ${where}`).run(...(args as never[]));
@@ -253,7 +254,7 @@ export function removeOwnerIn(store: GraphStore, wanted: string, options: { dryR
       removed.claims = Number(db.prepare(`DELETE FROM claims WHERE ${claimWhere}`).run().changes);
       kept.humanClaims = Number((db.prepare("SELECT COUNT(*) AS n FROM claims WHERE layer = 'human' AND node_id IN (SELECT id FROM rm_nodes)").get() as { n: number }).n);
 
-      const annWhere = "(producer = '822' AND source_path IN (SELECT path FROM rm_files)) OR (layer = 'generated' AND node_id IN (SELECT id FROM rm_nodes))";
+      const annWhere = "(producer = 'knowledge-import' AND source_path IN (SELECT path FROM rm_files)) OR (layer = 'generated' AND node_id IN (SELECT id FROM rm_nodes))";
       db.prepare(`INSERT OR IGNORE INTO rm_keys (target_table, target_key) SELECT 'annotations', id FROM annotations WHERE ${annWhere}`).run();
       for (const r of db.prepare(`SELECT layer || '/' || producer AS k, COUNT(*) AS n FROM annotations WHERE ${annWhere} GROUP BY k`).all() as Array<{ k: string; n: number }>) bump(removed.annotations, r.k, Number(r.n));
       db.prepare(`DELETE FROM annotations WHERE ${annWhere}`).run();

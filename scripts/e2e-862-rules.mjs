@@ -365,7 +365,7 @@ try {
     kind: "observation", title: "$FB-$FE are free in this build",
     summary: "four zero-page bytes nothing in the title touches; a run confirmed it",
     address_range: { start: 0xfb, end: 0xfe },
-    tags: ["slot:S11", "method:run"],
+    tags: ["slot:free-ram", "method:run"],
     evidence: [{ kind: "note", title: "a run with the range poisoned changed nothing" }],
   });
 

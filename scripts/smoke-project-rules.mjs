@@ -29,10 +29,10 @@ console.log("Project rules — frontmatter, globs, and the doors they announce\n
 // ---- what the machinery actually offers -------------------------------------------
 
 const schema = readFileSync(join(ROOT, "src", "slots", "schema.ts"), "utf8");
-const SLOT_IDS = new Set([...schema.matchAll(/id:\s*"(S\d+)"/g)].map((m) => m[1]));
+const SLOT_IDS = new Set([...schema.matchAll(/^\s+id:\s*"([a-z][a-z-]+)"/gm)].map((m) => m[1]));
 // doors: ["a", "b"] — every door the slot table gates, per slot id
 const DOORS_BY_SLOT = new Map();
-for (const m of schema.matchAll(/id:\s*"(S\d+)"[\s\S]*?doors:\s*\[([^\]]*)\]/g)) {
+for (const m of schema.matchAll(/^\s+id:\s*"([a-z][a-z-]+)"[\s\S]*?doors:\s*\[([^\]]*)\]/gm)) {
   DOORS_BY_SLOT.set(m[1], [...m[2].matchAll(/"([^"]+)"/g)].map((d) => d[1]));
 }
 const ALL_DOORS = new Set([...DOORS_BY_SLOT.values()].flat());
@@ -52,7 +52,7 @@ check(TOOLS.size > 50, `harvested ${TOOLS.size} registered tools`);
 // The count is read from the schema's own SlotId union rather than written down
 // here: S15 was added by issue #24 and this assertion still said 14 for weeks,
 // red in a gate nothing ran. A number in two places drifts; a number in one does not.
-const DECLARED_SLOTS = new Set([...schema.matchAll(/\|\s*"(S\d+)"|SlotId\s*=\s*"(S\d+)"/g)].flatMap((m) => [m[1], m[2]]).filter(Boolean));
+const DECLARED_SLOTS = new Set([...schema.slice(schema.indexOf("export type SlotId"), schema.indexOf("export type SlotId") + 600).matchAll(/\|\s*"([a-z][a-z-]+)"/g)].map((m) => m[1]));
 check(SLOT_IDS.size === DECLARED_SLOTS.size,
   `slot table has ${SLOT_IDS.size} slots, matching the ${DECLARED_SLOTS.size} the SlotId union declares`);
 
@@ -113,7 +113,7 @@ for (const file of files) {
 
   // Slot ids the prose names must exist.
   for (const id of new Set([...body.matchAll(/\bS(\d{1,2})\b/g)].map((m) => `S${m[1]}`))) {
-    check(SLOT_IDS.has(id), `names an existing slot: ${id}`);
+    check(false, `names slot ${id} by its old number — a rule says the descriptive id`);
   }
 
   // Every `tool_name` in backticks must be a tool that is actually registered.

@@ -49,24 +49,24 @@ try {
 
   // 2 — not a project at all, and an unmapped tool
   {
-    const dir = newProject({ goal: "x", deliver: { slots: ["S1"] } });
+    const dir = newProject({ goal: "x", deliver: { slots: ["context"] } });
     check(await standingFooter(undefined, "slot_record") === undefined, "no project_dir means silence");
     check(await standingFooter(dir, "graph_find") === undefined, "a read tool carries nothing");
   }
 
   // 3 — first write states what is owed; an unchanged second write says nothing
   {
-    const dir = newProject({ goal: "a contract", deliver: { slots: ["S1", "S3"] } });
+    const dir = newProject({ goal: "a contract", deliver: { slots: ["context", "boot-chain"] } });
     const first = await standingFooter(dir, "slot_record");
     check(!!first && /still owed/.test(first), `first write states the standing list`);
-    check(!!first && /S1|S3/.test(first), "…and names the slots");
+    check(!!first && /context|boot-chain/.test(first), "…and names the slots");
     const second = await standingFooter(dir, "save_finding");
     check(second === undefined, "a second write that moved nothing is silent");
   }
 
   // 4 — a summary tool always answers, whether or not anything moved
   {
-    const dir = newProject({ goal: "a contract", deliver: { slots: ["S1"] } });
+    const dir = newProject({ goal: "a contract", deliver: { slots: ["context"] } });
     await standingFooter(dir, "slot_record");
     const a = await standingFooter(dir, "c64re_whats_next");
     check(!!a && /still owed/.test(a), "a summary tool answers even when nothing moved");
@@ -76,7 +76,7 @@ try {
 
   // 5 — onboarding forgets, so the next session is told the standing list once more
   {
-    const dir = newProject({ goal: "a contract", deliver: { slots: ["S1"] } });
+    const dir = newProject({ goal: "a contract", deliver: { slots: ["context"] } });
     await standingFooter(dir, "slot_record");
     check(await standingFooter(dir, "slot_record") === undefined, "quiet within the session");
     resetStanding(dir);

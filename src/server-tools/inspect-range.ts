@@ -63,7 +63,7 @@ function readOwnerEdges(projectDir: string, owner: string): GraphRefEdge[] {
   try {
     const rows = store.db
       .prepare(
-        `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820') AND type IN (${REF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
+        `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('control-flow','memory-access') AND type IN (${REF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
       )
       .all(owner, ...REF_EDGE_TYPES) as Array<{ type: string; to_id: string; evidence: string }>;
     const edges: GraphRefEdge[] = [];
@@ -100,7 +100,7 @@ export function resolveProjectGraph(analysisPath: string, projectDir?: string): 
     try { edges = readOwnerEdges(dir, owner); } catch (error) {
       return { status: "absent", owner, edges: [], note: `Graph: ABSENT — ${path} could not be read (${error instanceof Error ? error.message : String(error)}); VIC program and xrefs rendered from the JSON walk.` };
     }
-    if (edges.length > 0) return { status: "graph", owner, edges, note: `Graph: ${path} owner=${owner} (819+820, ${edges.length} reference edges)` };
+    if (edges.length > 0) return { status: "graph", owner, edges, note: `Graph: ${path} owner=${owner} (control-flow + memory-access, ${edges.length} reference edges)` };
   }
   if (!existsSync(join(dir, "knowledge", "project.json"))) {
     return { status: "absent", owner, edges: [], note: `Graph: ABSENT — ${existsSync(path) ? `${path} holds no rows for owner ${owner}` : `no ${path}`} and no knowledge/project.json in ${dir} to seed from (project_init); VIC program and xrefs rendered from the JSON walk.` };
@@ -114,7 +114,7 @@ export function resolveProjectGraph(analysisPath: string, projectDir?: string): 
   } catch (error) {
     return { status: "absent", owner, edges: [], note: `Graph: ABSENT — seeding owner ${owner} on demand failed (${error instanceof Error ? error.message : String(error)}); VIC program and xrefs rendered from the JSON walk.` };
   }
-  return { status: "graph-seeded", owner, edges, note: `Graph: seeded on demand (819+820) into ${path} for owner ${owner} (${edges.length} reference edges)` };
+  return { status: "graph-seeded", owner, edges, note: `Graph: seeded on demand (control-flow + memory-access) into ${path} for owner ${owner} (${edges.length} reference edges)` };
 }
 
 interface AnalysisInstruction {

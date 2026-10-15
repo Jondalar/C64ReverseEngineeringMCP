@@ -133,7 +133,7 @@ function seededOwners(projectDir: string): Set<string> {
   try {
     const store = GraphStore.open(projectDir, { readOnly: true });
     try {
-      const rows = store.db.prepare("SELECT DISTINCT owner FROM edges WHERE layer = 'generated' AND producer = '819' AND owner IS NOT NULL").all() as Array<{ owner: string }>;
+      const rows = store.db.prepare("SELECT DISTINCT owner FROM edges WHERE layer = 'generated' AND producer = 'control-flow' AND owner IS NOT NULL").all() as Array<{ owner: string }>;
       return new Set(rows.map((r) => r.owner));
     } finally { store.close(); }
   } catch {
@@ -225,9 +225,9 @@ function signOneByOne(projectDir: string, seeded: SeedProjectOwnerResult[]): See
 /** One line per owner, the shape `c64re graph seed` has always printed. */
 export function formatSeedProject(r: SeedProjectResult): string {
   const lines = r.seeded.map((s) =>
-    `${s.owner.padEnd(40)} ${s.machine.machine} (${s.machine.source}) | 819: routines=${s.controlFlow.routines} labels=${s.controlFlow.labels} edges=${JSON.stringify(s.controlFlow.edges)} ${s.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(s.memoryAccess.edges)} indirect-resolved=${s.memoryAccess.indirectResolved} ${s.memoryAccess.ms.toFixed(0)}ms`);
+    `${s.owner.padEnd(40)} ${s.machine.machine} (${s.machine.source}) | control-flow: routines=${s.controlFlow.routines} labels=${s.controlFlow.labels} edges=${JSON.stringify(s.controlFlow.edges)} ${s.controlFlow.ms.toFixed(0)}ms | memory-access: edges=${JSON.stringify(s.memoryAccess.edges)} indirect-resolved=${s.memoryAccess.indirectResolved} ${s.memoryAccess.ms.toFixed(0)}ms`);
   if (r.resolve) lines.push(`resolve: addr nodes=${r.resolve.addrNodes} RESOLVES_TO=${r.resolve.resolved} ambiguous=${r.resolve.ambiguous} ${r.resolve.ms.toFixed(0)}ms`);
-  if (r.signatures) lines.push(`826 signatures: routines=${r.signatures.routines} signed=${r.signatures.signed} partial=${r.signatures.partial} unknown-stack=${r.signatures.unknownStack} passes=${r.signatures.passes} dispatches=${r.signatures.dispatches} ${r.signatures.ms.toFixed(0)}ms`);
+  if (r.signatures) lines.push(`signatures: routines=${r.signatures.routines} signed=${r.signatures.signed} partial=${r.signatures.partial} unknown-stack=${r.signatures.unknownStack} passes=${r.signatures.passes} dispatches=${r.signatures.dispatches} ${r.signatures.ms.toFixed(0)}ms`);
   if (r.skipped.length) lines.push(`skipped (already seeded): ${r.skipped.join(", ")}`);
   if (r.removed.length) lines.push(`skipped (removed with graph remove-owner — seed one by name to bring it back): ${r.removed.join(", ")}`);
   if (r.deferred.length) lines.push(`NOT SEEDED — budget: ${r.deferred.join(", ")}\nfinish them with: c64re graph seed --project <dir>`);

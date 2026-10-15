@@ -75,7 +75,7 @@ document on stdout and nothing else. The same functions are the library
 ### Signatures
 
 A 6502 routine declares no interface, but it has one, and it is computed: over
-819's block graph the producer finds what a routine reads before it writes
+the control-flow block graph the producer finds what a routine reads before it writes
 (`in` — the parameters), what it leaves written at `rts` (`out`), what it
 destroys (`clobbers`) and what a balanced `pha … pla` keeps (`preserves`),
 over registers, the flags that matter (C and V like registers, N and Z only when

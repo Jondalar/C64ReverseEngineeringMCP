@@ -2206,7 +2206,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
     safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence, address_range }) => {
       const root = resolveWorkspaceRoot(options, project_dir);
-      // Spec 844 S12: "exhaustive" / "fully mapped" are not adjectives, they are claims
+      // Spec 844 coverage slot: "exhaustive" / "fully mapped" are not adjectives, they are claims
       // about coverage — and Neuromancer's own docs make exactly that claim at ~15 %.
       const claim = await (await import("../slots/gate.js")).checkCompletenessClaim(
         `${title} ${summary ?? ""}`, root, "save_finding");

@@ -394,7 +394,7 @@ try {
       for (const s of sites) if (s.human) store.upsertHuman({ id: rid(s.at), kind: "routine", name: s.human, origin: "user", confidence: "user_asserted" });
       store.close();
       await assertBoundary(d, { name: "io window", level: "container", start, end, description: "io", evidence: ["map"], owner });
-      saveContract(d, { goal: "annotate the io window wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["io window"] } });
+      saveContract(d, { goal: "annotate the io window wherever it turns out to be", deliver: { slots: ["context"], annotate: ["io window"] } });
       return (await verdict(d)).blockers.find((b) => /"io window"/.test(b));
     }
     const vicSites = (h1, h2) => [{ at: 0x1200, stores: [0x9005], human: h1 }, { at: 0x1300, stores: [0x9110], human: h2 }];
@@ -705,7 +705,7 @@ function makeD64(files) {
       store.close();
       if (declared) declareMachine(d, owner, declared);
       await assertBoundary(d, { name: "io window", level: "container", start: 0x9000, end: 0x912f, description: "io", evidence: ["map"] });
-      saveContract(d, { goal: "annotate the io window", deliver: { slots: ["S1"], annotate: ["io window"] } });
+      saveContract(d, { goal: "annotate the io window", deliver: { slots: ["context"], annotate: ["io window"] } });
       return (await verdict(d)).blockers.find((b) => /"io window"/.test(b));
     }
     const vicEdges = [["vic20", 0x9005], ["vic20", 0x9110]];

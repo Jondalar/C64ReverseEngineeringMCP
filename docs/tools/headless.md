@@ -16,7 +16,7 @@ Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 - The runtime provides deterministic, scriptable runtime evidence for agents and
   browser clients.
 - VICE is a source tree to READ when porting — never something C64RE runs. The
-  architecture references moved to `../TRX64/docs/` on 2026-08-12, with the port.
+  architecture references moved to `../TRX64/docs/internal/` on 2026-08-12, with the port.
 
 `docs/mcp-tool-usecase-matrix.md` is the generated tool list.
 `docs/tool-surface-inventory.json` is the generated inventory of every tool and its description;

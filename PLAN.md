@@ -32,7 +32,7 @@ Open Questions.
 shared with TRX64. A change starts there, gets a spec under `specs/`, then gets built.
 
 There is no runtime port in this repo to cite sources for. The VICE reading references
-(`vice-c64-arch.md`, `vice-1541-arch.md`, `vice-iec-arc42.md`) moved to `../TRX64/docs/`
+(`vice-c64-arch.md`, `vice-1541-arch.md`, `vice-iec-arc42.md`) moved to `../TRX64/docs/internal/`
 on 2026-08-12, where the port they describe actually lives; the port-fidelity doctrine
 that required a §-anchor in them retired with the emulator (Spec 806, `DOCTRINE.md`).
 

@@ -4,13 +4,13 @@ Status: CLOSED 2026-09-19 — step 1 built, step 2 dropped, step 3 WON'T-DO. The
 TRX64 is a runtime, for itself (`trx64cli`), C64RE and UE2; static analysis stays C64RE.
 See "Closed" at the end.
 Anchor: `../../docs/product-vision-and-workbench-contract.md` §3 (Leitregel) ·
-`../../../TRX64/docs/_archive/capability-cut-decisions.md` (DECIDED 2026-06-29, revised 2026-09-19) ·
-`../../../TRX64/docs/_archive/spec-c64re-trx64-split-charter.md`
+`../../../TRX64/docs/internal/_archive/capability-cut-decisions.md` (DECIDED 2026-06-29, revised 2026-09-19) ·
+`../../../TRX64/docs/internal/_archive/spec-c64re-trx64-split-charter.md`
 
 ## Why this spec exists
 
 The capability cut was decided 2026-06-29, but only in the TRX64 repo
-(`TRX64/docs/_archive/capability-cut-decisions.md`). C64RE had no spec, no board row and
+(`TRX64/docs/internal/_archive/capability-cut-decisions.md`). C64RE had no spec, no board row and
 no cross-link — a fresh session reading only this repo could not know that parts
 of the bundled TRXDis pipeline have a decided migration target. This spec
 registers the decision on the C64RE side and names the C64RE-side obligations.

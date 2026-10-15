@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, basename, resolve, relative } from "node:path";
 import { parseFrontmatter, renderFrontmatter, type Frontmatter } from "./frontmatter.js";
 import { scanDocs, insideProject, type ScannedDoc } from "./scan.js";
+import { DOCUMENT_PRODUCER } from "../knowledge-graph/producer-ids.js";
 
 export class DocRegisterError extends Error {}
 
@@ -85,7 +86,7 @@ export async function registerDoc(projectDir: string, givenPath: string): Promis
       confidence: "user_asserted",
       // The document's own declaration IS its evidence: it says what it read.
       evidence: fm.sources.length > 0 ? fm.sources : [relPath],
-    }, "847");
+    }, DOCUMENT_PRODUCER);
 
     // Citations become edges, so a dangling one is a query rather than a grep.
     for (const a of fm.amends ?? []) {
@@ -94,7 +95,7 @@ export async function registerDoc(projectDir: string, givenPath: string): Promis
         id: target, kind: "document", name: a,
         attrs: { path: a, docKind: "reference", status: "current", covers: [], sources: [], placeholder: true },
         origin: "imported", confidence: "inferred", evidence: [`cited by ${relPath}`],
-      }, "847");
+      }, DOCUMENT_PRODUCER);
     }
     return { id, path: relPath, title: fm.title, kind: fm.kind, covers: fm.covers.length };
   } finally {

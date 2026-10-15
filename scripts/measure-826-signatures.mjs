@@ -78,8 +78,8 @@ function measure(projectDir, label) {
     const args = JSON.parse(p.evidence).args ?? {};
     if (Object.values(args).some((a) => a && a.source === "imm")) withImm += 1;
   }
-  const dispatches = Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type = 'JUMPS_TO' AND producer = '826'").get().n);
-  const mostCalled = db.prepare("SELECT to_id, COUNT(*) AS n FROM edges WHERE type IN ('CALLS', 'CALLS_ROM') AND layer = 'generated' AND producer = '819' GROUP BY to_id ORDER BY n DESC, to_id LIMIT 10").all();
+  const dispatches = Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type = 'JUMPS_TO' AND producer = 'signatures'").get().n);
+  const mostCalled = db.prepare("SELECT to_id, COUNT(*) AS n FROM edges WHERE type IN ('CALLS', 'CALLS_ROM') AND layer = 'generated' AND producer = 'control-flow' GROUP BY to_id ORDER BY n DESC, to_id LIMIT 10").all();
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
 
   console.log(`\n== ${label}: ${projectDir}`);

@@ -99,7 +99,7 @@ export function formatBoundaries(r: BoundaryReport): string {
   for (const u of r.unseen) lines.push(`  ${hex4U(u.address)} ${u.name ?? "(unnamed)"}${owned(u.owner)}`);
   lines.push(`data outside code (${r.dataOutsideCode.length}) — a human label outside every routine, now a data_block`);
   for (const d of r.dataOutsideCode) lines.push(`  ${hex4U(d.address)} ${d.name ?? "(unnamed)"}${d.dataBlock ? "" : "  (no data_block)"}${owned(d.owner)}`);
-  lines.push(`unseeded owners (${r.unseededOwners.length}) — annotation files whose owner 819 never seeded`);
+  lines.push(`unseeded owners (${r.unseededOwners.length}) — annotation files whose owner control-flow never seeded`);
   for (const o of r.unseededOwners) lines.push(`  ${o.owner}  ${o.humanNodes} human nodes`);
   return lines.join("\n");
 }

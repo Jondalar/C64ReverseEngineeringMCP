@@ -14,14 +14,14 @@
 // threshold, the gated doors refuse and ask what the last N runs established. The way
 // OUT of the refusal is to write something down — which is precisely the act the looping
 // session was avoiding. A negative result counts: `save_finding(kind="refutation")` is a
-// record like any other, and §4's S14 wants it anyway.
+// record like any other, and §4's refutations wants it anyway.
 //
 // Derived, not hooked. "Did anything accrue" is answered by comparing the graph's record
 // counts against the counts at the last check, so no save_* call site needs to know this
 // file exists, and a record written by any path at all resets the ratchet.
 //
 // The threshold is provisional. Nobody has the number — same as the coverage threshold in
-// §4's S12 — so it is generous (a real confirm-by-running loop writes something inside
+// §4's coverage — so it is generous (a real confirm-by-running loop writes something inside
 // four calls) and overridable with C64RE_RUNTIME_RATCHET. 0 disables it.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";

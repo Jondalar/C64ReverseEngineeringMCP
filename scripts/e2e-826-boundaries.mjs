@@ -148,7 +148,7 @@ const d1400 = graph.resolve(D("1400"));
 check(!d1400.dangling && d1400.kind === "data_block" && d1400.name === "my_table" && d1400.endAddress === 0x1410 && d1400.attrs.segment_kind === "lookup_table" && d1400.attrs.legacy_kind === "annotation-segment", `data_block ${D("1400")} (my_table, $1400-$1410, lookup_table)`);
 check(graph.resolve(`s826:ram/fixture:segment:1400`).name === "my_table", "the segment human node is still there (the listing reads it)");
 const resolves = graph.store.db.prepare("SELECT to_id, producer FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO'").all(A("1400"));
-check(resolves.length === 1 && resolves[0].to_id === D("1400") && resolves[0].producer === "826r", `RESOLVES_TO ${A("1400")} → my_table (producer 826r)`);
+check(resolves.length === 1 && resolves[0].to_id === D("1400") && resolves[0].producer === "signature-resolve", `RESOLVES_TO ${A("1400")} → my_table (producer 826r)`);
 const reads = graph.edgesOutOf(R("1000")).filter((e) => e.type === "READS" && e.to === D("1400"));
 check(reads.length === 2 && reads.every((e) => e.toNode.name === "my_table") && reads.some((e) => e.evidence.via === A("1400")) && reads.some((e) => e.evidence.via === A("1405")), `edgesOutOf(W1000): both READS land on my_table — via ${A("1400")} (first byte) and via ${A("1405")} (inside the range)`);
 // 826.0 T4 range rule: an address INSIDE the table resolves to it, offset said

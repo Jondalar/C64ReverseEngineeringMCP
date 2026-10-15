@@ -105,9 +105,9 @@ const counts = (dir) => {
   try {
     const n = (sql, ...p) => Number(s.db.prepare(sql).get(...p).n);
     return {
-      edges819: n("SELECT COUNT(*) AS n FROM edges WHERE producer = '819'"),
-      edges820: n("SELECT COUNT(*) AS n FROM edges WHERE producer = '820'"),
-      owners819: n("SELECT COUNT(DISTINCT owner) AS n FROM edges WHERE producer = '819'"),
+      edges819: n("SELECT COUNT(*) AS n FROM edges WHERE producer = 'control-flow'"),
+      edges820: n("SELECT COUNT(*) AS n FROM edges WHERE producer = 'memory-access'"),
+      owners819: n("SELECT COUNT(DISTINCT owner) AS n FROM edges WHERE producer = 'control-flow'"),
       jumps: n("SELECT COUNT(*) AS n FROM edges WHERE type = 'JUMPS_TO'"),
       addrNodes: n("SELECT COUNT(*) AS n FROM nodes WHERE kind = 'addr'"),
       human: n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human'"),
@@ -167,7 +167,7 @@ const counts = (dir) => {
   check(c.owners819 === owners.length,
     `819 edges exist under all ${owners.length} owners (${c.owners819})`);
   const s = GraphStore.open(dir, { readOnly: true });
-  const seen = s.db.prepare("SELECT DISTINCT owner FROM edges WHERE producer = '819' ORDER BY owner").all().map((r) => r.owner);
+  const seen = s.db.prepare("SELECT DISTINCT owner FROM edges WHERE producer = 'control-flow' ORDER BY owner").all().map((r) => r.owner);
   s.close();
   check(owners.every((o) => seen.includes(o)), `owners seeded: ${seen.join(", ")}`);
 }

@@ -67,7 +67,7 @@ function slotRefusal(door: string, blocking: SlotState[]): string {
   const body: string[] = [];
   for (const s of blocking) {
     const def = s.slot;
-    body.push(`  ${def.id} — ${def.name}${s.status === "hypothesis" ? "  (claimed, not settled)" : ""}`);
+    body.push(`  ${def.id}${s.status === "hypothesis" ? "  (claimed, not settled)" : ""}`);
     body.push(`     asks:  ${def.question}`);
     body.push(`     fill:  ${def.fills}`);
     body.push(`     now:   ${s.detail}`);
@@ -88,7 +88,7 @@ function slotRefusal(door: string, blocking: SlotState[]): string {
 }
 
 /**
- * S12's vocabulary gate.
+ * coverage's vocabulary gate.
  *
  * "complete", "exhaustive", "fully mapped" are not adjectives here, they are claims
  * about coverage — and Neuromancer's documentation makes exactly that claim at roughly

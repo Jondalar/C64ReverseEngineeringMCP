@@ -94,7 +94,7 @@ export function isReleaseRole(role: string | undefined): boolean {
  * every phrasing: `agent_record_step` is how a session persists what it learned, and a
  * gate that eats those records destroys the thing the contract wants.
  *
- * The completeness vocabulary comes from 844 S12 rather than a second list, because
+ * The completeness vocabulary comes from 844 coverage rather than a second list, because
  * "fully mapped" is the same claim whether it lands in a finding or in a step.
  */
 const PHASE_TOKEN = /\bphases?\s*[1-7]?\b/i;

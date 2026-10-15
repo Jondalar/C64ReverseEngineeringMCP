@@ -36,8 +36,9 @@ import { contextForOwner } from "./machine.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { BRANCHES, effects, indexRegister, type Loc } from "../isa-6502.js";
 import { ownerFromAnalysisPath } from "./control-flow.js";
+import { SIGNATURE_PRODUCER_ID } from "../producer-ids.js";
 
-export const SIGNATURE_PRODUCER = "826";
+export const SIGNATURE_PRODUCER = SIGNATURE_PRODUCER_ID;
 export const SIGNATURE_VERSION = 1;
 
 // ------------------------------------------------------------------ shapes
@@ -298,7 +299,7 @@ function loadOwner(store: GraphStore, analysisPath: string, options: SeedSignatu
 
   const routineIds = new Map<number, string>();
   const nodeAt = new Map<number, string>();
-  const rows = store.db.prepare("SELECT id, kind, address, attrs FROM nodes WHERE layer = 'generated' AND run_owner = ? AND producer = '819' AND kind IN ('routine', 'label') ORDER BY kind DESC, address").all(owner) as Array<{ id: string; kind: string; address: number; attrs: string }>;
+  const rows = store.db.prepare("SELECT id, kind, address, attrs FROM nodes WHERE layer = 'generated' AND run_owner = ? AND producer = 'control-flow' AND kind IN ('routine', 'label') ORDER BY kind DESC, address").all(owner) as Array<{ id: string; kind: string; address: number; attrs: string }>;
   for (const r of rows) {
     if (r.kind === "routine") {
       const attrs = JSON.parse(r.attrs) as { undecoded?: boolean };
@@ -325,7 +326,7 @@ function loadOwner(store: GraphStore, analysisPath: string, options: SeedSignatu
   // D3: who writes into operand bytes — 820's WRITES rows, plus the direct stores of the stream (820 may not have run)
   const patchedOps = new Set<number>();
   const extraDefs = new Map<number, string[]>();
-  const writes = store.db.prepare("SELECT to_id, evidence FROM edges WHERE layer = 'generated' AND type = 'WRITES' AND owner = ? AND producer = '820'").all(owner) as Array<{ to_id: string; evidence: string }>;
+  const writes = store.db.prepare("SELECT to_id, evidence FROM edges WHERE layer = 'generated' AND type = 'WRITES' AND owner = ? AND producer = 'memory-access'").all(owner) as Array<{ to_id: string; evidence: string }>;
   for (const w of writes) {
     const ev = JSON.parse(w.evidence) as { source_address?: number; indexed?: boolean; via_zp?: number };
     if (ev.indexed === true && ev.via_zp === undefined) continue;
@@ -346,7 +347,7 @@ function loadOwner(store: GraphStore, analysisPath: string, options: SeedSignatu
   }
 
   const callEdgeTo = new Map<string, string>();
-  const calls = store.db.prepare("SELECT from_id, type, to_id, evidence_key FROM edges WHERE layer = 'generated' AND owner = ? AND producer = '819' AND type IN ('CALLS', 'CALLS_ROM') ORDER BY type").all(owner) as Array<{ from_id: string; type: string; to_id: string; evidence_key: string }>;
+  const calls = store.db.prepare("SELECT from_id, type, to_id, evidence_key FROM edges WHERE layer = 'generated' AND owner = ? AND producer = 'control-flow' AND type IN ('CALLS', 'CALLS_ROM') ORDER BY type").all(owner) as Array<{ from_id: string; type: string; to_id: string; evidence_key: string }>;
   for (const c of calls) { const k = `${c.from_id}|${c.evidence_key}`; if (!callEdgeTo.has(k)) callEdgeTo.set(k, c.to_id); } // CALLS before CALLS_ROM
 
   return { owner, ctx, slug, tag, instructions, inImage, leaders, routineIds, operandOwner, patchedOps, extraDefs, callEdgeTo, nodeAt, blockCache: new Map() };

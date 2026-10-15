@@ -18,8 +18,9 @@
 
 import { writeTx } from "../write-tx.js";
 import { GraphStore } from "../store.js";
+import { SIGNATURE_RESOLVE_PRODUCER } from "../producer-ids.js";
 
-export const RESOLVE_PRODUCER = "826r";
+export const RESOLVE_PRODUCER = SIGNATURE_RESOLVE_PRODUCER;
 
 export interface ResolveResult {
   addrNodes: number;

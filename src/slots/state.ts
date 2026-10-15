@@ -6,12 +6,12 @@
 //
 // Two ways a slot fills, and both count:
 //
-//   EXPLICIT — a finding or entity tagged `slot:S3`. Always available, for every slot.
-//   DERIVED  — the project's own records already answer it (S2 from registered media,
-//              S3 from ordered loader-stage entities, S12 from address coverage). A
+//   EXPLICIT — a finding or entity tagged `slot:boot-chain`. Always available, for every slot.
+//   DERIVED  — the project's own records already answer it (medium from registered media,
+//              boot-chain from ordered loader-stage entities, coverage from address coverage). A
 //              derived fill needs no ceremony: doing the work IS filling the slot.
 //
-// S11 is the one slot with a third state on purpose. A claim without a run behind it
+// free-ram is the one slot with a third state on purpose. A claim without a run behind it
 // fills it only as `hypothesis` — enough to be visible, not enough to open the doors that
 // allocate. A run never proves "unused": it shows what was written, and read-only data
 // survives a canary. "Free" is established by reading (no reader, no writer in the
@@ -20,18 +20,18 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SlotDef, SlotId } from "./schema.js";
-import { SLOTS } from "./schema.js";
+import { SLOTS, slotOfTag } from "./schema.js";
 import { formatScope, identityOf } from "../contract/scope.js";
 import { payloadBodySize } from "../project-knowledge/artifact-header.js";
 
 export type SlotStatus =
   /** Answered, by a record or by the project's own data. */
   | "filled"
-  /** Claimed, but not by an instrument that settles it (S11 read-derived). */
+  /** Claimed, but not by an instrument that settles it (free-ram read-derived). */
   | "hypothesis"
   /** Required here and unanswered. */
   | "empty"
-  /** Its condition does not hold — e.g. S6 in a one-runtime game. */
+  /** Its condition does not hold — e.g. runtime-linkage in a one-runtime game. */
   | "n/a";
 
 export interface SlotState {
@@ -160,7 +160,6 @@ export interface CoverageReport {
   duplicates: number;
 }
 
-const SLOT_TAG = /^slot:(S\d{1,2})$/i;
 
 /** What COUNTS as bytes of the game. A generated .asm is an output, not a payload;
  *  counting it would both double-count and measure text. */
@@ -197,7 +196,7 @@ function coverageThreshold(contractRatio?: number): number {
 /**
  * Does this node's extent ACCOUNT for its bytes?
  *
- * S12 asks how many bytes are accounted for. It used to count every range the
+ * coverage asks how many bytes are accounted for. It used to count every range the
  * graph held, and an autonomous run found what that rewards: it emitted
  * `unknown` segments named `unnamed_XXXX` over ranges it had ALREADY named as
  * routines — the loader among them — because a placeholder with an extent moved
@@ -298,18 +297,18 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const note = (id: SlotId, what: string) => tagged.set(id, [...(tagged.get(id) ?? []), what]);
   for (const f of findings) {
     for (const t of f.tags ?? []) {
-      const m = SLOT_TAG.exec(t);
-      if (m) note(m[1].toUpperCase() as SlotId, `finding "${f.title}"`);
+      const id = slotOfTag(t);
+      if (id) note(id, `finding "${f.title}"`);
     }
   }
   for (const e of entities) {
     for (const t of e.tags ?? []) {
-      const m = SLOT_TAG.exec(t);
-      if (m) note(m[1].toUpperCase() as SlotId, `entity "${e.name}"`);
+      const id = slotOfTag(t);
+      if (id) note(id, `entity "${e.name}"`);
     }
   }
 
-  // ---- coverage (S12) -------------------------------------------------------
+  // ---- coverage -------------------------------------------------------
   //
   // The first cut of this was wrong in two ways and a run against Ultima VI's real
   // project showed both inside a second. It summed the fileSize of ALL 321 registered
@@ -321,14 +320,14 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   // So: coverage is computed PER OWNER, the way the bytes actually lie. An owner is a
   // loadable file's stem, which is exactly what the graph already carries on its nodes.
   // The denominator is every non-internal loadable artifact, INCLUDING the ones nobody
-  // has looked at yet — S12 asks how many of the bytes present are accounted for, and an
+  // has looked at yet — coverage asks how many of the bytes present are accounted for, and an
   // unanalysed file is present.
   // Two lists, deliberately. COVERAGE may only count what can be measured, but the
-  // MEDIUM questions (S2's derived fill, S10's and S15's applicability) ask whether a
+  // MEDIUM questions (medium's derived fill, save-model's and writable-space's applicability) ask whether a
   // disk exists at all — and a .d64 is not a measurable kind. Deriving both from the
   // measurable list meant `media` could only ever hold prg/raw: on a disk-only project
-  // S2 never filled from its own registered images and S10 was permanently n/a, i.e.
-  // the save model went unasked on every game that has one. Found by S15's gate case,
+  // medium never filled from its own registered images and save-model was permanently n/a, i.e.
+  // the save model went unasked on every game that has one. Found by writable-space's gate case,
   // which is the first one whose fixture registers a d64 rather than a prg.
   const visible = rec.listArtifacts().filter((a) => !a.internal);
   const artifacts = visible.filter((a) => MEASURABLE_KINDS.has(a.kind));
@@ -551,11 +550,11 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const loaderStages = entities.filter((e) => e.kind === "loader-stage");
   const payloads = entities.filter((e) => e.kind === "payload");
   const refutations = findings.filter((f) => f.kind === "refutation");
-  // Every S5 claim, newest first (listFindings orders by updated_at DESC), and a
+  // Every runtime-count claim, newest first (listFindings orders by updated_at DESC), and a
   // claim that carries the count as a FIELD wins over one that only says it in
-  // prose — re-recording S5 with a number must settle it, which was the second
+  // prose — re-recording runtime-count with a number must settle it, which was the second
   // half of the reported defect.
-  const runtimeClaims = findings.filter((f) => (f.tags ?? []).some((t) => /^slot:S5$/i.test(t)));
+  const runtimeClaims = findings.filter((f) => (f.tags ?? []).some((t) => slotOfTag(t) === "runtime-count"));
   const runtimeClaim = runtimeClaims.find((f) => taggedRuntimeCount(f.tags) !== undefined) ?? runtimeClaims[0];
   const runtimeCount = runtimeClaim
     ? taggedRuntimeCount(runtimeClaim.tags)
@@ -563,69 +562,69 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     : undefined;
 
   const derived = new Map<SlotId, string>();
-  if (media.length > 0) derived.set("S2", `${media.length} media artifact(s) registered`);
-  if (loaderStages.length >= 2) derived.set("S3", `${loaderStages.length} loader-stage entities`);
-  // S4 is deliberately NOT derived from the payload entities that exist. It gates
+  if (media.length > 0) derived.set("medium", `${media.length} media artifact(s) registered`);
+  if (loaderStages.length >= 2) derived.set("boot-chain", `${loaderStages.length} loader-stage entities`);
+  // data-geometry is deliberately NOT derived from the payload entities that exist. It gates
   // `register_payload`, and deriving it from the payloads that call produces would let
   // the door feed itself: first registration fills the slot that was meant to precede
   // it. The geometry — where payloads sit, how they are addressed, how each is packed —
   // is read off the directory / LUT BEFORE anything is registered, so it is an explicit
   // claim or it is nothing.
-  if (refutations.length > 0) derived.set("S14", `${refutations.length} refutation finding(s) kept`);
+  if (refutations.length > 0) derived.set("refutations", `${refutations.length} refutation finding(s) kept`);
   if (coverage.total > 0 && coverage.ratio >= threshold) {
-    derived.set("S12", `${(coverage.ratio * 100).toFixed(1)} % of ${coverage.total} bytes covered`);
+    derived.set("coverage", `${(coverage.ratio * 100).toFixed(1)} % of ${coverage.total} bytes covered`);
   }
-  // S6 is answered by a relation that names the handover, as well as by a tagged claim.
+  // runtime-linkage is answered by a relation that names the handover, as well as by a tagged claim.
   // RelationRecord carries no tags, so the link is made the other way round: a finding
-  // tagged slot:S6 references the relation, which is the explicit path below.
+  // tagged slot:runtime-linkage references the relation, which is the explicit path below.
   void relations;
 
   // ---- conditions -----------------------------------------------------------
   // A conditional slot is n/a until its trigger is ANSWERED. That ordering matters:
-  // an unanswered S5 must not make S6 look satisfied.
+  // an unanswered runtime-count must not make runtime-linkage look satisfied.
   const applies = (s: SlotDef): { applies: boolean; why: string } => {
     if (s.required === "always") return { applies: true, why: "" };
     switch (s.id) {
-      case "S6":
+      case "runtime-linkage":
         // Two different states, and printing one message for both made the report
-        // contradict itself: "✓ S5 Runtime count" three lines above "S5 has not stated
-        // a runtime count yet". S5 WAS answered — "One resident image per phase, five
+        // contradict itself: "✓ runtime-count Runtime count" three lines above "runtime-count has not stated
+        // a runtime count yet". runtime-count WAS answered — "One resident image per phase, five
         // in all" — and the answer simply carries no parseable number, which is a
         // different problem with a different fix.
         if (runtimeCount === undefined) {
           return {
             applies: false,
             why: runtimeClaim
-              ? `S5 is answered but no count can be read from its wording ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — record the number as a FIELD rather than a sentence: slot_record(slot="S5", count=N, …). S6 then becomes required or n/a by arithmetic instead of by regex`
-              : "S5 has not stated a runtime count yet",
+              ? `runtime-count is answered but no count can be read from its wording ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — record the number as a FIELD rather than a sentence: slot_record(slot="runtime-count", count=N, …). runtime-linkage then becomes required or n/a by arithmetic instead of by regex`
+              : "runtime-count has not stated a runtime count yet",
           };
         }
         return runtimeCount > 1
-          ? { applies: true, why: `S5 states ${runtimeCount} runtimes` }
-          : { applies: false, why: `S5 states ${runtimeCount} runtime` };
-      case "S7":
+          ? { applies: true, why: `runtime-count states ${runtimeCount} runtimes` }
+          : { applies: false, why: `runtime-count states ${runtimeCount} runtime` };
+      case "engine-presence":
         return payloads.length > 1
           ? { applies: true, why: `${payloads.length} payloads reload structurally` }
-          : { applies: false, why: "no structured reloading claimed yet (S4)" };
-      case "S8":
-      case "S9": {
-        const engine = tagged.has("S7");
+          : { applies: false, why: "no structured reloading claimed yet (data-geometry)" };
+      case "engine-architecture":
+      case "modules": {
+        const engine = tagged.has("engine-presence");
         return engine
-          ? { applies: true, why: "S7 claims an engine" }
-          : { applies: false, why: "S7 has not claimed an engine" };
+          ? { applies: true, why: "engine-presence claims an engine" }
+          : { applies: false, why: "engine-presence has not claimed an engine" };
       }
-      case "S10":
+      case "save-model":
         return media.length > 0
           ? { applies: true, why: "a medium exists to save to" }
-          : { applies: false, why: "no medium registered (S2)" };
-      case "S15":
-        // Same trigger as S10 and a different reason: S10 asks where the GAME writes,
-        // S15 where WE may. It applies from the moment a medium is registered rather
+          : { applies: false, why: "no medium registered (medium)" };
+      case "writable-space":
+        // Same trigger as save-model and a different reason: save-model asks where the GAME writes,
+        // writable-space where WE may. It applies from the moment a medium is registered rather
         // than from the moment someone patches one, because by then the answer is
         // needed and finding it means walking every chain on the disk (issue #24).
         return media.length > 0
           ? { applies: true, why: "a medium exists that something could write to" }
-          : { applies: false, why: "no medium registered (S2)" };
+          : { applies: false, why: "no medium registered (medium)" };
       default:
         return { applies: true, why: "" };
     }
@@ -641,31 +640,31 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
 
     const explicit = tagged.get(slot.id);
     if (explicit && explicit.length > 0) {
-      // S11's method marker is the one place where a claim is not automatically an answer.
-      if (slot.id === "S11") {
+      // free-ram's method marker is the one place where a claim is not automatically an answer.
+      if (slot.id === "free-ram") {
         const byRun = findings.some((f) =>
-          (f.tags ?? []).some((t) => /^slot:S11$/i.test(t)) && (f.tags ?? []).some((t) => /^method:run$/i.test(t)));
+          (f.tags ?? []).some((t) => slotOfTag(t) === "free-ram") && (f.tags ?? []).some((t) => /^method:run$/i.test(t)));
         return byRun
           ? { slot, status: "filled", detail: `${explicit[0]}, a run saw no write (reads are not checked by a run)` }
           : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — no run has watched the range for writes` };
       }
-      // S15 is S11's twin one level out, and for the same reason: the claim is only
+      // writable-space is free-ram's twin one level out, and for the same reason: the claim is only
       // worth as much as the instrument behind it. A free list read off the BAM is a
       // hypothesis on any medium and a falsehood on a track/sector-addressed one, so
       // only a walk of the chains settles it.
-      if (slot.id === "S15") {
+      if (slot.id === "writable-space") {
         const byChains = findings.some((f) =>
-          (f.tags ?? []).some((t) => /^slot:S15$/i.test(t)) && (f.tags ?? []).some((t) => /^method:chains$/i.test(t)));
+          (f.tags ?? []).some((t) => slotOfTag(t) === "writable-space") && (f.tags ?? []).some((t) => /^method:chains$/i.test(t)));
         return byChains
           ? { slot, status: "filled", detail: `${explicit[0]}, established by walking the chains` }
           : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy` };
       }
-      // S5 says what the list actually READ out of it. The count decides whether
+      // runtime-count says what the list actually READ out of it. The count decides whether
       // four other slots apply, and it used to be invisible: a claim that parsed
       // as nothing looked identical to one that parsed as five.
-      if (slot.id === "S5") {
+      if (slot.id === "runtime-count") {
         const how = runtimeCount === undefined
-          ? "no count could be read — pass count=N to slot_record so S6 is decided by arithmetic"
+          ? "no count could be read — pass count=N to slot_record so runtime-linkage is decided by arithmetic"
           : taggedRuntimeCount(runtimeClaim?.tags) !== undefined
             ? `count ${runtimeCount} (recorded as a field)`
             : `count ${runtimeCount} (read from the wording)`;
@@ -677,7 +676,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const d = derived.get(slot.id);
     if (d) return { slot, status: "filled", detail: d };
 
-    if (slot.id === "S12") {
+    if (slot.id === "coverage") {
       return {
         slot, status: "empty",
         detail: coverage.total === 0
@@ -719,9 +718,9 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 
 /**
- * The count S5 states, taken from the RECORD when it is there.
+ * The count runtime-count states, taken from the RECORD when it is there.
  *
- * `slot_record(slot: "S5", count: N)` writes `count:N`. That is the answer to
+ * `slot_record(slot: "runtime-count", count: N)` writes `count:N`. That is the answer to
  * "parse the answer properly or stop gating on prose": the number stops being a
  * thing a regex has to find in a sentence.
  */
@@ -737,13 +736,13 @@ function taggedRuntimeCount(tags: readonly string[] | undefined): number | undef
  * The count a sentence states, when no field carries one.
  *
  * The first cut demanded the number IMMEDIATELY before the word "runtime", so
- * both of these were unreadable and S6 through S9 stayed permanently n/a:
+ * both of these were unreadable and runtime-linkage through modules stayed permanently n/a:
  *
  *   "Two permanently resident images and twelve swappable windows"
  *   "4 resident runtimes and 14 swappable windows"
  *
  * — the first says nothing about "runtimes" at all and the second puts a word
- * between the number and the noun. A resident IMAGE is what S5 asks about; it
+ * between the number and the noun. A resident IMAGE is what runtime-count asks about; it
  * says so in its own question. So the noun set is the question's and up to three
  * words may sit in between.
  *
@@ -788,7 +787,7 @@ export function formatNamed(r: SlotReport): string[] {
 export function formatSlotReport(r: SlotReport): string {
   const mark = (s: SlotStatus) => s === "filled" ? "✓" : s === "hypothesis" ? "~" : s === "n/a" ? "·" : "✗";
   const lines = r.states.map((s) =>
-    `${mark(s.status)} ${s.slot.id.padEnd(3)} ${s.slot.name.padEnd(20)} ${s.detail}`);
+    `${mark(s.status)} ${s.slot.id.padEnd(19)} ${s.detail}`);
   const req = r.states.filter((s) => s.status !== "n/a").length;
   const done = r.states.filter((s) => s.status === "filled").length;
   const na = r.states.length - req;

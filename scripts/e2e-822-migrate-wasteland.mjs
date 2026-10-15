@@ -166,13 +166,13 @@ let db = store.db;
 const q1 = (sql, ...p) => Number(db.prepare(sql).get(...p).n);
 const G = m1.graph;
 eq(G.generatedNodes822, 4989, "generated nodes from the JSON (4,612 analysis + 377 manifest/inventory)");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='addr'"), 363, "shared addr nodes (RAM behaviour, 363 addresses)");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='knowledge-import' AND kind='addr'"), 363, "shared addr nodes (RAM behaviour, 363 addresses)");
 eq(m1.nodesByKind.entry, 2684, "entry nodes under their owners (8,176 entry-point entities)");
 eq(m1.nodesByKind.segment, 1565, "segment nodes under their owners (9,208 segment entities)");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='chip'"), 128, "chip nodes (256 chips over 2 extracts of ONE cart image → 128 crt/<cart>/<bank> nodes; Spec 909: the cartridge is the image, not the extract)");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='bank'"), 64, "bank nodes");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind='payload'"), 185, "payload nodes (183 area assets + 4 disk files → 2: prodos, 2.0 twice each)");
-eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='822' AND kind IN ('routine','label')"), 0, "822 never writes generated routine/label rows (819's ids)");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='knowledge-import' AND kind='chip'"), 128, "chip nodes (256 chips over 2 extracts of ONE cart image → 128 crt/<cart>/<bank> nodes; Spec 909: the cartridge is the image, not the extract)");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='knowledge-import' AND kind='bank'"), 64, "bank nodes");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='knowledge-import' AND kind='payload'"), 185, "payload nodes (183 area assets + 4 disk files → 2: prodos, 2.0 twice each)");
+eq(q1("SELECT COUNT(*) AS n FROM nodes WHERE layer='generated' AND producer='knowledge-import' AND kind IN ('routine','label')"), 0, "822 never writes generated routine/label rows (819's ids)");
 eq(G.claims, 1189, "claims from analysis-import findings (363 behaves_like + 824 segment_kind + 2 display_transfer)");
 eq(q1("SELECT COUNT(*) AS n FROM evidence WHERE target_table='claims'"), 9421, "evidence rows under claims (one per analysis-import finding)");
 eq(q1("SELECT COUNT(*) AS n FROM evidence WHERE target_table='nodes'"), 22843, "evidence rows under nodes (one per entity that became a node)");
@@ -212,7 +212,7 @@ eq(e31.length, 58, "$0031: evidence rows");
 const newest = e31[0] ? JSON.parse(e31[0].attrs) : {};
 check(c31[0] && c31[0].value === newest.value && c31[0].score === newest.score && c31[0].updated_at === e31[0].captured_at, `$0031: the claim carries the NEWEST run's value/score (${newest.value} ${newest.score} @ ${e31[0]?.captured_at})`);
 check(c31[0] && db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'generated'").get(a31), "$0031: the shared addr node exists");
-const hexKeys = db.prepare("SELECT id FROM nodes WHERE producer = '822'").all().filter((r) => !/^[a-z0-9\-]+:((ram|drv)(\/[a-z0-9_.\-]+)?|crt\/[a-z0-9][a-z0-9\-]{0,23}\/[0-9a-f]{2,4}):[a-z_]+:[0-9a-f]{4}$/.test(r.id) && !/^[a-z0-9\-]+:sub:/.test(r.id));
+const hexKeys = db.prepare("SELECT id FROM nodes WHERE producer = 'knowledge-import'").all().filter((r) => !/^[a-z0-9\-]+:((ram|drv)(\/[a-z0-9_.\-]+)?|crt\/[a-z0-9][a-z0-9\-]{0,23}\/[0-9a-f]{2,4}):[a-z_]+:[0-9a-f]{4}$/.test(r.id) && !/^[a-z0-9\-]+:sub:/.test(r.id));
 eq(hexKeys.length, 0, "every 822 id obeys the 818 grammar");
 store.close();
 
@@ -245,7 +245,7 @@ if (!analysisPath) {
   check(humanLayerHash(store.db) === hashHumanA, "human layer hash equal after the 819 re-seed of one artifact (D2)");
   const g = new Graph(store, undefined);
   // a routine the files named AND 819 discovered — both layers at one id
-  const both = store.db.prepare("SELECT n.id, n.name FROM nodes n WHERE n.layer='human' AND n.kind='routine' AND n.owner=? AND EXISTS (SELECT 1 FROM nodes g WHERE g.id=n.id AND g.layer='generated' AND g.producer='819') ORDER BY n.address LIMIT 1").get(OWNER);
+  const both = store.db.prepare("SELECT n.id, n.name FROM nodes n WHERE n.layer='human' AND n.kind='routine' AND n.owner=? AND EXISTS (SELECT 1 FROM nodes g WHERE g.id=n.id AND g.layer='generated' AND g.producer='control-flow') ORDER BY n.address LIMIT 1").get(OWNER);
   check(both, `a routine both the annotation file and 819 know: ${both?.id} (${both?.name})`);
   if (both) {
     const merged = g.resolve(both.id);
@@ -273,7 +273,7 @@ if (!analysisPath) {
   check(after.name === "renamed_through_the_door" && after.layers.includes("generated") && !after.orphaned, "the rename survives the re-seed; the generated row beneath it is back");
   const ann = annotations(g2, target);
   check(ann.annotations.some((a) => a.kind === "routine" && a.body === "renamed in the 822 gate" && a.producer === "human"), "the door's comment is a routine annotation with producer human");
-  check(!store.db.prepare("SELECT 1 FROM nodes WHERE layer='human' AND producer IN ('819','820','821')").get(), "no human row carries a producer 819/820/821");
+  check(!store.db.prepare("SELECT 1 FROM nodes WHERE layer='human' AND producer IN ('control-flow','memory-access','runtime-trace')").get(), "no human row carries a producer 819/820/821");
   store.close();
 }
 

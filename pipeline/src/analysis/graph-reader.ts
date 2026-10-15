@@ -120,11 +120,11 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
   try {
     const rows = db
       .prepare(
-        "SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND producer = '820' AND owner = ? AND type IN ('READS','WRITES','READS_INDIRECT','WRITES_INDIRECT') ORDER BY from_id, type, to_id, evidence_key",
+        "SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND producer IN ('memory-access', '820') AND owner = ? AND type IN ('READS','WRITES','READS_INDIRECT','WRITES_INDIRECT') ORDER BY from_id, type, to_id, evidence_key",
       )
       .all(owner) as Array<{ type: AccessEdgeType; to_id: string; evidence: string }>;
     if (rows.length === 0) {
-      const owners = (db.prepare("SELECT DISTINCT owner FROM edges WHERE producer = '820' ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
+      const owners = (db.prepare("SELECT DISTINCT owner FROM edges WHERE producer IN ('memory-access', '820') ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
       return { status: "absent", owner, path, reason: `${path} holds no access rows for owner "${owner}" (${describeSeededOwners(owners, owner)}) — c64re graph seed --owner ${owner}` };
     }
     const edges: AccessEdge[] = [];

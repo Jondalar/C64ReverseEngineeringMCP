@@ -36,8 +36,9 @@ import { derivePlatformId, deriveProjectId, deriveSubsystemId, IdRuleError, plat
 import { describeCartridge, readCartridges } from "../cartridges.js";
 import { readCaptureMount } from "../../trace/capture-mount.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
+import { RUNTIME_TRACE_PRODUCER } from "../producer-ids.js";
 
-export const RUNTIME_PRODUCER = "821";
+export const RUNTIME_PRODUCER = RUNTIME_TRACE_PRODUCER;
 const ORIGIN = "runtime" as const;
 const CONFIDENCE = "observed" as const;
 /** Edge types this producer writes. READS, WRITES, USES_ZP, USES_HARDWARE and CALLS are 819/820's types with a different origin. */

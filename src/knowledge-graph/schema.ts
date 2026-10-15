@@ -14,7 +14,9 @@
 export const GRAPH_SCHEMA_VERSION = 2;
 
 /** `meta.cart_grammar`: this graph speaks `crt/<cart>/<bank>`. A graph created now carries it from birth; an older one gets it from the migration. */
-export const CART_GRAMMAR_STAMP = "909";
+export const CART_GRAMMAR_STAMP = "cartridge-ids";
+/** The value earlier releases stamped. Read, never written: such a graph counts as stamped, and the producer-id migration rewrites it. */
+export const LEGACY_CART_GRAMMAR_STAMP = "909";
 
 /**
  * The cartridge token out of a node id, as a virtual column: `<slug>:crt/<cart>/<bank>:...` and

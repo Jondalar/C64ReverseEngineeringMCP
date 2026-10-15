@@ -129,7 +129,7 @@ export async function contractPromises(
     });
   }
 
-  // Coverage is stated in two places — the contract and S12's threshold — and they are the
+  // Coverage is stated in two places — the contract and coverage's threshold — and they are the
   // same number: `slotReport` reads the contract for it. So it is a promise only when the
   // human actually wrote one down; otherwise it stays the default the critic has always
   // applied, and `critic/run.ts` keeps printing that one itself.
@@ -298,20 +298,20 @@ export async function contractPromises(
   }
 
   // An owed slot is a promise like the rest: the contract lists the slots a project owes
-  // (or the default set does), so the critique's "slot S11 …" blocker must be something a
+  // (or the default set does), so the critique's "slot free-ram …" blocker must be something a
   // waiver can name, by the slot id. Before this the critique built these blockers from
   // `slots.missing` on its own and `contract_set waive` could not see them.
   for (const m of slots.missing) {
     out.push({
       id: m.slot.id,
       kind: "slot",
-      asks: `slot ${m.slot.id} ${m.slot.name} is answered — ${m.slot.fills}`,
+      asks: `slot ${m.slot.id} is answered — ${m.slot.fills}`,
       askedValue: "answered",
       now: m.detail,
       clearBy: m.status === "hypothesis"
         ? `confirm it with an instrument that settles it (a run), then \`slot_record\` slot="${m.slot.id}"`
         : `\`slot_record\` slot="${m.slot.id}" — ${m.slot.fills}`,
-      blocker: `slot ${m.slot.id} ${m.slot.name}: ${m.detail}`,
+      blocker: `slot ${m.slot.id}: ${m.detail}`,
     });
   }
 

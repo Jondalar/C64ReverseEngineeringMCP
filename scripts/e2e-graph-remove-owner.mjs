@@ -135,7 +135,7 @@ for (const stem of ["keep", "draft1"]) {
   check(/Graph: imported/u.test(out), `${stem}: disasm imported its annotations`, out.split("\n").find((l) => l.startsWith("Graph:")));
 }
 check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND run_owner = 'draft1'") > 0, "draft1 has generated rows (the analysis seeded it)");
-check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND owner = 'draft1' AND producer = '822'") > 0, "draft1 has imported human rows (its annotations file)");
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND owner = 'draft1' AND producer = 'knowledge-import'") > 0, "draft1 has imported human rows (its annotations file)");
 const sharedAddr = q("SELECT id FROM nodes WHERE layer = 'generated' AND kind = 'addr' AND address = 12288")[0]?.id;
 const draftOnlyAddr = q("SELECT id FROM nodes WHERE layer = 'generated' AND kind = 'addr' AND address = 16384")[0]?.id;
 check(sharedAddr !== undefined && n("SELECT COUNT(*) AS n FROM edges WHERE to_id = ? AND owner = 'keep'", sharedAddr) > 0 && n("SELECT COUNT(*) AS n FROM edges WHERE to_id = ? AND owner = 'draft1'", sharedAddr) > 0,
@@ -171,7 +171,7 @@ check(fullDump() === before0, "…and the refusal changed nothing");
 // ── 2 dry run == real run ───────────────────────────────────────────────────
 const dry = jsonBlock(await call("graph_remove_owner", { project_dir: proj, owner: "draft1", dry_run: true }));
 check(fullDump() === before0, "dry_run deleted nothing (whole graph dumps identically)");
-check(dry?.dryRun === true && dry.total > 0 && (dry.removed.nodes["generated/819"] ?? 0) > 0 && (dry.removed.nodes["human/822"] ?? 0) > 0,
+check(dry?.dryRun === true && dry.total > 0 && (dry.removed.nodes["generated/control-flow"] ?? 0) > 0 && (dry.removed.nodes["human/knowledge-import"] ?? 0) > 0,
   "dry_run counts generated and imported human rows", JSON.stringify(dry?.removed.nodes));
 const realText = await call("graph_remove_owner", { project_dir: proj, owner: "draft1" });
 const real = jsonBlock(realText);
@@ -206,7 +206,7 @@ check(n("SELECT COUNT(*) AS n FROM nodes WHERE run_owner = 'draft1'") === 0 && n
 // ── 7 a later disasm imports fresh ──────────────────────────────────────────
 const again = await call("disasm_prg", { project_dir: proj, prg_path: "artifacts/prg/draft1.prg" });
 check(/Graph: imported 2 routines, 1 labels, 1 segments/u.test(again), "a later disasm of the same stem imports fresh", again.split("\n").find((l) => l.startsWith("Graph:")));
-check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND producer = '822' AND owner = 'draft1'") > 0, "draft1's imported rows are back");
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND producer = 'knowledge-import' AND owner = 'draft1'") > 0, "draft1's imported rows are back");
 check(n("SELECT COUNT(*) AS n FROM meta WHERE key = 'owner_removed.draft1'") === 0, "importing it by name cleared the removal marker");
 
 // ── 8 the preview leaves the graph alone ────────────────────────────────────

@@ -79,12 +79,12 @@ ok("row count printed (OQ1 measured)", totalRows > 0, `${totalRows} rows for ${r
 
 const graph = Graph.open(project);
 const db = graph.store.db;
-const bad = Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='821' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')").get().n);
+const bad = Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer='runtime-trace' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')").get().n);
 ok("invariant: every 821 row is runtime · observed · generated", bad === 0, `${bad} violations`);
 
 // every runtime edge's from is a routine or an addr node (nothing dropped), and a pc no routine
 // contains is exactly the addr-node case
-const froms = db.prepare("SELECT DISTINCT from_id FROM edges WHERE producer='821' AND type IN ('READS','WRITES')").all().map((x) => x.from_id);
+const froms = db.prepare("SELECT DISTINCT from_id FROM edges WHERE producer='runtime-trace' AND type IN ('READS','WRITES')").all().map((x) => x.from_id);
 const unresolved = froms.filter((id) => { const n = graph.resolve(id); return n.dangling || (n.kind !== "routine" && n.kind !== "addr"); });
 ok("every runtime access edge starts at a routine or an addr node", unresolved.length === 0, `${froms.length} sources, ${r.unattributedPcs} pcs outside any routine`);
 if (owner) ok("with routines seeded, most pcs resolve to a routine", r.unattributedPcs < r.distinctPcs / 2, `${r.unattributedPcs}/${r.distinctPcs} unattributed`);
@@ -97,7 +97,7 @@ console.log(`  info  unexplained(run): ${ux.length} rows ${JSON.stringify(byNote
 for (const o of ux.slice(0, 8)) console.log(`        ${o.type.padEnd(6)} pc=$${o.pc?.toString(16).toUpperCase().padStart(4, "0")} ea=$${o.ea?.toString(16).toUpperCase().padStart(4, "0")}${o.spanEnd ? `-$${o.spanEnd.toString(16).toUpperCase().padStart(4, "0")}` : ""} count=${o.count} ${o.note}`);
 
 // pointer targets on the busiest pointer pair collapse to few spans
-const busiest = db.prepare("SELECT json_extract(evidence,'$.via_zp') AS zp, COUNT(*) AS n FROM edges WHERE producer='821' AND type IN ('READS','WRITES') AND json_extract(evidence,'$.via_zp') IS NOT NULL GROUP BY zp ORDER BY n DESC LIMIT 1").get();
+const busiest = db.prepare("SELECT json_extract(evidence,'$.via_zp') AS zp, COUNT(*) AS n FROM edges WHERE producer='runtime-trace' AND type IN ('READS','WRITES') AND json_extract(evidence,'$.via_zp') IS NOT NULL GROUP BY zp ORDER BY n DESC LIMIT 1").get();
 if (busiest) {
   const pt = pointerTargets(graph, busiest.zp).find((p) => p.runId === r.runId);
   const spans = pt?.spans ?? [];

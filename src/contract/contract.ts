@@ -16,15 +16,16 @@
 // finding. It asks "I want to know whether and how it saves", which is an instruction.
 //
 // It may demand LESS than the default. Spec 844's slot list is a TEMPLATE, not a law: a
-// game with no save has no S10, and today that is decided by a condition I guessed at. If
+// game with no save has no save-model, and today that is decided by a condition I guessed at. If
 // the contract could only add, it would be my defaults with extra steps.
 //
 // It is also where the three numbers nobody had finally live — the coverage threshold
-// (844 S12), the runtime ratchet (844 D5) and the orphan ratio (846). They were global
+// (844 coverage), the runtime ratchet (844 D5) and the orphan ratio (846). They were global
 // defaults picked blind; 0.6 coverage was visibly wrong for Ultima VI on first contact.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { canonicalPromiseId } from "../slots/schema.js";
 
 export interface DocumentDemand {
   /** `$4300-$73FC`, or an artifact name — what a document must cover. */
@@ -48,7 +49,7 @@ export interface ProjectContract {
     slots?: string[];
     /** Bytes inside a HUMANLY named thing, as a fraction. Machine names do not count. */
     namedRatio?: number;
-    /** Bytes inside any known address range, as a fraction (844 S12). */
+    /** Bytes inside any known address range, as a fraction (844 coverage). */
     coverageRatio?: number;
     /** Payloads that must carry semantic annotations before this counts as done. */
     annotate?: string[];
@@ -86,6 +87,15 @@ export function loadContract(projectDir: string): { contract: ProjectContract; p
   if (!existsSync(p)) return { contract: DEFAULT_CONTRACT, present: false };
   try {
     const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<ProjectContract>;
+    // A contract written by an earlier release lists its slots under the ids it typed then. Rename them once, in the file.
+    const owed = raw.deliver?.slots;
+    if (Array.isArray(owed)) {
+      const renamed = owed.map((s) => canonicalPromiseId(String(s)));
+      if (renamed.some((s, i) => s !== owed[i])) {
+        raw.deliver = { ...raw.deliver, slots: renamed };
+        try { writeFileSync(p, JSON.stringify(raw, null, 2) + "\n"); } catch { /* read-only project: it is read renamed, just not rewritten */ }
+      }
+    }
     return {
       present: true,
       contract: {
@@ -123,7 +133,7 @@ export const KICKOFF_QUESTIONS: ReadonlyArray<{ field: string; ask: string; note
   {
     field: "deliver.slots",
     ask: "Which of the fifteen standard questions must be answered for THIS game?",
-    note: "The default is all of them. Drop the ones that cannot apply — a game with no save owes no S10.",
+    note: "The default is all of them. Drop the ones that cannot apply — a game with no save owes no save-model.",
   },
   {
     field: "deliver.annotate",

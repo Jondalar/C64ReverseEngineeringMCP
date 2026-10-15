@@ -40,7 +40,7 @@ An undeclared document is not a small omission. The contract can require a docum
 covering the loader; a file that describes the loader beautifully and declares nothing
 does not satisfy it, and the completion verdict is right to say so.
 
-**What refuses later.** S7, S9 and S10 gate `render_docs`. Those slots are about the
+**What refuses later.** engine-presence, modules and save-model gate `render_docs`. Those slots are about the
 game, not about this file — but a rendered document set that describes an unmapped game
 is exactly the Neuromancer failure: documentation saying EXHAUSTIVE at fifteen per cent
 coverage.

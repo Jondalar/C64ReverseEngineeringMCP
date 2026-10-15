@@ -6,14 +6,14 @@
 // empty slots, and an empty slot is a QUERY RESULT rather than something he has to
 // remember to ask from outside, every session.
 //
-// S1..S10 are his list, verbatim and in his order. S11..S14 came out of seven finished
+// context through save-model are his list, verbatim and in his order. free-ram through refutations came out of seven finished
 // projects — Accolade Comics, Brubaker, Fire King, Lykia, Wasteland, Neuromancer,
 // Ultima VI — read by isolated agents: the corpus failed on these four repeatedly and
 // never once wrote the failure down as a slot.
 //
-// S15 came out of issue #24 and is the first one the READING side did not produce. Every
+// writable-space came out of issue #24 and is the first one the READING side did not produce. Every
 // slot above it asks what the GAME does; none asked where a TOOL may put bytes. A session
-// answered S4 correctly for Crazy News — link chains, addressed by track/sector, the game
+// answered data-geometry correctly for Crazy News — link chains, addressed by track/sector, the game
 // never reads the BAM — then stepped outside the list to extend a chain, fell back on the
 // only convention that exists for "where is there room", and overwrote another asset's
 // chain head. The questions were right and the gap was between them.
@@ -22,8 +22,36 @@
 // the list exists, which is why §3 left it open until §4 was answered.
 
 export type SlotId =
-  | "S1" | "S2" | "S3" | "S4" | "S5" | "S6" | "S7"
-  | "S8" | "S9" | "S10" | "S11" | "S12" | "S13" | "S14" | "S15";
+  | "context" | "medium" | "boot-chain" | "data-geometry" | "runtime-count" | "runtime-linkage" | "engine-presence"
+  | "engine-architecture" | "modules" | "save-model" | "free-ram" | "coverage" | "evidence-standard" | "refutations" | "writable-space";
+
+/**
+ * The ids earlier releases wrote and users typed: S1..S15. Read on every input, never written.
+ * A stored tag, a contract list, a waiver and a tool argument all go through `canonicalSlotId`.
+ */
+export const LEGACY_SLOT_IDS: ReadonlyMap<string, SlotId> = new Map(
+  (["context", "medium", "boot-chain", "data-geometry", "runtime-count", "runtime-linkage", "engine-presence", "engine-architecture",
+    "modules", "save-model", "free-ram", "coverage", "evidence-standard", "refutations", "writable-space"] as SlotId[])
+    .map((id, i): [string, SlotId] => [`S${i + 1}`, id]),
+);
+
+export const SLOT_IDS: readonly SlotId[] = Array.from(new Set(LEGACY_SLOT_IDS.values()));
+
+/** Any spelling of a slot id (the descriptive id, or the S1..S15 of an earlier release, either case) -> the id, or undefined. */
+export function canonicalSlotId(raw: string | undefined | null): SlotId | undefined {
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim();
+  const legacy = LEGACY_SLOT_IDS.get(t.toUpperCase());
+  if (legacy) return legacy;
+  const lower = t.toLowerCase();
+  return (SLOT_IDS as readonly string[]).includes(lower) ? (lower as SlotId) : undefined;
+}
+
+/** `slot:<id>` in any spelling -> the slot it names. */
+export function slotOfTag(tag: string): SlotId | undefined {
+  const m = /^slot:(.+)$/iu.exec(tag.trim());
+  return m ? canonicalSlotId(m[1]) : undefined;
+}
 
 export interface SlotDef {
   id: SlotId;
@@ -47,21 +75,21 @@ export interface SlotDef {
 
 export const SLOTS: readonly SlotDef[] = [
   {
-    id: "S1", name: "Context",
+    id: "context", name: "Context",
     question: "What game is this — a c64-wiki (or equivalent) link, year, publisher, how many sides or what cartridge?",
     fills: "a finding or entity carrying the reference link and the release facts",
     required: "always", teeth: "report", doors: [],
     because: "One link is enough — he said so. Not one project in the corpus of seven ever recorded it.",
   },
   {
-    id: "S2", name: "Medium",
+    id: "medium", name: "Medium",
     question: "What is the media set, which image boots, and for G64 is the GCR standard or custom?",
     fills: "every image registered as an artifact; the boot medium marked",
     required: "always", teeth: "refuse", doors: ["extract_disk_custom_lut"],
     mediumShaped: true,
   },
   {
-    id: "S3", name: "Boot chain",
+    id: "boot-chain", name: "Boot chain",
     question: "Every boot stage named with its entry address, and what hands over to what.",
     fills: "loader-stage entities in order, each with an address, linked by relations",
     required: "always", teeth: "refuse",
@@ -70,7 +98,7 @@ export const SLOTS: readonly SlotDef[] = [
     because: "Disk = BAM + directory + KERNAL stub → stage 2; cart = cold-start vector → first resident. Different shape, same question.",
   },
   {
-    id: "S4", name: "Data geometry",
+    id: "data-geometry", name: "Data geometry",
     question: "Where do the payloads sit, how are they addressed, and how is each one packed?",
     fills: "payload entities with their addressing (track/sector, LUT row, chunk index) and a named packer per payload",
     required: "always", teeth: "refuse",
@@ -78,52 +106,52 @@ export const SLOTS: readonly SlotDef[] = [
     mediumShaped: true,
   },
   {
-    id: "S5", name: "Runtime count",
+    id: "runtime-count", name: "Runtime count",
     question: "How many resident images exist, and what address window does each occupy?",
     fills: "a finding stating the count, with one entity per runtime and its window",
     required: "always", teeth: "report", doors: [],
-    because: "One is an answer; so is nine. The count is what makes S6 and S7 applicable or not.",
+    because: "One is an answer; so is nine. The count is what makes runtime-linkage and engine-presence applicable or not.",
   },
   {
-    id: "S6", name: "Runtime linkage",
+    id: "runtime-linkage", name: "Runtime linkage",
     question: "With more than one runtime: who loads whom, over which shared RAM, at which handover address?",
     fills: "relations between the runtime entities, naming the handover address",
-    required: { when: "S5", note: "applies once more than one runtime is claimed" },
+    required: { when: "runtime-count", note: "applies once more than one runtime is claimed" },
     teeth: "refuse", doors: ["link_payload_to_asm"],
     because: "His own note: more than one runtime is itself the indicator that a loader exists.",
   },
   {
-    id: "S7", name: "Engine presence",
+    id: "engine-presence", name: "Engine presence",
     question: "Structured reloading without a per-level runtime — so where is the engine?",
     fills: "an engine entity at a named address, OR an explicit refutation of the rule for this game",
-    required: { when: "S4", note: "applies once payloads reload structurally and S5 shows no per-level runtime" },
+    required: { when: "data-geometry", note: "applies once payloads reload structurally and runtime-count shows no per-level runtime" },
     teeth: "refuse", doors: ["render_docs"],
     because: "His inference rule, made a slot: it may be answered either way, but it may not be silently skipped.",
   },
   {
-    id: "S8", name: "Engine architecture",
+    id: "engine-architecture", name: "Engine architecture",
     question: "The dispatcher, the main loop, the subsystem table — and any script or bytecode VM with its opcode set.",
     fills: "entities for the dispatcher and main loop; for a VM, its opcode count and table address",
-    required: { when: "S7", note: "applies once an engine is claimed to exist" },
+    required: { when: "engine-presence", note: "applies once an engine is claimed to exist" },
     teeth: "report", doors: [],
     because: "Where the corpus is sharpest: Accolade's SQ bytecode VM and Brubaker's $1D5C interpreter with 36 opcodes were each the finding that unlocked everything after them.",
   },
   {
-    id: "S9", name: "Modules",
+    id: "modules", name: "Modules",
     question: "Per module: id, load address, who loads it, who frees it, how long it lives.",
     fills: "one entity per module, each carrying BOTH a loader and a teardown — 'loaded' without 'freed' is half a slot and counts as empty",
-    required: { when: "S8", note: "applies once the engine is claimed to use modules" },
+    required: { when: "engine-architecture", note: "applies once the engine is claimed to use modules" },
     teeth: "refuse", doors: ["render_docs"],
   },
   {
-    id: "S10", name: "Save model",
+    id: "save-model", name: "Save model",
     question: "What does the game persist, of what types, how often, and to what place?",
     fills: "a finding naming the data, its cadence, and the track/sector or file it lands in",
-    required: { when: "S2", note: "applies unless the game is established not to save" },
+    required: { when: "medium", note: "applies unless the game is established not to save" },
     teeth: "refuse", doors: ["render_docs"],
   },
   {
-    id: "S11", name: "Free RAM",
+    id: "free-ram", name: "Free RAM",
     question: "Which RAM is actually free — and HOW was that established?",
     fills: "a memory-map finding tagged with its method: `method:run` (a canary run saw no write to the range; that is NOT proof it is unused, so the finding must also say what the listing was read for) or `method:read` (a hypothesis, and it stays one)",
     required: "always", teeth: "refuse",
@@ -131,33 +159,33 @@ export const SLOTS: readonly SlotDef[] = [
     because: "The single most repeated failure in the corpus: four projects claimed free RAM without checking, and were corrected. A run shows only what was WRITTEN during that run: read-only data survives a canary untouched. Free needs the reading too: no reader and no writer anywhere in the listing. A claim not backed by a run stays a HYPOTHESIS.",
   },
   {
-    id: "S12", name: "Coverage",
+    id: "coverage", name: "Coverage",
     question: "How many bytes are accounted for against how many are present?",
     fills: "nothing — it is COMPUTED, never asserted: bytes inside a range that says what they ARE (a classification, or a human name), against the bytes the project's loadable files hold. A range declared `unknown`, and a range carrying only a machine name, are counted and reported separately and are worth nothing here",
     required: "always", teeth: "report", doors: [],
     because: "Neuromancer's documentation says EXHAUSTIVE at roughly 15 %. The words complete / exhaustive / fully mapped are claims about THIS slot, and are refused while it is below threshold. It counts what is CLAIMED rather than what has an extent, because the first version rewarded the opposite: a run raised the number by painting `unknown` segments named `unnamed_XXXX` over ranges it had already named as routines, and reverted all 47.",
   },
   {
-    id: "S13", name: "Evidence standard",
+    id: "evidence-standard", name: "Evidence standard",
     question: "In this project, which instrument counts for which kind of claim?",
     fills: "a finding stating the standard, at minimum for negative claims",
     required: "always", teeth: "report", doors: [],
     because: "Fire King and Brubaker both carry a substrate-verdict.json stating a verdict no instrument produced.",
   },
   {
-    id: "S14", name: "Refutations",
+    id: "refutations", name: "Refutations",
     question: "Every retracted claim kept, naming the instrument that was wrong.",
     fills: "findings of kind `refutation`; they are never deleted",
     required: "always", teeth: "report", doors: [],
     because: "Ultima VI holds six, and they are the most valuable records in that project: each one stops a rebuild that would otherwise be attempted again.",
   },
   {
-    id: "S15", name: "Writable space",
+    id: "writable-space", name: "Writable space",
     question: "Which blocks on the medium are genuinely spare — and HOW was that established, given the BAM does not answer it?",
-    fills: "a finding tagged `slot:S15` naming the spare blocks and carrying its method: `method:chains` (every chain walked and subtracted from the medium) settles it; `method:bam` is a hypothesis and stays one",
-    required: { when: "S2", note: "applies once a medium is registered — the answer is owed before anything writes to it, not after" },
+    fills: "a finding tagged `slot:writable-space` naming the spare blocks and carrying its method: `method:chains` (every chain walked and subtracted from the medium) settles it; `method:bam` is a hypothesis and stays one",
+    required: { when: "medium", note: "applies once a medium is registered — the answer is owed before anything writes to it, not after" },
     teeth: "report", doors: [],
-    because: "Crazy News side 1: the BAM's free list and actual occupancy are disjoint in BOTH directions — all 30 blocks it calls free are in use by an asset, and all 78 genuinely spare blocks are marked allocated. A patch step asked the BAM for a spare block, got T1/S1, and overwrote the chain head of another asset; the symptom surfaced much later and elsewhere, as executing data on the in-game screen. S4 says how the GAME addresses its payloads and was answered correctly. A custom loader that addresses sectors directly has no reason to keep the BAM truthful, and this one does not.",
+    because: "Crazy News side 1: the BAM's free list and actual occupancy are disjoint in BOTH directions — all 30 blocks it calls free are in use by an asset, and all 78 genuinely spare blocks are marked allocated. A patch step asked the BAM for a spare block, got T1/S1, and overwrote the chain head of another asset; the symptom surfaced much later and elsewhere, as executing data on the in-game screen. data-geometry says how the GAME addresses its payloads and was answered correctly. A custom loader that addresses sectors directly has no reason to keep the BAM truthful, and this one does not.",
   },
 ] as const;
 
@@ -172,7 +200,7 @@ export const DOOR_SLOTS: ReadonlyMap<string, readonly SlotId[]> = (() => {
 })();
 
 /**
- * The words that are claims about S12.
+ * The words that are claims about coverage.
  *
  * Checked against finding titles/summaries and rendered docs. A project may of course
  * BE complete — but then the computed coverage says so, and the gate passes.
@@ -199,9 +227,9 @@ export const DOOR_SLOTS: ReadonlyMap<string, readonly SlotId[]> = (() => {
  * questions rather than as separate work.
  */
 export const CONTAINER_SLOTS: ReadonlyMap<SlotId, "system" | "container" | "component"> = new Map([
-  ["S3", "container"],   // each boot stage is a deployable unit
-  ["S5", "container"],   // each resident runtime is one
-  ["S8", "component"],   // the engine's dispatcher / main loop / VM sit INSIDE a runtime
+  ["boot-chain", "container"],   // each boot stage is a deployable unit
+  ["runtime-count", "container"],   // each resident runtime is one
+  ["engine-architecture", "component"],   // the engine's dispatcher / main loop / VM sit INSIDE a runtime
 ]);
 
 export const KNOWN_PENDING_DOORS: ReadonlyMap<string, string> = new Map([
@@ -212,3 +240,14 @@ export const COMPLETENESS_WORDS = [
   "exhaustive", "exhaustively", "fully mapped", "fully documented",
   "complete coverage", "100% coverage", "nothing left", "vollständig",
 ] as const;
+
+/** A promise id as a contract, a waiver or a caller spells it: a slot in any spelling becomes the slot's id, every other promise id is its own. */
+export function canonicalPromiseId(id: string): string {
+  return canonicalSlotId(id) ?? id;
+}
+
+/** A tag as it is stored: `slot:<id>` in any spelling is written with the slot's descriptive id, every other tag is its own. */
+export function canonicalTag(tag: string): string {
+  const id = slotOfTag(tag);
+  return id ? `slot:${id}` : tag;
+}

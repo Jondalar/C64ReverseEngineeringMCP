@@ -125,7 +125,7 @@ export function buildFixture(dir, ddl) {
     node(addr(a), "addr", null, a, null);
     edges.push({ from: rid(LOADER.owner, "segment", LOADER.load), type: "CALLS", to: addr(a), key: `src:03${a.toString(16)}`, owner: LOADER.owner });
   }
-  edges.push({ from: addr(0x1000), type: "RESOLVES_TO", to: rid("mod_a", "routine", 0x1000), producer: "826r" });
+  edges.push({ from: addr(0x1000), type: "RESOLVES_TO", to: rid("mod_a", "routine", 0x1000), producer: "signature-resolve" });
 
   writeGraph(dir, { nodes, edges }, ddl);
   return { nodes, edges, rid, addr };

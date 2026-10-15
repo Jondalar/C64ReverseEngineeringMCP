@@ -13,7 +13,9 @@ import { join } from "node:path";
 import { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type ProjectIdParts } from "./ids.js";
 import { canonicalJson } from "./json.js";
-import { CART_COLUMN_EXPR, CART_GRAMMAR_STAMP, GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
+import { canonicalProducer, LEGACY_PRODUCER_IDS, PRODUCER_IDS_STAMP } from "./producer-ids.js";
+import { canonicalSlotId } from "../slots/schema.js";
+import { CART_COLUMN_EXPR, CART_GRAMMAR_STAMP, LEGACY_CART_GRAMMAR_STAMP, GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
 
 export interface NodeInput {
   /** Either a finished id or the parts it is derived from — never both. */
@@ -109,6 +111,91 @@ function ensureCartColumn(db: DatabaseSync): boolean {
   }
 }
 
+/**
+ * A graph written by an earlier release carries numbers in every `producer` column. Rename them,
+ * once, to the descriptive ids (producer-ids.ts) — nodes, edges, the 822 tables, `meta.producers` —
+ * in one transaction, guarded by `meta.producer_ids`. A graph that carries the stamp is never touched again;
+ * the renames themselves are no-ops on a second run, so an interrupted run is safe to repeat.
+ * Returns false when the file has no graph schema yet or cannot be written.
+ */
+export function migrateProducerIds(db: DatabaseSync): boolean {
+  const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((r) => r.name));
+  if (!tables.has("meta") || !tables.has("nodes") || !tables.has("edges")) return false;
+  const stamp = db.prepare("SELECT value FROM meta WHERE key = 'producer_ids'").get() as { value: string } | undefined;
+  if (stamp?.value === PRODUCER_IDS_STAMP) return true;
+  try {
+    writeTx(db, () => {
+      for (const table of ["nodes", "edges", "claims", "annotations", "questions", "evidence"]) {
+        if (!tables.has(table)) continue;
+        const upd = db.prepare(`UPDATE ${table} SET producer = ? WHERE producer = ?`);
+        for (const [old, now] of LEGACY_PRODUCER_IDS) upd.run(now, old);
+      }
+      const raw = db.prepare("SELECT value FROM meta WHERE key = 'producers'").get() as { value: string } | undefined;
+      if (raw) {
+        const map = JSON.parse(raw.value) as Record<string, number>;
+        const renamed: Record<string, number> = {};
+        for (const [k, v] of Object.entries(map)) renamed[canonicalProducer(k)] = v;
+        db.prepare("UPDATE meta SET value = ? WHERE key = 'producers'").run(JSON.stringify(Object.fromEntries(Object.entries(renamed).sort())));
+      }
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'cart_grammar' AND value = ?").run(CART_GRAMMAR_STAMP, LEGACY_CART_GRAMMAR_STAMP);
+      db.prepare("INSERT INTO meta (key, value) VALUES ('producer_ids', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(PRODUCER_IDS_STAMP);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `meta.slot_ids`: the slot ids stored in this graph's tags and attrs are the descriptive ones. */
+export const SLOT_IDS_STAMP = "descriptive";
+
+/** The slot ids an earlier release stored: `"slot:S3"` in a tag list, `"slot":"S3"` in a boundary's attrs. Any other text comes back unchanged. */
+export function renameStoredSlotIds(text: string): string {
+  return text
+    .replace(/"slot:(S(?:1[0-5]|[1-9]))"/giu, (m, id: string) => { const now = canonicalSlotId(id); return now ? `"slot:${now}"` : m; })
+    .replace(/"slot"\s*:\s*"(S(?:1[0-5]|[1-9]))"/giu, (m, id: string) => { const now = canonicalSlotId(id); return now ? `"slot":"${now}"` : m; });
+}
+
+/**
+ * Findings and entities tagged `slot:S11`, and the boundaries slot_record drew (`attrs.slot`), carry the slot ids of an
+ * earlier release. Rename them once — annotations (tags, attrs), nodes, claims and questions (attrs) — guarded by
+ * `meta.slot_ids`. The rewrite is a no-op on rows already renamed, so an interrupted run is safe to repeat.
+ */
+export function migrateSlotIds(db: DatabaseSync): boolean {
+  const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((r) => r.name));
+  if (!tables.has("meta")) return false;
+  const stamp = db.prepare("SELECT value FROM meta WHERE key = 'slot_ids'").get() as { value: string } | undefined;
+  if (stamp?.value === SLOT_IDS_STAMP) return true;
+  try {
+    writeTx(db, () => {
+      const targets: Array<[string, string]> = [["annotations", "tags"], ["annotations", "attrs"], ["nodes", "attrs"], ["claims", "attrs"], ["questions", "attrs"]];
+      for (const [table, column] of targets) {
+        if (!tables.has(table)) continue;
+        const rows = db.prepare(`SELECT rowid AS rid, ${column} AS v FROM ${table} WHERE ${column} LIKE '%slot%'`).all() as Array<{ rid: number; v: string }>;
+        const upd = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+        for (const r of rows) {
+          const next = renameStoredSlotIds(r.v);
+          if (next !== r.v) upd.run(next, r.rid);
+        }
+      }
+      db.prepare("INSERT INTO meta (key, value) VALUES ('slot_ids', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(SLOT_IDS_STAMP);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Has this (read-only opened) graph not been renamed yet? */
+function renamesPending(db: DatabaseSync): boolean {
+  try {
+    const t = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('meta','nodes','edges')").get() as { n: number };
+    if (Number(t.n) < 3) return false;
+    const meta = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+    return meta("producer_ids") !== PRODUCER_IDS_STAMP || meta("slot_ids") !== SLOT_IDS_STAMP;
+  } catch { return false; }
+}
+
 export function readProjectSlug(projectDir: string): string {
   const path = join(projectDir, "knowledge", "project.json");
   if (!existsSync(path)) throw new Error(`no knowledge/project.json in ${projectDir} — is this a C64RE project? (project_init)`);
@@ -129,6 +216,13 @@ export class GraphStore {
       // A read-only connection cannot add the column to a pre-909 file. Let a writer do it once, then look again.
       const upgrade = new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS });
       try { ensureCartColumn(upgrade); } catch { /* a file we cannot write: queries on `cart` will say so */ } finally { upgrade.close(); }
+      this.db.close();
+      this.db = new DatabaseSync(path, { readOnly, timeout: BUSY_TIMEOUT_MS });
+    }
+    if (readOnly && renamesPending(this.db)) {
+      // Same as the cart column: a read-only connection cannot rename a pre-descriptive-id file. Let a writer do it once, then look again.
+      const upgrade = new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS });
+      try { migrateProducerIds(upgrade); migrateSlotIds(upgrade); } catch { /* a file we cannot write: it is read with the ids it has */ } finally { upgrade.close(); }
       this.db.close();
       this.db = new DatabaseSync(path, { readOnly, timeout: BUSY_TIMEOUT_MS });
     }
@@ -155,9 +249,13 @@ export class GraphStore {
             this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
             // born in the cartridge grammar: nothing to migrate, and no later write to stamp it
             this.setMeta("cart_grammar", CART_GRAMMAR_STAMP);
+            this.setMeta("producer_ids", PRODUCER_IDS_STAMP);
+            this.setMeta("slot_ids", SLOT_IDS_STAMP);
           }
         });
       }
+      migrateProducerIds(this.db);
+      migrateSlotIds(this.db);
       const settled = version ?? this.getMeta("schema_version");
       if (settled !== undefined && Number(settled) > GRAPH_SCHEMA_VERSION) {
         throw new Error(`graph.sqlite schema_version ${settled} is newer than this reader (${GRAPH_SCHEMA_VERSION})`);
@@ -192,6 +290,7 @@ export class GraphStore {
 
   /** Record a producer in meta.producers (a JSON object producer → schema version). */
   recordProducer(producer: string): void {
+    producer = canonicalProducer(producer);
     // A read-modify-write: without the lock held across both, two producers each read
     // the map without the other and the second write drops the first.
     writeTx(this.db, () => {
@@ -203,6 +302,7 @@ export class GraphStore {
   }
 
   private toNodeRow(input: NodeInput, layer: Layer, producer: string, runOwner: string | null = null): NodeRow {
+    producer = canonicalProducer(producer);
     if ((input.id === undefined) === (input.parts === undefined)) {
       throw new IdRuleError("node-id", "give either id or parts, not both, not neither");
     }
@@ -257,6 +357,7 @@ export class GraphStore {
   }
 
   private toEdgeRow(input: EdgeInput, layer: Layer, producer: string, owner: string | null): EdgeRow {
+    producer = canonicalProducer(producer);
     try { parseId(input.from); parseId(input.to); } catch (error) { throw this.namingCartridges(error); }
     const ev = input.evidence ?? {};
     return {
@@ -282,6 +383,7 @@ export class GraphStore {
    */
   replaceGenerated(producer: string, owner: string | null, nodes: NodeInput[], edges: EdgeInput[]): ReplaceResult {
     if (this.readOnly) throw new Error("store is read-only");
+    producer = canonicalProducer(producer);
     const nodeRows = nodes.map((n) => this.toNodeRow(n, "generated", producer, owner));
     const edgeRows = edges.map((e) => this.toEdgeRow(e, "generated", producer, owner));
     const delNodes = this.db.prepare("DELETE FROM nodes WHERE layer = 'generated' AND producer = ? AND run_owner IS ? AND kind <> 'addr'");

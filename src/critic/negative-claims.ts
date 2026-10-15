@@ -15,7 +15,7 @@
 // carries its own proof: the edge.
 //
 // The limitation is stated rather than hidden. The claim is recognised by PHRASING, the
-// same way 844's S12 vocabulary gate works, so unusual wording escapes it. A check that
+// same way 844's coverage vocabulary gate works, so unusual wording escapes it. A check that
 // catches four confident false negatives out of five at zero cost is worth having; one
 // that pretends to catch the fifth is not.
 

@@ -84,7 +84,7 @@ Each is **its own place**.
   cartridge **is in this project** — `source`, `target` or `other` — and it is
   *declared*, never inferred from the type or a file name:
   `contract_set cartridges=[{cart:"gmod2-orig", role:"source"}, {cart:"ef-port", role:"target"}]`
-  (or `slot_record` S2). Until then both are `other`, and `project_status` says how to
+  (or `slot_record` medium). Until then both are `other`, and `project_status` says how to
   declare it. `project_status` and `contract_show` list every cartridge with type and role.
 - **Asking.** `graph_find`, `graph_node`, `graph_edges`, `graph_path`,
   `inspect_address_range`, `disasm` and `model_assert` take an optional `cart`.

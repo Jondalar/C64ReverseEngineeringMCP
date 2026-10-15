@@ -21,8 +21,9 @@ import type { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import { cartridgeTypeName } from "../project-knowledge/cartridge-type.js";
 import { assertCart, CART, deriveCartridgeId, UNPLACED_CART } from "./ids.js";
 import type { GraphStore } from "./store.js";
+import { CARTRIDGE_PRODUCER_ID } from "./producer-ids.js";
 
-export const CARTRIDGE_PRODUCER = "909";
+export const CARTRIDGE_PRODUCER = CARTRIDGE_PRODUCER_ID;
 
 export type CartRole = "source" | "target" | "other";
 export const CART_ROLES: readonly CartRole[] = ["source", "target", "other"];

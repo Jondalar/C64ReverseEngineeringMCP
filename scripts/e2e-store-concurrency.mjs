@@ -490,7 +490,7 @@ const readStore = (dir) => {
         reads += 1;
         try {
           const db = new DatabaseSync(path, ${timeout === null ? "{ readOnly: true }" : `{ readOnly: true, timeout: ${timeout} }`});
-          db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer = '820'").get();
+          db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer = 'memory-access'").get();
           db.close();
         } catch (e) { errs += 1; last = String(e && e.message); }
       }

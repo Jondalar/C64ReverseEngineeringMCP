@@ -7,7 +7,7 @@
 //
 // `slot_record` fills one. It exists rather than leaning on a raw `save_finding` tag
 // because a slot claim has a required shape: which slot, the answer, and the evidence
-// for it. S11 additionally demands the METHOD, because a run proves only "not written", never
+// for it. free-ram additionally demands the METHOD, because a run proves only "not written", never
 // "not read": free RAM needs the listing read for readers and writers, and a canary run on top.
 //
 // 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
@@ -26,7 +26,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
-import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, type SlotId } from "../slots/schema.js";
+import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, canonicalSlotId, type SlotId } from "../slots/schema.js";
 import { slotReport, formatSlotReport } from "../slots/state.js";
 import { capExceededText, missingRequiredText } from "./truncated-call.js";
 
@@ -39,7 +39,7 @@ const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
 const TITLE_MAX = 120;
 
 /** Slots whose answer is not a claim about bytes, so no extract can back them. */
-const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
+const NON_ARTEFACT_SLOTS = new Set<SlotId>(["context", "evidence-standard", "refutations"]);
 
 /** First sentence, or first clause, capped — a name for a paragraph-long answer. */
 function headline(answer: string, max = 90): string {
@@ -68,7 +68,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       if (verbose && report.missing.length > 0) {
         text += "\n\nOpen slots in full:\n";
         for (const s of report.missing) {
-          text += `\n${s.slot.id} — ${s.slot.name}\n`;
+          text += `\n${s.slot.id}\n`;
           text += `  asks: ${s.slot.question}\n`;
           text += `  fill: ${s.slot.fills}\n`;
           if (s.slot.because) text += `  why:  ${s.slot.because}\n`;
@@ -82,10 +82,10 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
   server.tool(
     "slot_record",
-    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). `answer` and `evidence` are uncapped and stored whole, however long they run; only `title` is capped, at 120 characters, because it is the headline every finding list prints where a name belongs — over that this door refuses by name and hands back the headline it would have taken from your answer, so leaving `title` out is always safe. Inputs: slot id, answer, evidence, optional title (≤120 characters) and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). `answer` and `evidence` are uncapped and stored whole, however long they run; only `title` is capped, at 120 characters, because it is the headline every finding list prints where a name belongs — over that this door refuses by name and hands back the headline it would have taken from your answer, so leaving `title` out is always safe. Inputs: slot id, answer, evidence, optional title (≤120 characters) and address range; free-ram and writable-space also require method. Returns: the finding written + the updated slot line.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
-      slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
+      slot: z.preprocess((v) => canonicalSlotId(typeof v === "string" ? v : undefined) ?? v, z.enum(SLOT_IDS)).describe("Which slot — see project_slots for the list and what each asks."),
       answer: z.string().min(10).describe("The answer itself, stated plainly. As long as it needs to be — it is stored in full as the finding's body."),
       // CAPPED, and checked in the handler rather than by the schema — same reason as
       // `evidence` below. A `max(120)` here fires inside the SDK, after a
@@ -99,16 +99,16 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       evidence: z.string().min(10).optional().describe("REQUIRED: what you read or ran that establishes it — a listing, an address, a routine, a run. Write this BEFORE `answer` when the answer runs long."),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
-      count: z.number().int().nonnegative().optional().describe("For S5 (runtime count): HOW MANY resident runtimes, as a number. S6/S7 applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
-      method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): 'read' (derived from the listing: a hypothesis) or 'run' (a canary/write trace saw no write). A run proves only that the range was not WRITTEN, never that it is not READ — read-only data passes a canary. Free needs the reading too: no reader and no writer in the listing. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
-      boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the model boundary, so the model fills as a side effect of answering this question."),
+      count: z.number().int().nonnegative().optional().describe("For runtime-count: HOW MANY resident runtimes, as a number. runtime-linkage and engine-presence applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
+      method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for free-ram: 'read' (derived from the listing: a hypothesis) or 'run' (a canary/write trace saw no write). A run proves only that the range was not WRITTEN, never that it is not READ — read-only data passes a canary. Free needs the reading too: no reader and no writer in the listing. REQUIRED for writable-space: \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
+      boundary_name: z.string().optional().describe("For boot-chain, runtime-count and engine-architecture — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the model boundary, so the model fills as a side effect of answering this question."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
       cart: z.string().optional().describe("For space=crt: the cartridge the boundary is in (default: the project's only cartridge; with several and none named the call refuses and lists them)."),
       cartridges: z.array(z.object({
         cart: z.string().describe("The cartridge's token, as project_status / extract_crt name it"),
         role: z.enum(["source", "target", "other"]).describe("source = the original a port starts from; target = the cartridge being built; other = anything else"),
-      })).optional().describe("S2 (Medium): what each cartridge of the media set IS in this project. Declared, never inferred. Written with the answer; an unknown cartridge refuses the call and lists the ones the project holds."),
+      })).optional().describe("medium (Medium): what each cartridge of the media set IS in this project. Declared, never inferred. Written with the answer; an unknown cartridge refuses the call and lists the ones the project holds."),
     },
     async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner, cart, cartridges }) => {
       const pd = context.projectDir({ projectDir: project_dir }, true);
@@ -147,12 +147,12 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         };
       }
 
-      if (slot === "S15" && !method) {
+      if (slot === "writable-space" && !method) {
         return {
           content: [{
             type: "text" as const,
             text: [
-              "# slot_record refused — S15 needs its method.",
+              "# slot_record refused — writable-space needs its method.",
               "",
               "Writable space is the other slot where HOW you know is part of the answer.",
               "Pass method=\"chains\" if you walked every chain on the medium and subtracted",
@@ -168,12 +168,12 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         };
       }
 
-      if (slot === "S11" && !method) {
+      if (slot === "free-ram" && !method) {
         return {
           content: [{
             type: "text" as const,
             text: [
-              "# slot_record refused — S11 needs its method.",
+              "# slot_record refused — free-ram needs its method.",
               "",
               "Free RAM is the one slot where HOW you know is part of the answer. Pass",
               "method=\"run\" if a run watched the range for writes, method=\"read\" if you",
@@ -205,22 +205,22 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       // is kept whole in the body — every reader that parses a slot claim reads title
       // and summary together — and the title is a headline.
       const finding = rec.saveFinding({
-        kind: slot === "S11" ? "memory-map" : "observation",
+        kind: slot === "free-ram" ? "memory-map" : "observation",
         title: title?.trim() || headline(answer),
-        summary: `${def.name} (slot ${slot}).\n\n${answer.trim()}\n\nEvidence: ${evidence}`,
+        summary: `Slot ${slot}.\n\n${answer.trim()}\n\nEvidence: ${evidence}`,
         tags,
         // The evidence goes in evidence[], not only into the summary prose. The first
         // real session exposed this as an own goal: slot_record's own findings tripped
         // 846's `finding-without-evidence` check, because the text said "Evidence: ..."
         // where nothing machine-readable was looking.
-        evidence: [{ kind: "note", title: `${def.name} (${slot})`, note: evidence, capturedAt: new Date().toISOString() }],
+        evidence: [{ kind: "note", title: `Slot ${slot}`, note: evidence, capturedAt: new Date().toISOString() }],
         // Spec 848 — Spec 752's L1 tags a finding `ungrounded` when it cites no backing
         // extract, and the first unattended run turned that into a deadlock: the agent
-        // complied with the S4 gate, filled five slots, and every one of those became an
+        // complied with the data-geometry gate, filled five slots, and every one of those became an
         // ungrounded finding that jammed the step recommender for the rest of the session.
         //
         // Part of the fix is here. L1 says "every finding ABOUT A FILE/PAYLOAD must cite a
-        // backing extract" — and S1 (which game is this) and S13 (the evidence standard)
+        // backing extract" — and context (which game is this) and evidence-standard (the evidence standard)
         // are not about a file. They are marked as such rather than left to look like
         // unfinished work, which is a carve-out in the rule's own words, not a loophole.
         ...(NON_ARTEFACT_SLOTS.has(slot) ? { tags: [...tags, "not-artifact-scoped"] } : {}),
@@ -230,7 +230,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       });
 
       // 845 D7 — a container-shaped slot also draws its boundary, when the caller gave
-      // enough to draw it. Not refused when they did not: S3 can be answered for a stage
+      // enough to draw it. Not refused when they did not: boot-chain can be answered for a stage
       // whose extent is not yet known, and demanding the range would push the answer out
       // of the graph and into prose, which is the failure both specs exist to stop.
       let boundary = "";
@@ -260,7 +260,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         content: [{
           type: "text" as const,
           text: [
-            `Recorded ${slot} — ${def.name}: ${finding.id}`,
+            `Recorded ${slot}: ${finding.id}`,
             `Title: ${finding.title}`,
             ...(finding.title !== answer.trim()
               ? ["  (the full answer is the finding's body — pass `title` to choose your own headline)"]
@@ -269,7 +269,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
             line ? `Slot is now: ${line.status} — ${line.detail}` : "",
             "",
             report.missing.length > 0
-              ? `Still open: ${report.missing.map((s) => `${s.slot.id} ${s.slot.name}`).join(", ")}`
+              ? `Still open: ${report.missing.map((s) => s.slot.id).join(", ")}`
               : "Every required slot is now filled.",
             roleText ? `\n${roleText}` : "",
           ].filter(Boolean).join("\n"),

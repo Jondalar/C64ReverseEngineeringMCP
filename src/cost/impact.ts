@@ -365,7 +365,7 @@ function signatureAnswer(graph: Graph, routine: ResolvedNode | undefined): { loc
   ) as LocSet;
   return {
     locs,
-    how: `the routine's computed signature: it hands back ${sig.out.join(" ") || "nothing"} and preserves ${sig.preserves.join(" ") || "nothing"} (826)`,
+    how: `the routine's computed signature: it hands back ${sig.out.join(" ") || "nothing"} and preserves ${sig.preserves.join(" ") || "nothing"}`,
   };
 }
 
@@ -424,7 +424,7 @@ export function formatImpact(report: ImpactReport): string {
     lines.push(`what the change must preserve: ${formatLocs(report.preserve.locs)}`);
     lines.push(`  ${report.preserve.how}`);
   } else {
-    lines.push("what the change must preserve: not derived — pass the PRG the range lives in, or run the routine's signature (826), and this becomes an answer instead of a guess");
+    lines.push("what the change must preserve: not derived — pass the PRG the range lives in, or run the routine's signature pass, and this becomes an answer instead of a guess");
   }
 
   if (report.timing) {

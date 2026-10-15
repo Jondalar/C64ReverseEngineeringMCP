@@ -49,14 +49,14 @@ The View, the Store, the Build **never branch on BAM-vs-GCR-vs-LUT.** They consu
    medium; the target loader (EF/LUT) is another `Representation`, symmetric to source.
 
 ## Slice order (each VERIFIED against Wasteland (BAM) AND The Pawn (custom-GCR))
-- **S1 View** — rework `buildDiskLayoutView`: disk = disk-IMAGE artifact; blocks =
+- **Slice 1, View** — rework `buildDiskLayoutView`: disk = disk-IMAGE artifact; blocks =
   sector occupancy; payloads = `mediumSpans`-mapped; directory = CBM-manifest *when
   present*. Wasteland → 4 disks + files; Pawn → 2 disks + block occupancy + payloads
   pending. (buildMediumLayoutView already has the span/payload overlay to reuse.)
-- **S2 Extraction** — extractors emit the schema (Medium + blocks + payloads),
+- **Slice 2, Extraction** — extractors emit the schema (Medium + blocks + payloads),
   loader-as-provenance.
-- **S3 Storage** — Medium/Payload first-class; retire the disk-manifest special case.
-- **S4 Build** — consumes the same payloads.
+- **Slice 3, Storage** — Medium/Payload first-class; retire the disk-manifest special case.
+- **Slice 4, Build** — consumes the same payloads.
 
 ## Why this exists as a file
 So it can't be grafted over again. Any change to extract/store/view/build cites this.

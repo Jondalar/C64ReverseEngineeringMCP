@@ -10,7 +10,7 @@ report. The runtime gains exactly one thing, and it is a fact about a machine:
 a bulk memory read (`session/read_memory`). The rectangle→address translation
 already exists there (`vic/inspect/region`) and is used, not rebuilt.
 **Number:** 813 (registry: `specs/README.md`).
-**Vocabulary:** `../../TRX64/docs/concepts-snapshots-scenarios-overlays.md` §6. 813
+**Vocabulary:** `../../../TRX64/docs/internal/concepts-snapshots-scenarios-overlays.md` §6. 813
 contributes `region` and `predicate`.
 **Depends on:** 812 (the notation, the parser and the executor — extended here, not
 duplicated), 810 (the criterion classifier, the mask rule, the frozen-resolution

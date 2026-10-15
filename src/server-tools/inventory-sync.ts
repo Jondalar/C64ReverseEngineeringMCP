@@ -104,7 +104,7 @@ export function repairAmbiguousPayloadSources(service: ProjectKnowledgeService):
 /**
  * A record's fileSize is what the file was when it was registered. Re-read it from disk for
  * every record whose file exists and has changed size; name the records whose file is gone
- * (they stay in the store, and S12 does not count them). Idempotent.
+ * (they stay in the store, and coverage does not count them). Idempotent.
  */
 export function refreshArtifactSizes(service: ProjectKnowledgeService, projectRoot: string): { refreshed: number; missing: string[] } {
   let refreshed = 0;
@@ -123,7 +123,7 @@ export function refreshArtifactSizes(service: ProjectKnowledgeService, projectRo
         ...(a.role ? { role: a.role } : {}), ...(a.format ? { format: a.format } : {}),
       });
       refreshed += 1;
-    } catch { /* a row that cannot be re-saved keeps its old size; S12 reads the disk anyway */ }
+    } catch { /* a row that cannot be re-saved keeps its old size; coverage reads the disk anyway */ }
   }
   return { refreshed, missing };
 }
@@ -465,7 +465,7 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult, report
   lines.push(`Files registered: ${r.registered}`);
   lines.push(`Manifests imported: ${r.importedManifests}`);
   if (r.refreshedSizes) lines.push(`Record sizes re-read from disk: ${r.refreshedSizes}`);
-  if (r.missingOnDisk.length) lines.push(`Registered but missing on disk (kept, not counted by S12): ${r.missingOnDisk.length} - ${r.missingOnDisk.slice(0, 20).join(", ")}${r.missingOnDisk.length > 20 ? ", ..." : ""}`);
+  if (r.missingOnDisk.length) lines.push(`Registered but missing on disk (kept, not counted by coverage): ${r.missingOnDisk.length} - ${r.missingOnDisk.slice(0, 20).join(", ")}${r.missingOnDisk.length > 20 ? ", ..." : ""}`);
   if (r.repairedPayloadSources) lines.push(`Payload sources re-labelled raw: ${r.repairedPayloadSources}`);
   lines.push(`Analysis runs back-filled into the knowledge layer: ${r.importedAnalysisRuns}`);
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);

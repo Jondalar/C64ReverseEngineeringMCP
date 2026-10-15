@@ -30,6 +30,7 @@ import { deriveProjectId, parseId } from "./ids.js";
 import { canonicalJson } from "./json.js";
 import type { NodeRow } from "./schema.js";
 import { GraphStore, readProjectSlug } from "./store.js";
+import { canonicalTag } from "../slots/schema.js";
 
 // ------------------------------------------------------------------ shapes
 
@@ -161,7 +162,7 @@ export class KnowledgeRecords {
     return existsSync(join(this.projectDir, "knowledge", "project.json"));
   }
 
-  /** The registered artifacts, read-only. Spec 844 §4 needs them to measure S12
+  /** The registered artifacts, read-only. Spec 844 §4 needs them to measure coverage
    *  coverage, and a slot report is not a reason to duplicate the artifacts.json
    *  reader in a second place. */
   listArtifacts(): ArtifactRecord[] {
@@ -261,7 +262,7 @@ export class KnowledgeRecords {
 
   listEntities(filters?: EntityFilters): EntityRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
+      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'nodes' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -497,7 +498,7 @@ export class KnowledgeRecords {
       relatedEntityIds: uniq([...(input.relatedEntityIds ?? []), ...(existing?.relatedEntityIds ?? [])]),
       payloadAsmArtifactIds: uniq([...(input.payloadAsmArtifactIds ?? []), ...(existing?.payloadAsmArtifactIds ?? [])]),
       mediumSpans: input.mediumSpans ?? existing?.mediumSpans ?? [],
-      tags: uniq([...(input.tags ?? []), ...(existing?.tags ?? [])]),
+      tags: uniq([...(input.tags ?? []), ...(existing?.tags ?? [])].map(canonicalTag)),
       aliases: [...aliasUnion].sort(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -725,7 +726,7 @@ export class KnowledgeRecords {
       artifactIds: uniq(input.artifactIds ?? existing?.artifactIds ?? []),
       relationIds: uniq(input.relationIds ?? existing?.relationIds ?? []),
       flowIds: uniq(input.flowIds ?? existing?.flowIds ?? []),
-      tags: uniq(input.tags ?? existing?.tags ?? []),
+      tags: uniq((input.tags ?? existing?.tags ?? []).map(canonicalTag)),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -766,7 +767,7 @@ export class KnowledgeRecords {
 
   listRelations(filters?: RelationFilters): RelationRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('822','human') OR layer = 'human') AND evidence_key = '' ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
+      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'edges' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -1216,9 +1217,9 @@ export class KnowledgeRecords {
     return this.read((s) => {
       const q = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
       return {
-        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
+        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
         findings: q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'") + q("SELECT COUNT(*) AS n FROM claims"),
-        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('822','human') OR layer = 'human') AND evidence_key = '')"),
+        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '')"),
         openQuestions: q("SELECT COUNT(*) AS n FROM questions"),
       };
     }, { entities: 0, findings: 0, relations: 0, openQuestions: 0 });
@@ -1261,13 +1262,13 @@ export class KnowledgeRecords {
           const out = walk(attrsOf(json));
           return changed ? canonicalJson(out) : undefined;
         };
-        for (const n of db.prepare("SELECT id, layer, attrs FROM nodes WHERE producer IN ('822','human') OR layer = 'human'").all() as Array<{ id: string; layer: string; attrs: string }>) {
+        for (const n of db.prepare("SELECT id, layer, attrs FROM nodes WHERE producer IN ('knowledge-import','human') OR layer = 'human'").all() as Array<{ id: string; layer: string; attrs: string }>) {
           const next = rewrite(n.attrs); if (next) { db.prepare("UPDATE nodes SET attrs = ? WHERE id = ? AND layer = ?").run(next, n.id, n.layer); counts.entities += 1; }
         }
         for (const a of db.prepare("SELECT id, kind, attrs FROM annotations").all() as Array<{ id: string; kind: string; attrs: string }>) {
           const next = rewrite(a.attrs); if (next) { db.prepare("UPDATE annotations SET attrs = ? WHERE id = ?").run(next, a.id); if (a.kind.startsWith("finding:")) counts.findings += 1; else counts.entities += 1; }
         }
-        for (const e of db.prepare("SELECT from_id, type, to_id, layer, evidence_key, evidence FROM edges WHERE producer IN ('822','human') OR layer = 'human'").all() as Array<{ from_id: string; type: string; to_id: string; layer: string; evidence_key: string; evidence: string }>) {
+        for (const e of db.prepare("SELECT from_id, type, to_id, layer, evidence_key, evidence FROM edges WHERE producer IN ('knowledge-import','human') OR layer = 'human'").all() as Array<{ from_id: string; type: string; to_id: string; layer: string; evidence_key: string; evidence: string }>) {
           const next = rewrite(e.evidence); if (next) { db.prepare("UPDATE edges SET evidence = ? WHERE from_id = ? AND type = ? AND to_id = ? AND layer = ? AND evidence_key = ?").run(next, e.from_id, e.type, e.to_id, e.layer, e.evidence_key); counts.relations += 1; }
         }
         for (const q of db.prepare("SELECT id, attrs FROM questions").all() as Array<{ id: string; attrs: string }>) {

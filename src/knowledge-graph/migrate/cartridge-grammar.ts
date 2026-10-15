@@ -24,10 +24,11 @@ import { readCrtHeader, sha256OfFile } from "../../project-knowledge/cartridge-i
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import { cartOfArtifact, readCartridges, registerCartridge, type CartridgeRecord } from "../cartridges.js";
 import { deriveCartridgeId, parseLegacyCrtId, UNPLACED_CART } from "../ids.js";
-import { CART_GRAMMAR_STAMP, GRAPH_SCHEMA_VERSION } from "../schema.js";
+import { CART_GRAMMAR_STAMP, GRAPH_SCHEMA_VERSION, LEGACY_CART_GRAMMAR_STAMP } from "../schema.js";
 import { GraphStore, graphPath, readProjectSlug } from "../store.js";
 import { writeTx } from "../write-tx.js";
 import { annotationId } from "./schema-822.js";
+import { CARTRIDGE_PRODUCER_ID } from "../producer-ids.js";
 
 export const CART_GRAMMAR = CART_GRAMMAR_STAMP;
 export const CART_MIGRATION_META = "cart_migration";
@@ -79,7 +80,7 @@ export function ensureCartridgeGrammar(projectDir: string): CartridgeMigrationRe
   let probe: GraphStore;
   try { probe = GraphStore.open(projectDir, { readOnly: true }); } catch { return undefined; }
   let stamped: boolean;
-  try { stamped = probe.getMeta("cart_grammar") === CART_GRAMMAR; } finally { probe.close(); }
+  try { const found = probe.getMeta("cart_grammar"); stamped = found === CART_GRAMMAR || found === LEGACY_CART_GRAMMAR_STAMP; } finally { probe.close(); }
   if (stamped) { checked.add(projectDir); return undefined; }
   const store = GraphStore.open(projectDir);
   try {
@@ -261,7 +262,7 @@ export function migrateCartridgeGrammar(store: GraphStore, projectDir: string): 
         id: deriveCartridgeId(slug, UNPLACED_CART), kind: "cartridge", name: UNPLACED_CART,
         attrs: { cartridge: { image_name: "(unplaced — cartridge-space nodes of a project written before cartridges had identities)", image_file: "" }, unplaced: true },
         origin: "static", confidence: "certain", evidence: [],
-      }, "909");
+      }, CARTRIDGE_PRODUCER_ID);
     }
     // nodes
     const updNode = db.prepare("UPDATE nodes SET id = ? WHERE id = ?");

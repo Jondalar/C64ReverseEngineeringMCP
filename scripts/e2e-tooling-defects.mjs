@@ -207,7 +207,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   check(!/, … \+\$\{rest\} more/.test(src), "the old footnote-shaped tail is gone");
 }
 
-// 8 — coverage + the S5/S6 contradiction + the header
+// 8 — coverage + the runtime-count/runtime-linkage contradiction + the header
 {
   head(8, "project_slots reports a reachable number and does not contradict itself");
   const { formatSlotReport } = await import("../dist/slots/state.js");
@@ -215,18 +215,18 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   const scopeSrc = readFileSync(join(ROOT, "src/contract/scope.ts"), "utf8");
   check(/identityOf/.test(slots) && /contentHash/.test(scopeSrc) && /lineageRoot/.test(scopeSrc),
     "the denominator counts each distinct piece of content once");
-  check(/S5 is answered but no count can be read from its wording/.test(slots)
-    && /S5 has not stated a runtime count yet/.test(slots),
-    "S6 distinguishes \"S5 unanswered\" from \"S5 answered without a number\"");
+  check(/runtime-count is answered but no count can be read from its wording/.test(slots)
+    && /runtime-count has not stated a runtime count yet/.test(slots),
+    "runtime-linkage distinguishes \"runtime-count unanswered\" from \"runtime-count answered without a number\"");
   const text = formatSlotReport({
     states: [
-      { slot: { id: "S1", name: "Context" }, status: "filled", detail: "x" },
-      { slot: { id: "S6", name: "Runtime linkage" }, status: "n/a", detail: "y" },
-      { slot: { id: "S12", name: "Coverage" }, status: "empty", detail: "z" },
+      { slot: { id: "context", name: "Context" }, status: "filled", detail: "x" },
+      { slot: { id: "runtime-linkage", name: "Runtime linkage" }, status: "n/a", detail: "y" },
+      { slot: { id: "coverage", name: "Coverage" }, status: "empty", detail: "z" },
     ],
     naming: { named: 0, members: 0, ratio: 0, machineNamed: 0 },
     records: 0,
-    missing: [{ slot: { id: "S12", name: "Coverage" }, status: "empty", detail: "z" }],
+    missing: [{ slot: { id: "coverage", name: "Coverage" }, status: "empty", detail: "z" }],
     coverage: { covered: 100, total: 1000, ratio: 0.1, unmeasured: [], threshold: 0.6, artifacts: 4, duplicates: 17 },
   });
   const header = text.split("\n")[0];
@@ -250,7 +250,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   check(/const TITLE_MAX = 120/.test(src) && /capExceededText/.test(src),
     "…it is checked here, and refused in the tool's own voice");
   check(/title: title\?\.trim\(\) \|\| headline\(answer\)/.test(src), "and derives one when it is omitted");
-  check(/summary: `\$\{def\.name\} \(slot \$\{slot\}\)\.\\n\\n\$\{answer\.trim\(\)\}/.test(src),
+  check(/summary: `Slot \$\{slot\}\.\\n\\n\$\{answer\.trim\(\)\}/.test(src),
     "while the whole answer is kept in the body");
 }
 
@@ -499,7 +499,7 @@ try {
   // 9 (live) — a paragraph answer gets a headline
   const longAnswer = "One resident image per phase, five in all; the loader swaps them at $0801 and each is depacked in place before the previous one is released, which is why the memory map shows only one live at a time.";
   const rec = await call("slot_record", {
-    slot: "S5", answer: longAnswer,
+    slot: "runtime-count", answer: longAnswer,
     evidence: "read from the loader listing at $0810-$08C0",
   });
   const titleLine = (rec.split("\n").find((l) => l.startsWith("Title:")) ?? "").slice("Title:".length).trim();
@@ -507,10 +507,10 @@ try {
   check(!titleLine.includes("memory map shows only one live"), "the whole answer is not the title");
   check(/the full answer is the finding's body/.test(rec), "and the answer is kept, which the tool says");
   const slots = await call("project_slots", {});
-  check(!/S5 has not stated a runtime count yet/.test(slots)
-    || !/✓ S5/.test(slots),
-    "S6 never says S5 is unanswered while S5 shows ✓",
-    slots.split("\n").filter((l) => /S5|S6/.test(l)).join(" | "));
+  check(!/runtime-count has not stated a runtime count yet/.test(slots)
+    || !/✓ runtime-count/.test(slots),
+    "runtime-linkage never says runtime-count is unanswered while runtime-count shows ✓",
+    slots.split("\n").filter((l) => /runtime-count|runtime-linkage/.test(l)).join(" | "));
   check(/defined in all/.test(slots.split("\n")[0]), "and the header states its arithmetic", slots.split("\n")[0]);
 
   // BUG-059 defect 5 — a long answer, and the parameter that did not arrive.
@@ -523,10 +523,10 @@ try {
   // the schema's word for "this key was not in the JSON".
   const huge = "The resident engine occupies $0800-$3FFF and is never swapped. ".repeat(4200);
   const bigRec = await call("slot_record", {
-    slot: "S8", answer: huge, title: "engine window", evidence: "read from the loader listing at $0810-$08C0",
+    slot: "engine-architecture", answer: huge, title: "engine window", evidence: "read from the loader listing at $0810-$08C0",
   });
-  check(/Recorded S8/.test(bigRec), `a ${Math.round(huge.length / 1024)} KiB answer is accepted whole over the transport`, bigRec.split("\n")[0]);
-  const missing = await call("slot_record", { slot: "S3", answer: huge });
+  check(/Recorded engine-architecture/.test(bigRec), `a ${Math.round(huge.length / 1024)} KiB answer is accepted whole over the transport`, bigRec.split("\n")[0]);
+  const missing = await call("slot_record", { slot: "boot-chain", answer: huge });
   check(/slot_record refused — evidence did not arrive/.test(missing),
     "a missing evidence is refused by the door, not by the schema", missing.split("\n")[0]);
   check(!/Invalid arguments|ZodError|"path"/.test(missing), "…with no schema dump in it");
@@ -535,7 +535,7 @@ try {
     missing.split("\n").find((l) => /came through at/.test(l))?.slice(0, 110));
   check(/written BEFORE `answer`/.test(missing) && /most likely to be lost/.test(missing),
     "…and gives the two remedies that are within the caller's reach");
-  const shortMissing = await call("slot_record", { slot: "S3", answer: "Three stages: boot, depack, engine." });
+  const shortMissing = await call("slot_record", { slot: "boot-chain", answer: "Three stages: boot, depack, engine." });
   check(/slot_record refused — evidence did not arrive/.test(shortMissing) && !/came through at/.test(shortMissing),
     "a SHORT answer with no evidence is simply a missing field — no truncation story invented",
     shortMissing.split("\n").filter(Boolean)[2]);

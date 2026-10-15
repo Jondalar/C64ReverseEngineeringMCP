@@ -13,9 +13,9 @@ opcode", which is true of a great deal of data.
 
 Nothing here fills a slot. A slot is filled by a claim someone made after reading.
 
-**What refuses later.** S4 (data geometry) gates `register_payload` and
+**What refuses later.** data-geometry gates `register_payload` and
 `extract_disk_custom_lut`, and is deliberately **not** derived from what
-`register_payload` writes — a gate fed by its own door is not a gate. S4 is filled by an
+`register_payload` writes — a gate fed by its own door is not a gate. data-geometry is filled by an
 explicit claim: where the payloads sit, how they are addressed, and how each one is
 packed.
 

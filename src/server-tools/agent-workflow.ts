@@ -572,7 +572,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
           lines.push(`These are the same questions in every multi-disk project, so they are a SCHEMA, not a checklist. Doors that deliver something depending on an empty one will refuse until it is filled (\`slot_record\`).`);
           for (const s of pkg.openSlots) lines.push(`- **${s.id} ${s.name}** — ${s.question}`);
           if (pkg.model.nodes.length === 0) {
-            lines.push(``, `Answering S3, S5 or S8 with \`boundary_name\` + a range also draws the model — it is not separate work.`);
+            lines.push(``, `Answering boot-chain, runtime-count or engine-architecture with \`boundary_name\` + a range also draws the model — it is not separate work.`);
           }
           lines.push(``, `---`);
         }

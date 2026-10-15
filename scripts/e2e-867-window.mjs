@@ -211,7 +211,7 @@ writeGraph(bare, {
   edges: [
     { from: `${SLUG}:ram/caller:routine:8000`, type: "CALLS", to: `${SLUG}:ram:addr:c010`, key: "src:8003", owner: "caller" },
     { from: `${SLUG}:ram/caller:routine:8000`, type: "CALLS", to: `${SLUG}:ram:addr:c050`, key: "src:8006", owner: "caller" },
-    { from: `${SLUG}:ram:addr:c050`, type: "RESOLVES_TO", to: `${SLUG}:ram/other:label:c050`, producer: "826r" },
+    { from: `${SLUG}:ram:addr:c050`, type: "RESOLVES_TO", to: `${SLUG}:ram/other:label:c050`, producer: "signature-resolve" },
   ],
 }, GRAPH_DDL);
 const bareSeeds = loadCodeSeeds({ projectDir: bare, owner: bareOwner, lo: 0xc000, hi: 0xc07f });

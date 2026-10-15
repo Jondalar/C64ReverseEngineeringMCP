@@ -39,6 +39,7 @@
 // 849 says this kind of enforcement belongs in the first place.
 
 import type { Waiver } from "./standing.js";
+import { canonicalPromiseId } from "../slots/schema.js";
 
 export interface WaiveRequest {
   /** Promise ids, as `contractPromises` computes them. */
@@ -60,7 +61,7 @@ const MIN_REASON = 10;
 export async function waivePromises(projectDir: string, req: WaiveRequest): Promise<WaiveResult> {
   const by = (req.by ?? "").trim();
   const reason = (req.reason ?? "").trim();
-  const wanted = (req.promises ?? []).map((p) => p.trim()).filter(Boolean);
+  const wanted = (req.promises ?? []).map((p) => canonicalPromiseId(p.trim())).filter(Boolean);
 
   if (!by) {
     return {
@@ -166,7 +167,7 @@ export interface UnwaiveResult {
 export async function unwaivePromises(projectDir: string, req: WaiveRequest): Promise<UnwaiveResult> {
   const by = (req.by ?? "").trim();
   const reason = (req.reason ?? "").trim();
-  const wanted = (req.promises ?? []).map((p) => p.trim()).filter(Boolean);
+  const wanted = (req.promises ?? []).map((p) => canonicalPromiseId(p.trim())).filter(Boolean);
   const refuse = (message: string): UnwaiveResult => ({ ok: false, message, withdrawn: [] });
 
   if (!by) return refuse(["# unwaive refused — a withdrawal has to say WHO.", "", "  contract_set(unwaive=[…], waive_reason=\"…\", waived_by=\"<who>\")"].join("\n"));

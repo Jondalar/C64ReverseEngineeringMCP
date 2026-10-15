@@ -1,7 +1,7 @@
 // Spec 862 §4 — where `zp-promote` is allowed to move a variable TO.
 //
 // Not a guess, and not a table of "what the KERNAL usually leaves alone": the
-// project's own free-RAM slot (Spec 844's S11) is the only thing that says
+// project's own free-RAM slot (Spec 844's free-ram slot) is the only thing that says
 // which zero page is free here, and it distinguishes a claim a RUN watched
 // for writes from one somebody read off a listing. A run proves "not written",
 // never "not read", so the distinction is carried into the candidate rather
@@ -11,6 +11,7 @@
 // instead of picking $FB and hoping.
 
 import { KnowledgeRecords } from "../knowledge-graph/records.js";
+import { slotOfTag } from "../slots/schema.js";
 
 export interface FreeZeroPage {
   cells: number[];
@@ -27,7 +28,7 @@ export function freeZeroPage(projectDir: string): FreeZeroPage | null {
   } catch {
     return null;
   }
-  const slot = findings.filter((f) => (f.tags ?? []).some((t) => /^slot:S11$/iu.test(t)));
+  const slot = findings.filter((f) => (f.tags ?? []).some((t) => slotOfTag(t) === "free-ram"));
   if (slot.length === 0) return null;
 
   const cells = new Set<number>();

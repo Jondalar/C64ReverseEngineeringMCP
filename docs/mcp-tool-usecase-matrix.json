@@ -1100,7 +1100,7 @@
       "role": "format-forensics",
       "swimlane": "entry-project-baseline",
       "useWhen": "Map per-track/sector ownership of an extracted disk from its MANIFEST — who owns each sector, what is unclaimed, where owners overlap. The BAM is not read.",
-      "notFor": "File extraction — use extract_disk. Deciding where it is safe to WRITE: the BAM's free list does not describe occupancy on a track/sector-addressed disk — walk the chains and answer S15.",
+      "notFor": "File extraction — use extract_disk. Deciding where it is safe to WRITE: the BAM's free list does not describe occupancy on a track/sector-addressed disk — walk the chains and answer writable-space.",
       "adjacentTools": [
         "inspect_disk"
       ],

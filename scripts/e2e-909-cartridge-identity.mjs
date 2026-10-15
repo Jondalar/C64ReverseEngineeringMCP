@@ -291,7 +291,7 @@ head("S6. an old project moves once");
   const stamp = db2.prepare("SELECT value FROM meta WHERE key = 'cart_grammar'").get()?.value;
   const rowsAfter = Number(db2.prepare("SELECT COUNT(*) AS n FROM nodes").get().n);
   db2.close();
-  check(stamp === "909", "S6.9 the graph carries the stamp", String(stamp));
+  check(stamp === "cartridge-ids", "S6.9 the graph carries the stamp", String(stamp));
   console.log(`      (node rows before ${rowsBefore}, after ${rowsAfter}; ${crtBefore.length} crt node ids before)`);
   // a second open changes nothing
   const dumpOf = () => { const st = GraphStore.open(old, { readOnly: true }); try { return `${st.contentHash("generated")}/${st.contentHash("human")}`; } finally { st.close(); } };

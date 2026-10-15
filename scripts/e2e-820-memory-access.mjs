@@ -130,14 +130,14 @@ if (existsSync(lnr)) {
   }
   const g = Graph.open(cproject);
   const db = g.store.db;
-  const n = (t) => Number(db.prepare(`SELECT COUNT(*) AS n FROM edges WHERE type = ? AND producer = '820'`).get(t).n);
-  const direct = db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type IN ('READS','WRITES') AND producer = '820' AND json_extract(evidence, '$.via_zp') IS NULL").get().n;
+  const n = (t) => Number(db.prepare(`SELECT COUNT(*) AS n FROM edges WHERE type = ? AND producer = 'memory-access'`).get(t).n);
+  const direct = db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type IN ('READS','WRITES') AND producer = 'memory-access' AND json_extract(evidence, '$.via_zp') IS NULL").get().n;
   const expectedDirect = reads + writes + 2 * rmw;
   check(Number(direct) === expectedDirect, `lnr_boot: direct READS+WRITES rows ${direct} = ${reads} + ${writes} + 2×${rmw}`);
-  check(n("READS_INDIRECT") + n("WRITES_INDIRECT") === indirect + Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type='WRITES_INDIRECT' AND producer='820' AND json_extract(evidence,'$.mnemonic') IN ('inc','dec','asl','lsr','rol','ror')").get().n), `lnr_boot: INDIRECT rows = ${indirect} indirect instructions (RMW-indirect counted twice)`);
+  check(n("READS_INDIRECT") + n("WRITES_INDIRECT") === indirect + Number(db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type='WRITES_INDIRECT' AND producer='memory-access' AND json_extract(evidence,'$.mnemonic') IN ('inc','dec','asl','lsr','rol','ror')").get().n), `lnr_boot: INDIRECT rows = ${indirect} indirect instructions (RMW-indirect counted twice)`);
   const unknown = db.prepare("SELECT COUNT(*) AS n FROM edges WHERE type LIKE '%_INDIRECT' AND json_extract(evidence, '$.target') = 'unknown'").get().n;
   check(Number(unknown) === n("READS_INDIRECT") + n("WRITES_INDIRECT"), "every *_INDIRECT edge says target unknown (no invented target)");
-  const via = db.prepare("SELECT evidence FROM edges WHERE producer = '820' AND json_extract(evidence, '$.via_zp') IS NOT NULL").all();
+  const via = db.prepare("SELECT evidence FROM edges WHERE producer = 'memory-access' AND json_extract(evidence, '$.via_zp') IS NOT NULL").all();
   const constructions = report.codeSemantics?.indirectPointers ?? [];
   const viaOk = via.every((row) => { const ev = JSON.parse(row.evidence); return constructions.some((k) => k.zeroPageBase === ev.via_zp && k.start === ev.constructed_at && k.constantTarget !== undefined); });
   check(viaOk, `every via_zp edge (${via.length}) has a matching constant-target construction`);

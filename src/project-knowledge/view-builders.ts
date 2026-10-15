@@ -782,7 +782,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
     annotationCommentsByStage.set(binaryStem, summary.comments);
   }
 
-  // Keystone S1 (docs/redesign/keystone-schema.md) — the disk view is
+  // Keystone slice 1 (docs/redesign/keystone-schema.md) — the disk view is
   // MEDIUM-driven, not manifest-driven. Candidate CBM directory manifests are
   // matched TO a disk-image below; a per-track G64 extraction metadata (numeric
   // top-level `track`) is NOT a directory manifest, so it is excluded here and

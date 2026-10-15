@@ -56,7 +56,7 @@ const routine = (id, name, end) => ({ id, kind: "routine", name, endAddress: end
 const call = (from, to, pc, target) => ({ from, type: "CALLS", to, evidenceKey: `src:${pc.toString(16).padStart(4, "0")}`, origin: "static", confidence: "certain", evidence: { source_address: pc, mnemonic: "jsr", instruction: `jsr $${target.toString(16).toUpperCase().padStart(4, "0")}` } });
 {
   const store = GraphStore.open(project);
-  store.replaceGenerated("819", "fixture", [
+  store.replaceGenerated("control-flow", "fixture", [
     routine(MAIN, "main", 0x100f), routine(SVC, "svc", 0x1100), routine(LOOP, "loop", 0x1203), routine(SINK, "sink", 0x1300), routine(ROMC, "romc", 0x1403),
   ], [
     call(MAIN, SVC, 0x1002, 0x1100), call(MAIN, SVC, 0x1007, 0x1100), call(MAIN, SVC, 0x100c, 0x1100), call(LOOP, SINK, 0x1200, 0x1300),
@@ -113,8 +113,8 @@ check(r.notes.noStaticEdge === 0, "every runtime jsr site has a static CALLS/CAL
 
 let graph = Graph.open(project);
 const ev = (e) => e.evidence;
-const invariant = Number(graph.store.db.prepare("SELECT (SELECT COUNT(*) FROM edges WHERE producer='821' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) + (SELECT COUNT(*) FROM nodes WHERE producer='821' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) AS n").get().n);
-check(invariant === 0, "821 invariant: producer='821' ⇒ origin=runtime ∧ confidence=observed ∧ layer=generated");
+const invariant = Number(graph.store.db.prepare("SELECT (SELECT COUNT(*) FROM edges WHERE producer='runtime-trace' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) + (SELECT COUNT(*) FROM nodes WHERE producer='runtime-trace' AND (origin<>'runtime' OR confidence<>'observed' OR layer<>'generated')) AS n").get().n);
+check(invariant === 0, "821 invariant: producer='runtime-trace' ⇒ origin=runtime ∧ confidence=observed ∧ layer=generated");
 
 // ---- D6: the runtime CALLS rows into svc
 const into = graph.edgesInto(SVC, ["CALLS"]);
@@ -158,7 +158,7 @@ graph.close();
     from: MAIN, type: "PASSES", to: SVC, evidenceKey: `src:${pc.toString(16).padStart(4, "0")}`, origin: "static", confidence: "inferred",
     evidence: { site: `$${pc.toString(16).toUpperCase()}`, instruction: "jsr $1100", args: { A: { source: "imm", value: A, site: `$${(pc - 2).toString(16).toUpperCase()} lda #$0${A}` }, X: { source: "mem", from: "s826:ram:addr:27e1", site: "$27E1" }, Y: { source: "op", from: "op:$2805", site: "$2805" }, C: { source: "flag", site: "$2807 sec" }, "zp:$F3": { source: "unknown" } } },
   });
-  store.replaceGenerated("826", "fixture", [
+  store.replaceGenerated("signatures", "fixture", [
     { id: "s826:ram:addr:27e1", kind: "addr", name: null, attrs: {}, origin: "static", confidence: "certain" },
   ], [
     { from: SVC, type: "SIGNATURE", to: SVC, evidenceKey: "", origin: "static", confidence: "inferred", evidence: {

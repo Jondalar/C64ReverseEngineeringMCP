@@ -18,6 +18,7 @@ import { deriveProjectId, deriveSubsystemId, parseId, type ProjectIdParts } from
 import { canonicalJson } from "../json.js";
 import type { NodeRow } from "../schema.js";
 import { GraphStore, readProjectSlug } from "../store.js";
+import { canonicalTag } from "../../slots/schema.js";
 import { annotationId, DOOR_PRODUCER, ensureSchema822, type AnnotationRow, type QuestionRow } from "./schema-822.js";
 
 export type StoreTarget = string | GraphStore;
@@ -162,7 +163,7 @@ function upsertAnnotation(store: GraphStore, input: AnnotateInput): AnnotationRo
   const existing = db.prepare("SELECT created_at FROM annotations WHERE id = ?").get(id) as { created_at: string } | undefined;
   const row: AnnotationRow = {
     id, node_id: nodeId, kind: input.kind, title: input.title, body: input.body ?? null, name: input.name ?? null,
-    tags: JSON.stringify([...new Set(input.tags ?? [])].sort()), source_path: input.sourcePath ?? null, legacy_id: input.legacyId ?? null,
+    tags: JSON.stringify([...new Set((input.tags ?? []).map(canonicalTag))].sort()), source_path: input.sourcePath ?? null, legacy_id: input.legacyId ?? null,
     layer: "human", origin: "user", confidence: "user_asserted", score: input.score ?? null, status: input.status ?? "active", producer: DOOR_PRODUCER,
     attrs: sortedJson(compact({ ...(input.attrs ?? {}), author: input.author })), created_at: existing?.created_at ?? now, updated_at: now,
   };

@@ -21,8 +21,8 @@ The path from listing to kept knowledge:
 Step 3 is the one that gets skipped, and the skip is silent: the rendered listing shows
 the names, the graph holds none. `project_slots` counts named-ness from the graph.
 
-**What refuses later.** `render_docs` refuses while S7 (engine presence), S9 (modules) or
-S10 (save model) is empty, and those slots are filled from named routines. A project
+**What refuses later.** `render_docs` refuses while engine-presence, modules or
+save-model is empty, and those slots are filled from named routines. A project
 whose listing is annotated but never imported reads as a project that never annotated.
 
 Generated names — `unknown_3E00`, `addr_0006`, `W9000` — are excluded from the count by

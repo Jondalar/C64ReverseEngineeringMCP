@@ -7,7 +7,7 @@
 //
 // `deliver.scope` names the files the measures are about. This module is the one place a
 // scope entry becomes an OWNER — the `normStem` key the graph already puts on its nodes
-// (`nodes.owner`) and S12 already computes coverage by — so coverage, the named ratio and
+// (`nodes.owner`) and coverage already computes coverage by — so coverage, the named ratio and
 // the orphan limit cannot disagree about what "in scope" means.
 //
 // Omitted scope = every loadable owner = what the code did before. `annotate` never
@@ -39,7 +39,7 @@ export interface LoadableOwner {
 }
 
 /**
- * Spec 897 D6 — what makes two artifacts the same bytes. S12 deduplicates its denominator
+ * Spec 897 D6 — what makes two artifacts the same bytes. coverage deduplicates its denominator
  * by this, and a scope entry takes every owner it matches, so the two cannot disagree.
  * In order: the content hash the store records; else the lineage root (Spec 025: a derived
  * copy points at its origin); else the path — which only ever matches itself.
@@ -90,7 +90,7 @@ export function scopeEntries(scope: readonly ScopeInput[] | undefined): ScopeEnt
     .filter((e) => typeof e.file === "string" && e.file.trim().length > 0);
 }
 
-/** The loadable files: exactly the set S12's denominator is drawn from. */
+/** The loadable files: exactly the set coverage's denominator is drawn from. */
 export async function loadableOwners(projectDir: string): Promise<LoadableOwner[]> {
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
   const { normStem } = await import("../knowledge-graph/migrate/classify.js");
@@ -152,7 +152,7 @@ async function payloadOwners(projectDir: string): Promise<PayloadRef[]> {
 /**
  * Payload owners by the artifact they are recorded as stored in (`source_artifact_id`).
  * Independent of any scope: the bytes of a payload stored in a file are bytes of that
- * file, so S12 counts the payload's segments toward the file's coverage whether or not
+ * file, so coverage counts the payload's segments toward the file's coverage whether or not
  * the contract states a scope. Only the recorded link counts, never a fitting address.
  */
 export async function payloadsStoredIn(projectDir: string): Promise<Map<string, string[]>> {

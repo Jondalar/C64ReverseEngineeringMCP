@@ -6,7 +6,7 @@
 // nobody asked for and the most valuable line in the header — its evidence standard:
 // "where the rendered listing and the binary could disagree, the binary wins; all
 // 'every store to X' claims come from an exhaustive opcode scan, not from grepping the
-// .asm". Spec 844 made that a project-level slot (S13). At document level it is sharper.
+// .asm". Spec 844 made that a project-level slot (evidence-standard). At document level it is sharper.
 //
 // `claims: [F-3312]` was in the first draft and is gone: not one document in any project
 // names a finding id. A field nobody fills is worse than no field, because it makes the

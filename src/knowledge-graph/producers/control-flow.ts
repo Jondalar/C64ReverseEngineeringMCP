@@ -25,8 +25,9 @@ import { PlatformKb } from "../../platform-kb/read.js";
 import { platformKindForAddress, type PlatformTag } from "../../platform-kb/schema.js";
 import { addrCtx, deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
+import { CONTROL_FLOW_PRODUCER } from "../producer-ids.js";
 
-const PRODUCER = "819";
+const PRODUCER = CONTROL_FLOW_PRODUCER;
 const BRANCHES = new Set(["bcc", "bcs", "beq", "bne", "bmi", "bpl", "bvc", "bvs"]);
 
 interface Instruction {

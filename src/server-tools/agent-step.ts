@@ -419,7 +419,7 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   // 7b. Spec 752 L1 — ungrounded findings VETO the runtime branch. They do not decide.
   //
   // This rule used to return `static-analyze` as the PRIMARY and stop, and the first
-  // unattended run showed what that costs. The agent hit Spec 844's S4 gate, complied,
+  // unattended run showed what that costs. The agent hit Spec 844's data-geometry gate, complied,
   // and filled five slots with `slot_record` — which wrote its evidence as prose and left
   // the findings ungrounded. From then on this rule saw nine of them and parked the
   // recommender on "run analyze_prg" for the rest of the session. Rule 8 —

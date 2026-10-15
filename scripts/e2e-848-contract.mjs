@@ -4,7 +4,7 @@
 // Every case here exists because the first unattended run produced it. The signal fixture
 // below is that run's actual shape: 21 payloads, 2 sources, 0 annotations, 209 findings,
 // 9 of them ungrounded — every one of those nine written by slot_record while the agent
-// was CORRECTLY complying with Spec 844's S4 gate.
+// was CORRECTLY complying with Spec 844's data-geometry gate.
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -169,7 +169,7 @@ try {
 
     saveContract(d, {
       goal: "judge whether this can be ported to an EasyFlash cartridge",
-      deliver: { slots: ["S1", "S3", "S4"], namedRatio: 0.5 },
+      deliver: { slots: ["context", "boot-chain", "data-geometry"], namedRatio: 0.5 },
       limits: { runtimeRatchet: 2 },
     });
     const loaded = loadContract(d);
@@ -195,7 +195,7 @@ try {
     store.close();
     new KnowledgeRecords(d).saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x2000, end: 0x2040 } });
 
-    saveContract(d, { goal: "understand the loader well enough to port it", deliver: { slots: ["S1"], namedRatio: 0.5 } });
+    saveContract(d, { goal: "understand the loader well enough to port it", deliver: { slots: ["context"], namedRatio: 0.5 } });
     const v = await verdict(d);
     check("the verdict blocks on the contract's naming demand",
       v.blockers.some((b) => /named 0\.0 %.*below the 50 %/.test(b)),
@@ -205,7 +205,7 @@ try {
 
     // annotate resolves against the MODEL, not against filenames — a contract is written
     // at kickoff, when no address and no payload name is known yet.
-    saveContract(d, { goal: "annotate the loader wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["loader"] } });
+    saveContract(d, { goal: "annotate the loader wherever it turns out to be", deliver: { slots: ["context"], annotate: ["loader"] } });
     const vA = await verdict(d);
     check("an annotate demand with no boundary yet says so, and names the cure",
       vA.blockers.some((b) => /no model boundary is named for it yet \(model_assert\)/.test(b)),
@@ -219,7 +219,7 @@ try {
       vB.blockers.some((b) => /"stage 2 loader" \(asked for as "loader"\) holds 2 routines\/tables\/data segments and not one carries a human name/.test(b)),
       vB.blockers.find((b) => /stage 2 loader/.test(b)));
 
-    saveContract(d, { goal: "x and then some more words", deliver: { slots: ["S1"], documents: [{ covers: "$2000-$2040", why: "the loader" }] } });
+    saveContract(d, { goal: "x and then some more words", deliver: { slots: ["context"], documents: [{ covers: "$2000-$2040", why: "the loader" }] } });
     const v2 = await verdict(d);
     check("the verdict blocks on a demanded document that nobody declared",
       v2.blockers.some((b) => /asks for a document covering \$2000/.test(b)),
@@ -252,7 +252,7 @@ try {
     }] }, null, 2));
 
     const askMedium = { goal: "map both sides of the disk set for a cartridge port",
-      deliver: { slots: ["S1"], documents: [{ covers: "artifact:CRAZY1.D64", why: "the medium cartography" }] } };
+      deliver: { slots: ["context"], documents: [{ covers: "artifact:CRAZY1.D64", why: "the medium cartography" }] } };
     saveContract(d, askMedium);
     const vNone = await verdict(d);
     const mediumBlocker = vNone.blockers.find((b) => /CRAZY1\.D64/.test(b)) ?? "";
@@ -274,14 +274,14 @@ try {
       vDoc.blockers.find((b) => /CRAZY1/.test(b)) ?? "(no blocker)");
 
     // The other spelling the run tried: the literal artifact id.
-    saveContract(d, { ...askMedium, deliver: { slots: ["S1"], documents: [{ covers: ARTIFACT_ID }] } });
+    saveContract(d, { ...askMedium, deliver: { slots: ["context"], documents: [{ covers: ARTIFACT_ID }] } });
     const vById = await verdict(d);
     check("the same document satisfies a demand written as the literal artifact id",
       !vById.blockers.some((b) => new RegExp(ARTIFACT_ID).test(b)),
       vById.blockers.find((b) => /artifact/.test(b)) ?? "(no blocker)");
 
     // A name nothing answers to is still refused — and now says both doors.
-    saveContract(d, { ...askMedium, deliver: { slots: ["S1"], documents: [{ covers: "the sound driver" }] } });
+    saveContract(d, { ...askMedium, deliver: { slots: ["context"], documents: [{ covers: "the sound driver" }] } });
     const vUnknown = await verdict(d);
     const unknown = vUnknown.blockers.find((b) => /sound driver/.test(b)) ?? "";
     check("a demand that matches neither a boundary nor an artifact says so, naming both",
@@ -301,7 +301,7 @@ try {
       "---", "title: Port patches", "kind: synthesis",
       "covers:", "  - $4300-$43FF", "sources:", "  - analysis/port/X.md", "status: current", "---", "", "Body.", "",
     ].join("\n"));
-    saveContract(d, { goal: "port it", deliver: { slots: ["S1"], documents: [{ covers: "$4300-$43FF" }] } });
+    saveContract(d, { goal: "port it", deliver: { slots: ["context"], documents: [{ covers: "$4300-$43FF" }] } });
 
     check("before registering, the document outside docs/ is not counted",
       lintDocs(d).docs.length === 0 && (await verdict(d)).blockers.some((b) => /4300/.test(b)));
@@ -338,7 +338,7 @@ try {
       if (segKind && labelled) store.upsertHuman({ id: rid("label", 0x3000), kind: "label", name: "the_data", origin: "user", confidence: "user_asserted" });
       store.close();
       await assertBoundary(d, { name: "data block", level: "container", start: 0x3000, end: 0x30ff, description: "data", evidence: ["header"], owner: "game" });
-      saveContract(d, { goal: "annotate the data wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["data"] } });
+      saveContract(d, { goal: "annotate the data wherever it turns out to be", deliver: { slots: ["context"], annotate: ["data"] } });
       return (await verdict(d)).blockers.find((b) => /asked for as "data"|asserted for "data"/.test(b));
     };
     check("a region holding only a named charset segment is satisfied", (await mk("charset", true)) === undefined, await mk("charset", true));

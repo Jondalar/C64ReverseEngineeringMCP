@@ -308,7 +308,7 @@ const diskManifestReader: ManifestReader = {
       //
       // The CBM directory says `p`; the extractor writes `03_p.prg`; every analysis
       // producer files that file's graph rows under the file stem (`ownerFromAnalysisPath`
-      // → `03_p`), and so does the S12 coverage measure (`stemOf(relativePath)`). The row
+      // → `03_p`), and so does the coverage measure (`stemOf(relativePath)`). The row
       // used to take the CBM name, and a payload's owner stem is derived from its name —
       // so the payload stood under `p` while its own disassembly stood under `03_p`. Two
       // subjects for one file: the payload node read as nothing-known although the listing

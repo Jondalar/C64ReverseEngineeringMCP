@@ -636,7 +636,7 @@ export function subgraph(graph: Graph, options: SubgraphOptions = {}): Subgraph 
     if (core.size === 0) throw new SubgraphNotFound(`no cartridge "${token}"${bank !== undefined ? ` bank ${bank}` : ""} in the graph`);
   } else if (scope.kind === "subsystem") {
     const wanted = [...store.entries()].filter(([id, n]) => n.kind === "subsystem" && (id === scope.arg || n.name === scope.arg || id.endsWith(`:sub:${scope.arg}`))).map(([id]) => id);
-    if (wanted.length === 0) throw new SubgraphNotFound(`no subsystem "${scope.arg}" — assign-subsystem is the door (822)`);
+    if (wanted.length === 0) throw new SubgraphNotFound(`no subsystem "${scope.arg}" — assign-subsystem is the door`);
     for (const id of wanted) {
       core.add(id);
       for (const e of allEdges) {

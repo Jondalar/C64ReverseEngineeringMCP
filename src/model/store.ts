@@ -19,6 +19,7 @@
 
 import type { ModelLevel, ModelNode } from "./types.js";
 import { MODEL_LEVELS } from "./types.js";
+import { BOUNDARY_MODEL_PRODUCER } from "../knowledge-graph/producer-ids.js";
 
 export interface AssertBoundaryInput {
   name: string;
@@ -87,7 +88,7 @@ export async function assertBoundary(projectDir: string, input: AssertBoundaryIn
       origin: "user",
       confidence: "user_asserted",
       evidence,
-    }, "845");
+    }, BOUNDARY_MODEL_PRODUCER);
     return {
       id, name: input.name, level: input.level,
       space, owner: input.owner ?? null, cart: cart ?? null, bank: input.bank ?? null,

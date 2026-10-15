@@ -26,8 +26,9 @@ import { addrCtx, deriveProjectId, derivePlatformId, platformForCtx, type Ctx } 
 import { platformKindForAddress } from "../../platform-kb/schema.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { ownerFromAnalysisPath } from "./control-flow.js";
+import { MEMORY_ACCESS_PRODUCER } from "../producer-ids.js";
 
-const PRODUCER = "820";
+const PRODUCER = MEMORY_ACCESS_PRODUCER;
 const READ_MNEMONICS = new Set(["lda", "ldx", "ldy", "cmp", "cpx", "cpy", "adc", "sbc", "and", "ora", "eor", "bit"]);
 const WRITE_MNEMONICS = new Set(["sta", "stx", "sty"]);
 const RMW_MNEMONICS = new Set(["inc", "dec", "asl", "lsr", "rol", "ror"]);

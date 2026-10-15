@@ -47,7 +47,7 @@ import { canonicalJson } from "../json.js";
 import { contextForOwner } from "../producers/machine.js";
 import { resolveAddressesIn } from "../producers/resolve.js";
 import type { Confidence, Layer, NodeRow, Origin } from "../schema.js";
-import { GraphStore, graphPath, readProjectSlug } from "../store.js";
+import { GraphStore, graphPath, readProjectSlug, renameStoredSlotIds } from "../store.js";
 import { classifyEntity, classifyFinding, classifyQuestion, classifyRelation, confidenceForScore, normStem, type Classification } from "./classify.js";
 import {
   annotationId, ensureSchema822, humanLayerHash, MIGRATION_PRODUCER,
@@ -372,11 +372,11 @@ export class Writer {
   annotation(a: AnnotationRow): "created" | "merged" | "kept" {
     const existing = this.getAnnotation.get(a.id) as { producer: string } | undefined;
     if (!existing) {
-      this.insAnnotation.run(a.id, a.node_id, a.kind, a.title, a.body, a.name, a.tags, a.source_path, a.legacy_id, a.layer, a.origin, a.confidence, a.score, a.status, MIGRATION_PRODUCER, a.attrs, a.created_at, a.updated_at);
+      this.insAnnotation.run(a.id, a.node_id, a.kind, a.title, a.body, a.name, renameStoredSlotIds(a.tags), a.source_path, a.legacy_id, a.layer, a.origin, a.confidence, a.score, a.status, MIGRATION_PRODUCER, renameStoredSlotIds(a.attrs), a.created_at, a.updated_at);
       return "created";
     }
     if (existing.producer !== MIGRATION_PRODUCER) return "kept";
-    this.updAnnotation.run(a.node_id, a.title, a.body, a.name, a.tags, a.source_path, a.legacy_id, a.layer, a.origin, a.confidence, a.score, a.status, a.attrs, a.updated_at, a.id, MIGRATION_PRODUCER);
+    this.updAnnotation.run(a.node_id, a.title, a.body, a.name, renameStoredSlotIds(a.tags), a.source_path, a.legacy_id, a.layer, a.origin, a.confidence, a.score, a.status, renameStoredSlotIds(a.attrs), a.updated_at, a.id, MIGRATION_PRODUCER);
     return "merged";
   }
 
@@ -1460,10 +1460,10 @@ export interface ImportRecordsResult {
 
 /** Retire the generated 822 rows that no evidence row backs any more (after a purge). */
 function sweepOrphans(db: DatabaseSync): { nodes: number; claims: number; edges: number; annotations: number } {
-  const claims = Number(db.prepare("DELETE FROM claims WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'claims' AND e.target_key = claims.node_id || '|' || claims.claim)").run().changes);
-  const nodes = Number(db.prepare("DELETE FROM nodes WHERE producer = '822' AND layer = 'generated' AND kind <> 'addr' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'nodes' AND e.target_key = nodes.id)").run().changes);
-  const edges = Number(db.prepare("DELETE FROM edges WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'edges' AND e.target_key = edges.from_id || '|' || edges.type || '|' || edges.to_id)").run().changes);
-  const annotations = Number(db.prepare("DELETE FROM annotations WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'annotations' AND e.target_key = annotations.id)").run().changes);
+  const claims = Number(db.prepare("DELETE FROM claims WHERE producer = 'knowledge-import' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'claims' AND e.target_key = claims.node_id || '|' || claims.claim)").run().changes);
+  const nodes = Number(db.prepare("DELETE FROM nodes WHERE producer = 'knowledge-import' AND layer = 'generated' AND kind <> 'addr' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'nodes' AND e.target_key = nodes.id)").run().changes);
+  const edges = Number(db.prepare("DELETE FROM edges WHERE producer = 'knowledge-import' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'edges' AND e.target_key = edges.from_id || '|' || edges.type || '|' || edges.to_id)").run().changes);
+  const annotations = Number(db.prepare("DELETE FROM annotations WHERE producer = 'knowledge-import' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'annotations' AND e.target_key = annotations.id)").run().changes);
   return { nodes, claims, edges, annotations };
 }
 
@@ -1496,14 +1496,14 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
   try {
     if (options.purgeArtifactId) {
       const token = legacyIdToken(options.purgeArtifactId);
-      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND artifact_id = ? AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(options.purgeArtifactId, `entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
+      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = 'knowledge-import' AND artifact_id = ? AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(options.purgeArtifactId, `entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
       purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store IN ('entities','findings','relations','open-questions') AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(`entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
     }
     for (const p of options.purgeLegacyIds ?? []) {
       // The id itself, and every `<id>#<n>` beside it — as a range on evidence_legacy
       // ('$' is the character after '#'), not a LIKE, which scanned the table and read
       // a `_` or `%` inside an id as a wildcard (BUG-067).
-      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND (legacy_id = ? OR (legacy_id >= ? AND legacy_id < ?))").run(p.id, `${p.id}#`, `${p.id}$`).changes);
+      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = 'knowledge-import' AND (legacy_id = ? OR (legacy_id >= ? AND legacy_id < ?))").run(p.id, `${p.id}#`, `${p.id}$`).changes);
       purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store = ? AND legacy_id = ?").run(p.store, p.id).changes);
     }
     if (purged.evidence > 0 || purged.ledger > 0) {
@@ -1645,10 +1645,10 @@ export function graphCounts(db: DatabaseSync): Record<string, number> {
   const has822 = q("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'claims'") === 1;
   return {
     generatedNodes: q("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated'"),
-    generatedNodes822: q("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND producer = '822'"),
+    generatedNodes822: q("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND producer = 'knowledge-import'"),
     humanNodes: q("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human'"),
     generatedEdges: q("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated'"),
-    generatedEdges822: q("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND producer = '822'"),
+    generatedEdges822: q("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND producer = 'knowledge-import'"),
     humanEdges: q("SELECT COUNT(*) AS n FROM edges WHERE layer = 'human'"),
     claims: has822 ? q("SELECT COUNT(*) AS n FROM claims") : 0,
     evidence: has822 ? q("SELECT COUNT(*) AS n FROM evidence") : 0,

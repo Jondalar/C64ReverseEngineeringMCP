@@ -6,7 +6,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-// S12 counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
+// coverage counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
 function writeArtifactsJson(file, text) {
   writeFileSync(file, text);
   const root = join(dirname(file), "..");
@@ -44,7 +44,7 @@ try {
   {
     check("fifteen slots", SLOTS.length === 15, `${SLOTS.length} defined`);
     const ids = SLOTS.map((s) => s.id);
-    check("slot ids are unique and S1..S15", new Set(ids).size === 15 && ids[0] === "S1" && ids[14] === "S15");
+    check("slot ids are unique and context..writable-space", new Set(ids).size === 15 && ids[0] === "context" && ids[14] === "writable-space");
 
     // Spec 839's rule: a description may not name a verb that does not dispatch. A slot
     // that gates a door nobody can call is the same defect.
@@ -75,10 +75,10 @@ try {
     rec.saveFinding({ kind: "observation", title: "stage 1 at $0801", addressRange: { start: 0x0801, end: 0x08ff } });
 
     const g = await checkSlotGate("register_payload", d);
-    check("engaged project: register_payload refuses on S4", !g.allowed,
+    check("engaged project: register_payload refuses on data-geometry", !g.allowed,
       (g.refusal ?? "").split("\n")[0]);
     check("the refusal names the slot and what fills it",
-      /S4 — Data geometry/.test(g.refusal ?? "") && /payload entities/.test(g.refusal ?? ""));
+      /data-geometry/.test(g.refusal ?? "") && /payload entities/.test(g.refusal ?? ""));
     check("the refusal points at a tool that exists", /slot_record/.test(g.refusal ?? ""));
   }
 
@@ -88,41 +88,41 @@ try {
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "stage 1", addressRange: { start: 0x0801, end: 0x08ff } });
     let r = await slotReport(d);
-    check("S4 starts empty", statusOf(r, "S4") === "empty", statusOf(r, "S4"));
+    check("data-geometry starts empty", statusOf(r, "data-geometry") === "empty", statusOf(r, "data-geometry"));
 
     rec.saveFinding({
       kind: "observation", title: "payloads sit in tracks 18-24, LUT at $3000, packed with exomizer",
-      tags: ["slot:S4"],
+      tags: ["slot:data-geometry"],
     });
     r = await slotReport(d);
-    check("tagging slot:S4 fills it", statusOf(r, "S4") === "filled", r.states.find((s) => s.slot.id === "S4")?.detail);
+    check("tagging slot:data-geometry fills it", statusOf(r, "data-geometry") === "filled", r.states.find((s) => s.slot.id === "data-geometry")?.detail);
     const g = await checkSlotGate("register_payload", d);
     check("the door opens once the slot is filled", g.allowed, g.refusal?.split("\n")[0]);
   }
 
-  // ------------------------------------------------- S11: read-derived stays a hypothesis
+  // ------------------------------------------------- free-ram: read-derived stays a hypothesis
   {
     const d = newProject("s11"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-    rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF is free", tags: ["slot:S11", "method:read"] });
+    rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF is free", tags: ["slot:free-ram", "method:read"] });
     let r = await slotReport(d);
-    check("read-derived free RAM is a HYPOTHESIS, not a fill", statusOf(r, "S11") === "hypothesis",
-      r.states.find((s) => s.slot.id === "S11")?.detail);
+    check("read-derived free RAM is a HYPOTHESIS, not a fill", statusOf(r, "free-ram") === "hypothesis",
+      r.states.find((s) => s.slot.id === "free-ram")?.detail);
 
     const g = await checkSlotGate("runtime_candidate_variant", d);
     check("a hypothesis does NOT open the allocating door", !g.allowed,
       (g.refusal ?? "").split("\n")[0] ?? "(allowed)");
 
-    rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF confirmed free by run", tags: ["slot:S11", "method:run"] });
+    rec.saveFinding({ kind: "memory-map", title: "$C000-$CFFF confirmed free by run", tags: ["slot:free-ram", "method:run"] });
     r = await slotReport(d);
-    check("a run-watched S11 fills the slot", statusOf(r, "S11") === "filled", r.states.find((s) => s.slot.id === "S11")?.detail);
+    check("a run-watched free-ram fills the slot", statusOf(r, "free-ram") === "filled", r.states.find((s) => s.slot.id === "free-ram")?.detail);
     check("…and its text says a run saw no write, never that a run proved it free",
-      /saw no write/.test(r.states.find((s) => s.slot.id === "S11")?.detail ?? "") && !/confirmed by running/.test(r.states.find((s) => s.slot.id === "S11")?.detail ?? ""));
+      /saw no write/.test(r.states.find((s) => s.slot.id === "free-ram")?.detail ?? "") && !/confirmed by running/.test(r.states.find((s) => s.slot.id === "free-ram")?.detail ?? ""));
     check("the allocating door opens", (await checkSlotGate("runtime_candidate_variant", d)).allowed);
   }
 
-  // ------------------------------------------ S15: the BAM is a hypothesis, chains settle it
+  // ------------------------------------------ writable-space: the BAM is a hypothesis, chains settle it
   {
     const d = newProject("s15"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
@@ -132,28 +132,28 @@ try {
     ] }, null, 2));
 
     let r = await slotReport(d);
-    check("a registered medium makes S15 apply", statusOf(r, "S15") === "empty",
-      r.states.find((s) => s.slot.id === "S15")?.detail);
+    check("a registered medium makes writable-space apply", statusOf(r, "writable-space") === "empty",
+      r.states.find((s) => s.slot.id === "writable-space")?.detail);
 
-    rec.saveFinding({ kind: "observation", title: "30 blocks free per the BAM", tags: ["slot:S15", "method:bam"] });
+    rec.saveFinding({ kind: "observation", title: "30 blocks free per the BAM", tags: ["slot:writable-space", "method:bam"] });
     r = await slotReport(d);
-    check("a BAM-derived free list is a HYPOTHESIS, not a fill", statusOf(r, "S15") === "hypothesis",
-      r.states.find((s) => s.slot.id === "S15")?.detail);
+    check("a BAM-derived free list is a HYPOTHESIS, not a fill", statusOf(r, "writable-space") === "hypothesis",
+      r.states.find((s) => s.slot.id === "writable-space")?.detail);
 
-    rec.saveFinding({ kind: "observation", title: "78 blocks spare after walking every chain", tags: ["slot:S15", "method:chains"] });
+    rec.saveFinding({ kind: "observation", title: "78 blocks spare after walking every chain", tags: ["slot:writable-space", "method:chains"] });
     r = await slotReport(d);
-    check("walking the chains settles S15", statusOf(r, "S15") === "filled",
-      r.states.find((s) => s.slot.id === "S15")?.detail);
+    check("walking the chains settles writable-space", statusOf(r, "writable-space") === "filled",
+      r.states.find((s) => s.slot.id === "writable-space")?.detail);
   }
 
-  // ------------------------------------------------- S15 is n/a while no medium is registered
+  // ------------------------------------------------- writable-space is n/a while no medium is registered
   {
     const d = newProject("s15-nomedium"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
     const r = await slotReport(d);
-    check("no medium ⇒ S15 is n/a, not an open slot", statusOf(r, "S15") === "n/a",
-      r.states.find((s) => s.slot.id === "S15")?.detail);
+    check("no medium ⇒ writable-space is n/a, not an open slot", statusOf(r, "writable-space") === "n/a",
+      r.states.find((s) => s.slot.id === "writable-space")?.detail);
   }
 
   // --------------------------------------------------------- conditional slots are n/a
@@ -162,29 +162,29 @@ try {
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
     let r = await slotReport(d);
-    check("S6 is n/a while S5 has stated no count", statusOf(r, "S6") === "n/a",
-      r.states.find((s) => s.slot.id === "S6")?.detail);
+    check("runtime-linkage is n/a while runtime-count has stated no count", statusOf(r, "runtime-linkage") === "n/a",
+      r.states.find((s) => s.slot.id === "runtime-linkage")?.detail);
 
-    rec.saveFinding({ kind: "observation", title: "this game has 3 runtimes", tags: ["slot:S5"] });
+    rec.saveFinding({ kind: "observation", title: "this game has 3 runtimes", tags: ["slot:runtime-count"] });
     r = await slotReport(d);
-    check("stating 3 runtimes makes S6 required", statusOf(r, "S6") === "empty",
-      r.states.find((s) => s.slot.id === "S6")?.detail);
+    check("stating 3 runtimes makes runtime-linkage required", statusOf(r, "runtime-linkage") === "empty",
+      r.states.find((s) => s.slot.id === "runtime-linkage")?.detail);
 
     const d2 = newProject("cond1"); dirs.push(d2);
     const rec2 = new KnowledgeRecords(d2);
     rec2.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-    rec2.saveFinding({ kind: "observation", title: "one runtime, resident at $0801", tags: ["slot:S5"] });
+    rec2.saveFinding({ kind: "observation", title: "one runtime, resident at $0801", tags: ["slot:runtime-count"] });
     const r2 = await slotReport(d2);
-    check("stating one runtime keeps S6 n/a", statusOf(r2, "S6") === "n/a",
-      r2.states.find((s) => s.slot.id === "S6")?.detail);
+    check("stating one runtime keeps runtime-linkage n/a", statusOf(r2, "runtime-linkage") === "n/a",
+      r2.states.find((s) => s.slot.id === "runtime-linkage")?.detail);
   }
 
-  // ------------------------- BUG-059 defect 9: S6 was gated on a digit in S5's title
+  // ------------------------- BUG-059 defect 9: runtime-linkage was gated on a digit in runtime-count's title
   //
-  // An autonomous run answered S5 "Two permanently resident images and twelve
+  // An autonomous run answered runtime-count "Two permanently resident images and twelve
   // swappable windows" and got back "its wording states no number this can read
-  // … re-record S5 with a count in it". It re-recorded as "4 resident runtimes
-  // and 14 swappable windows" and that did not clear it either, so S6..S9 stayed
+  // … re-record runtime-count with a count in it". It re-recorded as "4 resident runtimes
+  // and 14 swappable windows" and that did not clear it either, so runtime-linkage..S9 stayed
   // permanently n/a. Both are perfectly clear sentences; the parser demanded the
   // digit immediately before the word "runtime".
   {
@@ -201,20 +201,20 @@ try {
       const d = newProject(`s5case${caseN}`); dirs.push(d);
       const rec = new KnowledgeRecords(d);
       rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-      rec.saveFinding({ kind: "observation", title, tags: ["slot:S5"] });
+      rec.saveFinding({ kind: "observation", title, tags: ["slot:runtime-count"] });
       const rr = await slotReport(d);
-      const s6 = rr.states.find((x) => x.slot.id === "S6");
-      const s5 = rr.states.find((x) => x.slot.id === "S5");
+      const s6 = rr.states.find((x) => x.slot.id === "runtime-linkage");
+      const s5 = rr.states.find((x) => x.slot.id === "runtime-count");
       if (expect === "applies") {
-        check(`S6 applies from "${title}"`, s6?.status === "empty", s6?.detail);
-        check(`…and S5's line says the count it read (${expected})`,
+        check(`runtime-linkage applies from "${title}"`, s6?.status === "empty", s6?.detail);
+        check(`…and runtime-count's line says the count it read (${expected})`,
           (s5?.detail ?? "").includes(`count ${expected} (read from the wording)`), s5?.detail);
       } else if (expect === "n/a") {
-        check(`S6 stays n/a for one runtime ("${title}")`, s6?.status === "n/a", s6?.detail);
+        check(`runtime-linkage stays n/a for one runtime ("${title}")`, s6?.status === "n/a", s6?.detail);
       } else {
         check(`an unreadable wording still says so ("${title}")`,
-          s6?.status === "n/a" && /slot_record\(slot="S5", count=N/.test(s6?.detail ?? ""), s6?.detail);
-        check("…and S5's own line admits it read no count",
+          s6?.status === "n/a" && /slot_record\(slot="runtime-count", count=N/.test(s6?.detail ?? ""), s6?.detail);
+        check("…and runtime-count's own line admits it read no count",
           /no count could be read/.test(s5?.detail ?? ""), s5?.detail);
       }
     }
@@ -224,29 +224,29 @@ try {
     const d = newProject("s5-field"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-    rec.saveFinding({ kind: "observation", title: "a single resident image at $0801", tags: ["slot:S5"] });
+    rec.saveFinding({ kind: "observation", title: "a single resident image at $0801", tags: ["slot:runtime-count"] });
     let rf = await slotReport(d);
-    check("a prose-only S5 that states no number leaves S6 undecided", statusOf(rf, "S6") === "n/a");
-    rec.saveFinding({ kind: "observation", title: "four resident images and fourteen windows", tags: ["slot:S5", "count:4"] });
+    check("a prose-only runtime-count that states no number leaves runtime-linkage undecided", statusOf(rf, "runtime-linkage") === "n/a");
+    rec.saveFinding({ kind: "observation", title: "four resident images and fourteen windows", tags: ["slot:runtime-count", "count:4"] });
     rf = await slotReport(d);
-    check("recording the count as a field settles S6", statusOf(rf, "S6") === "empty",
-      rf.states.find((x) => x.slot.id === "S6")?.detail);
-    check("…and S5's line says the count came from a field",
-      (rf.states.find((x) => x.slot.id === "S5")?.detail ?? "").includes("count 4 (recorded as a field)"),
-      rf.states.find((x) => x.slot.id === "S5")?.detail);
+    check("recording the count as a field settles runtime-linkage", statusOf(rf, "runtime-linkage") === "empty",
+      rf.states.find((x) => x.slot.id === "runtime-linkage")?.detail);
+    check("…and runtime-count's line says the count came from a field",
+      (rf.states.find((x) => x.slot.id === "runtime-count")?.detail ?? "").includes("count 4 (recorded as a field)"),
+      rf.states.find((x) => x.slot.id === "runtime-count")?.detail);
 
     // A sentence with two different counts on the same noun is refused, not guessed.
     const d3 = newProject("s5-ambig"); dirs.push(d3);
     const rec3 = new KnowledgeRecords(d3);
     rec3.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
-    rec3.saveFinding({ kind: "observation", title: "One resident image per phase, five images in all", tags: ["slot:S5"] });
+    rec3.saveFinding({ kind: "observation", title: "One resident image per phase, five images in all", tags: ["slot:runtime-count"] });
     const r3 = await slotReport(d3);
     check("two different counts in one sentence are not guessed at",
-      /no count could be read/.test(r3.states.find((x) => x.slot.id === "S5")?.detail ?? ""),
-      r3.states.find((x) => x.slot.id === "S5")?.detail);
+      /no count could be read/.test(r3.states.find((x) => x.slot.id === "runtime-count")?.detail ?? ""),
+      r3.states.find((x) => x.slot.id === "runtime-count")?.detail);
   }
 
-  // ------------------------------------------------------ S12: the vocabulary is gated
+  // ------------------------------------------------------ coverage: the vocabulary is gated
   {
     const d = newProject("cov"); dirs.push(d);
     const rec = new KnowledgeRecords(d);
@@ -412,7 +412,7 @@ try {
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
     const text = formatSlotReport(await slotReport(d));
-    check("the report lists all 15 slots", (text.match(/^[✓~✗·] S\d/gm) ?? []).length === 15,
+    check("the report lists all 15 slots", (text.match(/^[✓~✗·] [a-z]/gm) ?? []).length === 15,
       text.split("\n")[0]);
   }
 } finally {

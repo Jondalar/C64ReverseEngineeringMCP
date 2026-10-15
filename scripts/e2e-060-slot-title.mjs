@@ -133,7 +133,7 @@ try {
   // ── §3 the refusal is the tool's voice ────────────────────────────────────
   head(3, "an over-long title is refused in the tool's own voice");
   const refused = report(await call("slot_record", {
-    slot: "S3", answer: ANSWER, evidence: EVIDENCE, title: LONG_TITLE,
+    slot: "boot-chain", answer: ANSWER, evidence: EVIDENCE, title: LONG_TITLE,
   }));
   {
     check(/^# slot_record refused/m.test(refused),
@@ -165,18 +165,18 @@ try {
   {
     check(/[Nn]othing was written/.test(refused), "the refusal says so");
     const slots = report(await call("project_slots", {}));
-    check(/[·✗] S3/.test(slots), "…and S3 really is still empty",
-      slots.split("\n").find((l) => /S3/.test(l))?.slice(0, 110));
+    check(/[·✗] boot-chain/.test(slots), "…and boot-chain really is still empty",
+      slots.split("\n").find((l) => /boot-chain/.test(l))?.slice(0, 110));
   }
 
   // ── §6 at the cap, and without a title ────────────────────────────────────
   head(6, "at the cap it is accepted, and omitting it still works");
   {
     const atCap = "x".repeat(120);
-    const ok = report(await call("slot_record", { slot: "S3", answer: ANSWER, evidence: EVIDENCE, title: atCap }));
+    const ok = report(await call("slot_record", { slot: "boot-chain", answer: ANSWER, evidence: EVIDENCE, title: atCap }));
     check(!/refused/.test(ok), "a title of exactly 120 characters is accepted",
       ok.split("\n").filter(Boolean)[0]?.slice(0, 110));
-    const none = report(await call("slot_record", { slot: "S1", answer: ANSWER, evidence: EVIDENCE }));
+    const none = report(await call("slot_record", { slot: "context", answer: ANSWER, evidence: EVIDENCE }));
     check(!/refused/.test(none) && /^Title: /m.test(none),
       "omitting `title` still takes a headline from the answer",
       none.split("\n").find((l) => /^Title:/.test(l))?.slice(0, 110));
@@ -189,7 +189,7 @@ try {
   head(7, "the evidence refusal — the best one of the run — is unchanged");
   {
     const long = `${ANSWER} `.repeat(6).trim();
-    const out = report(await call("slot_record", { slot: "S5", answer: long }));
+    const out = report(await call("slot_record", { slot: "runtime-count", answer: long }));
     check(/^# slot_record refused — evidence did not arrive/m.test(out),
       "a missing evidence still refuses by cause, not by schema",
       out.split("\n").filter(Boolean)[0]?.slice(0, 140));

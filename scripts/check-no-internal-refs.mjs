@@ -7,6 +7,11 @@
 // docs/ and resources/. An internal id there — a spec number, a bug id, a section or
 // decision marker — means nothing to the reader and ages into a lie.
 //
+// The ids that count include the slot ids of an earlier release (S1..S15 — a slot is named
+// by a descriptive id) and the numeric producer ids of the graph's `producer` column
+// (819, 820, 821, 822, 826, 826r, 845, 847, 909 — a producer is named by what it does).
+// The few places that must still READ them are allow-listed with the reason.
+//
 // What is not checked, on purpose: specs/, bugs/, docs/_archive, docs/rust_core/specs,
 // code comments, commit messages, test scripts and their names.
 //
@@ -49,6 +54,8 @@ const ID_PATTERNS = [
   /\bissue #\d+/i, // issue #11
   /\(#\d{2,3}\)/, // (#48)
   /_legacy-\d{3}|schema_\d{3}|split-table-\d{3}|timeline-\d{3}|\bcutover-\d{3}/, // names carrying a number
+  /(?<![\w/:.$#-])S(?:1[0-5]|[1-9])(?![\w-])/, // S1..S15: the slot ids of an earlier release (T18/S4 and T37:S2 are sectors, and do not match)
+  /(?<![\w$.#%:/=-])(?:819|820|821|822|826r?|845|847|909)(?![\w.%:/-])/, // the numeric producer ids of the graph's `producer` column (819 control flow ... 909 cartridge)
   /(?:^|[\s(`"'/])D(?:[1-9]|1[0-2])(?:\.\d+)?[a-z]?(?=[\s,;:).`"'\]]|$)(?! *(?:[0-9A-Fa-f]{2}\b))/, // D3, D4.1 decision ids (not hex bytes)
 ];
 

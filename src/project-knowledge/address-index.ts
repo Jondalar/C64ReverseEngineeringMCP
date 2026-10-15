@@ -167,7 +167,7 @@ function xrefsFromJson(p: string, stem: string): XrefEntry[] {
 function xrefsFromGraph(store: GraphStore, owner: string, stem: string): XrefEntry[] {
   const rows = store.db
     .prepare(
-      `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820') AND type IN (${XREF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
+      `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('control-flow','memory-access') AND type IN (${XREF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
     )
     .all(owner, ...XREF_EDGE_TYPES) as Array<{ type: string; to_id: string; evidence: string }>;
   const out: XrefEntry[] = [];
@@ -194,7 +194,7 @@ function xrefsFromGraph(store: GraphStore, owner: string, stem: string): XrefEnt
 }
 
 function countOwnerRows(store: GraphStore, owner: string): number {
-  return Number((store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820')").get(owner) as { n: number }).n);
+  return Number((store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('control-flow','memory-access')").get(owner) as { n: number }).n);
 }
 
 export function buildXrefIndexDetailed(projectDir: string, options: { source?: "graph" | "json" } = {}): XrefIndexBuild {
@@ -236,7 +236,7 @@ export function buildXrefIndexDetailed(projectDir: string, options: { source?: "
       if (rows > 0 && store) {
         xrefs.push(...xrefsFromGraph(store, owner, stem));
         sources[stem] = seeded ? "graph-seeded" : "graph";
-        if (seeded) notes.push(`xref index: ${stem} seeded on demand (819+820) into ${path}`);
+        if (seeded) notes.push(`xref index: ${stem} seeded on demand (control-flow + memory-access) into ${path}`);
         continue;
       }
       if (!notes.some((n) => n.includes(`seeding ${stem}`))) {

@@ -26,6 +26,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadContract } from "./contract.js";
+import { canonicalPromiseId } from "../slots/schema.js";
 import { statedPromiseIds } from "./promises.js";
 
 /** Tools that RECORD something. The contract's state can have moved under each of them. */
@@ -102,14 +103,24 @@ function read(projectDir: string): Standing | undefined {
   try {
     const raw = JSON.parse(readFileSync(path(projectDir), "utf8")) as Partial<Standing>;
     if (Array.isArray(raw.blockers)) {
-      return {
+      // A ledger written by an earlier release names slot promises by the ids it typed then; read them renamed, and rewrite once.
+      const promises = Array.isArray(raw.promises) ? raw.promises.map((p) => canonicalPromiseId(String(p))) : undefined;
+      const owed = Array.isArray(raw.owed) ? raw.owed.map((p) => canonicalPromiseId(String(p))) : undefined;
+      const waivers = Array.isArray(raw.waivers) ? (raw.waivers as Waiver[]).map((w) => ({ ...w, promise: canonicalPromiseId(String(w.promise)) })) : undefined;
+      const withdrawals = Array.isArray(raw.withdrawals) ? (raw.withdrawals as Withdrawal[]).map((w) => ({ ...w, promise: canonicalPromiseId(String(w.promise)) })) : undefined;
+      const standing: Standing = {
         blockers: raw.blockers.map(String),
         at: String(raw.at ?? ""),
-        ...(Array.isArray(raw.promises) ? { promises: raw.promises.map(String) } : {}),
-        ...(Array.isArray(raw.owed) ? { owed: raw.owed.map(String) } : {}),
-        ...(Array.isArray(raw.waivers) ? { waivers: raw.waivers as Waiver[] } : {}),
-        ...(Array.isArray(raw.withdrawals) ? { withdrawals: raw.withdrawals as Withdrawal[] } : {}),
+        ...(promises ? { promises } : {}),
+        ...(owed ? { owed } : {}),
+        ...(waivers ? { waivers } : {}),
+        ...(withdrawals ? { withdrawals } : {}),
       };
+      const before = JSON.stringify([raw.promises, raw.owed, raw.waivers, raw.withdrawals]);
+      if (JSON.stringify([promises, owed, waivers, withdrawals]) !== before) {
+        try { writeFileSync(path(projectDir), JSON.stringify({ ...raw, ...standing }, null, 2) + "\n"); } catch { /* read-only: read renamed, not rewritten */ }
+      }
+      return standing;
     }
   } catch { /* never spoken here before */ }
   return undefined;

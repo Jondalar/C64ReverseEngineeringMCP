@@ -7,7 +7,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-// S12 counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
+// coverage counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
 function writeArtifactsJson(file, text) {
   writeFileSync(file, text);
   const root = join(dirname(file), "..");
@@ -393,7 +393,7 @@ try {
   // ---- (#57) a waived promise is not owed in project_status's footer
   {
     const dir = newProject();
-    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9, slots: ["S11"] } });
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9, slots: ["free-ram"] } });
     const { standingFooter } = await import("../dist/contract/standing.js");
     const before = await standingFooter(dir, "project_status");
     check("(#57) before the waiver the footer lists namedRatio as owed", /still owed/.test(before) && /named /.test(before), before);
@@ -408,20 +408,20 @@ try {
     const dir = newProject();
     const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
     const { verdict } = await import("../dist/critic/run.js");
-    new KnowledgeRecords(dir).saveFinding({ kind: "memory-map", title: "$C000-$CFFF is free", tags: ["slot:S11", "method:read"] });
-    saveContract(dir, { goal: GOAL, deliver: { slots: ["S11"] } });
+    new KnowledgeRecords(dir).saveFinding({ kind: "memory-map", title: "$C000-$CFFF is free", tags: ["slot:free-ram", "method:read"] });
+    saveContract(dir, { goal: GOAL, deliver: { slots: ["free-ram"] } });
     const tt = tools(dir);
-    await tt.set({ goal: GOAL, scope: ["game.prg"], slots: ["S11"] });
+    await tt.set({ goal: GOAL, scope: ["game.prg"], slots: ["free-ram"] });
     const v0 = await verdict(dir);
-    const s11 = v0.blockers.find((b) => /^slot S11 /.test(b));
-    check("(#61) the critique blocks on the read-derived S11", !!s11, v0.blockers.join(" | "));
+    const s11 = v0.blockers.find((b) => /^slot free-ram:/.test(b));
+    check("(#61) the critique blocks on the read-derived free-ram", !!s11, v0.blockers.join(" | "));
     const owed = (await contractPromises(dir)).map((p) => p.id);
-    check("(#61) the same slot is owed per the contract, by the id the critique names", owed.includes("S11"), owed.join(","));
-    const w = await tt.set({ waive: ["S11"], waive_reason: "no run possible on this medium", waived_by: "Alex" });
-    check("(#61) contract_set accepts the waiver", /Waived by Alex: S11/.test(w), w.split("\n")[0]);
+    check("(#61) the same slot is owed per the contract, by the id the critique names", owed.includes("free-ram"), owed.join(","));
+    const w = await tt.set({ waive: ["free-ram"], waive_reason: "no run possible on this medium", waived_by: "Alex" });
+    check("(#61) contract_set accepts the waiver", /Waived by Alex: free-ram/.test(w), w.split("\n")[0]);
     const v1 = await verdict(dir);
-    check("(#61) the critique then does not block on S11 and lists it as waived",
-      !v1.blockers.some((b) => /^slot S11 /.test(b)) && v1.waived.some((x) => x.promise === "S11"),
+    check("(#61) the critique then does not block on free-ram and lists it as waived",
+      !v1.blockers.some((b) => /^slot free-ram:/.test(b)) && v1.waived.some((x) => x.promise === "free-ram"),
       JSON.stringify(v1));
     check("(#61) contract_show lists the slot waiver as holding", /Waived — the human overruled/.test(await tt.show()) && !/Lapsed/.test(await tt.show()));
   }

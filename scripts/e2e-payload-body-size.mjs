@@ -215,7 +215,7 @@ try {
   check("a registered file that is gone is named, not counted",
     grown.coverage.missing.length === 1 && /c\.bin$/.test(grown.coverage.missing[0]), JSON.stringify(grown.coverage.missing));
   const { formatSlotReport } = await import("../dist/slots/state.js");
-  check("...and the S12 answer says 'missing on disk'", /missing on disk[^\n]*c\.bin/.test(formatSlotReport(grown)));
+  check("...and the coverage answer says 'missing on disk'", /missing on disk[^\n]*c\.bin/.test(formatSlotReport(grown)));
   const [gs1, gs2] = await session(gd, [["project_inventory_sync", {}], ["project_inventory_sync", {}]]);
   check("project_inventory_sync re-reads the grown record's size", /re-read from disk: 1/.test(gs1), (/.*re-read.*/.exec(gs1) ?? ["(no line)"])[0]);
   check("...names the missing file (keeps it)", /missing on disk[^\n]*c\.bin/.test(gs1));

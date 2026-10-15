@@ -268,9 +268,9 @@ try {
   {
     check("D7: exactly three slots are container-shaped", CONTAINER_SLOTS.size === 3,
       [...CONTAINER_SLOTS.keys()].join(","));
-    check("D7: S3 and S5 are containers, S8 is a component",
-      CONTAINER_SLOTS.get("S3") === "container" && CONTAINER_SLOTS.get("S5") === "container"
-      && CONTAINER_SLOTS.get("S8") === "component");
+    check("D7: boot-chain and runtime-count are containers, engine-architecture is a component",
+      CONTAINER_SLOTS.get("boot-chain") === "container" && CONTAINER_SLOTS.get("runtime-count") === "container"
+      && CONTAINER_SLOTS.get("engine-architecture") === "component");
   }
 
   // ------------------------------------------------------------------ removal, surface

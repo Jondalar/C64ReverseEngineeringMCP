@@ -113,7 +113,7 @@ try {
     seedGraph(d, 1);
     saveContract(d, {
       goal: "judge whether this can be ported to an EasyFlash cartridge",
-      deliver: { slots: ["S1"], namedRatio: 0.9 },
+      deliver: { slots: ["context"], namedRatio: 0.9 },
     });
 
     const owed = await contractPromises(d);
@@ -174,7 +174,7 @@ try {
   {
     const d = newProject("release"); dirs.push(d);
     seedGraph(d, 1);
-    saveContract(d, { goal: "port it to a cartridge and ship it", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "port it to a cartridge and ship it", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
     check("`release-crt` is a release", isReleaseRole("release-crt"));
     check("`release` on its own is too", isReleaseRole("release"));
@@ -197,7 +197,7 @@ try {
   {
     const d = newProject("step"); dirs.push(d);
     seedGraph(d, 1);
-    saveContract(d, { goal: "map the loader and then write it up", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "map the loader and then write it up", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
     check("\"phase 5 complete\" closes a phase", closesAPhase("Phase 5 complete"));
     check("\"phase 3 abgeschlossen\" too", closesAPhase("phase 3 abgeschlossen"));
@@ -221,7 +221,7 @@ try {
   {
     const d = newProject("never"); dirs.push(d);
     seedGraph(d, 0);
-    saveContract(d, { goal: "everything, and then some, about this cartridge", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "everything, and then some, about this cartridge", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
     const NEVER = [
       "analyze", "analyze_prg", "disasm", "disasm_prg", "disasm_raw", "propose_annotations",
@@ -246,9 +246,9 @@ try {
   {
     const d = newProject("clear"); dirs.push(d);
     seedGraph(d, 3);
-    saveContract(d, { goal: "name enough of it to judge the port", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "name enough of it to judge the port", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
-    // the open S1 is a slot promise: the verdict and the waiver see it, the doors leave it to 844
+    // the open context is a slot promise: the verdict and the waiver see it, the doors leave it to 844
     const owed = (await contractPromises(d)).filter((p) => p.kind !== "slot");
     check("with the promise met nothing is owed", owed.length === 0, owed.map((p) => p.id).join(", "));
     const g = await checkContractTeeth("render_docs", d);
@@ -262,7 +262,7 @@ try {
   {
     const d = newProject("verdict"); dirs.push(d);
     seedGraph(d, 0);
-    saveContract(d, { goal: "understand the loader well enough to port it", deliver: { slots: ["S1"], namedRatio: 0.5 } });
+    saveContract(d, { goal: "understand the loader well enough to port it", deliver: { slots: ["context"], namedRatio: 0.5 } });
     const v = await verdict(d);
     check("the verdict still speaks in 848's words",
       v.blockers.some((b) => /named 0\.0 %.*below the 50 %.*counts things with a name/.test(b)),
@@ -273,7 +273,7 @@ try {
   {
     const d = newProject("switch"); dirs.push(d);
     seedGraph(d, 0);
-    saveContract(d, { goal: "a contract that is owed and a gate switched off", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "a contract that is owed and a gate switched off", deliver: { slots: ["context"], namedRatio: 0.9 } });
     process.env.C64RE_SLOT_GATE = "0";
     const off = await checkContractTeeth("render_docs", d);
     delete process.env.C64RE_SLOT_GATE;
@@ -289,7 +289,7 @@ try {
   {
     const d = newProject("waive-shape"); dirs.push(d);
     seedGraph(d, 1);
-    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
     const noBy = await waivePromises(d, { promises: ["namedRatio"], reason: "demo deadline is tonight", by: "" });
     check("a waiver with nobody behind it is refused", !noBy.ok, noBy.message.split("\n")[0]);
@@ -309,7 +309,7 @@ try {
   {
     const d = newProject("waive"); dirs.push(d);
     seedGraph(d, 1);
-    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["context"], namedRatio: 0.9 } });
 
     const shut = await checkContractTeeth("render_docs", d);
     check("before the waiver the door is shut", !shut.allowed);
@@ -370,7 +370,7 @@ try {
     seedGraph(d, 1);
     saveContract(d, {
       goal: "ship it short on naming, but the loader write-up is not negotiable",
-      deliver: { slots: ["S1"], namedRatio: 0.9, documents: [{ covers: "$2000-$2040", why: "the loader" }] },
+      deliver: { slots: ["context"], namedRatio: 0.9, documents: [{ covers: "$2000-$2040", why: "the loader" }] },
     });
     const w = await waivePromises(d, { promises: ["namedRatio"], reason: "naming continues next week", by: "Alex" });
     check("the naming promise is waived", w.ok, w.message.split("\n")[0]);
@@ -394,11 +394,11 @@ try {
   {
     const d = newProject("lapse"); dirs.push(d);
     seedGraph(d, 1);
-    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["context"], namedRatio: 0.9 } });
     await waivePromises(d, { promises: ["namedRatio"], reason: "shipping short this once", by: "Alex" });
     check("the door is open under the waiver", (await checkContractTeeth("render_docs", d)).allowed);
 
-    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["S1"], namedRatio: 0.95 } });
+    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["context"], namedRatio: 0.95 } });
     const after = await checkContractTeeth("render_docs", d);
     check("changing what the contract asks LAPSES the waiver", !after.allowed,
       (after.refusal ?? "").split("\n")[0] ?? "(still open)");

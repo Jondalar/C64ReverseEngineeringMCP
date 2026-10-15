@@ -21,13 +21,14 @@ import { ddlObjectsPresent, writeTx } from "../write-tx.js";
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "../../platform-kb/sqlite-quiet.js";
 import type { Confidence, Layer, Origin } from "../schema.js";
+import { KNOWLEDGE_IMPORT_PRODUCER } from "../producer-ids.js";
 
 export const SCHEMA_822_VERSION = 1;
 /** The meta key that stamps the record-layer schema version. */
 export const RECORD_SCHEMA_KEY = "record_schema";
 /** What graphs written before the rename carry. Read as the same stamp, replaced on the next write, never written. */
 export const LEGACY_RECORD_SCHEMA_KEY = "schema_822";
-export const MIGRATION_PRODUCER = "822";
+export const MIGRATION_PRODUCER = KNOWLEDGE_IMPORT_PRODUCER;
 export const DOOR_PRODUCER = "human";
 
 export type ClaimName = "behaves_like" | "segment_kind" | "display_state" | "display_transfer" | string;

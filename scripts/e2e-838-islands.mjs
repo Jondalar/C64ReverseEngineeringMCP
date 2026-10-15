@@ -71,9 +71,9 @@ const writeGraph = (projectDir, { nodes, edges }) => {
   const db = new DatabaseSync(join(projectDir, "knowledge", "graph.sqlite"));
   db.exec(GRAPH_DDL);
   const n = db.prepare("INSERT OR REPLACE INTO nodes (id, layer, kind, space, owner, bank, run_owner, address, end_address, name, attrs, origin, confidence, producer, evidence) VALUES (?,?,?,?,?,NULL,?,?,?,?,'{}',?,?,?,'[]')");
-  for (const r of nodes) n.run(r.id, r.layer, r.kind, r.space, r.owner ?? null, r.owner ?? null, r.address, r.endAddress ?? null, r.name ?? null, r.origin ?? "static", r.confidence ?? "inferred", r.producer ?? "819");
+  for (const r of nodes) n.run(r.id, r.layer, r.kind, r.space, r.owner ?? null, r.owner ?? null, r.address, r.endAddress ?? null, r.name ?? null, r.origin ?? "static", r.confidence ?? "inferred", r.producer ?? "control-flow");
   const e = db.prepare("INSERT OR REPLACE INTO edges (from_id, type, to_id, layer, evidence_key, origin, confidence, producer, owner, evidence) VALUES (?,?,?,'generated',?,'static','inferred',?,?,'{}')");
-  for (const r of edges) e.run(r.from, r.type, r.to, r.key ?? "", r.producer ?? "819", r.owner ?? null);
+  for (const r of edges) e.run(r.from, r.type, r.to, r.key ?? "", r.producer ?? "control-flow", r.owner ?? null);
   db.close();
 };
 
@@ -122,8 +122,8 @@ writeGraph(proj, {
   edges: [
     { from: "fixture:ram/overlay_a:routine:8000", type: "CALLS", to: "fixture:ram:addr:c010", key: "src:8003", owner: "overlay_a" },
     { from: "fixture:ram/overlay_a:routine:8000", type: "CALLS", to: "fixture:ram:addr:c050", key: "src:8006", owner: "overlay_a" },
-    { from: "fixture:ram:addr:c038", type: "RESOLVES_TO", to: "fixture:ram/resident:routine:c038", producer: "826r" },
-    { from: "fixture:ram:addr:c050", type: "RESOLVES_TO", to: "fixture:ram/overlay_b:routine:c050", producer: "826r" },
+    { from: "fixture:ram:addr:c038", type: "RESOLVES_TO", to: "fixture:ram/resident:routine:c038", producer: "signature-resolve" },
+    { from: "fixture:ram:addr:c050", type: "RESOLVES_TO", to: "fixture:ram/overlay_b:routine:c050", producer: "signature-resolve" },
   ],
 });
 

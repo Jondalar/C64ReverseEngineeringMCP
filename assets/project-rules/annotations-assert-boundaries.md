@@ -18,9 +18,9 @@ each complete and could not be joined. Boundaries are asserted, membership is co
 a dozen judgements index eleven thousand nodes, and are recomputed on read so they
 cannot go stale.
 
-**What refuses later.** S3 (boot chain) and S6 (runtime linkage) gate
+**What refuses later.** boot-chain and runtime-linkage gate
 `link_payload_to_asm`; both are filled by *relations between named things*, not by names
-alone. S4 gates `register_payload`.
+alone. data-geometry gates `register_payload`.
 
 A name you are unsure of belongs in the file with the doubt written into its comment,
 not left out. An absent name is indistinguishable from unread code.

@@ -72,7 +72,7 @@ try {
   }
   const crtNodes = () => {
     const db = new DatabaseSync(join(proj, "knowledge", "graph.sqlite"), { readOnly: true });
-    try { return db.prepare("SELECT DISTINCT id FROM nodes WHERE producer = '821' AND id LIKE '%:crt/%' ORDER BY id").all().map((r) => r.id); } finally { db.close(); }
+    try { return db.prepare("SELECT DISTINCT id FROM nodes WHERE producer = 'runtime-trace' AND id LIKE '%:crt/%' ORDER BY id").all().map((r) => r.id); } finally { db.close(); }
   };
 
   head("S5. B mounted, traced, imported");

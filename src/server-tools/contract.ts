@@ -25,6 +25,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { loadContract, saveContract, formatContract, KICKOFF_QUESTIONS, type ProjectContract } from "../contract/contract.js";
 import { formatWaivers } from "../contract/standing.js";
+import { canonicalPromiseId } from "../slots/schema.js";
 import { declareCartridgeRoles, formatCartridges, projectCartridges } from "../knowledge-graph/cartridge-context.js";
 
 export function registerContractTools(server: McpServer, context: ServerToolContext): void {
@@ -83,13 +84,13 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "contract_set",
-    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10 — and name the files its ratios are about (`scope`), so a packed original or a port kept for reference stops counting against the game. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. `unwaive` takes a waiver back: the promise is owed again, and the waiver stays on the record marked withdrawn. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables (incl. optional scope) + optional limits, or waive / unwaive + waive_reason + waived_by. Returns: the stored contract, the recorded waiver, or the recorded withdrawal.",
+    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no save-model — and name the files its ratios are about (`scope`), so a packed original or a port kept for reference stops counting against the game. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. `unwaive` takes a waiver back: the promise is owed again, and the waiver stays on the record marked withdrawn. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables (incl. optional scope) + optional limits, or waive / unwaive + waive_reason + waived_by. Returns: the stored contract, the recorded waiver, or the recorded withdrawal.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       goal: z.string().min(10).optional().describe("What this job is for, in one sentence. The frame, not a checkable. Required unless this call only waives."),
-      slots: z.array(z.string()).optional().describe("Which slots THIS game owes, e.g. [\"S1\",\"S3\",\"S4\"]. Omit for all fifteen."),
+      slots: z.array(z.string()).optional().describe("Which slots THIS game owes, e.g. [\"context\",\"boot-chain\",\"data-geometry\"]. Omit for all fifteen."),
       named_ratio: z.number().min(0).max(1).optional().describe("Fraction of meaning-bearing nodes that must carry a HUMAN name. Machine names (unknown_3E00, addr_0006) do not count."),
-      coverage_ratio: z.number().min(0).max(1).optional().describe("Fraction of bytes that must sit inside a known address range (S12)."),
+      coverage_ratio: z.number().min(0).max(1).optional().describe("Fraction of bytes that must sit inside a known address range (coverage)."),
       annotate: z.array(z.string()).optional().describe("Payloads that must be semantically annotated, not merely disassembled. Says what must be NAMED, never what is COUNTED — that is `scope`."),
       scope: z.array(z.union([
         z.string(),
@@ -195,7 +196,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
     const contract: ProjectContract = {
       goal: a.goal!,
       deliver: {
-        ...(a.slots ? { slots: a.slots } : {}),
+        ...(a.slots ? { slots: a.slots.map(canonicalPromiseId) } : {}),
         ...(a.named_ratio !== undefined ? { namedRatio: a.named_ratio } : {}),
         ...(a.coverage_ratio !== undefined ? { coverageRatio: a.coverage_ratio } : {}),
         ...(a.annotate ? { annotate: a.annotate } : {}),

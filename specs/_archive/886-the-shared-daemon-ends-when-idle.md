@@ -2,7 +2,7 @@
 
 **Status:** DONE (2026-10-02) — TRX64 0.12.0 carries 887; C64RE pins it
 **Repos:** C64RE (this spec). The capability is TRX64's: **Spec 887**
-(`../../../TRX64/docs/_archive/887-idle-exit.md`), the TRX64 half, numbered on this board.
+(`../../../TRX64/docs/internal/_archive/887-idle-exit.md`), the TRX64 half, numbered on this board.
 
 ## §1 What is wrong
 
