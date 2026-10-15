@@ -711,6 +711,9 @@ jobs:
       - name: Only real uses refute a negative claim (#84)
         run: npm run e2e:issue84-negative-claim-edges
 
+      - name: A hand-written NEXT.md survives step records (#87)
+        run: npm run e2e:issue87-next-md-guard
+
       - name: An I/O store is not a RAM byte (#72)
         run: npm run smoke:issue72-sandbox-io-ram
 
