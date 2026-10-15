@@ -429,6 +429,13 @@ jobs:
       - name: Each cartridge is its own place — chips, type, role, old projects (Spec 909)
         run: npm run e2e:909
 
+      # A payload has no header unless it is a PRG. Hermetic: synthetic GMod2 + EasyFlash CRTs and a D64 built in the test.
+      # Cartridge chips list from their window base ($8000) and rebuild byte-identical (none "diverged"); a disk PRG keeps its
+      # own load address; a raw payload lists at its declared address, with none declared it is refused; a LUT's destination
+      # is never written into a chunk by the tool. Needs KickAssembler or 64tass for the rebuild checks.
+      - name: Payloads are headerless unless they are PRG files
+        run: npm run e2e:payload-headerless
+
       # Spec 909 S5 — a runtime trace lands in the cartridge that was MOUNTED. A real trx64-daemon of the run's own on a
       # free port (never :4312), two synthetic cartridges booting their own code, the image hash matched against the
       # registered cartridges; an image that matches none writes no cartridge-space node and says so. SKIPS LOUDLY on a

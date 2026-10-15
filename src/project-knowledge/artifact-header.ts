@@ -39,11 +39,26 @@ export function payloadBodySize(a: HeaderBearing & { fileSize?: number; addressR
 }
 
 /**
+ * THE rule, in one place: does a payload's source file start with a 2-byte load address?
+ * Only when it IS a PRG — the payload is declared `format: prg`, or the file is a `.prg` the store does not
+ * label headerless (a CBM file from a disk directory, a .prg the user gave). Everything else — a cartridge chip,
+ * a depacked block, a carved blob, an extract — is headerless and needs an explicit load address from whoever
+ * knows it (for a chip, the bank window from the CHIP packet; for a chunk, the LLM's reading of the loader).
+ * Nothing here looks at the bytes.
+ */
+export function payloadSourceIsHeaded(payloadFormat: string | undefined, source?: (HeaderBearing & { relativePath?: string; path?: string }) | undefined): boolean {
+  if (payloadFormat === "prg") return true;
+  if (!source || artifactIsHeaderless(source)) return false;
+  return /\.prg$/i.test(source.relativePath ?? source.path ?? "");
+}
+
+/**
  * The `kind` a source-file record of a payload carries, from the payload's declared
  * format: `prg` is a headed file, everything else (raw, a packed stream) is a block of
  * bytes with no header. The record's `format` is written next to it, so the pair is
  * never ambiguous again.
  */
-export function sourceArtifactShape(payloadFormat: string | undefined): { kind: "prg" | "raw"; format: "prg" | "raw" } {
-  return payloadFormat === "prg" ? { kind: "prg", format: "prg" } : { kind: "raw", format: "raw" };
+export function sourceArtifactShape(payloadFormat: string | undefined, path?: string): { kind: "prg" | "raw"; format: "prg" | "raw" } {
+  const headed = payloadFormat === "prg" || ((payloadFormat === undefined || payloadFormat === "unknown") && /\.prg$/i.test(path ?? ""));
+  return headed ? { kind: "prg", format: "prg" } : { kind: "raw", format: "raw" };
 }

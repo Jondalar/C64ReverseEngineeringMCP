@@ -129,7 +129,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
           parameters: { name: args.name },
           inputs: [],
           outputs: [{
-            path: prgAbs, ...sourceArtifactShape(args.format === "raw" ? "raw" : "prg"), scope: "generated",
+            path: prgAbs, ...sourceArtifactShape(args.format, prgAbs), scope: "generated",
             role: "payload-source", producedByTool: "register_payload",
           }],
         });
@@ -671,6 +671,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       let planned = 0;
       let created = 0;
       let skipped = 0;
+      const proposals: string[] = [];
       const createdPayloadIds: string[] = []; // Spec 752 L2 — auto-chain targets
       for (const cartridge of cartView.cartridges) {
         const manifestArtifact = artifacts.find((a) => a.id === cartridge.artifactId);
@@ -700,10 +701,10 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
             const chunkEntity = service.saveEntity({
               kind: "payload",
               name: chunk.label ?? `${chunk.lut}.${String(chunk.index).padStart(2, "0")} bank ${chunk.bank} ${chunk.slot}`,
-              summary: `${chunk.length} bytes, ${chunk.packer ?? chunk.format ?? "raw"}; origin chip $${sourceAddress.toString(16)}`,
-              addressRange: chunk.destAddress !== undefined
-                ? { start: chunk.destAddress, end: chunk.destAddress + Math.max(chunk.length - 1, 0) }
-                : undefined,
+              summary: `${chunk.length} bytes, ${chunk.packer ?? chunk.format ?? "raw"}; origin chip $${sourceAddress.toString(16)}${chunk.destAddress !== undefined ? `; the LUT file lists dest $${chunk.destAddress.toString(16)} (proposal, not recorded)` : ""}`,
+              // No address range, no load address, no window: a chunk's destination is the LUT's word, and reading a
+              // LUT is the LLM's job. The LUT file's value is shown in the answer as a proposal; the chunk gets an
+              // address when the LLM declares one (register_payload / link_payload_to_lut_row).
               mediumSpans: (chunk.spans ?? [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }]).map((s) => ({
                 kind: "slot",
                 bank: s.bank,
@@ -713,11 +714,6 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
                 // which cartridge's bank: the extract this chunk table was read from
                 mediumRef: cartridge.artifactId,
               })),
-              payloadLoadAddress: chunk.destAddress,
-              // Spec 867 D1 — a chunk's window is where it lands plus its length.
-              payloadWindow: chunk.destAddress !== undefined && chunk.length > 1
-                ? { start: chunk.destAddress, end: Math.min(0xffff, chunk.destAddress + chunk.length - 1) }
-                : undefined,
               payloadFormat: chunk.format ? (chunk.format as any) : "unknown",
               payloadPacker: chunk.packer,
               payloadSourceArtifactId: chipArtifactId,
@@ -725,6 +721,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
             });
             createdPayloadIds.push(chunkEntity.id);
             created += 1;
+            if (chunk.destAddress !== undefined) proposals.push(`${chunkEntity.id} → $${chunk.destAddress.toString(16).toUpperCase().padStart(4, "0")}`);
           }
         }
       }
@@ -735,6 +732,13 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         `Already-payload (skipped): ${skipped}`,
         `Created: ${created}`,
       ];
+      if (created > 0) {
+        lines.push(
+          `These payloads have NO load address: a chunk's destination is read out of the loader's LUT, and that reading is yours, not this tool's.`
+          + ` Declare it with register_payload (load_address) or link_payload_to_lut_row (after declare_lut_descriptor); until then they are headerless bytes at no known address.`,
+        );
+        if (proposals.length > 0) lines.push(`The LUT file lists these destinations (a proposal, nothing was recorded): ${proposals.slice(0, 20).join(", ")}${proposals.length > 20 ? `, +${proposals.length - 20} more` : ""}.`);
+      }
       // Spec 752 L2 — auto-disasm + analyse the promoted chunk payloads (those
       // with a known load address). Soft-fail; chunk-level carving + depack is
       // a refinement (the chip blob is the available extract today).

@@ -105,10 +105,10 @@ try {
   const folderB0 = folders.find((f) => /ef-port_00/.test(f));
   const asmB0 = readFileSync(join(dir, "artifacts", "generated", "payloads", folderB0, "bank_00_8000.bin_disasm.asm"), "utf8");
   const asmA0 = readFileSync(join(dir, "artifacts", "generated", "payloads", folders.find((f) => /gmod2-orig/.test(f)), "bank_00_8000.bin_disasm.asm"), "utf8");
-  // The auto disassembly reads the chip file as a headed image (its first two bytes are the origin): B's bank 0 starts
-  // A9 02 -> $02A9, A's A9 01 -> $01A9. The origin therefore names the file the listing was made from, byte for byte.
-  const originOf = (crt) => { const c = chipBytes(crt, 0); return `.pc = $${((c[1] << 8) | c[0]).toString(16).toUpperCase().padStart(4, "0")}`; };
-  check(asmB0.includes(originOf(B)) && !asmB0.includes(originOf(A)) && asmA0.includes(originOf(A)) && !asmA0.includes(originOf(B)), "S1.11 the auto disassembly of B's bank 0 is made from B's bytes, A's from A's (origin = each chip's first two bytes)", `${originOf(B)} / ${originOf(A)}`);
+  // A chip is raw ROM at its window base ($8000, from the CHIP packet); the auto disassembly lists it from there and
+  // never reads its first two bytes as an address. What tells A's bank 0 from B's is the code: A stores $01 to $DE00, B $02.
+  const loadsOf = (asm) => (/lda\s+#\$0([12])/i.exec(asm) ?? [])[1];
+  check(asmB0.includes(".pc = $8000") && asmA0.includes(".pc = $8000") && loadsOf(asmB0) === "2" && loadsOf(asmA0) === "1", "S1.11 the auto disassembly of B's bank 0 is made from B's bytes, A's from A's — both start at the window base $8000", `${loadsOf(asmB0)} / ${loadsOf(asmA0)}`);
   const gf = await call("graph_find", { project_dir: dir, query: "bank:00:$8000" });
   check(gf.includes(idA0) && gf.includes(idB0) && /cart:gmod2-orig/.test(gf) && /cart:ef-port/.test(gf), "S1.13 graph_find for bank 0 $8000 with no cartridge lists both, each naming its cartridge", gf.split("\n").slice(0, 6).join(" | "));
   const gfA = await call("graph_find", { project_dir: dir, query: "bank:00:$8000", cart: "ef-port" });

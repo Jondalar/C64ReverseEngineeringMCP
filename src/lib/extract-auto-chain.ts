@@ -17,6 +17,7 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
 import { cartOfArtifact } from "../knowledge-graph/cartridges.js";
 import { parseId } from "../knowledge-graph/ids.js";
+import { payloadSourceIsHeaded } from "../project-knowledge/artifact-header.js";
 import { runPayloadReverseWorkflow, type PrgReverseWorkflowResult, type WorkflowMode } from "./prg-workflow.js";
 
 /**
@@ -100,7 +101,8 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
     }
     for (const c of manifest.chips ?? []) {
       if (!c.file) continue;
-      relink(c.file, c.load_address, c.file, c.file.toLowerCase().endsWith(".prg"), c.bank);
+      // A chip is raw ROM at its bank window (the CHIP packet's load address), never a PRG, whatever it is called.
+      relink(c.file, c.load_address, c.file, false, c.bank);
     }
     return linked;
   } catch {
@@ -195,10 +197,10 @@ export async function autoAnalyzeExtractedPayloads(
 
     const srcId = ent.payloadDepackedArtifactId ?? ent.payloadSourceArtifactId ?? ent.artifactIds[0];
     const srcArt = srcId ? artifacts.find((a) => a.id === srcId) : undefined;
-    const isPrg = ent.payloadFormat === "prg" || (srcArt?.relativePath.toLowerCase().endsWith(".prg") ?? false);
+    const isPrg = payloadSourceIsHeaded(ent.payloadFormat, srcArt);
     const hasLoad = ent.payloadLoadAddress !== undefined || ent.addressRange?.start !== undefined;
     // The workflow throws when a raw blob has no load address — skip cleanly.
-    if (!hasLoad && !isPrg) { results.push({ payloadId: id, name: ent.name, status: "skipped", reason: "no load address + not a PRG" }); continue; }
+    if (!hasLoad && !isPrg) { results.push({ payloadId: id, name: ent.name, status: "skipped", reason: "no load address known + not a PRG (headerless; the load address is yours to declare — register_payload load_address, or link_payload_to_lut_row)" }); continue; }
 
     // Dedup on (source path, load address): one manifest legitimately backs N
     // payloads at DIFFERENT load addresses — only true same-source+same-load
