@@ -93,6 +93,8 @@ export function normalize(text, ctx) {
   let t = String(text);
   // what is only THIS path's: any absolute temp path keeps its file name and loses the directory
   t = t.replace(/(?:\/private)?\/(?:var\/folders|tmp)\/[^\s"',)\]]*\/([^\/\s"',)\]]+)/g, "<P>/$1");
+  // …and the same on Windows: C:\…\Temp\…\name, with \, \\ (inside JSON) or / as the separator
+  t = t.replace(/[A-Za-z]:(?:\\{1,2}|\/)(?:[^\s"',)\]\\\/]+(?:\\{1,2}|\/))*?Temp(?:\\{1,2}|\/)(?:[^\s"',)\]\\\/]+(?:\\{1,2}|\/))*([^\\\/\s"',)\]]+)/g, "<P>/$1");
   t = t.replace(/"createdAtMs":\s*\d+/g, '"createdAtMs": <MS>');
   t = t.replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, "<TS>");
   t = t.replace(/ws:\/\/127\.0\.0\.1:\d+/g, "ws://127.0.0.1:<PORT>");
