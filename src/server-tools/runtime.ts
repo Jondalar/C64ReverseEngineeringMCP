@@ -242,18 +242,20 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "runtime_until",
-    "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
+    "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. The run stops on the next arrival at the target (or at a breakpoint you set), however briefly; the budget counts C64 cycles (default 10000000) and the run ends within one instruction of it. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, addr (target PC), budget (cycles). Returns: halted, budgetExhausted, haltReason (target | breakpoint | jam | budget), cyclesElapsed (cycles that passed), finalPc. No instruction count is reported: the runtime does not count instructions.",
     {
       session_id: z.string(),
       addr: z.number(),
-      budget: z.number().optional(),
+      budget: z.number().int().positive().optional().describe("Cycle budget (C64 cycles). Default 10000000."),
     },
     safeHandler("runtime_until", async ({ session_id, addr, budget }) => {
       // Spec 906 D6 — a run to a far address on a sandbox session may outlive the host's patience: past the
       // grace window the call answers a job id and `analysis_job_status` hands over this answer.
       const { jobOnSandbox } = await import("./long-call.js");
       return jobOnSandbox("runtime_until", session_id, "the run", async () => {
-        const r = await callApi(session_id, "until", addr, budget !== undefined ? { budget } : undefined);
+        const { runtimeDaemon } = await import("../runtime/backend.js");
+        const { runToAddress } = await import("../runtime/run-to-address.js");
+        const r = await runToAddress(runtimeDaemon, session_id, addr, budget);
         return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
       });
     }),

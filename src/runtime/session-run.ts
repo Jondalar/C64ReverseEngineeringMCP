@@ -48,7 +48,7 @@ export function describeRunAdvance(a: {
   }
   const asked = a.requestedCycles !== undefined ? ` (asked for up to ${a.requestedCycles})` : "";
   const stop = a.until
-    ? (a.until.halted ? ` Stopped at ${hex(a.until.addr)}.` : ` Did NOT reach ${hex(a.until.addr)} within the daemon's run budget.`)
+    ? (a.until.halted ? ` Stopped at ${hex(a.until.addr)}.` : ` Did NOT reach ${hex(a.until.addr)} within the cycle budget.`)
     : "";
   return `Advanced ${adv} cycles${asked} (${a.via}). cycles=${a.after} pc=${pc}.${stop}`;
 }

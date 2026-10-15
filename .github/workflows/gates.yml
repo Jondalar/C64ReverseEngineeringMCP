@@ -717,6 +717,9 @@ jobs:
       - name: A human zero-page label carries no platform meaning (#88)
         run: npm run e2e:issue88-zp-human-label
 
+      - name: runtime_until stops at its cycle budget (#89)
+        run: npm run e2e:issue89-until-budget
+
       - name: An I/O store is not a RAM byte (#72)
         run: npm run smoke:issue72-sandbox-io-ram
 
