@@ -23,8 +23,9 @@
 //     gate re-seeds 819 after the migration; §"Built"). The legacy segment and
 //     the 819 routine at one address are two producers' views at one address,
 //     visible side by side in `graph find`.
-//   cartridge rows → `<slug>:crt/<bank>:chip|bank:<hex4>`; two cart images
-//     with the same bank layout share the node, each image in evidence.
+//   cartridge rows → `<slug>:crt/<bank>:chip|bank:<hex4>` for the project's first
+//     cartridge; a different cartridge image gets `crt/<cart>/<bank>` (issue #90),
+//     so a second CRT no longer replaces the first one's rows.
 //   payloads → `<slug>:ram/<stem>:payload:<load|0000>`; an area asset with no
 //     load address sits at 0000 with attrs.addressless (the grammar has no
 //     address-less project form yet — 818 D1 "later slices append").
@@ -411,6 +412,48 @@ export function graphPayloads(db: DatabaseSync): GraphPayload[] {
   return out;
 }
 
+/** Issue #90 — walk artifact lineage (the artifacts, then their sources) to the first cartridge image. */
+function cartridgeImageOf(artifactIds: string[], artById: Map<string, ArtifactRecord>): ArtifactRecord | undefined {
+  const seen = new Set<string>();
+  const queue = [...artifactIds];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const a = artById.get(id);
+    if (!a) continue;
+    if (a.kind === "crt") return a;
+    queue.push(...(a.sourceArtifactIds ?? []));
+  }
+  return undefined;
+}
+
+/**
+ * Issue #90 — the cartridge whose chip / bank rows already hold the bare `crt/<bank>`
+ * ids in this graph, read from the evidence behind them. More than one (a project
+ * whose second cartridge overwrote the first before this fix) → the earliest
+ * registered, so the first cartridge gets its ids back. None → undefined.
+ */
+export function defaultCartridgeIn(db: DatabaseSync, artifacts: ArtifactRecord[]): string | undefined {
+  const rows = db.prepare(
+    "SELECT DISTINCT n.id AS id, e.artifact_id AS artifact_id FROM nodes n JOIN evidence e ON e.target_table = 'nodes' AND e.target_key = n.id " +
+    "WHERE n.space = 'crt' AND n.kind IN ('chip', 'bank') AND e.artifact_id IS NOT NULL",
+  ).all() as Array<{ id: string; artifact_id: string }>;
+  if (rows.length === 0) return undefined;
+  const artById = new Map(artifacts.map((a) => [a.id, a]));
+  const carts = new Map<string, ArtifactRecord>();
+  for (const r of rows) {
+    try {
+      const parsed = parseId(r.id);
+      if (parsed.form !== "project" || parsed.ctx.cart !== undefined) continue;
+    } catch { continue; }
+    const crt = cartridgeImageOf([r.artifact_id], artById);
+    if (crt) carts.set(crt.id, crt);
+  }
+  const ordered = [...carts.values()].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id));
+  return ordered[0]?.id;
+}
+
 export class Resolver {
   readonly artById = new Map<string, ArtifactRecord>();
   readonly entById = new Map<string, EntityRecord>();
@@ -420,7 +463,15 @@ export class Resolver {
   private readonly graphPayloadBySource = new Map<string, GraphPayload>();
   private readonly targets = new Map<string, Target | null>();
 
-  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[], payloads: GraphPayload[] = []) {
+  /**
+   * Issue #90 — the cartridge-image artifact whose chip / bank rows keep the bare
+   * `crt/<bank>` ctx. Given by the caller from the graph (`defaultCartridgeIn`);
+   * when it is not known, the first cartridge this resolver meets takes the role.
+   */
+  private defaultCart: string | undefined;
+
+  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[], payloads: GraphPayload[] = [], defaultCart?: string) {
+    this.defaultCart = defaultCart;
     for (const a of artifacts) this.artById.set(a.id, a);
     for (const e of entities) {
       this.entById.set(e.id, e);
@@ -467,6 +518,28 @@ export class Resolver {
     return undefined;
   }
 
+  /** The cartridge image (a `crt` artifact) an entity's rows were read from: its artifacts, then what they were derived from. */
+  cartridgeOf(e: EntityRecord): ArtifactRecord | undefined {
+    return cartridgeImageOf(e.artifactIds ?? [], this.artById);
+  }
+
+  /**
+   * Issue #90 — the `cart` qualifier of a chip / bank row. None for the project's
+   * first (default) cartridge, so its ids stay `crt/<bank>` exactly as before; a
+   * different cartridge is named by its file stem (plus a short hash when another
+   * cartridge of the project has the same stem).
+   */
+  private cartQualifier(e: EntityRecord): string | undefined {
+    const crt = this.cartridgeOf(e);
+    if (!crt) return undefined;
+    if (this.defaultCart === undefined) this.defaultCart = crt.id;
+    if (crt.id === this.defaultCart) return undefined;
+    const stemOf = (a: ArtifactRecord) => normStem(basename(a.relativePath ?? a.path ?? a.title ?? ""));
+    const stem = stemOf(crt);
+    const clash = !stem || [...this.artById.values()].some((a) => a.id !== crt.id && a.kind === "crt" && stemOf(a) === stem);
+    return clash ? `${stem || "crt"}-${createHash("sha1").update(crt.id).digest("hex").slice(0, 6)}` : stem;
+  }
+
   private project(ctx: Ctx, kind: string, address: number): string {
     return deriveProjectId({ slug: this.slug, ctx, kind, address });
   }
@@ -507,14 +580,16 @@ export class Resolver {
 
     if (e.kind === "chip") {
       if (start === undefined || range?.bank === undefined) return undefined;
-      const ctx: Ctx = { space: "crt", bank: range.bank };
+      const cart = this.cartQualifier(e);
+      const ctx: Ctx = cart === undefined ? { space: "crt", bank: range.bank } : { space: "crt", bank: range.bank, cart };
       return { id: this.project(ctx, "chip", start), kind: "chip", ctx, address: start, endAddress: end };
     }
     if (e.kind === "cartridge-bank") {
       const m = e.name.match(/(\d+)\s*$/u);
       const bank = range?.bank ?? (m ? parseInt(m[1]!, 10) : undefined);
       if (bank === undefined) return undefined;
-      const ctx: Ctx = { space: "crt", bank };
+      const cart = this.cartQualifier(e);
+      const ctx: Ctx = cart === undefined ? { space: "crt", bank } : { space: "crt", bank, cart };
       return { id: this.project(ctx, "bank", 0x8000), kind: "bank", ctx, address: 0x8000, endAddress: null };
     }
     if (e.kind === "payload" || e.kind === "disk-file" || e.kind === "asset") {
@@ -1462,7 +1537,7 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
     summary.runId = runId;
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
-    const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db));
+    const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db), defaultCartridgeIn(db, artifacts));
     applyLegacyRecords({ db, slug, now, ledger, writer, resolver, summary }, full);
     finishRun(db, store, ledger, summary, now);
     endWrite(db, ownsTx, true);

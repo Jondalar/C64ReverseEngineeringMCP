@@ -24,7 +24,7 @@ import type { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import type { ArtifactRecord, EntityRecord, EvidenceRef, FindingRecord, OpenQuestionRecord, RelationRecord, UserLabelOverride } from "../project-knowledge/types.js";
 import { classifyTags } from "./migrate/classify.js";
 import { annotate, forgetName, nameNode, openStore, recordFinding, upsertLink, upsertQuestion, withStore } from "./migrate/human.js";
-import { EDGE_TYPE, graphPayloads, importRecords, Resolver, type ImportRecordsResult, type LegacyInput } from "./migrate/migrate.js";
+import { defaultCartridgeIn, EDGE_TYPE, graphPayloads, importRecords, Resolver, type ImportRecordsResult, type LegacyInput } from "./migrate/migrate.js";
 import { annotationId, ensureSchema822, type AnnotationRow, type ClaimRow, type EvidenceRow, type QuestionRow } from "./migrate/schema-822.js";
 import { deriveProjectId, parseId } from "./ids.js";
 import { canonicalJson } from "./json.js";
@@ -451,7 +451,7 @@ export class KnowledgeRecords {
       let id = existing?.id;
       let folded = existing !== undefined && /^ann:/u.test(existing.id);
       if (!id) {
-        const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
+        const resolver = new Resolver(slug, artifacts, [], graphPayloads(db), defaultCartridgeIn(db, artifacts));
         const target = resolver.target({ ...record, payloadId: record.payloadId ? this.resolveEntityIn(db, record.payloadId) ?? record.payloadId : undefined });
         if (target) id = target.id;
         else { id = annotationId(null, `entity:${record.kind}`, record.name); folded = true; }

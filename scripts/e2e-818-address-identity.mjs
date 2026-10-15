@@ -46,6 +46,11 @@ const idB = deriveProjectId({ slug, ctx: ctxB, kind: "routine", address: 0x7e00 
 check(idA === "s818:ram/main_ovl_7e00:routine:7e00", `derived id ${idA}`);
 check(deriveProjectId({ slug, ctx: { space: "crt", bank: 7 }, kind: "routine", address: 0x8000 }) === "s818:crt/07:routine:8000", "crt id carries the bank");
 check(deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: 0xc000 }) === "s818:ram:addr:c000", "addr id has no owner");
+// issue #90: a second cartridge's ctx names the cart; the bare crt/<bank> form is unchanged
+const cartId = deriveProjectId({ slug, ctx: { space: "crt", bank: 7, cart: "game1012" }, kind: "chip", address: 0x8000 });
+check(cartId === "s818:crt/game1012/07:chip:8000", `crt id with a cart: ${cartId}`);
+{ const p = parseId(cartId); check(p.form === "project" && p.ctx.cart === "game1012" && p.ctx.bank === 7, "parseId reads the cart and the bank back"); }
+{ const p = parseId("s818:crt/07:chip:8000"); check(p.form === "project" && p.ctx.cart === undefined && p.ctx.bank === 7, "parseId: a bare crt/<bank> has no cart"); }
 
 const refusals = [
   [() => deriveProjectId({ slug, ctx: { space: "ram" }, kind: "routine", address: 0x1000 }), "routine-needs-owner"],
@@ -55,6 +60,9 @@ const refusals = [
   [() => deriveProjectId({ slug, ctx: ctxA, kind: "routine", address: 0x12345 }), "addr"],
   [() => parseId("s818:ram/x:routine:1DD2"), "addr"],
   [() => parseId("c64:reg:d018"), "pkind"],
+  [() => deriveProjectId({ slug, ctx: { space: "ram", owner: "x", cart: "c" }, kind: "routine", address: 0x1000 }), "ram-no-cart"],
+  [() => parseId("s818:crt/Game/07:chip:8000"), "cart-charset"],
+  [() => parseId("s818:crt/game/zz:chip:8000"), "crt-needs-bank"],
 ];
 for (const [fn, rule] of refusals) {
   try { fn(); fail(`refusal missing: ${rule}`); }

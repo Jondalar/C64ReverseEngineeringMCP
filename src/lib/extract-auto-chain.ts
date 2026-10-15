@@ -53,7 +53,8 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
       const ent = entities.find((e) => e.payloadContentHash === hash)
         ?? entities.find((e) => e.payloadLoadAddress === loadAddress && (e.name === name || e.name === relPath))
         ?? (bank !== undefined && loadAddress !== undefined
-          ? entities.find((e) => e.kind === "chip" && e.addressRange?.bank === bank && e.addressRange.start === loadAddress)
+          // Issue #90 — this manifest's chip: a second cartridge in the project has a chip at the same bank too.
+          ? entities.find((e) => e.kind === "chip" && e.addressRange?.bank === bank && e.addressRange.start === loadAddress && (e.artifactIds ?? []).includes(manifestArtifactId))
           : undefined);
       if (!ent) return;
       // already linked to a real (non-manifest) source → nothing to do.

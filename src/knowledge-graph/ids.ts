@@ -5,7 +5,12 @@
 //   platform-id   = platform ":" pkind ":" addr           c64:io:d018   c64:rom:ffd2   c64:zp:0031
 //   project-id    = slug ":" ctx ":" kind ":" addr        wasteland:ram/block2_engine_0200:routine:1dd2
 //   subsystem-id  = slug ":sub:" name                     wasteland:sub:disk-loader        (Spec 822)
-//   ctx           = "ram" [ "/" owner ] | "crt/" bank | "drv" [ "/" owner ]
+//   ctx           = "ram" [ "/" owner ] | "crt/" [ cart "/" ] bank | "drv" [ "/" owner ]
+//
+// `cart` (issue #90) names a SECOND cartridge of the project: the first (or only)
+// cartridge keeps the bare `crt/<bank>`, so no existing id changes; a different CRT
+// extracted into the same project gets `crt/<cart>/<bank>` and stops replacing the
+// first one's chip / bank rows.
 //
 // pkind is Spec 817's four kinds (zp | ram | io | rom) — 818's first draft had
 // reg/rom/mem; zp and io are hardware distinctions the renderer keys on.
@@ -19,6 +24,8 @@ export interface Ctx {
   space: Space;
   owner?: string;
   bank?: number;
+  /** Issue #90 — the cartridge a `crt` context belongs to, when it is not the project's first one. */
+  cart?: string;
   /**
    * The machine the context belongs to, where `space` alone cannot say (a vic20 owner lives in
    * `ram` like a c64 one). Not part of the id token: project ids read the same on every machine,
@@ -58,11 +65,15 @@ export function ctxToken(ctx: Ctx): string {
     case "crt": {
       if (ctx.bank === undefined) throw new IdRuleError("crt-needs-bank", "a cartridge context always carries its bank");
       if (ctx.owner !== undefined) throw new IdRuleError("crt-no-owner", "a cartridge context is identified by bank, not owner");
-      return `crt/${ctx.bank.toString(16).padStart(2, "0")}`;
+      const bank = ctx.bank.toString(16).padStart(2, "0");
+      if (ctx.cart === undefined) return `crt/${bank}`;
+      if (!OWNER.test(ctx.cart)) throw new IdRuleError("cart-charset", `cart "${ctx.cart}" must be lowercase [a-z0-9_.-]`);
+      return `crt/${ctx.cart}/${bank}`;
     }
     case "ram":
     case "drv": {
       if (ctx.bank !== undefined) throw new IdRuleError(`${ctx.space}-no-bank`, "only crt contexts carry a bank");
+      if (ctx.cart !== undefined) throw new IdRuleError(`${ctx.space}-no-cart`, "only crt contexts carry a cart");
       if (ctx.owner === undefined) return ctx.space;
       if (!OWNER.test(ctx.owner)) throw new IdRuleError("owner-charset", `owner "${ctx.owner}" must be lowercase [a-z0-9_.-]`);
       return `${ctx.space}/${ctx.owner}`;
@@ -74,12 +85,17 @@ export function ctxToken(ctx: Ctx): string {
 
 export function parseCtx(token: string): Ctx {
   const m = token.match(/^(ram|crt|drv)(?:\/(.+))?$/u);
-  if (!m) throw new IdRuleError("ctx", `"${token}" is not ram[/owner] | crt/bank | drv[/owner]`);
+  if (!m) throw new IdRuleError("ctx", `"${token}" is not ram[/owner] | crt/[cart/]bank | drv[/owner]`);
   const space = m[1] as Space;
   const rest = m[2];
   if (space === "crt") {
-    if (!rest || !BANK.test(rest)) throw new IdRuleError("crt-needs-bank", `"${token}" needs a 2–4 hex digit bank`);
-    return { space, bank: parseInt(rest, 16) };
+    const cut = rest === undefined ? -1 : rest.lastIndexOf("/");
+    const cart = cut === -1 ? undefined : rest!.slice(0, cut);
+    const bank = cut === -1 ? rest : rest!.slice(cut + 1);
+    if (!bank || !BANK.test(bank)) throw new IdRuleError("crt-needs-bank", `"${token}" needs a 2–4 hex digit bank`);
+    if (cart === undefined) return { space, bank: parseInt(bank, 16) };
+    if (!OWNER.test(cart) || cart.includes("/")) throw new IdRuleError("cart-charset", `cart "${cart}" must be lowercase [a-z0-9_.-]`);
+    return { space, bank: parseInt(bank, 16), cart };
   }
   if (rest !== undefined && !OWNER.test(rest)) throw new IdRuleError("owner-charset", `owner "${rest}" must be lowercase [a-z0-9_.-]`);
   return rest === undefined ? { space } : { space, owner: rest };
