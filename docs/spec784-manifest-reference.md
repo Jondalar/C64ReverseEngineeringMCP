@@ -35,6 +35,15 @@ the copy's destination: `runtime_loader_lens` lists the destination as the landi
 the page-1 buffer it came through), and a transfer that only fills page 1 as a `buffer`,
 never as a landing.
 
+Two limits of that view, stated by the tool when they bite. A landing run ends when its
+stores stop for more than two disk revolutions, so unpacker output written much later to
+the address after a landing is never glued onto it; and a run counts as a disk landing
+only if most of its own stores followed a transfer read, so output of a depacker is
+dropped even when sectors arrive while it runs. The copy-out of a stack buffer is
+followed through the pulls from `$0100`-`$01FF` in the capture (TRX64 0.13.2 and later
+record them). On a capture without them the buffers are listed as unfollowed and the
+answer says that the pulls were not recorded: where they went is not in that capture.
+
 `extract_disk` auto-emits this shape for the stock-DOS layer as `manifest.spec784.json`
 (LoaderModel `kernal-directory`). For the custom-loader stage you author it yourself.
 

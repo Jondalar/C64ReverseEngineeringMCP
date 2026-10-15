@@ -1,6 +1,6 @@
 # Spec 907 — A loader capture says where the bytes landed and which sector they came from
 
-**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 D2 is released in TRX64 0.13.1 and C64RE 0.9.1 pins it, so new captures are 0x37; older 0x35 captures stay report-only for read-past. S6 (the reporter's retest on #77) is by hand.
+**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 D2 is released in TRX64 0.13.1 and C64RE 0.9.1 pins it, so new captures are 0x37; older 0x35 captures stay report-only for read-past. The reporter's IM II retest (2026-10-15) failed on the C64RE side; fixed (see "D1 follow-up"), needs TRX64 0.13.2 for the stack pulls. S6 (the reporter's re-retest on #77) is by hand.
 **Repo:** both. TRX64: which sector a drive read is credited to (P2). C64RE: the landing map (P1),
 the verdict (P3), the decoder for what TRX64 adds. Leitregel: the drive's facts are a runtime
 capability → TRX64; what they mean for an extraction → C64RE.
@@ -226,4 +226,21 @@ tests `e2e-loader-lens.mjs`, `e2e-loader-lens-file.mjs`, `e2e-validate-extractio
 - **Sector `0xff`** is a taken visit with a source `T<n>/S255`; it matches no manifest span (a manifest
   cannot name a headerless sector) and so lists as an unclaimed read.
 - **Not built:** no re-credit of old `0x35` captures (the skew is not recoverable from the record).
-- **Open:** S6 on the reporter's IM II capture, recaptured with TRX64 0.13.1 so it is `0x37`.
+**D1 follow-up (#77 retest on the real IM II capture, 2026-10-15).** Three C64RE defects, one TRX64 gap:
+- TRX64 up to 0.13.1 recorded no stack pulls (tagged dummy reads), so no copy-out of the page-1 buffer
+  could be followed on a real capture. TRX64 main d3a54e7 (0.13.2) records them as ordinary data reads
+  (`pla` at pc = opcode + 1). On a capture without them the answer now says so (`stackNote`:
+  transfer-filled page-1 buffers exist, no page-1 read ever took one of their bytes) instead of
+  silently listing buffers.
+- A run no longer stays open forever: a store to its next address after `RUN_MAX_GAP` (two disk
+  revolutions, 394100 cycles; the longest stall inside a genuine landing measured on IM II is 163596)
+  starts a new run. Before, a title unpacker's output run absorbed one byte of the main-game copy, so
+  `$4000` read 10003 B, `$1000` 5847 B, `$0860` 33 B, and the copy lost that byte.
+- The direct-landing gate counts the run's OWN stores that followed a `$DD00` read within 64 cycles
+  (>= 4 and >= half of the run), not `$DD00` reads anywhere in its lifespan. IM II: the title loads sit
+  at 90-93 %, the unpacker output and the arithmetic scratch at 0 %.
+- Verified on the IM II capture recorded with TRX64 d3a54e7: 168 main-game blocks of 240 B, each equal
+  to the ripped `$0880` image, each credited to its own sector (the last full read before the buffer
+  fill); the title blocks (6240 B at `$1000`, 10080 B at `$7000`) land; no unpacker output, no glued run.
+- **Open:** S6 by the reporter with TRX64 0.13.2 (the real-capture check above was run by the
+  maintainer on the reporter's project).
