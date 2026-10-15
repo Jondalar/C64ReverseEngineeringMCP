@@ -241,7 +241,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_run",
-    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by the daemon's own run budget); other kinds are refused by name.",
+    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by cycle_budget, default 10000000 cycles); other kinds are refused by name.",
     {
       session_id: z.string(),
       max_instructions: z.number().int().min(1).max(10_000_000),
@@ -270,11 +270,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       return jobOnSandbox("runtime_session_run", session_id, "the run", async () => {
       const s0 = await runtimeDaemon.state(session_id);
       if (target) {
-        // The same daemon path runtime_until takes: run to the address on the live machine.
+        // The same daemon `until` runtime_until calls, bounded by cycle_budget (cycles; daemon default 10000000).
         const { addr } = target;
-        const r = await runtimeDaemon.apiCall<{ halted: boolean }>(session_id, "until", [addr]);
+        const r = await runtimeDaemon.apiCall<{ halted: boolean; finalPc: number }>(session_id, "until", [addr, ...(cycle_budget !== undefined ? [{ budget: cycle_budget }] : [])]);
         const after = await runtimeDaemon.state(session_id);
-        return { content: [{ type: "text" as const, text: describeRunAdvance({ before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: "Runtime Daemon, run to address", until: { addr, halted: r.halted === true } }) }] };
+        return { content: [{ type: "text" as const, text: describeRunAdvance({ before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: "Runtime Daemon, run to address", until: { addr, halted: r.halted && r.finalPc === addr } }) }] };
       }
       const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
       // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI

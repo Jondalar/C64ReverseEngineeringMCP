@@ -48,6 +48,10 @@ async function mediaIngress(
  * normalized to plain arrays. The runtime allowlists which methods are reachable
  * over the narrow `api/call` verb (monitor/step/breakpoint/until/status).
  */
+/** The daemon's `until` answer (api/call): cycles and instructions are the machine's own counts. */
+interface UntilReply { halted: boolean; budgetExhausted: boolean; cyclesElapsed: number; instructionsElapsed: number; finalPc: number }
+const DEFAULT_UNTIL_BUDGET = 10_000_000;
+
 async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
   const { runtimeDaemon } = await import("../runtime/backend.js");
   return runtimeDaemon.apiCall<T>(session_id, method, args);
@@ -229,31 +233,31 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "runtime_step_over",
-    "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id. Returns: new PC + registers.",
+    "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id, budget (cycles the subroutine may run, default 100000). Returns: halted, haltReason (next_pc | breakpoint | budget_exhausted), cyclesElapsed, instructionsElapsed, finalPc.",
     {
       session_id: z.string(),
-      budget: z.number().optional(),
+      budget: z.number().int().positive().optional().describe("Cycle budget for the step (C64 cycles). Default 100000."),
     },
     safeHandler("runtime_step_over", async ({ session_id, budget }) => {
-      const r = await callApi(session_id, "stepOver", budget !== undefined ? { budget } : undefined);
+      const r = await callApi(session_id, "stepOver", ...(budget !== undefined ? [{ budget }] : []));
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
 
   server.tool(
     "runtime_until",
-    "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
+    "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. The run stops on the first arrival at the target (or at a breakpoint you set); the budget counts C64 cycles (default 10000000) and the run ends at the first instruction boundary at or past it, so it can overshoot by one instruction. A PC that already stands on addr halts at once (0 cycles). Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, addr (target PC), budget (cycles). Returns: halted, budgetExhausted, cyclesElapsed (C64 cycles that passed), instructionsElapsed (instructions retired), finalPc.",
     {
       session_id: z.string(),
       addr: z.number(),
-      budget: z.number().optional(),
+      budget: z.number().int().positive().optional().describe("Cycle budget (C64 cycles). Default 10000000."),
     },
     safeHandler("runtime_until", async ({ session_id, addr, budget }) => {
       // Spec 906 D6 — a run to a far address on a sandbox session may outlive the host's patience: past the
       // grace window the call answers a job id and `analysis_job_status` hands over this answer.
       const { jobOnSandbox } = await import("./long-call.js");
       return jobOnSandbox("runtime_until", session_id, "the run", async () => {
-        const r = await callApi(session_id, "until", addr, budget !== undefined ? { budget } : undefined);
+        const r = await callApi<UntilReply>(session_id, "until", addr, { budget: budget ?? DEFAULT_UNTIL_BUDGET });
         return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
       });
     }),

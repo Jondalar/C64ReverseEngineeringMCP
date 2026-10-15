@@ -8,7 +8,7 @@ export interface UntilCondition {
   count?: number;
 }
 
-/** The one stop condition the daemon's run-to-address can express: the C64 PC reaching an
+/** The one stop condition the daemon's `until` can express: the C64 PC reaching an
  *  address. Everything else is refused by name, and the caller is told what to use instead. */
 export function planUntil(u: UntilCondition): { addr: number } {
   if (u.kind !== "pc") {
@@ -48,7 +48,7 @@ export function describeRunAdvance(a: {
   }
   const asked = a.requestedCycles !== undefined ? ` (asked for up to ${a.requestedCycles})` : "";
   const stop = a.until
-    ? (a.until.halted ? ` Stopped at ${hex(a.until.addr)}.` : ` Did NOT reach ${hex(a.until.addr)} within the daemon's run budget.`)
+    ? (a.until.halted ? ` Stopped at ${hex(a.until.addr)}.` : ` Did NOT reach ${hex(a.until.addr)} within the cycle budget.`)
     : "";
   return `Advanced ${adv} cycles${asked} (${a.via}). cycles=${a.after} pc=${pc}.${stop}`;
 }

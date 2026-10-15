@@ -717,6 +717,9 @@ jobs:
       - name: A human zero-page label carries no platform meaning (#88)
         run: npm run e2e:issue88-zp-human-label
 
+      - name: runtime_until stops at its cycle budget (#89)
+        run: npm run e2e:issue89-until-budget
+
       # Needs a trx64-daemon (C64RE_RUNTIME_BIN / the installed pin); skips loudly without one.
       - name: A sandbox works on a copy of its medium (#91)
         run: npm run e2e:issue91-sandbox-media-copy

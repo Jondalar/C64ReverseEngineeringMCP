@@ -2323,7 +2323,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition.",
-      "desc": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by the daemon's own run budget); other kinds are refused by name.",
+      "desc": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by cycle_budget, default 10000000 cycles); other kinds are refused by name.",
       "tier": "default?"
     },
     {
@@ -2377,7 +2377,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return).",
-      "desc": "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id. Returns: new PC + registers.",
+      "desc": "Execute one instruction in a session, stepping OVER JSR (runs the subroutine to its return). Use to skip into-call detail. Not for entering the call (use runtime_step_into). Inputs: session_id, budget (cycles the subroutine may run, default 100000). Returns: halted, haltReason (next_pc | breakpoint | budget_exhausted), cyclesElapsed, instructionsElapsed, finalPc.",
       "tier": "default?"
     },
     {
@@ -2449,7 +2449,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Run a session until the PC reaches a target address or the cycle budget is exhausted.",
-      "desc": "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
+      "desc": "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. The run stops on the first arrival at the target (or at a breakpoint you set); the budget counts C64 cycles (default 10000000) and the run ends at the first instruction boundary at or past it, so it can overshoot by one instruction. A PC that already stands on addr halts at once (0 cycles). Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, addr (target PC), budget (cycles). Returns: halted, budgetExhausted, cyclesElapsed (C64 cycles that passed), instructionsElapsed (instructions retired), finalPc.",
       "tier": "default?"
     },
     {
