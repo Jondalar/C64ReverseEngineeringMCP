@@ -350,7 +350,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // three full reads of a file that is routinely gigabytes (BUG-052). Spec 785
       // C2 — the cart lane comes out of the SAME capture; empty unless the trace
       // armed the `cart-read` domain, and then slot spans are skipped as before.
-      const { readSet, cartReadSet, landings, landingsError, meta: captureMeta } = readSetsFromCaptureFile(captureAbs);
+      const { readSet, cartReadSet, landings, landingsError, stackNote, meta: captureMeta } = readSetsFromCaptureFile(captureAbs);
       // Spec 785 C3 — name the run in every claim; a lower bound is only meaningful
       // with its capture attached.
       const runLabel = `run ${basename(captureAbs)}`;
@@ -422,6 +422,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         ...(result.readSetNote ? [`NOTE: ${result.readSetNote}.`] : []),
         ``,
         `DISK (BLOCK_READ)  sector spans: ${result.matchedSpans} matched  ${result.notSeenSpans} not seen in ${runLabel} (not a refutation)  ${result.readPast.length} read past${result.readPastFails ? "" : " (reported only: legacy capture)"}  ${result.mismatched.length} mismatched  |  unclaimed reads ${result.unclaimed.length}`,
+        ...(stackNote ? [`  NOTE: ${stackNote} — "mismatched" cannot judge the bytes of a stack-buffered copy in this capture.`] : []),
         ...(result.landingsEvaluated
           ? []
           : [`  (landing map unavailable${landingsError ? `: ${landingsError}` : ""} — "mismatched" was not judged, only matched / not seen / read past)`]),

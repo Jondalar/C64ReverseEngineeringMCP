@@ -48,11 +48,17 @@
 //           (KERNAL jiffy $A0-$A2, IRQ) instead of being flushed at the first gap. Runs
 //           are followed in BOTH directions (a `dey / sta (zp),y` copy walks downward);
 //           a run is reported at its lowest address, bytes in address order.
-//       (b) Dataflow gate — a run counts as a disk-landing if transfer reads ($DD00
-//           accesses) occurred in its cycle window, or if it is a 1:1 copy (constant XOR
-//           over >= 90 % of its bytes, each store within a few cycles of the read) out of
-//           page-1 bytes a transfer pushed. A pure memory-copy (relocator moving
-//           already-loaded bytes) has ZERO $DD00 reads and reads no transfer-written
+//           A run ends when it has been idle for RUN_MAX_GAP cycles: a store to its next
+//           address after that starts a new run (an unpacker's output run used to stay
+//           open for tens of millions of cycles and absorb a byte of a later landing).
+//       (b) Dataflow gate — a run counts as a disk-landing if most of ITS OWN stores came
+//           within a few cycles after a transfer read ($DD00 access) — reads that merely
+//           fall inside the run's lifespan prove nothing — or if it is a 1:1 copy (constant
+//           XOR over >= 90 % of its bytes, each store within a few cycles of the read) out
+//           of page-1 bytes a transfer pushed (the copy's pulls are ordinary reads of
+//           $0100-$01FF; a capture that does not record them cannot be followed, and the
+//           answer says so). A pure memory-copy (relocator moving already-loaded bytes)
+//           or depack has no transfer read near its stores and reads no transfer-written
 //           stack bytes → dropped. This is what killed the old 78×T35 false map.
 //       (c) Page 1 is the stack. A transfer run lying wholly in it is a buffer, never a
 //           landing; it is listed under the destination it was copied to, or on its own
@@ -149,8 +155,9 @@ export interface LandingMapEntry {
   sha256: string;
   /** Cycle the run began landing. */
   cycleStart: number;
-  /** Transfer reads ($DD00 accesses) observed in this run's window — the dataflow
-   *  evidence that qualified it as a disk-landing (a memory-copy has ~0). */
+  /** Transfer reads ($DD00 accesses) observed between this run's first and last store (a
+   *  buffered copy: the buffer's span). Informational; the gate itself counts the run's
+   *  own stores that followed a transfer read. */
   transferReads: number;
   /** Landings only: the page-1 buffer the bytes were copied out of (1:1, constant XOR,
    *  within a few cycles of the buffer read). Absent when the bytes landed directly. */
@@ -422,6 +429,10 @@ interface Run {
   bytes: number[];
   cycleStart: number;
   cycleEnd: number;
+  /** Writes of this run that came within TRANSFER_WRITE_WINDOW cycles after a transfer
+   *  read — the bytes that were provably fed by the transfer, as opposed to the cycles
+   *  the run merely spans. */
+  fed: number;
   /** Keys under which the run sits in openUp / openDown, or -1. */
   upKey: number;
   downKey: number;
@@ -445,6 +456,23 @@ const TRANSFER_GAP = 1000;
 const PROVENANCE_WINDOW = 16;
 /** Share of a run's bytes that must be provably copied out of the buffer. */
 const PROVENANCE_SHARE = 0.9;
+/** A run is a direct disk landing when at least this share of ITS OWN writes followed a
+ *  transfer read within TRANSFER_WRITE_WINDOW. Measured on Impossible Mission II: the
+ *  direct title loads sit at 90-93 % (the rest are the stores after a track step), the
+ *  RLE-unpacker output and the arithmetic scratch that used to pass the gate on the strength
+ *  of unrelated `$DD00` reads inside their lifespan sit at 0 %. A majority is the line. */
+const DIRECT_SHARE = 0.5;
+/** A run whose next expected store comes later than this after its previous store is over;
+ *  the store starts a new run. Without it a run stays open forever and a store to the next
+ *  address, millions of cycles later, glues unrelated bytes onto a landing (a stale unpacker
+ *  run grew by one main-game byte; the main-game copy then lost its first byte to it).
+ *  The number is the drive's rotation: 1 revolution = 985248 Hz / 5 rev/s = 197050 cycles.
+ *  The longest stall inside a genuine landing measured on a real loader capture (Impossible
+ *  Mission II, direct title load across track steps) is 163596 cycles, below one revolution;
+ *  two revolutions allow for one missed sector on top of it. Every gap that glued unrelated
+ *  data there was above 1.4 million. */
+const CYCLES_PER_REVOLUTION = 197_050;
+const RUN_MAX_GAP = 2 * CYCLES_PER_REVOLUTION;
 const PAGE1_LO = 0x0100;
 const PAGE1_HI = 0x01ff;
 
@@ -462,7 +490,9 @@ const PAGE1_HI = 0x01ff;
  * else once per distinct address range). Source: each landing is matched to the nearest
  * preceding BLOCK_READ by cycle — of the buffer fill for a followed copy.
  */
-export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMapEntry[]> {
+export function newLandingMapFold(
+  opts: LandingMapOptions = {},
+): Fold<LandingMapEntry[]> & { stackNote(): string | null } {
   const minRunLen = opts.minRunLen ?? 16;
   const maxDest = opts.maxDest ?? 0xd000;
   const minTransferReads = opts.minTransferReads ?? 4;
@@ -496,7 +526,17 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
   interface BufRead { cycle: number; xorSrc: number; win: number; srcCycle: number; run: Run | null }
   let bufReads: BufRead[] = [];
 
+  // Stores outside page 1 that followed a read of an intact transfer-written page-1 byte
+  // (the copy-out of a stack buffer, whatever the transform). A capture that holds
+  // transfer-filled page-1 buffers and next to none of these never recorded the copy-out.
+  // A bare count of such page-1 READS would not do: an IRQ's RTI pulls the stack too, and
+  // lands on transfer-written bytes by chance (444 of them in the IM II capture without
+  // pulls) — none is followed by a store.
+  let followedStores = 0;
+  let unfollowedBuffers = false;
+
   const complete = (run: Run) => {
+    if (!openAll.has(run)) return;
     if (run.upKey >= 0 && openUp.get(run.upKey) === run) openUp.delete(run.upKey);
     if (run.downKey >= 0 && openDown.get(run.downKey) === run) openDown.delete(run.downKey);
     run.upKey = run.downKey = -1;
@@ -580,10 +620,15 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
 
     // Provenance of a write OUTSIDE page 1.
     const follow = inPage1 ? null : followedRead(ev.cycle);
+    if (follow) followedStores++;
 
     // Pick the run to extend: direction-fixed beats a one-byte run; ascending wins a tie.
-    const up = openUp.get(addr);
-    const down = openDown.get(addr);
+    let up = openUp.get(addr);
+    let down = openDown.get(addr);
+    // A run that has been idle for longer than RUN_MAX_GAP is over, not extendable.
+    if (up && ev.cycle - up.cycleEnd > RUN_MAX_GAP) { if (down === up) down = undefined; complete(up); up = undefined; }
+    if (down && ev.cycle - down.cycleEnd > RUN_MAX_GAP) { complete(down); down = undefined; }
+    const fed = ev.cycle - lastTransfer <= TRANSFER_WRITE_WINDOW;
     let existing: Run | undefined;
     if (up && down) existing = up.dir !== 0 ? up : down.dir !== 0 ? down : up;
     else existing = up ?? down;
@@ -602,12 +647,13 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
       run.bytes.push(ev.value);
       run.nextAddr = run.dir === 1 ? addr + 1 : addr - 1;
       run.cycleEnd = ev.cycle;
+      if (fed) run.fed++;
       // A run that walked off the 16-bit address space is finished.
       if (run.nextAddr >= 0 && run.nextAddr <= 0xffff) register(run); else complete(run);
     } else {
       run = {
         startAddr: addr, nextAddr: addr, dir: 0, bytes: [ev.value],
-        cycleStart: ev.cycle, cycleEnd: ev.cycle, upKey: -1, downKey: -1, prov: null,
+        cycleStart: ev.cycle, cycleEnd: ev.cycle, fed: fed ? 1 : 0, upKey: -1, downKey: -1, prov: null,
       };
       register(run);
       if (openAll.size > MAX_OPEN_RUNS) evictOldest();
@@ -625,8 +671,7 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
     }
     if (inPage1) {
       const i = addr - PAGE1_LO;
-      const inWindow = ev.cycle - lastTransfer <= TRANSFER_WRITE_WINDOW;
-      bufWin[i] = inWindow ? windowId : -1;
+      bufWin[i] = fed ? windowId : -1;
       bufVal[i] = ev.value;
       bufCycle[i] = ev.cycle;
       bufRun[i] = run;
@@ -663,7 +708,7 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
     const buffers: Array<{ run: Run; transferReads: number }> = [];
     for (const run of completed) {
       const transferReads = countTransfer(run.cycleStart, run.cycleEnd);
-      const direct = transferReads >= minTransferReads;
+      const direct = run.fed >= minTransferReads && run.fed >= DIRECT_SHARE * run.bytes.length;
       const lo = low(run), hi = high(run);
       if (lo >= PAGE1_LO && hi <= PAGE1_HI) {
         // Page 1 is the stack. A transfer filling it is a buffer, never a landing.
@@ -732,11 +777,23 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
       seen.set(key, entry);
       out.push(entry);
     }
+    unfollowedBuffers = out.some((e) => e.kind === "buffer");
     out.sort((a, b) => a.cycleStart - b.cycleStart);
     return out;
   };
 
-  return { push, finish };
+  /** Valid after finish(): non-null when the capture holds transfer-filled page-1 buffers
+   *  nobody was followed out of AND (almost) no store anywhere followed a read of a
+   *  transfer-written page-1 byte. A loader that copies its stack buffer out with pulls
+   *  leaves such stores; their total absence says the copy-out was not recorded (TRX64 up
+   *  to 0.13.1 did not emit stack pulls), so the destinations of those buffers are unknown,
+   *  not absent. */
+  const stackNote = (): string | null => {
+    if (followedStores >= minRunLen || !unfollowedBuffers) return null;
+    return "this capture holds page-1 buffers filled by the transfer, but no store anywhere followed a read of one of their bytes: the stack pulls that copy a buffer out were not recorded (TRX64 up to 0.13.1 does not emit them). Where those buffers were copied to is NOT in this capture — re-capture with TRX64 0.13.2 or later; the buffers below are unfollowed because the data is missing, not because the loader never moved them";
+  };
+
+  return { push, finish, stackNote };
 }
 
 export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions = {}): LandingMapEntry[] {
@@ -839,6 +896,8 @@ export function readSetsFromCaptureFile(path: string): {
   cartReadSet: CartReadSetEntry[];
   landings: LandingMapEntry[] | null;
   landingsError?: string;
+  /** See newLandingMapFold's stackNote: the capture lacks the stack pulls. */
+  stackNote: string | null;
   meta: TraceFileMeta;
 } {
   const disk = newReadSetFold();
@@ -855,7 +914,7 @@ export function readSetsFromCaptureFile(path: string): {
   if (landingsError === undefined) {
     try { landings = land.finish(); } catch (e) { landingsError = e instanceof Error ? e.message : String(e); }
   }
-  return { readSet: disk.finish(), cartReadSet: cart.finish(), landings, landingsError, meta };
+  return { readSet: disk.finish(), cartReadSet: cart.finish(), landings, landingsError, stackNote: landings ? land.stackNote() : null, meta };
 }
 
 /** The capture's own identity block (`TraceFileMeta`) — used to say WHICH run a
@@ -880,9 +939,10 @@ export function landingMapFromCaptureFile(path: string, opts: LandingMapOptions 
  *  capture says that its sector credit may be off by one. */
 export function landingMapWithNoteFromCaptureFile(
   path: string, opts: LandingMapOptions = {},
-): { map: LandingMapEntry[]; note: string | null } {
+): { map: LandingMapEntry[]; note: string | null; stackNote: string | null } {
   const land = newLandingMapFold(opts);
   const disk = newReadSetFold();
   streamCaptureEvents(path, (ev) => { land.push(ev); disk.push(ev); });
-  return { map: land.finish(), note: readSetNote(disk.finish()) };
+  const map = land.finish();
+  return { map, note: readSetNote(disk.finish()), stackNote: land.stackNote() };
 }

@@ -7,7 +7,7 @@
 //       BLOCK_READ read-set, not the head position at write time.
 // Spec 907 D1 adds: downward runs, page-1 buffers, stack-buffered copies (provenance).
 // Run after build:mcp.
-import { buildLandingMap, buildReadSet, halftrackToTrack, readSetNote } from "../dist/trace/loader-lens.js";
+import { buildLandingMap, newLandingMapFold, buildReadSet, halftrackToTrack, readSetNote } from "../dist/trace/loader-lens.js";
 import { TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
 import { createHash } from "node:crypto";
 
@@ -78,7 +78,8 @@ ok(halftrackToTrack(66) === 33 && halftrackToTrack(36) === 18, "halftrack→trac
 // ---------------------------------------------------------------------------------
 console.log("\nSpec 907 D1 — stack buffer + downward copy\n");
 const N = 240;
-const rdm = (cycle, addr, value) => ({ op: TraceOp.RAM_WRITE, cycle, addr, value, access: ACCESS_READ });
+const rdm = (cycle, addr, value, pc) => ({ op: TraceOp.RAM_WRITE, cycle, addr, value, access: ACCESS_READ, ...(pc !== undefined ? { pc } : {}) });
+const wrp = (cycle, addr, value, pc) => ({ ...wr(cycle, addr, value), pc });
 const sectorByte = (k, j) => (k * 53 + j * 7 + 3) & 0xff;
 const im2 = [];
 let t = 100_000;
@@ -91,13 +92,19 @@ for (const k of [1, 2]) {
     im2.push(wr(c + 34, 0x01ef - j, sectorByte(k, j)));        // pha, downward
   }
   t += N * 40 + 5000;                                           // the copy is far from any $DD00
+  // The record shape TRX64 emits for the loader at $BFB7: `pla / eor #$f9 / dey / sta ($fe),y / bne`.
+  // A stack pull is an ordinary data read of the slot; the recorded pc is the opcode address + 1
+  // ($BFB8); PLA first reads the slot SP points at (dummy: the one pulled before) and then the
+  // slot it pulls; the store (recorded pc $BFBD) follows 10 cycles after the pull; one turn of
+  // the loop is 17 cycles.
   for (let i = 0; i < N; i++) {                                 // pla ascending, sta descending
     const j = N - 1 - i;
-    const c = t + i * 20;
-    im2.push(rdm(c, 0x01ef - j, sectorByte(k, j)));
-    im2.push(wr(c + 10, bases[k] + j, sectorByte(k, j) ^ 0xf9));
+    const c = t + i * 17;
+    im2.push(rdm(c - 1, 0x01ef - j - 1, i === 0 ? 0 : sectorByte(k, j + 1), 0xbfb8));
+    im2.push(rdm(c, 0x01ef - j, sectorByte(k, j), 0xbfb8));
+    im2.push(wrp(c + 10, bases[k] + j, sectorByte(k, j) ^ 0xf9, 0xbfbd));
   }
-  t += N * 20 + 20_000;
+  t += N * 17 + 20_000;
 }
 const m1 = buildLandingMap(im2);
 const lands = m1.filter((e) => e.kind === "landing");
@@ -131,6 +138,84 @@ const m2 = buildLandingMap(s2b);
 ok(!m2.some((e) => e.c64Dest === 0xc000), "S2 relocator copy to $C000 is not a landing", m2.map((e) => "$" + e.c64Dest.toString(16)).join(","));
 ok(!m2.some((e) => e.c64Dest === 0x4000), "S2 depacker-style (non-constant XOR) read of the buffer is not a landing");
 ok(m2.filter((e) => e.kind === "landing").length === 2, "S2 the two real landings are unchanged");
+
+// ---------------------------------------------------------------------------------
+// A run never goes stale; transfer evidence is the run's own stores.
+// Real-capture failures (Impossible Mission II): a title unpacker's output run stayed open for
+// 40 million cycles and swallowed one byte of a later copy (the copy lost it, the stale run
+// grew, and unrelated $DD00 reads in its lifespan made it pass the dataflow gate).
+// ---------------------------------------------------------------------------------
+console.log("\nrun lifetime: stale runs, fed stores, stalls\n");
+const mk = (k, destBase, t0) => {          // one sector buffered on the stack, copied out in the real record shape
+  const ev = [blk(t0 - 500, 66, k, 324)];
+  for (let j = 0; j < N; j++) {
+    const c = t0 + j * 40;
+    for (let r = 0; r < 4; r++) ev.push(dd00(c + r * 10));
+    ev.push(wr(c + 34, 0x01ef - j, sectorByte(k, j)));
+  }
+  const tc = t0 + N * 40 + 5000;
+  for (let i = 0; i < N; i++) {
+    const j = N - 1 - i, c = tc + i * 17;
+    ev.push(rdm(c - 1, 0x01ef - j - 1, i === 0 ? 0 : sectorByte(k, j + 1), 0xbfb8));
+    ev.push(rdm(c, 0x01ef - j, sectorByte(k, j), 0xbfb8));
+    ev.push(wrp(c + 10, destBase + j, sectorByte(k, j) ^ 0xf9, 0xbfbd));
+  }
+  return ev;
+};
+// unpacker output: 60 ascending stores at $4000.. with no $DD00 within thousands of cycles
+const lt = [];
+for (let i = 0; i < 60; i++) lt.push(wr(1_000_000 + i * 30, 0x4000 + i, (i * 7) & 0xff));
+// 40 million cycles later a sector is received and copied out DOWNWARD across the address the
+// stale run expects next ($403c): without a run lifetime the byte is glued onto the stale run
+const lateBase = 0x4000 + 60 - 100;          // $3fc8..$40b7
+lt.push(...mk(7, lateBase, 41_000_000));
+const landsLt = buildLandingMap(lt).filter((e) => e.kind === "landing");
+ok(!landsLt.some((e) => e.c64Dest === 0x4000), "run-life: unpacker output at $4000 (no store fed by a transfer) is not a landing", landsLt.map((e) => `$${e.c64Dest.toString(16)}+${e.len}`).join(","));
+const ll = landsLt.find((e) => e.c64Dest === lateBase);
+ok(!!ll && ll.len === N, "run-life: the late copy keeps all 240 bytes (the stale run did not steal one)", ll ? `len ${ll.len}` : "missing");
+ok(landsLt.length === 1, "run-life: exactly one landing", `${landsLt.length}`);
+ok(ll?.source?.sector === 7, "run-life: the late copy is credited to the sector read before it, S7", JSON.stringify(ll?.source));
+
+// the copy's LAST byte (lowest address) is the stale run's next address
+const lt2 = [];
+for (let i = 0; i < 60; i++) lt2.push(wr(1_000_000 + i * 30, 0x5000 + i, (i * 7) & 0xff));
+const base2 = 0x5000 + 60;                    // the copy $503c..$512b descends to $503c
+lt2.push(...mk(9, base2, 41_000_000));
+const landsLt2 = buildLandingMap(lt2).filter((e) => e.kind === "landing");
+ok(landsLt2.length === 1 && landsLt2[0].len === N && landsLt2[0].c64Dest === base2, "run-life: a copy whose last byte is the stale run's next address keeps it", JSON.stringify(landsLt2.map((e) => [e.c64Dest, e.len])));
+
+// a genuine direct landing survives a stall below one disk revolution, and is cut by one above two
+const stall = (gap) => {
+  const ev = [blk(5, 66, 3, 324)];
+  let c = 100;
+  for (let i = 0; i < 60; i++) {
+    if (i === 30) c += gap;
+    ev.push(dd00(c)); ev.push(wr(c + 10, 0x6000 + i, i + 1)); c += 60;
+  }
+  return buildLandingMap(ev).filter((e) => e.kind === "landing");
+};
+const sOk = stall(150_000), sCut = stall(450_000);
+ok(sOk.length === 1 && sOk[0].len === 60, "run-life: a 150000-cycle stall (below one revolution) inside a transfer does not split the landing", JSON.stringify(sOk.map((e) => e.len)));
+ok(sCut.length === 2 && sCut.every((e) => e.len === 30), "run-life: a stall of more than two revolutions ends the run", JSON.stringify(sCut.map((e) => e.len)));
+
+// $DD00 reads inside a run's LIFESPAN that none of its stores followed are not evidence: an
+// unpacker writing while the next sector arrives is still not a disk landing
+const inter = [];
+for (let i = 0; i < 60; i++) inter.push(wr(2_000_000 + i * 400, 0x7000 + i, (i * 5) & 0xff));
+for (let i = 0; i < 40; i++) inter.push(dd00(2_000_200 + i * 500));   // 200 cycles from every store
+inter.sort((a, b) => a.cycle - b.cycle);
+ok(buildLandingMap(inter).length === 0, "run-life: $DD00 reads in the lifespan that no store followed do not make a landing");
+
+// A capture without the stack pulls: the buffer is unfollowed and the answer says why
+const noPull = newLandingMapFold();
+for (let j = 0; j < 40; j++) { for (let r = 0; r < 4; r++) noPull.push(dd00(100 + j * 40 + r * 10)); noPull.push(wr(100 + j * 40 + 34, 0x01ef - j, j + 1)); }
+const mNoPull = noPull.finish();
+ok(mNoPull.length === 1 && mNoPull[0].kind === "buffer", "no stack pulls: the page-1 buffer is listed, no landing is invented", JSON.stringify(mNoPull.map((e) => e.kind)));
+ok(/no store anywhere followed a read/.test(noPull.stackNote() ?? "") && /0\.13\.1/.test(noPull.stackNote() ?? ""), "no stack pulls: the answer says the pulls were not recorded", noPull.stackNote()?.slice(0, 60));
+const withPull = newLandingMapFold();
+for (const ev of im2) withPull.push(ev);
+withPull.finish();
+ok(withPull.stackNote() === null, "with the pulls recorded there is no such note");
 
 // A buffer nobody was followed out of stays visible, once per distinct range.
 const bufOnly = [];
