@@ -101,8 +101,12 @@ try {
       if (HAVE_64TASS) { const r = rebuild("tass", tasPath, `tt_${platform}_${mode}`); check(r === true, `${tag}: .tas rebuilds byte-identical (64tass)`, r === true ? "" : r); }
       else skip(`${tag}: 64tass rebuild`, "64tass not on PATH");
 
-      if (platform === "c64" && mode === "analysis") {
-        check(/lda\s+ptrLo\s+\/\/ A = FREKZP/.test(asm), "the platform name stays as a hint behind the user's name");
+      if (platform === "c64") {
+        // #88: the human label wins, as for I/O (#74) — no KERNAL / BASIC meaning behind it
+        for (const [text, kind] of [[asm, ".asm"], [tas, ".tas"]]) {
+          const named = text.split("\n").filter((l) => /^\s+[a-z.@ ]+\s+(ptrLo|gameVar)\b/.test(l) && /(\/\/|;)\s*(A = |store A → )(?!(ptrLo|gameVar)\[)\S/.test(l));
+          check(named.length === 0, `${kind} no platform zero-page meaning behind a human zero-page label (#88)`, named.join(" | "));
+        }
       }
       if (platform === "none") check(!/FREKZP|TXTPTR/.test(asm), "platform none: no platform name");
     }
@@ -113,6 +117,13 @@ try {
   node("disasm-prg", prg, plainAsm, "--analysis", analysis, "--platform", "none");
   const plain = readFileSync(plainAsm, "utf8");
   check(/\blda\s+\$FB\b/.test(plain) && !/ptrLo|gameVar/.test(plain) && !/\.label\s+\w+\s*=\s*\$(00)?FB/.test(plain), "unlabelled zp operands render as before");
+
+  console.log("\n── no zero-page label on c64: the platform meaning stays (#88)");
+  const plainC64 = join(dir, "plain_c64.asm");
+  node("disasm-prg", prg, plainC64, "--analysis", analysis, "--platform", "c64");
+  const pc64 = readFileSync(plainC64, "utf8");
+  check(/^\s+lda\s+\$FB\s+\/\/ A = FREKZP/m.test(pc64), "lda $FB keeps // A = FREKZP …", pc64.split("\n").find((l) => /\$FB\b/.test(l)) ?? "");
+  check(/^\s+sta\s+\$02\s+\/\/ store A → \S+/m.test(pc64), "sta $02 keeps // store A → <platform meaning>", pc64.split("\n").find((l) => /sta\s+\$02\b/.test(l)) ?? "");
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

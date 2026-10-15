@@ -784,6 +784,12 @@ function annotatedOperandName(address: number | undefined): string | undefined {
   return activeAnnotations?.labelsByAddress.get(address)?.label;
 }
 
+/** #88 — the project's own name for a zero-page address (annotation label or routine name), if any. */
+function humanZeroPageName(address: number): string | undefined {
+  if (address < 0 || address > 0xff) return undefined;
+  return annotatedOperandName(address) ?? activeAnnotations?.routinesByAddress.get(address)?.name;
+}
+
 function operandTextFromFact(
   instruction: Pick<InstructionFact, "addressingMode" | "operandValue" | "targetAddress"> & { address?: number },
   labels: Set<number>,
@@ -938,8 +944,10 @@ function generateInstructionComment(
     }
   }
 
-  // 3. Zero-page stores/loads with known meaning (platform overlay first)
-  if (mode === "zp" && operand !== undefined) {
+  // 3. Zero-page stores/loads with known meaning (platform overlay first).
+  //    #88 — a human label on the address wins, as for I/O (#74): the operand already
+  //    reads the project's name, so no KERNAL / BASIC meaning is added behind it.
+  if (mode === "zp" && operand !== undefined && !humanZeroPageName(operand)) {
     const zp = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, operand);
     if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
