@@ -81,7 +81,7 @@
     "e2e:877-teeth": "node scripts/e2e-877-teeth.mjs",
     "check:esm-require": "node scripts/check-esm-require.mjs",
     "dev": "tsx watch src/cli.ts",
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs && node dist/platform-kb/seed.js",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:mcp": "tsc -p tsconfig.json",
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",

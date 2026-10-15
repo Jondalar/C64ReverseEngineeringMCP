@@ -10,7 +10,7 @@ zero-page / RAM memory maps (`src/c64mem/`), the I/O register maps
 | File | What it is | Built by |
 |---|---|---|
 | `resources/c64ref-rom-knowledge.json` | the upstream snapshot: every annotation from every source, per address. **Gitignored** — typed-in book text this repo does not redistribute | `npm run build:c64ref` (network) |
-| `resources/platform-kb.sqlite` | the **platform knowledge base** — ONE name per address, ranges as regions, plus the repo-owned extensions (EasyFlash registers, 1541 drive). **Committed.** Names and symbols only, no prose | `npm run build:platform-kb` (no network; part of `npm run build`; keeps the committed store when no snapshot is present) |
+| `resources/platform-kb.sqlite` | the **platform knowledge base** — ONE name per address, ranges as regions, plus the repo-owned extensions (EasyFlash registers, 1541 drive). **Committed.** Names and symbols only, no prose | `npm run build:platform-kb` (no network; never part of `npm run build`, so a local snapshot cannot overwrite the committed store; keeps the committed store when no snapshot is present) |
 
 The SQLite store is what every consumer reads: the disassembly renderer
 (`pipeline/src/lib/platform-kb.ts`), the MCP half (`src/platform-kb/read.ts`),
