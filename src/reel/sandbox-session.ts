@@ -32,9 +32,9 @@
 import { WebSocket } from "ws";
 import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDaemonSpawn } from "../runtime/resolve-daemon-spawn.js";
 import { runtimeSetupRecipe } from "../runtime/setup-recipe.js";
@@ -146,7 +146,8 @@ async function freePort(): Promise<number> {
 export interface SandboxOptions {
   /** Wall-clock ceiling; the sandbox ends itself at this age. Default 10 minutes. */
   budgetMs?: number;
-  /** Where the daemon keeps its project scratch. A temp dir by default, removed on close. */
+  /** Where the daemon keeps its project scratch. A temp dir by default, removed on close. The sandbox's own
+   *  scratch — the copies of every medium mounted in it — is a temp dir either way, never this one. */
   projectDir?: string;
   /** Spec 863 — which C64 the machine is (a row of the runtime's model table, e.g.
    *  `c64-ntsc`). Omitted: the runtime's default. A name it cannot run is refused by the
@@ -160,12 +161,16 @@ export interface SandboxOptions {
   onExit?: (why: string) => void;
 }
 
+/** The daemon methods that mount, insert or swap a medium named by `path`. */
+const MEDIA_PATH_METHODS = new Set(["media/open", "media/mount", "media/swap", "media/ingress", "runtime/swap_disk_and_continue"]);
+
 export class SandboxSession {
   private ws: WebSocket | null = null;
   private child: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private ownTmp: string | null = null;
+  private readonly mediaCopies = new Map<string, string>();
   private reaper: NodeJS.Timeout | null = null;
   private closed = false;
   private endedBecause: string | null = null;
@@ -179,7 +184,10 @@ export class SandboxSession {
   static async start(opts: SandboxOptions = {}): Promise<SandboxSession> {
     const port = await freePort();
     const s = new SandboxSession(port);
-    const projectDir = opts.projectDir ?? (s.ownTmp = mkdtempSync(join(tmpdir(), "c64re-reel-")));
+    // The scratch exists whether or not the daemon is given a project dir: it holds the copies of every
+    // medium mounted in this machine, and goes when the daemon is gone.
+    s.ownTmp = mkdtempSync(join(tmpdir(), "c64re-reel-"));
+    const projectDir = opts.projectDir ?? s.ownTmp;
 
     const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model, headless: true });
     if (plan.mode === "none") {
@@ -299,8 +307,45 @@ export class SandboxSession {
     this.pending.clear();
   }
 
+  /**
+   * The copy of a medium this machine works on. The runtime writes a mounted disk or cartridge back to the
+   * file it was opened from (on eject, on persist, and on its way out), so a sandbox never hands it the
+   * project's path: it hands it a copy in its own scratch. The same source gives the same copy for the life
+   * of the machine, so a disk swapped out and back in keeps what the program wrote to it.
+   */
+  copyMedium(source: string): string {
+    if (!this.ownTmp) throw new Error("the sandbox has no scratch directory to hold its copy of the medium");
+    const key = resolvePath(source);
+    const known = this.mediaCopies.get(key);
+    if (known) return known;
+    const dir = join(this.ownTmp, "media", String(this.mediaCopies.size + 1));
+    mkdirSync(dir, { recursive: true });
+    const copy = join(dir, basename(key));
+    copyFileSync(key, copy);
+    this.mediaCopies.set(key, copy);
+    return copy;
+  }
+
+  /** The request, with every medium it would mount replaced by this machine's copy of it. */
+  private withMediaCopies(method: string, params: Record<string, unknown>): Record<string, unknown> {
+    const isFile = (p: unknown): p is string => {
+      if (typeof p !== "string" || p === "" || /\.(prg|c64re)$/i.test(p)) return false;
+      try { return statSync(p).isFile(); } catch { return false; }
+    };
+    if (MEDIA_PATH_METHODS.has(method) && isFile(params.path) && params.kind !== "eject") {
+      return { ...params, path: this.copyMedium(params.path) };
+    }
+    if (method === "monitor/exec" && typeof params.command === "string") {
+      const m = /^(\s*(?:mount|swapcrt)\s+)(?:"([^"]+)"|(\S.*?))\s*$/i.exec(params.command);
+      const named = m?.[2] ?? m?.[3];
+      if (m && isFile(named)) return { ...params, command: `${m[1]}"${this.copyMedium(named)}"` };
+    }
+    return params;
+  }
+
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 300_000): Promise<T> {
     if (this.closed) throw new Error(this.endedBecause ?? "the sandbox is closed");
+    params = this.withMediaCopies(method, params);
     await this.open();
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
@@ -346,6 +391,6 @@ export class SandboxSession {
   /** Why the sandbox went away, when it did so on its own. */
   get ended(): string | null { return this.endedBecause; }
 
-  /** The temp dir the daemon keeps its project scratch in (removed on close), when this session made one. */
+  /** The sandbox's scratch (its copies of mounted media; the daemon's project dir too, unless one was given). Removed on close. */
   get scratchDir(): string | null { return this.ownTmp; }
 }

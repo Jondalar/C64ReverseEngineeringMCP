@@ -8,7 +8,7 @@ export interface UntilCondition {
   count?: number;
 }
 
-/** The one stop condition the daemon's run-to-address can express: the C64 PC reaching an
+/** The one stop condition the daemon's `until` can express: the C64 PC reaching an
  *  address. Everything else is refused by name, and the caller is told what to use instead. */
 export function planUntil(u: UntilCondition): { addr: number } {
   if (u.kind !== "pc") {

@@ -35,8 +35,8 @@ export function registerRuntimeSandboxSessionTools(server: McpServer, context: S
       "refused 'not yours'), it never reaches the shared session and the shared session never reaches it, and it is always the " +
       "emulator — also while a C64 Ultimate is the selected backend. It is born headless and stands at the BASIC prompt at the " +
       "cycle the answer names, PAUSED: it advances only when a tool runs it, so the same calls replay to the same bytes. A medium " +
-      "you pass is mounted as a COPY in the sandbox's scratch (the runtime writes a mounted disk or cartridge back on exit; the " +
-      "project's image is never changed). Captures (runtime_trace_start) land in the project's trace root and are KEPT when the " +
+      "you pass — or mount later with runtime_media_mount, runtime_media_swap or the monitor's `mount` — is mounted as a COPY in the sandbox's scratch (the runtime writes a mounted disk or cartridge back to the file it was given; the " +
+      "project's image is never changed, and nothing writes the copy back). Captures (runtime_trace_start) land in the project's trace root and are KEPT when the " +
       "sandbox ends; everything else the machine held — scratch, the medium's copy, checkpoints in memory — is gone. " +
       "ENDING: call runtime_sandbox_end with outcome reached or failed and a summary when the purpose is done; it also ends " +
       "ITSELF when the budget runs out, when no call reaches it for the idle limit, or when this MCP process dies — a trace " +
