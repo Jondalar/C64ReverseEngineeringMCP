@@ -13,6 +13,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run smoke:ui-launcher
 
+import { pathToFileURL } from "node:url";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -21,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { ensureUiLaunchers } = await import(join(ROOT, "dist/project-knowledge/ui-launcher.js"));
+const { ensureUiLaunchers } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/ui-launcher.js")).href);
 
 let pass = 0;
 let failCount = 0;
@@ -324,7 +325,7 @@ for (const [platform, want] of Object.entries(SETS)) {
 {
   const handlers = new Map();
   const fakeServer = { tool: (name, _desc, _schema, handler) => handlers.set(name, handler) };
-  const { registerProjectKnowledgeTools } = await import(join(ROOT, "dist/project-knowledge/mcp-tools.js"));
+  const { registerProjectKnowledgeTools } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/mcp-tools.js")).href);
   registerProjectKnowledgeTools(fakeServer, { repoDir: ROOT });
   const dir = join(project, "init-test");
   mkdirSync(dir, { recursive: true });

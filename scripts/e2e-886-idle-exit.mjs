@@ -13,14 +13,14 @@
 import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
-const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
+const { resolveDaemonSpawn } = await import(pathToFileURL(join(ROOT, "dist/runtime/resolve-daemon-spawn.js")).href);
 
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -32,7 +32,7 @@ const killPort = () => { const p = listener(); if (p) try { process.kill(p, "SIG
 const until = async (cond, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(200); } return cond(); };
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-886-"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 new ProjectKnowledgeService(proj).initProject({ name: "886" });
 
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: proj, port: String(PORT) });

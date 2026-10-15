@@ -11,11 +11,11 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildFixture804, PAYLOADS } from "./lib/fixture-804.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const dist = (p) => import(join(ROOT, "dist", p));
+const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
 
 let pass = 0, fail = 0;
 const check = (cond, msg, detail = "") => {

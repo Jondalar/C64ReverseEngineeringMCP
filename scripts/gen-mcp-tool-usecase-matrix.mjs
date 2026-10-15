@@ -12,12 +12,12 @@
 // Run: node scripts/gen-mcp-tool-usecase-matrix.mjs
 // Gate: node scripts/probe-mcp-tool-usecase-matrix.mjs
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
-const tier = await import(`${ROOT}/dist/server-tools/tier-tools.js`);
+const tier = await import(pathToFileURL(`${ROOT}/dist/server-tools/tier-tools.js`).href);
 const { tierForTool } = tier;
 
 // Trace reader/writer schema contract (Spec 726 §6a). Convenience readers MUST

@@ -1,7 +1,7 @@
 // Spec 727 gate — validate docs/mcp-tool-usecase-matrix.json against the
 // inventory + the classification rules. Static + deterministic; no server boot.
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,7 +72,7 @@ const candNoSucc = cand.filter((r) => !(r.useInstead && r.useInstead.trim()) && 
 ok(candNoSucc.length === 0, `9 every retire/merge/rename names a successor/reason (${cand.length} candidates)`, candNoSucc.map((r) => r.name).join(",") || "none");
 
 // 10. tier matches the live registry.
-const tier = await import(`${ROOT}/dist/server-tools/tier-tools.js`);
+const tier = await import(pathToFileURL(`${ROOT}/dist/server-tools/tier-tools.js`).href);
 const drift = rows.filter((r) => tier.tierForTool(r.name) !== r.tier);
 ok(drift.length === 0, "10 matrix tier matches live registry", drift.map((r) => r.name).slice(0, 8).join(",") || "none");
 

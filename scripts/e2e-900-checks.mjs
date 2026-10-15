@@ -1,13 +1,13 @@
 // Spec 900 — the check notation, hermetic: what a `Then` parses to, where it stands, and
 // that a line which starts like a check and does not parse is an error, not prose.
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mod = join(ROOT, "dist/project-knowledge/scenario-gherkin.js");
 if (!existsSync(mod)) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
-const { parseCheck, parseFeature } = await import(mod);
+const { parseCheck, parseFeature } = await import(pathToFileURL(mod).href);
 
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };

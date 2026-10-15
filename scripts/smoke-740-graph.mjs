@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -33,8 +33,8 @@ if (!existsSync(cli) || !existsSync(join(ROOT, "dist/pipeline/cli.cjs"))) {
   console.error("dist/ is not built — run npm run build");
   process.exit(2);
 }
-const search = await import(join(ROOT, "dist/project-knowledge/project-search.js"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const search = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-search.js")).href);
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-740g-"));
 check(!proj.startsWith(ROOT), "the project lives outside the C64RE repo", proj);

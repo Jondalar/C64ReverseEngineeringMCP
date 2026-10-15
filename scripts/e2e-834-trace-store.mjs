@@ -37,6 +37,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:834-trace-store
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -60,9 +61,9 @@ console.log("Spec 834 §3 — the seven trace-store readers, and the cwd fallbac
 
 // ------------------------------------------------------------------ the world
 
-const { resolveProjectDir } = await import(join(ROOT, "dist/project-root.js"));
-const { resolveStorePath, registerTraceStoreTools } = await import(join(ROOT, "dist/server-tools/trace-store.js"));
-const { traceDirForProject, tracePointerPath, recordTracePointer } = await import(join(ROOT, "dist/trace/trace-location.js"));
+const { resolveProjectDir } = await import(pathToFileURL(join(ROOT, "dist/project-root.js")).href);
+const { resolveStorePath, registerTraceStoreTools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/trace-store.js")).href);
+const { traceDirForProject, tracePointerPath, recordTracePointer } = await import(pathToFileURL(join(ROOT, "dist/trace/trace-location.js")).href);
 
 const project = mkdtempSync(join(tmpdir(), "c64re-834-project-"));
 mkdirSync(join(project, "knowledge"), { recursive: true });

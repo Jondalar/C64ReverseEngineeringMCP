@@ -8,10 +8,11 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:828
 
+import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { C64REF_SOURCE_SPECS, lookupC64RefByAddress, searchC64RefKnowledge } = await import(join(ROOT, "dist/c64ref-rom-knowledge.js"));
+const { C64REF_SOURCE_SPECS, lookupC64RefByAddress, searchC64RefKnowledge } = await import(pathToFileURL(join(ROOT, "dist/c64ref-rom-knowledge.js")).href);
 
 let pass = 0;
 let failCount = 0;

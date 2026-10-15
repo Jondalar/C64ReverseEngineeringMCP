@@ -4,7 +4,7 @@
 // always-apply rules can't be missed after context loss.
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
@@ -17,7 +17,7 @@ console.log("Spec 748 — project steering file + agent_onboard injection\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
 
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-748-"));
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 new ProjectKnowledgeService(projectDir).initProject({ name: "Steering Test" });
 
 function spawnMcp() {
@@ -74,7 +74,7 @@ try {
   // spec number was dropped from the heading — the block was provisioned the whole
   // time. A gate that fails on a doc edit teaches people to ignore it.
   const { RECONCILE_MARKER } = await import(
-    join(ROOT, "dist/server-tools/steering-defaults.js")
+    pathToFileURL(join(ROOT, "dist/server-tools/steering-defaults.js")).href
   );
   ok(steerAfterInit.includes(RECONCILE_MARKER) && steerAfterInit.includes(MARK),
     "5 project_init adds the reconcile steering block, keeps hand-written rules",

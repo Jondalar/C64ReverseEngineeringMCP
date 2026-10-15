@@ -3,7 +3,7 @@
 // (.sym) over a primary listing (.asm/.tass) of the same subject.
 import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,8 +13,8 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("BUG-033 — version reconcile clears reappeared-missing + primary beats related\n");
 
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug033-"));
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
-const { subjectIdForArtifact } = await import(`${ROOT}/dist/project-knowledge/artifact-versions.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
+const { subjectIdForArtifact } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/artifact-versions.js`).href);
 const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "BUG-033" });
 

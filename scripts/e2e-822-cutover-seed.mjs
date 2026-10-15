@@ -21,15 +21,16 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:822-cutover-seed
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 
 let pass = 0;
 let failCount = 0;

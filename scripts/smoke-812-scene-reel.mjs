@@ -10,7 +10,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -23,7 +23,7 @@ const ok = (c, m, d = "") => {
 console.log("Spec 812 smoke — runtime_scene_reel\n");
 
 // ---- the notation, checked without a machine -------------------------------
-const { parseFeature, parseStep, decodeKeys } = await import(`${ROOT}/dist/project-knowledge/scenario-gherkin.js`);
+const { parseFeature, parseStep, decodeKeys } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/scenario-gherkin.js`).href);
 
 {
   const r = parseFeature(
@@ -76,7 +76,7 @@ ok(parseStep("Bloomsday") === undefined, "11 a non-step falls through to the cri
 }
 
 // ---- the encoder, checked against a decoder that is not ours ---------------
-const { encode, encodeWithin, parseStructure } = await import(`${ROOT}/dist/reel/gif89a.js`);
+const { encode, encodeWithin, parseStructure } = await import(pathToFileURL(`${ROOT}/dist/reel/gif89a.js`).href);
 {
   const pal = new Uint8Array(48).map((_, i) => (i * 17) & 0xff);
   const px = 384 * 272;
@@ -97,7 +97,7 @@ const { encode, encodeWithin, parseStructure } = await import(`${ROOT}/dist/reel
 }
 
 // ---- the tool, end to end --------------------------------------------------
-const { resolveTrx64Cli } = await import(`${ROOT}/dist/sandbox/trx64cli.js`);
+const { resolveTrx64Cli } = await import(pathToFileURL(`${ROOT}/dist/sandbox/trx64cli.js`).href);
 const daemonBin = resolveTrx64Cli().replace(/trx64cli(\.exe)?$/, "trx64-daemon$1");
 if (!existsSync(daemonBin)) {
   console.log(`\n  [skip] runtime binary absent at ${daemonBin}`);
@@ -105,7 +105,7 @@ if (!existsSync(daemonBin)) {
   process.exit(fail === 0 ? 0 : 1);
 }
 
-const { registerSceneReelTool } = await import(`${ROOT}/dist/server-tools/scene-reel.js`);
+const { registerSceneReelTool } = await import(pathToFileURL(`${ROOT}/dist/server-tools/scene-reel.js`).href);
 const tools = new Map();
 const server = {
   tool(name, description, schema, handler) {
@@ -188,7 +188,7 @@ ok(Buffer.compare(readFileSync(out), readFileSync(out2)) === 0, "27 the same sce
 
   // Record what each role resolves to, without booting: drive the resolver the
   // way the tool builds it.
-  const { runScenario } = await import(`${ROOT}/dist/reel/run-scenario.js`);
+  const { runScenario } = await import(pathToFileURL(`${ROOT}/dist/reel/run-scenario.js`).href);
   const seen = [];
   try {
     await runScenario(parseFeature(rf(feat, "utf8"), feat).scenarios[0], {
@@ -266,7 +266,7 @@ ok(/did not happen within 30 frames/.test(badPred), "30 a predicate that never f
 // count of every daemon on the host would also see the human's live session and
 // anyone else's scratch instance, which is how a check ends up measuring the
 // wrong thing and passing anyway.
-const { SandboxSession } = await import(`${ROOT}/dist/reel/sandbox-session.js`);
+const { SandboxSession } = await import(pathToFileURL(`${ROOT}/dist/reel/sandbox-session.js`).href);
 {
   const box = await SandboxSession.start({ budgetMs: 30_000 });
   const port = box.port;

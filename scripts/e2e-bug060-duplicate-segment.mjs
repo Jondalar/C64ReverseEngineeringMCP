@@ -36,7 +36,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -172,7 +172,7 @@ try {
   // D2d — the importer, reached directly, says the same thing.
   head("the graph importer, called on the same file");
   {
-    const { importAnnotationFile } = await import(join(ROOT, "dist/knowledge-graph/migrate/migrate.js"));
+    const { importAnnotationFile } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/migrate.js")).href);
     let message = "";
     try {
       importAnnotationFile(annPath, { projectDir: proj });

@@ -20,6 +20,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:821
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,16 +30,16 @@ import { join, resolve } from "node:path";
 process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
 process.env.C64RE_RUNTIME_AUTOSTART = "0";
 const ROOT = resolve(import.meta.dirname, "..");
-const { emulatorDaemon: runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js")); // Spec 889: the default backend
+const { emulatorDaemon: runtimeDaemon } = await import(pathToFileURL(join(ROOT, "dist/runtime/daemon-client.js")).href); // Spec 889: the default backend
 let traceReadCalls = 0;
 runtimeDaemon.traceRead = async () => { traceReadCalls += 1; throw new Error("trace/read must not be called by the 821 importer"); };
 
-const { importRuntimeTrace, removeRuntimeRun, runNodeIdFor } = await import(join(ROOT, "dist/knowledge-graph/producers/runtime.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
-const { pointerTargets, runtimeObservations, runs, unconfirmed, unexplained, irqHandlers, executions } = await import(join(ROOT, "dist/knowledge-graph/query-runtime.js"));
-const { encodeFileHeader, encodeCpuStep, encodeMemAccess, encodeMark, TraceOp, ACCESS_READ, ACCESS_WRITE } = await import(join(ROOT, "dist/trace/binary-format.js"));
-const { IdRuleError } = await import(join(ROOT, "dist/knowledge-graph/ids.js"));
+const { importRuntimeTrace, removeRuntimeRun, runNodeIdFor } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/runtime.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
+const { pointerTargets, runtimeObservations, runs, unconfirmed, unexplained, irqHandlers, executions } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-runtime.js")).href);
+const { encodeFileHeader, encodeCpuStep, encodeMemAccess, encodeMark, TraceOp, ACCESS_READ, ACCESS_WRITE } = await import(pathToFileURL(join(ROOT, "dist/trace/binary-format.js")).href);
+const { IdRuleError } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/ids.js")).href);
 
 let pass = 0;
 let failCount = 0;
@@ -267,9 +268,9 @@ check(traceReadCalls === 0, "runtimeDaemon.traceRead was never called (D4: the b
   mkdirSync(join(child, "knowledge"), { recursive: true });
   writeFileSync(join(child, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "c", name: "child", slug: "s821c", rootPath: child }));
   const script = `
-    import { importRuntimeTrace } from ${JSON.stringify(join(ROOT, "dist/knowledge-graph/producers/runtime.js"))};
-    import { Graph } from ${JSON.stringify(join(ROOT, "dist/knowledge-graph/query.js"))};
-    import { pointerTargets } from ${JSON.stringify(join(ROOT, "dist/knowledge-graph/query-runtime.js"))};
+    import { importRuntimeTrace } from ${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/runtime.js")).href)};
+    import { Graph } from ${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href)};
+    import { pointerTargets } from ${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/query-runtime.js")).href)};
     const r = importRuntimeTrace({ projectDir: ${JSON.stringify(child)}, tracePath: ${JSON.stringify(tracePath)} });
     const g = Graph.open(${JSON.stringify(child)});
     process.stdout.write(JSON.stringify({ rows: r.rows, spans: pointerTargets(g, "$20")[0].spans.length }));

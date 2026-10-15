@@ -50,7 +50,7 @@ try {
   await registerProcess({ pid: fake.pid, kind: "daemon", port: PORT, startedBy: "mcp" });
 
   // 2+3) ensureDaemon must: detect stall (no pong) → kill the fake → spawn a REAL daemon.
-  const { ensureDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js"));
+  const { ensureDaemon } = await import(pathToFileURL(join(ROOT, "dist/runtime/daemon-client.js")).href);
   const r = await ensureDaemon({ endpoint: ENDPOINT, projectDir: ROOT });
   ok(r === "spawned", "1 ensureDaemon detected the stall + spawned a replacement (not 'already-up')", `result=${r}`);
 

@@ -27,7 +27,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -45,12 +45,12 @@ if (!existsSync(cli) || !existsSync(join(ROOT, "dist/pipeline/cli.cjs"))) {
   process.exit(2);
 }
 
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
-const { runProjectInventorySync } = await import(join(ROOT, "dist/server-tools/inventory-sync.js"));
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
+const { runProjectInventorySync } = await import(pathToFileURL(join(ROOT, "dist/server-tools/inventory-sync.js")).href);
 const {
   subjectIdForArtifact, subjectStemForArtifact, isVersionedSourceArtifact,
   classifyTopRankTie, orderCandidatesBestFirst, rankCandidate, migrateSubjectIdentity,
-} = await import(join(ROOT, "dist/project-knowledge/artifact-versions.js"));
+} = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/artifact-versions.js")).href);
 
 const tmpProject = (prefix) => mkdtempSync(join(tmpdir(), prefix));
 const write = (root, rel, body) => {
@@ -341,11 +341,11 @@ try {
 // bytes twice under two names. One subject, not two.
 try {
   head(5, "a stock-DOS payload and the listing of its extracted file are one subject");
-  const { buildD64 } = await import(join(ROOT, "dist/disk/d64-builder.js"));
-  const { extractDiskImage } = await import(join(ROOT, "dist/disk-extractor.js"));
-  const { linkExtractedPayloadFiles } = await import(join(ROOT, "dist/lib/extract-auto-chain.js"));
-  const { ownerFromAnalysisPath } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-  const { parseId } = await import(join(ROOT, "dist/knowledge-graph/ids.js"));
+  const { buildD64 } = await import(pathToFileURL(join(ROOT, "dist/disk/d64-builder.js")).href);
+  const { extractDiskImage } = await import(pathToFileURL(join(ROOT, "dist/disk-extractor.js")).href);
+  const { linkExtractedPayloadFiles } = await import(pathToFileURL(join(ROOT, "dist/lib/extract-auto-chain.js")).href);
+  const { ownerFromAnalysisPath } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+  const { parseId } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/ids.js")).href);
 
   const proj = tmpProject("c64re-subj-dosfile-");
   mkdirSync(join(proj, "input"), { recursive: true });

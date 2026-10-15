@@ -30,7 +30,7 @@ import { createServer } from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,12 +48,12 @@ if (!existsSync(join(ROOT, "dist/cli.js"))) {
   process.exit(2);
 }
 
-const { exerciser, loopProgram, rasterWriter, rasterIrq, STATIC_LOOP_CYCLES } = await import(join(ROOT, "scripts/lib/spec861-programs.mjs"));
-const { captureRun } = await import(join(ROOT, "dist/cost/capture.js"));
-const { evaluateTrace, rasterAt } = await import(join(ROOT, "dist/cost/trace-cost.js"));
-const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
-const { buildD64 } = await import(join(ROOT, "dist/disk/d64-builder.js"));
-const { Session, lineTraceFrame } = await import(join(ROOT, "scripts/lib/spec861-session.mjs"));
+const { exerciser, loopProgram, rasterWriter, rasterIrq, STATIC_LOOP_CYCLES } = await import(pathToFileURL(join(ROOT, "scripts/lib/spec861-programs.mjs")).href);
+const { captureRun } = await import(pathToFileURL(join(ROOT, "dist/cost/capture.js")).href);
+const { evaluateTrace, rasterAt } = await import(pathToFileURL(join(ROOT, "dist/cost/trace-cost.js")).href);
+const { resolveDaemonSpawn } = await import(pathToFileURL(join(ROOT, "dist/runtime/resolve-daemon-spawn.js")).href);
+const { buildD64 } = await import(pathToFileURL(join(ROOT, "dist/disk/d64-builder.js")).href);
+const { Session, lineTraceFrame } = await import(pathToFileURL(join(ROOT, "scripts/lib/spec861-session.mjs")).href);
 const startSession = () => Session.start(work, { resolveDaemonSpawn, repoRoot: ROOT });
 
 const work = mkdtempSync(join(tmpdir(), "c64re-861-"));
@@ -151,7 +151,7 @@ async function record(name, program, { steps, afterSteps = BOOT_STEPS, domains, 
 }
 
 async function evaluate(storePath, { cpu = "c64", range } = {}) {
-  const { readAnchor, readInstructionRows, readMemRows } = await import(join(ROOT, "dist/cost/trace-store-read.js"));
+  const { readAnchor, readInstructionRows, readMemRows } = await import(pathToFileURL(join(ROOT, "dist/cost/trace-store-read.js")).href);
   const anchor = await readAnchor(storePath);
   const insns = await readInstructionRows(storePath, { cpu });
   const mem = await readMemRows(storePath, { cpu });
@@ -214,7 +214,7 @@ try {
       };
       const out = join(work, "exerciser-on.duckdb");
       await session.call("trace/start_domains", { domains: ["c64-cpu", "memory"], output: out });
-      const { anchorLabel } = await import(join(ROOT, "dist/cost/trace-cost.js"));
+      const { anchorLabel } = await import(pathToFileURL(join(ROOT, "dist/cost/trace-cost.js")).href);
       await session.call("trace/run/mark", { label: anchorLabel(anchor) });
       await session.runFrames(3);
       await session.call("trace/run/stop", { wait_index: true });
@@ -275,7 +275,7 @@ try {
       };
       const out = join(work, "raster.duckdb");
       await session.call("trace/start_domains", { domains: ["c64-cpu", "memory"], output: out });
-      const { anchorLabel } = await import(join(ROOT, "dist/cost/trace-cost.js"));
+      const { anchorLabel } = await import(pathToFileURL(join(ROOT, "dist/cost/trace-cost.js")).href);
       await session.call("trace/run/mark", { label: anchorLabel(anchor) });
       await session.runFrames(3);
       await session.call("trace/run/stop", { wait_index: true });

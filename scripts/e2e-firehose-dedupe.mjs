@@ -4,7 +4,7 @@
 // (answered>open, active>archived, max confidence, newest), and (3) the PARITY
 // property that makes it safe — output is a SUBSET of the input by id (no
 // fabricated survivor id), so every id-lookup on the full array still resolves.
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,7 +12,7 @@ let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
 const { dedupeEntities, dedupeFindings, dedupeQuestions, dedupeByContentKey } =
-  await import(`${ROOT}/ui/src/lib/dedupe.ts`);
+  await import(pathToFileURL(`${ROOT}/ui/src/lib/dedupe.ts`).href);
 
 console.log("Firehose content-dedup — helper contract + parity\n");
 

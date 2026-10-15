@@ -16,6 +16,7 @@
  *   node scripts/build-load-fidelity-real-oracle.mjs
  */
 
+import { pathToFileURL } from "node:url";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -25,9 +26,9 @@ const outDir = join(repoRoot, "samples/fixtures/load-fidelity/real-disk-oracle")
 mkdirSync(outDir, { recursive: true });
 
 // ---- Import compiled parsers from dist/disk/ --------------------------------
-const { D64Parser } = await import(`${repoRoot}/dist/disk/d64-parser.js`);
-const { G64Parser } = await import(`${repoRoot}/dist/disk/g64-parser.js`);
-const { traceFileSectorChain, petToAscii, getFileType, extractFileFromChain } = await import(`${repoRoot}/dist/disk/base.js`);
+const { D64Parser } = await import(pathToFileURL(`${repoRoot}/dist/disk/d64-parser.js`).href);
+const { G64Parser } = await import(pathToFileURL(`${repoRoot}/dist/disk/g64-parser.js`).href);
+const { traceFileSectorChain, petToAscii, getFileType, extractFileFromChain } = await import(pathToFileURL(`${repoRoot}/dist/disk/base.js`).href);
 
 // ---- Disk list --------------------------------------------------------------
 const DISKS = [

@@ -5,13 +5,14 @@
 //
 //   node scripts/measure-820-access-coverage.mjs [--json <out>]
 
+import { pathToFileURL } from "node:url";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
 
 const corpus = join(ROOT, "analysis/tmp/spec-816");
 if (!existsSync(corpus)) { console.error("analysis/tmp/spec-816 absent — run npm run measure:816 first"); process.exit(2); }

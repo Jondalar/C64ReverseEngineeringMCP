@@ -17,12 +17,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build`"); process.exit(2); }
-const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 
 let pass = 0, fail = 0, skipped = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${String(d).replace(/\s+/g, " ").slice(0, 300)})` : ""}`); };
@@ -205,7 +205,7 @@ try {
   // runtime_render_screen needs a daemon, which this smoke never starts: its writer is the
   // shared function below, tested directly with a stubbed screenshot reply.
   {
-    const { writeFileCreatingDirs, pngBytesFromDataUrl } = await import(join(ROOT, "dist/lib/write-output.js"));
+    const { writeFileCreatingDirs, pngBytesFromDataUrl } = await import(pathToFileURL(join(ROOT, "dist/lib/write-output.js")).href);
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const target = join(base, "screens-not-there", "a", "x.png");
     writeFileCreatingDirs(target, pngBytesFromDataUrl(`data:image/png;base64,${png.toString("base64")}`));
@@ -214,7 +214,7 @@ try {
 
   // ── 6 — try_depack: header or .bin ───────────────────────────────────────────
   {
-    const { packStandardPrg } = await import(join(ROOT, "dist/byteboozer-cruncher.js"));
+    const { packStandardPrg } = await import(pathToFileURL(join(ROOT, "dist/byteboozer-cruncher.js")).href);
     const payload = new Uint8Array(300);
     for (let i = 0; i < payload.length; i++) payload[i] = (i * 7 + (i >> 3)) & 0xff;
     const { output: bb2 } = packStandardPrg(payload, 0x0800);

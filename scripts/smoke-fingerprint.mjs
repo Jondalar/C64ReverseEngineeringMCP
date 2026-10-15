@@ -13,6 +13,7 @@
 //   9. scanFingerprints with threshold=0 and no library → [] (empty result).
 //  10. findRoutineBoundaries correctly discovers JSR targets.
 
+import { pathToFileURL } from "node:url";
 import { resolve as resolvePath, join } from "node:path";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 
@@ -26,7 +27,7 @@ try {
   ({
     loadLibraries, loadLibrary, scanFingerprints, addFingerprintToLibrary,
     structuralHash, byteHash, findRoutineBoundaries,
-  } = await import(`${repoRoot}/dist/analysis/fingerprint.js`));
+  } = await import(pathToFileURL(`${repoRoot}/dist/analysis/fingerprint.js`).href));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

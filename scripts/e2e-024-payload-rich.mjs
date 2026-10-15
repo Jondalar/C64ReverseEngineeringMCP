@@ -13,7 +13,7 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -131,7 +131,7 @@ try {
 
   // Knowledge store carries the disk spans the disk view needs. Spec 822.2: the
   // store is knowledge/graph.sqlite, read through the service's projection.
-  const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+  const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
   const list = new ProjectKnowledgeService(projectDir).listEntities();
   const payload = list.find((e) => e.name === "engine_4000" && e.kind === "payload");
   const span = payload?.mediumSpans?.find((s) => s.kind === "sector" && s.track === 20 && s.sector === 5);

@@ -11,6 +11,7 @@
 // missing binary is an actionable setup error, never a silent downgrade.
 //
 // Usage: npm run runtime:daemon -- --project <dir> [--port 4312]
+import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
 
@@ -24,8 +25,8 @@ const arg = (name, fallback) => {
 const projectDir = resolvePath(arg("--project", process.env.C64RE_PROJECT_DIR ?? process.cwd()));
 const port = arg("--port", "4312");
 
-const { resolveDaemonSpawn } = await import(`${repoRoot}/dist/runtime/resolve-daemon-spawn.js`);
-const { runtimeSetupRecipe } = await import(`${repoRoot}/dist/runtime/setup-recipe.js`);
+const { resolveDaemonSpawn } = await import(pathToFileURL(`${repoRoot}/dist/runtime/resolve-daemon-spawn.js`).href);
+const { runtimeSetupRecipe } = await import(pathToFileURL(`${repoRoot}/dist/runtime/setup-recipe.js`).href);
 
 const plan = resolveDaemonSpawn({ repoRoot, projectDir, port });
 if (plan.mode === "none") {
@@ -35,7 +36,7 @@ if (plan.mode === "none") {
 if (plan.warn) console.warn(`[daemon] ${plan.warn}`);
 
 // Spec 902 D1 — a daemon this script starts is in the process ledger, so `c64re down` ends it.
-const { registerProcess, unregisterProcess, childEnv } = await import(`${repoRoot}/dist/runtime/process-ledger.js`);
+const { registerProcess, unregisterProcess, childEnv } = await import(pathToFileURL(`${repoRoot}/dist/runtime/process-ledger.js`).href);
 const child = spawn(plan.cmd, plan.args, { stdio: "inherit", windowsHide: true, env: childEnv("cli") });
 if (child.pid) await registerProcess({ pid: child.pid, kind: "daemon", port: Number(port), project: projectDir, startedBy: "cli" });
 child.on("exit", (code, signal) => { if (child.pid) unregisterProcess(child.pid); process.exit(signal ? 1 : (code ?? 0)); });

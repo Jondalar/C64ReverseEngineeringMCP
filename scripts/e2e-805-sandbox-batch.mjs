@@ -15,14 +15,15 @@
 // Requires a built `trx64cli` in the sibling TRX64 checkout; skips loudly without
 // one, because this repo does not own that build.
 
+import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { genericSandboxDepack, genericSandboxDepackMany } = await import(
-  join(ROOT, "dist/sandbox/sandbox-depack-generic.js")
+  pathToFileURL(join(ROOT, "dist/sandbox/sandbox-depack-generic.js")).href
 );
-const { resolveTrx64Cli } = await import(join(ROOT, "dist/sandbox/trx64cli.js"));
+const { resolveTrx64Cli } = await import(pathToFileURL(join(ROOT, "dist/sandbox/trx64cli.js")).href);
 
 if (!existsSync(resolveTrx64Cli())) {
   console.log(`  SKIPPED — no trx64cli at ${resolveTrx64Cli()}. Build it in the sibling TRX64 checkout.`);

@@ -27,7 +27,7 @@
 import { mkdirSync, mkdtempSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -45,10 +45,10 @@ if (!existsSync(distGcr)) {
   process.exit(2);
 }
 
-const { decodeGCRTrackDetailed, inspectGCRTrack, scanSectorHeadersLikeVice } = await import(distGcr);
-const { encodeGCRBytes, buildSectorHeaderRaw, buildSectorDataRaw } = await import(join(ROOT, "dist/disk/gcr-encode.js"));
-const { G64Parser } = await import(join(ROOT, "dist/disk/g64-parser.js"));
-const { registerDiskG64Tools } = await import(join(ROOT, "dist/server-tools/disk-g64.js"));
+const { decodeGCRTrackDetailed, inspectGCRTrack, scanSectorHeadersLikeVice } = await import(pathToFileURL(distGcr).href);
+const { encodeGCRBytes, buildSectorHeaderRaw, buildSectorDataRaw } = await import(pathToFileURL(join(ROOT, "dist/disk/gcr-encode.js")).href);
+const { G64Parser } = await import(pathToFileURL(join(ROOT, "dist/disk/g64-parser.js")).href);
+const { registerDiskG64Tools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/disk-g64.js")).href);
 
 // ---------------------------------------------------------------- fixture ---
 
@@ -245,7 +245,7 @@ ok(bins.every((name) => readFileSync(join(outDir, name)).length === 256), "every
 // the checksum ($F913/$F92B); the pad bytes are never read. A bad pad nibble must not
 // turn a good block into gcr_error — LN1 side 1 had 684 of 700 blocks flagged so.
 {
-  const { decodeGCRDataBlock } = await import(distGcr);
+  const { decodeGCRDataBlock } = await import(pathToFileURL(distGcr).href);
   const payload = new Uint8Array(256).map((_, i) => (i * 7 + 3) & 0xff);
   const clean = encodeGCRBytes(buildSectorDataRaw(payload));
   ok(clean.length === 325, "a data block encodes to 325 GCR bytes", `${clean.length}`);

@@ -4,7 +4,7 @@
 import { mkdtempSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,7 +27,7 @@ const files = {
 };
 for (const [n, c] of Object.entries(files)) writeFileSync(join(dir, n), c);
 
-const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const svc = new ProjectKnowledgeService(dir);
 svc.initProject({ name: "BUG-015 fixture" });
 const res = svc.sortLooseInputMedia();

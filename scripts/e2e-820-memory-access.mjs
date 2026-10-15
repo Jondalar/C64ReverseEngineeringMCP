@@ -18,16 +18,17 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:820
 
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
-const { seedMemoryAccess, classifyInstruction } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
-const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
-const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
+const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
+const { seedMemoryAccess, classifyInstruction } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
+const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
 
 let pass = 0;
 let failCount = 0;
