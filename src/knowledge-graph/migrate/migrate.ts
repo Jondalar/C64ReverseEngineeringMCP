@@ -23,8 +23,9 @@
 //     gate re-seeds 819 after the migration; §"Built"). The legacy segment and
 //     the 819 routine at one address are two producers' views at one address,
 //     visible side by side in `graph find`.
-//   cartridge rows → `<slug>:crt/<bank>:chip|bank:<hex4>`; two cart images
-//     with the same bank layout share the node, each image in evidence.
+//   cartridge rows → `<slug>:crt/<cart>/<bank>:chip|bank:<hex4>` (Spec 909: the cartridge is the
+//     lineage of the image; two extracts of one image share the node, each in evidence; two
+//     images are two cartridges and never share one).
 //   payloads → `<slug>:ram/<stem>:payload:<load|0000>`; an area asset with no
 //     load address sits at 0000 with attrs.addressless (the grammar has no
 //     address-less project form yet — 818 D1 "later slices append").
@@ -39,7 +40,9 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs
 import { basename, join, relative } from "node:path";
 import type { ArtifactRecord, EntityRecord, FindingRecord, FlowRecord, OpenQuestionRecord, RelationRecord, UserLabelOverride } from "../../project-knowledge/types.js";
 import type { DatabaseSync, StatementSync } from "../../platform-kb/sqlite-quiet.js";
-import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx, type Space } from "../ids.js";
+import { addrCtx, deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx, type Space } from "../ids.js";
+import { cartOfArtifact, chooseCartridge, readCartridges, type CartridgeRecord } from "../cartridges.js";
+import { syncCartridges } from "../../project-knowledge/cartridge-registry.js";
 import { canonicalJson } from "../json.js";
 import { contextForOwner } from "../producers/machine.js";
 import { resolveAddressesIn } from "../producers/resolve.js";
@@ -420,7 +423,7 @@ export class Resolver {
   private readonly graphPayloadBySource = new Map<string, GraphPayload>();
   private readonly targets = new Map<string, Target | null>();
 
-  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[], payloads: GraphPayload[] = []) {
+  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[], payloads: GraphPayload[] = [], readonly carts: CartridgeRecord[] = []) {
     for (const a of artifacts) this.artById.set(a.id, a);
     for (const e of entities) {
       this.entById.set(e.id, e);
@@ -467,6 +470,32 @@ export class Resolver {
     return undefined;
   }
 
+  /**
+   * Spec 909 D4 — the cartridge an entity's cartridge-space row belongs to. The id it already carries (after the
+   * cut-over an entity id IS a node id) says so first; else the artifacts it cites, up to the image they came
+   * from; else the directory they sit in. Undefined = nothing ties it to a cartridge, and it is not guessed.
+   */
+  cartFor(e: EntityRecord): string | undefined {
+    try {
+      const p = parseId(e.id);
+      if (p.form === "project" && p.ctx.space === "crt" && p.ctx.cart !== undefined) return p.ctx.cart;
+    } catch { /* a legacy id names no node */ }
+    for (const id of e.artifactIds ?? []) {
+      const hit = cartOfArtifact(this.artById.values(), this.carts, id);
+      if (hit) return hit.cart;
+    }
+    if (e.payloadSourceArtifactId) {
+      const hit = cartOfArtifact(this.artById.values(), this.carts, e.payloadSourceArtifactId);
+      if (hit) return hit.cart;
+    }
+    return undefined;
+  }
+
+  private crtCtx(e: EntityRecord, bank: number): Ctx | undefined {
+    const cart = this.cartFor(e);
+    return cart === undefined ? undefined : { space: "crt", cart, bank };
+  }
+
   private project(ctx: Ctx, kind: string, address: number): string {
     return deriveProjectId({ slug: this.slug, ctx, kind, address });
   }
@@ -501,20 +530,23 @@ export class Resolver {
       const kind = e.kind === "entry-point" ? "entry" : "segment";
       const res = this.ownerFor(e);
       if (!res) return this.addrTarget(start, end, "ownerless");
-      const ctx: Ctx = range?.bank !== undefined ? { space: "crt", bank: range.bank } : { space: "ram", owner: res.owner };
+      const ctx = range?.bank !== undefined ? this.crtCtx(e, range.bank) : ({ space: "ram", owner: res.owner } as Ctx);
+      if (!ctx) return undefined;
       return { id: this.project(ctx, kind, start), kind, ctx, address: start, endAddress: end, note: res.note };
     }
 
     if (e.kind === "chip") {
       if (start === undefined || range?.bank === undefined) return undefined;
-      const ctx: Ctx = { space: "crt", bank: range.bank };
+      const ctx = this.crtCtx(e, range.bank);
+      if (!ctx) return undefined;
       return { id: this.project(ctx, "chip", start), kind: "chip", ctx, address: start, endAddress: end };
     }
     if (e.kind === "cartridge-bank") {
       const m = e.name.match(/(\d+)\s*$/u);
       const bank = range?.bank ?? (m ? parseInt(m[1]!, 10) : undefined);
       if (bank === undefined) return undefined;
-      const ctx: Ctx = { space: "crt", bank };
+      const ctx = this.crtCtx(e, bank);
+      if (!ctx) return undefined;
       return { id: this.project(ctx, "bank", 0x8000), kind: "bank", ctx, address: 0x8000, endAddress: null };
     }
     if (e.kind === "payload" || e.kind === "disk-file" || e.kind === "asset") {
@@ -532,7 +564,8 @@ export class Resolver {
       const ctx: Ctx = { space: "ram" };
       return { id: this.project(ctx, kind, start), kind, ctx, address: start, endAddress: end, note: "ownerless" };
     }
-    const ctx: Ctx = range?.bank !== undefined ? { space: "crt", bank: range.bank } : { space: "ram", owner: res.owner };
+    const ctx = range?.bank !== undefined ? this.crtCtx(e, range.bank) : ({ space: "ram", owner: res.owner } as Ctx);
+    if (!ctx) return undefined;
     return { id: this.project(ctx, kind, start), kind, ctx, address: start, endAddress: end, note: res.note };
   }
 }
@@ -947,10 +980,10 @@ function containingRoutine(routines: GeneratedRoutine[], address: number, strict
 /** One record the file parsed (before the ledger decided whether a draft is written) — the boundary rule works from these. */
 interface AnnotationRecord { kind: "routine" | "label" | "segment"; address: number; endAddress: number | null; name: string | null; segmentKind?: string }
 
-function annotationMeta(db: DatabaseSync, stem: string): { hash: string; ctxSpace?: { space: Space; bank?: number } } | undefined {
+function annotationMeta(db: DatabaseSync, stem: string): { hash: string; ctxSpace?: { space: Space; bank?: number; cart?: string } } | undefined {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`annotations_imported.${stem}`) as { value: string } | undefined;
   if (!row) return undefined;
-  try { return JSON.parse(row.value) as { hash: string; ctxSpace?: { space: Space; bank?: number } }; } catch { return undefined; }
+  try { return JSON.parse(row.value) as { hash: string; ctxSpace?: { space: Space; bank?: number; cart?: string } }; } catch { return undefined; }
 }
 
 /**
@@ -1019,7 +1052,7 @@ function assertNoDuplicateSegmentStarts(
  * FILE produced (producer '822', source_path = this file) are replaced — a row
  * the door has since renamed (producer 'human') is kept (D3: "kept-door-row").
  */
-export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[]; image?: AnnotatedImage; ctxSpace?: { space: Space; bank?: number } } = {}): AnnotationFileResult {
+export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[]; image?: AnnotatedImage; ctxSpace?: { space: Space; bank?: number; cart?: string } } = {}): AnnotationFileResult {
   // Spec 842 D4 — when the caller knows the relocations, the graph can key on the
   // runtime address and still record where the bytes are stored.
   const relocations = options.relocations;
@@ -1031,9 +1064,20 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   const rel = relative(projectDir, path);
   const hash = sha256File(path);
   const previous = annotationMeta(db, stem);
+  const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
   // the space the caller states wins; one stated earlier sticks until another is stated
-  const ctxSpace = options.ctxSpace ?? previous?.ctxSpace;
-  const spaceMoved = options.ctxSpace !== undefined && JSON.stringify(options.ctxSpace) !== JSON.stringify(previous?.ctxSpace ?? null);
+  let ctxSpace = options.ctxSpace ?? previous?.ctxSpace;
+  // Spec 909 D4/D7: a cartridge space is a cartridge's. The one named wins, else the one the analysis' own bytes
+  // came from, else the project's only one; anything else refuses by name rather than file under a guess.
+  const lineageCart = analysisArtifact ? cartOfArtifact(artifacts, ctx.resolver.carts, analysisArtifact.id, analysisArtifact.path) : undefined;
+  let bankCart: string | undefined;
+  if (ctxSpace?.space === "crt" || (!ctxSpace && analysisArtifact?.loadContexts?.some((c) => typeof c.bank === "number"))) {
+    const choice = chooseCartridge(ctx.resolver.carts, ctxSpace?.cart, lineageCart);
+    if (!choice.ok) throw new IdRuleError("crt-needs-cart", choice.refusal.replace(/^crt-needs-cart: /u, ""));
+    bankCart = choice.cart;
+    if (ctxSpace?.space === "crt") ctxSpace = { ...ctxSpace, cart: choice.cart };
+  }
+  const spaceMoved = options.ctxSpace !== undefined && JSON.stringify(ctxSpace) !== JSON.stringify(previous?.ctxSpace ?? null);
   const changed = options.force === true || previous === undefined || previous.hash !== hash || spaceMoved;
   // 826.0 T4 — data blocks the file made earlier; if this run retires them the RESOLVES_TO pass must re-run even when it makes none
   const priorDataBlocks = Number((db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND kind = 'data_block' AND producer = ? AND json_extract(attrs, '$.source_path') = ?").get(migrated, rel) as { n: number }).n);
@@ -1045,10 +1089,9 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     // The ledger answers from this table, so the file's entries are forgotten with it.
     db.prepare("DELETE FROM migration_log WHERE legacy_store = ?").run(ledgerStore);
   }
-  const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
   const actx: Ctx = ctxSpace
-    ? (ctxSpace.space === "crt" ? { space: "crt", bank: ctxSpace.bank ?? 0 } : { space: ctxSpace.space, owner })
-    : contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
+    ? (ctxSpace.space === "crt" ? { space: "crt", cart: ctxSpace.cart, bank: ctxSpace.bank ?? 0 } : { space: ctxSpace.space, owner })
+    : contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath, bankCart).ctx; // 826.0 T7 — the declared machine counts
   let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[]; splitTables?: unknown[] };
   const noBoundary: BoundaryCounts = { attached: 0, dataBlocks: 0, splits: 0, unseen: 0, unseededOwner: 0 };
   try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {
@@ -1132,9 +1175,9 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
       .get(address, actx.space, actx.owner ?? null) as { id: string } | undefined;
     if (row) return row.id;
     try {
-      const id = deriveProjectId({ slug, ctx: { space: actx.space }, kind: "addr", address });
+      const id = deriveProjectId({ slug, ctx: addrCtx(actx), kind: "addr", address });
       if (!db.prepare("SELECT 1 FROM nodes WHERE id = ?").get(id) && !fileNodeDrafts.has(`${id} human`)) {
-        fileNodeDrafts.set(`${id} human`, { id, layer: "human", kind: "addr", ctx: { space: actx.space }, address, endAddress: null, name: null, attrs: { role: "split-table-target", captured_at: now }, origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null });
+        fileNodeDrafts.set(`${id} human`, { id, layer: "human", kind: "addr", ctx: addrCtx(actx), address, endAddress: null, name: null, attrs: { role: "split-table-target", captured_at: now }, origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null });
       }
       tableAddrTargets += 1;
       return id;
@@ -1356,7 +1399,8 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
   const store = GraphStore.open(projectDir);
   const db = store.db;
   const { textIndex } = ensureSchema822(db);
-  const resolver = new Resolver(slug, input.artifacts, input.entities, graphPayloads(db));
+  if (!dryRun) syncCartridges(store, slug, input.artifacts);
+  const resolver = new Resolver(slug, input.artifacts, input.entities, graphPayloads(db), readCartridges(db));
   const summary = emptySummary(projectDir, slug, dryRun, input.sourceHash, textIndex);
   summary.legacyDirFiles = legacyDirFiles;
 
@@ -1434,6 +1478,8 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
   const db = store.db;
   const { textIndex } = ensureSchema822(db);
   const artifacts = readItems<ArtifactRecord>(join(projectDir, "knowledge", "artifacts.json"));
+  // Spec 909 D2: the cartridges the extracts describe exist before the first chip's id is derived.
+  syncCartridges(store, slug, artifacts);
   const full: Omit<LegacyInput, "artifacts"> = {
     entities: input.entities ?? [], findings: input.findings ?? [], relations: input.relations ?? [], questions: input.questions ?? [], flows: input.flows ?? [], labels: input.labels ?? [],
   };
@@ -1462,7 +1508,7 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
     summary.runId = runId;
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
-    const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db));
+    const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db), readCartridges(db));
     applyLegacyRecords({ db, slug, now, ledger, writer, resolver, summary }, full);
     finishRun(db, store, ledger, summary, now);
     endWrite(db, ownsTx, true);
@@ -1487,10 +1533,10 @@ export interface ImportAnnotationFileOptions {
   now?: string;
   /**
    * The address space the file's nodes are filed under, when the caller states it (`disasm` with `space` / `bank`):
-   * `crt` + bank -> `crt/<bank>`, `ram` / `drv` -> under the owner. It outranks what the analysis artifact says, is
+   * `crt` + bank (+ cart) -> `crt/<cart>/<bank>`, `ram` / `drv` -> under the owner. It outranks what the analysis artifact says, is
    * remembered with the import (a later import that names none keeps it), and re-files the nodes when it changes.
    */
-  ctxSpace?: { space: Space; bank?: number };
+  ctxSpace?: { space: Space; bank?: number; cart?: string };
 }
 
 /** The annotation-file door (D6): `disasm_prg` and `c64re graph annotations-import` call this. */
@@ -1575,7 +1621,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     summary.runId = runId;
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
-    const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
+    const resolver = new Resolver(slug, artifacts, [], graphPayloads(db), readCartridges(db));
     result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations, image: options.image, ctxSpace: options.ctxSpace });
     finishRun(db, store, ledger, summary, now);
     endWrite(db, ownsTx, true);

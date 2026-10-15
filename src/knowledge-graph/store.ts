@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type ProjectIdParts } from "./ids.js";
 import { canonicalJson } from "./json.js";
-import { GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
+import { CART_COLUMN_EXPR, GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
 
 export interface NodeInput {
   /** Either a finished id or the parts it is derived from — never both. */
@@ -93,6 +93,22 @@ function ensureWal(db: DatabaseSync): void {
   }
 }
 
+/**
+ * Spec 909 — a graph written before the cartridge column has a `nodes` table without it.
+ * Add it (a virtual column over the id: no rewrite, no data change) before anything selects it.
+ * Returns false when the table is there and the column could not be added (read-only file).
+ */
+function ensureCartColumn(db: DatabaseSync): boolean {
+  const cols = db.prepare("PRAGMA table_xinfo(nodes)").all() as Array<{ name: string }>;
+  if (cols.length === 0 || cols.some((c) => c.name === "cart")) return true;
+  try {
+    db.exec(`ALTER TABLE nodes ADD COLUMN cart TEXT GENERATED ALWAYS AS (${CART_COLUMN_EXPR}) VIRTUAL; CREATE INDEX IF NOT EXISTS nodes_cart ON nodes (cart, bank, address);`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function readProjectSlug(projectDir: string): string {
   const path = join(projectDir, "knowledge", "project.json");
   if (!existsSync(path)) throw new Error(`no knowledge/project.json in ${projectDir} — is this a C64RE project? (project_init)`);
@@ -103,12 +119,19 @@ export function readProjectSlug(projectDir: string): string {
 }
 
 export class GraphStore {
-  readonly db: DatabaseSync;
+  db: DatabaseSync;
 
   private constructor(readonly path: string, readonly readOnly: boolean) {
     // Spec 822 D9: a second process opening during another's BEGIN IMMEDIATE
     // must wait, not fail — `timeout` applies before the first PRAGMA runs.
     this.db = new DatabaseSync(path, { readOnly, timeout: BUSY_TIMEOUT_MS });
+    if (readOnly && !ensureCartColumn(this.db)) {
+      // A read-only connection cannot add the column to a pre-909 file. Let a writer do it once, then look again.
+      const upgrade = new DatabaseSync(path, { timeout: BUSY_TIMEOUT_MS });
+      try { ensureCartColumn(upgrade); } catch { /* a file we cannot write: queries on `cart` will say so */ } finally { upgrade.close(); }
+      this.db.close();
+      this.db = new DatabaseSync(path, { readOnly, timeout: BUSY_TIMEOUT_MS });
+    }
     if (!readOnly) {
       // Spec 822 D9 write discipline, adopted at the first writer: a busy timeout
       // so two producers queue instead of failing, then WAL so a reader never
@@ -118,6 +141,7 @@ export class GraphStore {
       this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
       // Outside the transaction: a journal-mode change cannot happen inside one.
       ensureWal(this.db);
+      ensureCartColumn(this.db);
       // The schema exists after the first open of a graph, and every open after it used
       // to run the DDL anyway — a write transaction's worth of queueing for a lock, to
       // change nothing. Under many writers that queue is where one starved on the
@@ -178,8 +202,14 @@ export class GraphStore {
     if ((input.id === undefined) === (input.parts === undefined)) {
       throw new IdRuleError("node-id", "give either id or parts, not both, not neither");
     }
-    const id = input.id ?? deriveProjectId(input.parts!);
-    const parsed = parseId(id);
+    let id: string;
+    let parsed: ReturnType<typeof parseId>;
+    try {
+      id = input.id ?? deriveProjectId(input.parts!);
+      parsed = parseId(id);
+    } catch (error) {
+      throw this.namingCartridges(error);
+    }
     if (parsed.form === "project" && input.parts) {
       const rederived = deriveProjectId(input.parts);
       if (rederived !== id) throw new IdRuleError("derive", `deriveId(parts) = ${rederived} ≠ ${id}`);
@@ -211,9 +241,19 @@ export class GraphStore {
     };
   }
 
+  /** Spec 909 D7: a refusal for a cartridge id without its cartridge names the cartridges the project holds. */
+  private namingCartridges(error: unknown): unknown {
+    if (!(error instanceof IdRuleError) || error.rule !== "crt-needs-cart") return error;
+    let names: string[] = [];
+    try {
+      names = (this.db.prepare("SELECT DISTINCT cart FROM nodes WHERE kind = 'cartridge' AND cart IS NOT NULL ORDER BY cart").all() as Array<{ cart: string }>).map((r) => r.cart);
+    } catch { /* an unreadable registry is not the reason for this refusal */ }
+    const held = names.length === 0 ? "the project holds no cartridge yet (extract_crt registers one)" : `the project holds: ${names.join(", ")}`;
+    return new IdRuleError("crt-needs-cart", `${error.message.replace(/^crt-needs-cart: /u, "")} — ${held}`);
+  }
+
   private toEdgeRow(input: EdgeInput, layer: Layer, producer: string, owner: string | null): EdgeRow {
-    parseId(input.from);
-    parseId(input.to);
+    try { parseId(input.from); parseId(input.to); } catch (error) { throw this.namingCartridges(error); }
     const ev = input.evidence ?? {};
     return {
       from_id: input.from,
@@ -232,7 +272,7 @@ export class GraphStore {
   /**
    * D5. Replace every generated row this producer wrote in this RUN — keyed by
    * (producer, run_owner), the run's artifact stem — in one transaction. The
-   * grammatical owner in the id is not the replacement unit: `crt/<bank>`
+   * grammatical owner in the id is not the replacement unit: `crt/<cart>/<bank>`
    * nodes carry no owner, and `addr` nodes belong to nobody and are inserted
    * OR IGNORE. Human rows are not addressed by any statement here.
    */
@@ -282,6 +322,24 @@ export class GraphStore {
        ON CONFLICT(id, layer) DO UPDATE SET name = excluded.name, attrs = excluded.attrs, end_address = excluded.end_address, evidence = excluded.evidence,
          producer = excluded.producer, origin = excluded.origin, confidence = excluded.confidence`,
     ).run(row.id, row.layer, row.kind, row.space, row.owner, row.bank, null, row.address, row.end_address, row.name, row.attrs, row.origin, row.confidence, row.producer, row.evidence));
+    return row;
+  }
+
+  /**
+   * A generated row that belongs to no run: written and updated by id, never swept by a producer's
+   * replacement (run_owner NULL). Spec 909's `cartridge` node is the one user — what an image IS is a
+   * fact about the image, and it outlives every analysis run that mentions it.
+   */
+  upsertGenerated(node: NodeInput, producer: string): NodeRow {
+    if (this.readOnly) throw new Error("store is read-only");
+    const row = this.toNodeRow(node, "generated", producer, null);
+    writeTx(this.db, () => this.db.prepare(
+      `INSERT INTO nodes (id, layer, kind, space, owner, bank, run_owner, address, end_address, name, attrs, origin, confidence, producer, evidence)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id, layer) DO UPDATE SET name = excluded.name, attrs = excluded.attrs, end_address = excluded.end_address, evidence = excluded.evidence,
+         producer = excluded.producer, origin = excluded.origin, confidence = excluded.confidence`,
+    ).run(row.id, row.layer, row.kind, row.space, row.owner, row.bank, null, row.address, row.end_address, row.name, row.attrs, row.origin, row.confidence, row.producer, row.evidence));
+    this.recordProducer(producer);
     return row;
   }
 

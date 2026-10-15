@@ -16,18 +16,18 @@ export const ORIGIN_RANK: Readonly<Record<NameOrigin, number>> = { user: 0, buil
 /**
  * Which bytes decide whether a name's payload is in memory right now.
  *  - `analysis` — a graph owner; its code bytes come from `<owner>_analysis.json`.
- *  - `crt`      — a cartridge bank; the code bytes of every analysis seeded into it.
+ *  - `crt`      — a bank of one cartridge; the code bytes of every analysis seeded into it.
  *  - `prg`      — a build output nothing has analysed; its own bytes.
  */
 export type PayloadRef =
   | { kind: "analysis"; owner: string }
-  | { kind: "crt"; bank: number }
+  | { kind: "crt"; cart: string; bank: number }
   | { kind: "prg"; path: string };
 
 export function payloadKey(ref: PayloadRef): string {
   switch (ref.kind) {
     case "analysis": return `analysis:${ref.owner}`;
-    case "crt": return `crt:${ref.bank}`;
+    case "crt": return `crt:${ref.cart}:${ref.bank}`;
     case "prg": return `prg:${ref.path}`;
   }
 }
@@ -36,7 +36,7 @@ export function payloadLabel(ref: PayloadRef | null): string | null {
   if (!ref) return null;
   switch (ref.kind) {
     case "analysis": return ref.owner;
-    case "crt": return `crt bank ${ref.bank}`;
+    case "crt": return `crt ${ref.cart} bank ${ref.bank}`;
     case "prg": return ref.path;
   }
 }

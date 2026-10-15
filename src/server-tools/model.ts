@@ -47,6 +47,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space this boundary lives in"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner (e.g. \"07_game\"). Omit to span everything in the space at that range."),
       bank: z.number().int().min(0).optional().describe("Cartridge bank, for space=crt"),
+      cart: z.string().optional().describe("For space=crt: the cartridge (its token, as project_status names it) this boundary is in. Default: the project's only cartridge; with several and none named the call refuses and lists them."),
     },
     async (args) => {
       const pd = context.projectDir({ projectDir: args.project_dir }, true);
@@ -69,7 +70,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
           name: args.name, level: args.level,
           start: args.address_start, end: args.address_end,
           description: args.description, evidence: args.evidence,
-          space: args.space, owner: args.owner, bank: args.bank,
+          space: args.space, owner: args.owner, bank: args.bank, cart: args.cart,
         });
         const report = await modelReport(pd);
         const mine = report.membership.find((m) => m.containerId === node.id);
@@ -107,7 +108,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
           content: [{
             type: "text" as const,
             text: [
-              `${node.level} "${node.name}" $${hex(node.start)}-$${hex(node.end)} [${node.space}${node.owner ? `/${node.owner}` : ""}]`,
+              `${node.level} "${node.name}" $${hex(node.start)}-$${hex(node.end)} [${node.space}${node.cart ? `/${node.cart}` : ""}${node.owner ? `/${node.owner}` : ""}]`,
               `  contains: ${kinds}`,
               ...elsewhere,
               `  model now: ${report.nodes.length} boundaries, ${report.memberTotal - report.orphans.length}/${report.memberTotal} nodes placed, ${report.orphans.length} orphaned`,

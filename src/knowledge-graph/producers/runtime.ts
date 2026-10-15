@@ -33,6 +33,8 @@ import { PlatformKb, type PlatformNode } from "../../platform-kb/read.js";
 import { ACCESS_WRITE, TraceOp, type DecodedEvent } from "../../trace/binary-format.js";
 import { streamCaptureEvents, type CaptureHeader } from "../../trace/capture-stream.js";
 import { derivePlatformId, deriveProjectId, deriveSubsystemId, IdRuleError, platformForCtx, type Ctx } from "../ids.js";
+import { describeCartridge, readCartridges } from "../cartridges.js";
+import { readCaptureMount } from "../../trace/capture-mount.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 
 export const RUNTIME_PRODUCER = "821";
@@ -60,8 +62,14 @@ export interface ImportRuntimeTraceOptions {
   runId?: string;
   /** artifact stem whose routines win when several contain a pc; also scopes the static-edge check */
   owner?: string;
-  /** context for the `addr` nodes this run creates; default `{ space: "ram" }` */
+  /** context for the `addr` nodes this run creates; default `{ space: "ram" }`. A `crt` ctx needs its `cart` (or the `cart` option). */
   ctx?: Ctx;
+  /**
+   * Spec 909 D4 — the cartridge the run executed. Default: the registered cartridge whose image hash is the trace
+   * header's `mediaSha` (the image that was MOUNTED). A mounted image that matches none writes no cartridge-space
+   * node, and the result says so.
+   */
+  cart?: string;
   slug?: string;
   platformDb?: string;
   /** the `_analysis.json` of the image the run executed — enables the opcode-mismatch check (D2) */
@@ -98,6 +106,8 @@ export interface ImportRuntimeTraceResult {
   /** pcs no routine contains — attached to an addr node, nothing dropped */
   unattributedPcs: number;
   notes: { opcodeMismatch: number; noStaticEdge: number };
+  /** Spec 909 — the cartridge the cartridge-space nodes of this run are filed under, how it was found, and what was not filed */
+  cartridge: { cart: string | null; via: string | null; bank: number | null; notes: string[] };
   /** the static access rows the D3 check could see (0 = no static access producer has run; the note is then not written) */
   staticAccessEdges: number;
   irqEntries: number;
@@ -594,7 +604,48 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   // ---- from ids: the routine containing pc, else the shared addr node (D2 / 820 D4)
   const nodes: NodeInput[] = [];
   const nodeIds = new Set<string>();
-  const addrCtx = (a: number): Ctx => (ctx.space === "crt" && ctx.bank !== undefined && a >= 0x8000 && a <= 0xbfff ? { space: "crt", bank: ctx.bank } : { space: "ram" });
+  // Spec 909 D4: a cartridge-space node is a node of ONE cartridge — the one that was mounted. Identified by the image
+  // hash the trace header carries, matched against the registered cartridges; never by "the first one".
+  const heldCarts = readCartridges(store.db);
+  const cartNotes: string[] = [];
+  let runCart: string | undefined = options.cart ?? ctx.cart;
+  let cartVia: string | null = runCart ? (options.cart ? "named" : "ctx") : null;
+  if (runCart && !heldCarts.some((c) => c.cart === runCart)) {
+    store.close(); platform?.close();
+    throw new IdRuleError("crt-needs-cart", `no cartridge "${runCart}" — the project holds: ${heldCarts.map(describeCartridge).join("; ") || "none"}`);
+  }
+  // What was mounted: the header's media hash (the runtime puts a DISK there), else what C64RE wrote beside the capture when it
+  // finalized it — the hash of the image it put in the machine, and the name and type the runtime reported for it.
+  const mount = readCaptureMount(tracePath)?.cartridge;
+  const mountedSha = meta.mediaSha ?? mount?.sha256;
+  const mountedName = meta.mediaName ?? mount?.sourceName;
+  if (!runCart && cartBanks.size > 0) {
+    if (mountedSha) {
+      const hit = heldCarts.filter((c) => c.imageShas.includes(mountedSha));
+      if (hit.length === 1) { runCart = hit[0]!.cart; cartVia = `mounted image hash ${mountedSha.slice(0, 12)}`; }
+      else if (hit.length > 1) cartNotes.push(`the mounted image ${mountedName ?? ""} (${mountedSha.slice(0, 12)}) is the image of ${hit.length} registered cartridges (${hit.map((c) => c.cart).join(", ")}) — name one with cart; no cartridge-space node was written`);
+      else cartNotes.push(`the mounted image ${mountedName ?? ""} (${mountedSha.slice(0, 12)}) matches no registered cartridge (${heldCarts.map((c) => c.cart).join(", ") || "none registered"}) — extract_crt registers one; no cartridge-space node was written`);
+    } else if (mountedName) {
+      // only a name: the runtime reported it, C64RE did not mount it. A name that one registered cartridge's image answers to is a match; it is said so.
+      const hit = heldCarts.filter((c) => c.imageFile === mountedName);
+      if (hit.length === 1) { runCart = hit[0]!.cart; cartVia = `mounted image name ${mountedName} (no hash recorded for this capture)`; }
+      else cartNotes.push(`the runtime reports the cartridge ${mountedName}, with no hash for it, and ${hit.length === 0 ? "no registered cartridge has that image name" : `${hit.length} registered cartridges have it`} — name one with cart; no cartridge-space node was written`);
+    } else {
+      cartNotes.push("the trace read the cartridge but names no mounted image, and no cart was given — no cartridge-space node was written");
+    }
+  }
+  if (ctx.space === "crt" && !runCart) {
+    store.close(); platform?.close();
+    throw new IdRuleError("crt-needs-cart", `a crt context needs its cartridge — pass cart. The project holds: ${heldCarts.map(describeCartridge).join("; ") || "none"}`);
+  }
+  // The bank: the one the ctx names, else the only bank the run read. Several banks read and none named: the
+  // window's addresses stay in ram rather than be filed in a bank by guess.
+  let crtBank: number | undefined = ctx.space === "crt" ? ctx.bank : undefined;
+  if (runCart && crtBank === undefined) {
+    if (cartBanks.size === 1) crtBank = [...cartBanks][0];
+    else if (cartBanks.size > 1) cartNotes.push(`${cartBanks.size} cartridge banks were read (${[...cartBanks].sort((a, b) => a - b).join(", ")}) and no bank was named — addresses in the cartridge window stay in ram`);
+  }
+  const addrCtx = (a: number): Ctx => (runCart !== undefined && crtBank !== undefined && a >= 0x8000 && a <= 0xbfff ? { space: "crt", cart: runCart, bank: crtBank } : { space: "ram" });
   const addrNode = (a: number): string => {
     const id = deriveProjectId({ slug, ctx: addrCtx(a), kind: "addr", address: a });
     if (!nodeIds.has(id)) {
@@ -760,6 +811,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   const cycleEnd = Number.isFinite(cycleMax) ? cycleMax : meta.cycleStart;
   const runAttrs: Record<string, unknown> = {
     run_id: runId, def_id: meta.defId, def_name: meta.defName, domains: meta.domains, media_sha: meta.mediaSha ?? null, media_name: meta.mediaName ?? null,
+    cartridge: runCart ?? null, cartridge_via: cartVia, mounted_image_sha: mountedSha ?? null, mounted_image_name: mountedName ?? null,
     created_at: meta.createdAt, cycle_start: cycleStart, cycle_end: cycleEnd, trace_path: tracePath, trace_bytes: traceBytes, format_version: header.version,
     events: stream.eventCount, cpu_steps: cpuSteps, accesses, distinct_pcs: pcsSeen.size, pc_source: pcSource,
     opcode_check: staticOpcode.size > 0 ? "analysis" : "none", static_access_edges: staticAccessEdges,
@@ -783,7 +835,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   return {
     runId, runNodeId, slug, tracePath, traceBytes, formatVersion: header.version, eventCount: stream.eventCount, cpuSteps, accesses,
     distinctPcs: pcsSeen.size, cycleStart, cycleEnd, pcSource, rows: counts, addrNodes: nodeIds.size, unattributedPcs: unattributed.size,
-    notes: { opcodeMismatch, noStaticEdge }, staticAccessEdges, irqEntries, nmiEntries, collapsedPcs: collapsed.size, marks,
+    notes: { opcodeMismatch, noStaticEdge }, cartridge: { cart: runCart ?? null, via: cartVia, bank: crtBank ?? null, notes: cartNotes }, staticAccessEdges, irqEntries, nmiEntries, collapsedPcs: collapsed.size, marks,
     ms: Number(process.hrtime.bigint() - t0) / 1e6, peakRssMb: peakRss / 1048576,
   };
 }

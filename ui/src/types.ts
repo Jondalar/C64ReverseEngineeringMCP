@@ -418,6 +418,11 @@ export interface CartridgeLayoutView {
   cartridges: Array<{
     artifactId: string;
     title: string;
+    /** Spec 909 — which cartridge of the project this layout is (graph ids are crt/<cart>/<bank>), its type by name, and the role it was given */
+    cart?: string;
+    role?: "source" | "target" | "other";
+    roleDeclared?: boolean;
+    cartridgeType?: string;
     cartridgeName?: string;
     hardwareType?: number;
     exrom?: number;

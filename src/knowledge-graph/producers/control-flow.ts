@@ -23,7 +23,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { PlatformKb } from "../../platform-kb/read.js";
 import { platformKindForAddress, type PlatformTag } from "../../platform-kb/schema.js";
-import { deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
+import { addrCtx, deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 
 const PRODUCER = "819";
@@ -235,7 +235,7 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
   const nodeIds = new Set<string>();
   const routineId = (a: number) => deriveProjectId({ slug, ctx, kind: "routine", address: a });
   const labelId = (a: number) => deriveProjectId({ slug, ctx, kind: "label", address: a });
-  const addrId = (a: number) => deriveProjectId({ slug, ctx: { space: ctx.space }, kind: "addr", address: a });
+  const addrId = (a: number) => deriveProjectId({ slug, ctx: addrCtx(ctx), kind: "addr", address: a });
   const provenanceOf = (a: number) => instructions.get(a)?.provenance ?? "probable_code";
   const confidenceOf = (a: number) => (provenanceOf(a) === "confirmed_code" ? "certain" : "heuristic") as "certain" | "heuristic";
 
@@ -282,7 +282,7 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
         ? addNode({ parts: { slug, ctx, kind: "routine", address: target }, kind: "routine", name: `W${hex4(target)}`, attrs: { undecoded: true }, origin: "static", confidence: "inferred" })
         : addNode({ parts: { slug, ctx, kind: "label", address: target }, kind: "label", name: `W${hex4(target)}`, attrs: { undecoded: true }, origin: "static", confidence: "inferred" });
     }
-    return addNode({ parts: { slug, ctx: { space: ctx.space }, kind: "addr", address: target }, kind: "addr", name: null, attrs: {}, origin: "static", confidence: "inferred" });
+    return addNode({ parts: { slug, ctx: addrCtx(ctx), kind: "addr", address: target }, kind: "addr", name: null, attrs: {}, origin: "static", confidence: "inferred" });
   };
 
   for (const x of xrefs) {
@@ -299,7 +299,7 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
     const isBranch = BRANCHES.has(mn);
     if (!isJsr && !isJmp && !isBranch) continue; // memory operand mistyped `branch` — 820's
     const container = containerOf(x.sourceAddress);
-    const from = container !== undefined ? routineId(container) : addNode({ parts: { slug, ctx: { space: ctx.space }, kind: "addr", address: x.sourceAddress }, kind: "addr", name: null, attrs: { ownerless: true }, origin: "static", confidence: "heuristic" });
+    const from = container !== undefined ? routineId(container) : addNode({ parts: { slug, ctx: addrCtx(ctx), kind: "addr", address: x.sourceAddress }, kind: "addr", name: null, attrs: { ownerless: true }, origin: "static", confidence: "heuristic" });
     const confidence = src.provenance === "confirmed_code" ? "certain" : "heuristic";
     const evidence: Record<string, unknown> = {
       source_address: x.sourceAddress, mnemonic: mn, addressing_mode: src.addressingMode, operand: src.operandText,

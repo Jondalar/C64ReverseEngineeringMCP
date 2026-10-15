@@ -19,7 +19,7 @@ export function stableJson(value: unknown): string {
 
 function hitLine(n: ResolvedNode): string {
   const why = [n.platform ? "platform" : "", n.layers.includes("human") ? "human" : "", n.orphaned ? "orphaned" : "", n.dangling ? "DANGLING" : ""].filter(Boolean).join(",");
-  const bank = n.bank !== null ? ` bank:${n.bank.toString(16).padStart(2, "0")}` : "";
+  const bank = `${n.cart ? ` cart:${n.cart}` : ""}${n.bank !== null ? ` bank:${n.bank.toString(16).padStart(2, "0")}` : ""}`;
   // an I/O register carries the book's heading and, for a mirror, which register it repeats (Spec 908)
   const about = typeof n.attrs.description === "string" ? ` | ${n.attrs.description}` : "";
   return `[${n.kind}] ${hex(n.address)}${bank} ${n.name ?? ""} | id=${n.id}${why ? ` | ${why}` : ""}${about}`;
@@ -27,7 +27,7 @@ function hitLine(n: ResolvedNode): string {
 
 export function formatFind(query: string, nodes: ResolvedNode[], limit: number, claimants?: ClaimantsCard | null): Formatted {
   const hits = nodes.slice(0, limit).map((n) => ({
-    id: n.id, kind: n.kind, address: hex(n.address), bank: n.bank, name: n.name, origin: n.layers.includes("human") ? "human" : n.platform ? "platform" : "generated",
+    id: n.id, kind: n.kind, address: hex(n.address), bank: n.bank, ...(n.cart ? { cart: n.cart } : {}), name: n.name, origin: n.layers.includes("human") ? "human" : n.platform ? "platform" : "generated",
     orphaned: n.orphaned, dangling: n.dangling, owner: n.owner,
     ...(typeof n.attrs.description === "string" ? { description: n.attrs.description } : {}),
     ...(typeof n.attrs.alias === "string" ? { alias: n.attrs.alias } : {}),
@@ -119,7 +119,7 @@ export function formatEdges(walk: Walk): Formatted {
 export function formatNode(card: NodeCard): Formatted {
   const lines = [
     `${card.id}`,
-    `  ${card.kind} ${card.range ?? card.address}${card.bank !== null ? ` bank:${card.bank.toString(16).padStart(2, "0")}` : ""}${card.owner ? ` owner=${card.owner}` : ""}${card.platform ? " (platform)" : ""}${card.dangling ? " (DANGLING)" : ""}${card.orphaned ? " (orphaned human row)" : ""}`,
+    `  ${card.kind} ${card.range ?? card.address}${card.cart ? ` cart:${card.cart}` : ""}${card.bank !== null ? ` bank:${card.bank.toString(16).padStart(2, "0")}` : ""}${card.owner ? ` owner=${card.owner}` : ""}${card.platform ? " (platform)" : ""}${card.dangling ? " (DANGLING)" : ""}${card.orphaned ? " (orphaned human row)" : ""}`,
     `  generated label: ${card.generatedLabel ?? "—"}    human name: ${card.humanName ?? "—"}`,
   ];
   if (card.subsystems.length) lines.push(`  subsystems: ${card.subsystems.join(", ")}`);

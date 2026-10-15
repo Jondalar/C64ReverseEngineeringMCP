@@ -70,7 +70,7 @@ export class PayloadBytes {
   constructor(
     private readonly projectDir: string,
     private readonly relocations: ReadonlyMap<string, Relocation[]>,
-    private readonly crtOwners: ReadonlyMap<number, string[]>,
+    private readonly crtOwners: ReadonlyMap<string, string[]>,
   ) {}
 
   hasAnalysis(owner: string): boolean {
@@ -89,7 +89,7 @@ export class PayloadBytes {
     if (map) return map;
     map = new Map();
     if (ref.kind === "analysis") this.addAnalysis(ref.owner, map);
-    else if (ref.kind === "crt") for (const owner of this.crtOwners.get(ref.bank) ?? []) this.addAnalysis(owner, map);
+    else if (ref.kind === "crt") for (const owner of this.crtOwners.get(`${ref.cart}/${ref.bank}`) ?? []) this.addAnalysis(owner, map);
     else this.addPrg(ref.path, map);
     this.code.set(key, map);
     return map;

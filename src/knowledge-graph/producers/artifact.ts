@@ -6,6 +6,7 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
+import { chooseCartridgeForArtifact } from "../cartridge-context.js";
 import { ownerFromAnalysisPath, seedControlFlow, type SeedControlFlowResult } from "./control-flow.js";
 import { contextForOwner, type OwnerContext } from "./machine.js";
 import { seedMemoryAccess, type SeedMemoryAccessResult } from "./memory-access.js";
@@ -19,11 +20,21 @@ export function seedControlFlowForArtifact(projectDir: string, artifact: Artifac
   const path = artifact.path ? resolve(projectDir, artifact.path) : undefined;
   if (!path || !path.endsWith("_analysis.json") || !existsSync(path)) return undefined;
   const owner = ownerFromAnalysisPath(path);
-  const machine = contextForOwner(projectDir, owner, artifact, path);
+  // Spec 909: an analysis that sits in a bank is filed under the cartridge its bytes came from.
+  let cart: string | undefined;
+  if (artifact.loadContexts?.some((c) => typeof c.bank === "number")) {
+    const choice = chooseCartridgeForArtifact(projectDir, artifact);
+    if (!choice.ok) throw new Error(choice.refusal);
+    cart = choice.cart;
+  }
+  const machine = contextForOwner(projectDir, owner, artifact, path, cart);
   const ctx = machine.ctx;
-  const controlFlow = seedControlFlow({ projectDir, analysisPath: path, owner, ctx });
-  const memoryAccess = seedMemoryAccess({ projectDir, analysisPath: path, owner, ctx });
+  // The run a producer replaces is (producer, run owner). Two cartridges each have a `bank_00_8000.bin`; the stem alone
+  // would make the second cartridge's seed delete the first's rows, so a run in cartridge space is the cartridge's.
+  const runOwner = cart !== undefined ? `${cart}.${owner}` : owner;
+  const controlFlow = seedControlFlow({ projectDir, analysisPath: path, owner: runOwner, ctx });
+  const memoryAccess = seedMemoryAccess({ projectDir, analysisPath: path, owner: runOwner, ctx });
   const resolved = resolveAddresses(projectDir);
-  const signatures = seedSignatures({ projectDir, analysisPath: path, owner, ctx });
+  const signatures = seedSignatures({ projectDir, analysisPath: path, owner: runOwner, ctx });
   return { ...controlFlow, memoryAccess, resolve: resolved, signatures, machine };
 }

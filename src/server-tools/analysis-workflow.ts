@@ -17,6 +17,8 @@ import type { ArtifactRecord } from "../project-knowledge/types.js";
 import { PLATFORM_TAGS, type PlatformTag } from "../platform-kb/schema.js";
 import { resolvePlatform } from "../project-knowledge/platform-default.js";
 import { cartridgeTypeFor, cartridgeTypeName, type CartridgeTypeHit } from "../project-knowledge/cartridge-type.js";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartOfArtifact, chooseCartridge } from "../knowledge-graph/cartridges.js";
 import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
@@ -384,18 +386,20 @@ export function prgSpan(prgAbs: string): { loadAddress: number; lastAddress: num
  * a bank alone means a cartridge bank, `drv` / `drive` is the 1541, `ram` is the owner's own RAM. Anything
  * else is refused: a space the graph does not have would be recorded in the provenance and file nothing.
  */
-export function graphSpaceFrom(space: string | undefined, bank: number | undefined):
-  { ok: true; value?: { space: Space; bank?: number } } | { ok: false; refusal: string } {
+export function graphSpaceFrom(space: string | undefined, bank: number | undefined, cart?: string):
+  { ok: true; value?: { space: Space; bank?: number; cart?: string } } | { ok: false; refusal: string } {
   const raw = space?.trim().toLowerCase();
-  if (raw === undefined || raw === "") return bank === undefined ? { ok: true } : { ok: true, value: { space: "crt", bank } };
+  if (cart !== undefined && bank === undefined) return { ok: false, refusal: `cart ${JSON.stringify(cart)} names a cartridge, and the names go under one of its banks — pass bank (the bank these bytes live in, 0 for the first).` };
+  if (raw === undefined || raw === "") return bank === undefined ? { ok: true } : { ok: true, value: { space: "crt", bank, ...(cart !== undefined ? { cart } : {}) } };
   const named = ({ ram: "ram", crt: "crt", cart: "crt", cartridge: "crt", drv: "drv", drive: "drv", c1541: "drv", "1541": "drv" } as Record<string, Space>)[raw];
   if (!named) {
     return { ok: false, refusal: `space ${JSON.stringify(space)} is not an address space the graph has: ram, crt (a cartridge bank; also "cart"), or drv (the 1541; also "drive").` };
   }
   if (named === "crt") {
     if (bank === undefined) return { ok: false, refusal: `space ${JSON.stringify(space)} files the names under a cartridge bank — pass bank (the bank these bytes live in, 0 for the first).` };
-    return { ok: true, value: { space: "crt", bank } };
+    return { ok: true, value: { space: "crt", bank, ...(cart !== undefined ? { cart } : {}) } };
   }
+  if (cart !== undefined) return { ok: false, refusal: `cart ${JSON.stringify(cart)} is a cartridge, and space ${JSON.stringify(space)} is not the cartridge — drop cart, or pass space "crt".` };
   if (bank !== undefined) return { ok: false, refusal: `bank ${bank} is a cartridge bank, and space ${JSON.stringify(space)} is not the cartridge — drop bank, or pass space "crt".` };
   return { ok: true, value: { space: named } };
 }
@@ -461,8 +465,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
   }
 
+  /**
+   * Spec 909: the cartridge a source file came out of, when it came out of one. Two cartridges each hold a
+   * `bank_00_8000.bin`; a default output named by the stem alone would have the second overwrite the first.
+   */
+  function sourceCartridge(pd: string, sourceAbs: string): string | undefined {
+    try {
+      const carts = projectCartridges(pd);
+      if (carts.length === 0) return undefined;
+      const arts = new ProjectKnowledgeService(pd).listArtifacts();
+      return cartOfArtifact(arts, carts, arts.find((a) => a.path === sourceAbs)?.id, sourceAbs)?.cart;
+    } catch { return undefined; }
+  }
+
   /** Where a listing goes when the caller names no output. */
-  function defaultListingPath(pd: string, sourceAbs: string, reading: ByteReading): string {
+  function defaultListingPath(pd: string, sourceAbs: string, reading: ByteReading, cart?: string): string {
     if (reading.kind === "headed") {
       const out = /\.prg$/i.test(sourceAbs)
         ? sourceAbs.replace(/\.prg$/i, "_disasm.asm")
@@ -475,7 +492,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ? ""
       : `_${reading.byteOffset.toString(16).toUpperCase().padStart(4, "0")}-${(reading.byteOffset + reading.byteLength - 1).toString(16).toUpperCase().padStart(4, "0")}`;
     const addr = reading.loadAddress.toString(16).toUpperCase().padStart(4, "0");
-    return join(pd, "analysis", "raw-disasm", `${stem}${window}_${addr}_disasm.asm`);
+    return join(pd, "analysis", "raw-disasm", ...(cart ? [cart] : []), `${stem}${window}_${addr}_disasm.asm`);
   }
 
   // ── D1 — `disasm` ─────────────────────────────────────────────────────────
@@ -486,7 +503,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     entry_points?: Array<string | number>;
     analysis_json?: string; no_analysis?: boolean; annotations_path?: string; import_graph?: boolean;
     output_asm?: string; platform?: PlatformTag | "none"; cpu?: "c64" | "drive";
-    bank?: number; space?: string;
+    bank?: number; space?: string; cart?: string;
     relocations?: Array<Record<string, unknown>>;
     paths?: string[];
   }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
@@ -533,8 +550,19 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const both = (value: number) => `${value} ($${value.toString(16).toUpperCase()})`;
 
     // ── the space the graph files the names under ───────────────────────────
-    const spaceAsked = graphSpaceFrom(a.space, a.bank);
+    const spaceAsked = graphSpaceFrom(a.space, a.bank, a.cart);
     if (!spaceAsked.ok) return refuse(spaceAsked.refusal);
+    // Spec 909 D4/D7: a cartridge bank is a cartridge's. The one named, else the one these bytes came from, else the
+    // project's only one — said in the answer; anything else refuses by name and lists them.
+    const heldCarts = projectCartridges(pd);
+    const lineageCart = cartOfArtifact(service.listArtifacts(), heldCarts, sourceArtifactId, sourceAbs);
+    let cartNote: string | undefined;
+    if (spaceAsked.value?.space === "crt") {
+      const picked = chooseCartridge(heldCarts, spaceAsked.value.cart, lineageCart);
+      if (!picked.ok) return refuse(picked.refusal);
+      spaceAsked.value.cart = picked.cart;
+      cartNote = picked.note;
+    }
 
     // ── the seeds ───────────────────────────────────────────────────────────
     let seeds: number[];
@@ -580,7 +608,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
 
     // ── where the listing goes ──────────────────────────────────────────────
-    const outAbs = a.output_asm ? resolve(pd, a.output_asm) : defaultListingPath(pd, sourceAbs, reading);
+    const outAbs = a.output_asm ? resolve(pd, a.output_asm) : defaultListingPath(pd, sourceAbs, reading, spaceAsked.value?.cart ?? lineageCart?.cart);
     mkdirSync(dirname(outAbs), { recursive: true });
     const tassPath = outAbs.replace(/\.asm$/i, ".tas");
 
@@ -644,7 +672,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     // $DE00-$DFFF is the cartridge's, and which cartridge decides what the registers there are called
     let cartridge: CartridgeTypeHit | undefined;
     if (!noPlatformNames && resolvedPlatform === "c64") {
-      try { cartridge = cartridgeTypeFor(service.listArtifacts(), sourceAbs, sourceArtifactId); } catch { /* unknown stays unknown */ }
+      const typedBy = spaceAsked.value?.cart !== undefined ? heldCarts.find((c) => c.cart === spaceAsked.value!.cart) : lineageCart;
+      try { cartridge = cartridgeTypeFor(service.listArtifacts(), sourceAbs, sourceArtifactId, typedBy); } catch { /* unknown stays unknown */ }
     }
     if (cartridge) cliArgs.push("--cartridge-type", String(cartridge.hardwareType));
     if (relocationsFile) cliArgs.push("--relocations", relocationsFile);
@@ -692,12 +721,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ? `Bytes ${reading.byteOffset}..${reading.byteOffset + reading.byteLength - 1} of ${basename(sourceAbs)} `
         + `(offset ${both(reading.byteOffset)}, length ${both(reading.byteLength)}), running at ${hex(reading.loadAddress)}-${hex(reading.lastAddress)}`
         + `${resolvedPlatform === "c1541" ? ", on the 1541's 6502" : ""}`
-        + `${a.bank !== undefined ? `, bank ${a.bank}` : ""}${a.space ? `, space ${a.space}` : ""}`
+        + `${a.bank !== undefined ? `, ${spaceAsked.value?.cart ? `cartridge ${spaceAsked.value.cart}, ` : ""}bank ${a.bank}` : ""}${a.space ? `, space ${a.space}` : ""}`
         + `. Seeded: ${seeds.length > 0 ? seeds.map(hex).join(", ") : `${hex(reading.loadAddress)} (first byte)`}.`
       : `${basename(sourceAbs)} read as headed: its first two bytes are ${hex(reading.loadAddress)}, so the `
         + `${reading.byteLength}-byte body runs at ${hex(reading.loadAddress)}-${hex(reading.lastAddress)}`
         + `${resolvedPlatform === "c1541" ? ", on the 1541's 6502" : ""}`
-        + `${a.bank !== undefined ? `, bank ${a.bank}` : ""}${a.space ? `, space ${a.space}` : ""}.`;
+        + `${a.bank !== undefined ? `, ${spaceAsked.value?.cart ? `cartridge ${spaceAsked.value.cart}, ` : ""}bank ${a.bank}` : ""}${a.space ? `, space ${a.space}` : ""}.`;
 
     const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
       toolName: invokedAs,
@@ -714,6 +743,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         entry_points: seeds.map(hex),
         platform: noPlatformNames ? "none" : resolvedPlatform,
         bank: a.bank ?? null,
+        cart: spaceAsked.value?.cart ?? null,
         space: a.space ?? null,
         analysis_json: choice.path ?? null,
         annotations_path: annotationsAbs ?? null,
@@ -912,6 +942,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       `Knowledge written to: ${resolve(pd, "knowledge")}`,
       `Analysis: ${choice.why}`,
       `Provenance: ${provenance}`,
+      cartNote ?? "",
       cartridge
         ? `Cartridge: ${cartridgeTypeName(cartridge.hardwareType)} (CRT hardware type ${cartridge.hardwareType}, from ${cartridge.via}) — the cartridge I/O window $DE00-$DFFF is named for it.`
         : "",
@@ -979,7 +1010,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
     const outAbs = a.output_json
       ? resolve(pd, a.output_json)
-      : defaultAnalysisPath(pd, sourceAbs, reading);
+      : defaultAnalysisPath(pd, sourceAbs, reading, sourceCartridge(pd, sourceAbs));
     mkdirSync(dirname(outAbs), { recursive: true });
 
     // Inside a batch the whole batch is ALREADY one job (see runBatch): a second
@@ -1007,7 +1038,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   }
 
   /** Where an analysis goes when the caller names no output. */
-  function defaultAnalysisPath(pd: string, sourceAbs: string, reading: ByteReading): string {
+  function defaultAnalysisPath(pd: string, sourceAbs: string, reading: ByteReading, cart?: string): string {
     if (reading.kind === "headed") {
       const out = /\.prg$/i.test(sourceAbs)
         ? sourceAbs.replace(/\.prg$/i, "_analysis.json")
@@ -1020,7 +1051,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ? ""
       : `_${reading.byteOffset.toString(16).toUpperCase().padStart(4, "0")}-${(reading.byteOffset + reading.byteLength - 1).toString(16).toUpperCase().padStart(4, "0")}`;
     const addr = reading.loadAddress.toString(16).toUpperCase().padStart(4, "0");
-    return join(pd, "analysis", "raw-analysis", `${stem}${window}_${addr}_analysis.json`);
+    return join(pd, "analysis", "raw-analysis", ...(cart ? [cart] : []), `${stem}${window}_${addr}_analysis.json`);
   }
 
   /** The analysis body — the pipeline run plus the registration, for either reading. */
@@ -1291,10 +1322,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       no_analysis: z.boolean().optional().describe("Refuse an analysis outright for this render. Nothing is read, nothing is inherited, and the answer says the listing is linear. Use when an analysis exists for these bytes and you know it does not apply."),
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it a <stem>_annotations.json beside the bytes, the output or the analysis is picked up. Whatever is applied is imported into the knowledge graph."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration, no machine recorded on the file) — the graph is left exactly as it was and so is the file's machine. Use for scratch or draft renders you do not mean to keep. Default true."),
-      output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm."),
+      output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.asm (the cartridge folder when the bytes came out of a cartridge)."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the bytes run on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's own artifact record, the project's default (project_init platform), c64. c1541 is drive-side code; vic20 the VIC-20 (VIC-I, VIA1/VIA2, its KERNAL); plus4 the TED machines (C16, C116, Plus/4). Naming a machine RECORDS it for this file, so every later render and analysis of the file knows it (a preview, import_graph=false, records nothing: the machine is for that render only); its graph nodes are indexed under that machine (a 1541 file in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share, e.g. $0300-$07FF, actually contains them; a VIC-20 file's hardware accesses point at vic20:io:... nodes). The store names only what it has rows for: a machine with no row for an address leaves that address unnamed, it never borrows a C64 name. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file's machine. none sticks to the file: every later render that names no platform keeps it, and an explicit machine clears it."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
       space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
+      cart: z.string().optional().describe("The cartridge (its token, as graph_find / project_status name it) the bank belongs to. Default: the cartridge these bytes were extracted from, else the project's only cartridge; with several and none to tell, the call refuses and lists them. Needs bank."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored address of the region's first byte (inclusive). HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the span these bytes cover."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored address of the region's last byte (inclusive). Same rule."),
@@ -1341,7 +1373,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. The one exception is a raw cartridge image: on a vic20 / plus4 render a file whose bytes carry the KERNAL's autostart signature (VIC-20 A0CBM at offset 4, TED CBM at offset 7) is placed at $A000 / $8000 and the answer names the signature; an explicit load_address wins. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). MANY FILES AT ONCE: pass `paths` instead of `path` and one call analyses every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest are still analysed; the answer is one line per path, and you leave output_json out because one name cannot hold N analyses. The machine matters: pass platform (c64, c1541, vic20, plus4), or let the file's artifact record or the project default (project_init platform) decide — its I/O window is what counts as hardware, and the VIC-II / SID / CIA heuristics run for the C64 only. Inputs: path or paths or artifact_id, optional load_address/headed/offset/length/entry_points/output_json/platform. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused, and every split low/high table found in confirmed code (zero-page pointer, patched operand, RTS dispatch) with its count hint — each one an obligation until a splitTables[] entry declares or rejects it — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
-      output_json: z.string().optional().describe("Output path for the analysis JSON. Default for a headed file: <stem>_analysis.json next to it; for raw bytes: analysis/raw-analysis/<stem>[_<window>]_<address>_analysis.json."),
+      output_json: z.string().optional().describe("Output path for the analysis JSON. Default for a headed file: <stem>_analysis.json next to it; for raw bytes: analysis/raw-analysis/[<cartridge>/]<stem>[_<window>]_<address>_analysis.json (the cartridge folder when the bytes came out of a cartridge)."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("The machine the bytes run on: its I/O window decides which stores are hardware accesses, and the VIC-II / SID / CIA heuristics run only for c64. Resolved in order: this argument, the file's artifact record, the project default (project_init platform), c64. Naming a machine RECORDS it for this file, so the disassembly door and the graph agree with the analysis."),
     },
     safeHandler("analyze", async (args) => {
@@ -1468,10 +1500,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering, produced by analyze over THIS window. Named and present it is used unchanged; named and absent, or omitted, the project store is asked which analysis is registered for these bytes."),
       no_analysis: z.boolean().optional().describe("Refuse an analysis outright for this render. Nothing is read, nothing is inherited, and the answer says the listing is linear."),
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual. Whatever is applied is imported into the knowledge graph."),
-      output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
+      output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
       cpu: z.enum(["c64", "drive"]).optional().describe("Which 6502 these bytes run on. Default c64. `drive` renders 1541 zero page, VIA registers and drive ROM entry points instead of the C64's."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
       space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
+      cart: z.string().optional().describe("The cartridge (its token, as graph_find / project_status name it) the bank belongs to. Default: the cartridge these bytes were extracted from, else the project's only cartridge; with several and none to tell, the call refuses and lists them. Needs bank."),
     },
     // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("disasm_raw", async (args) => runDisasm("disasm_raw", { ...args, headed: false } as Parameters<typeof runDisasm>[1])),

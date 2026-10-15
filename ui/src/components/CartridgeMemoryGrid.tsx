@@ -11,6 +11,10 @@ interface BankClickHandler {
 
 interface CartridgeMemoryGridProps {
   cartridgeName: string;
+  /** the cartridge token and the role the owner gave it (source / target / other) — the header says both */
+  cart?: string;
+  role?: "source" | "target" | "other";
+  roleDeclared?: boolean;
   hardwareType?: number;
   exrom?: number;
   game?: number;
@@ -60,6 +64,9 @@ const EMPTY_COLOR = "#1a1d21";
 
 export function CartridgeMemoryGrid({
   cartridgeName,
+  cart,
+  role,
+  roleDeclared,
   hardwareType,
   exrom,
   game,
@@ -423,6 +430,12 @@ export function CartridgeMemoryGrid({
       <header className="cart-grid-header">
         <div>
           <h4>{cartridgeName}</h4>
+          {cart ? (
+            <p className="cart-grid-identity">
+              <code>{cart}</code> · {hardwareTypeName ?? "Unknown type"} · <strong>{role ?? "other"}</strong>
+              {roleDeclared === false ? " (role not declared — contract_set cartridges)" : ""}
+            </p>
+          ) : null}
           <p>
             {hardwareTypeName ?? "Unknown type"}
             {hardwareType !== undefined ? ` · HW ${hardwareType}` : ""}

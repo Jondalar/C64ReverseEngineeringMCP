@@ -228,6 +228,7 @@ export async function critique(projectDir: string): Promise<CriticReport> {
       for (let j = i + 1; j < boundaries.length; j++) {
         const a = boundaries[i], b = boundaries[j];
         if (a.level !== b.level || a.space !== b.space) continue;
+        if (a.cart !== null && b.cart !== null && a.cart !== b.cart) continue; // Spec 909: two cartridges are two places
         if (a.owner && b.owner && a.owner !== b.owner) continue;
         if (a.end < b.start || b.end < a.start) continue;
         add("overlapping-boundaries",
@@ -339,7 +340,7 @@ export async function critique(projectDir: string): Promise<CriticReport> {
          WHERE n.kind = 'routine'
            AND NOT EXISTS (
              SELECT 1 FROM nodes t
-             WHERE t.address = n.address AND t.owner IS n.owner AND t.space IS n.space AND t.bank IS n.bank
+             WHERE t.address = n.address AND t.owner IS n.owner AND t.space IS n.space AND t.bank IS n.bank AND t.cart IS n.cart
                AND (t.kind = 'entry' OR EXISTS (SELECT 1 FROM edges e WHERE e.to_id = t.id)))
          ORDER BY n.address LIMIT 25`,
       ).all() as Array<{ id: string; name: string | null; address: number }>;

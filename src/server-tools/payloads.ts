@@ -1,4 +1,6 @@
 import { existsSync, statSync, readFileSync } from "node:fs";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartOfArtifact } from "../knowledge-graph/cartridges.js";
 import { resolve, basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -647,13 +649,21 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const cartView = service.buildCartridgeLayoutView().view;
+      const artifacts = service.listArtifacts();
+      // Spec 909: a chunk is a chunk OF A CARTRIDGE. The tag that says "already promoted" carries the cartridge, or the
+      // second cartridge's bank-0 chunk would read as the first one's and never be promoted. A tag written before 909
+      // has none; its cartridge is the one its payload's source file came out of.
+      const heldCarts = projectCartridges(projectRoot);
       const existingTags = new Set<string>();
       for (const entity of listPayloadEntities(service)) {
         for (const tag of entity.tags ?? []) {
-          if (tag.startsWith("cart-chunk:")) existingTags.add(tag);
+          if (!tag.startsWith("cart-chunk:")) continue;
+          const rest = tag.slice("cart-chunk:".length);
+          if (!/^\d+:(?:ROML|ROMH|ULTIMAX_ROMH|EEPROM|OTHER):/u.test(rest)) { existingTags.add(tag); continue; }
+          const from = cartOfArtifact(artifacts, heldCarts, entity.payloadSourceArtifactId ?? entity.artifactIds?.[0]);
+          existingTags.add(from ? `cart-chunk:${from.cart}:${rest}` : tag);
         }
       }
-      const artifacts = service.listArtifacts();
       const chipArtifactByPath = new Map<string, string>();
       for (const a of artifacts) {
         if (/\.bin$/i.test(a.relativePath)) chipArtifactByPath.set(a.relativePath, a.id);
@@ -665,9 +675,10 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       for (const cartridge of cartView.cartridges) {
         const manifestArtifact = artifacts.find((a) => a.id === cartridge.artifactId);
         const manifestDir = manifestArtifact?.relativePath.includes("/") ? manifestArtifact.relativePath.slice(0, manifestArtifact.relativePath.lastIndexOf("/")) : "";
+        const ofCart = cartOfArtifact(artifacts, heldCarts, cartridge.artifactId);
         for (const chunk of cartridge.lutChunks ?? []) {
           const key = `${chunk.bank}:${chunk.slot}:${chunk.offsetInBank}:${chunk.length}`;
-          const tag = `cart-chunk:${key}`;
+          const tag = ofCart ? `cart-chunk:${ofCart.cart}:${key}` : `cart-chunk:${key}`;
           planned += 1;
           if (existingTags.has(tag)) {
             skipped += 1;
@@ -699,6 +710,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
                 slot: chunk.slot,
                 offsetInBank: s.offsetInBank,
                 length: s.length,
+                // which cartridge's bank: the extract this chunk table was read from
+                mediumRef: cartridge.artifactId,
               })),
               payloadLoadAddress: chunk.destAddress,
               // Spec 867 D1 — a chunk's window is where it lands plus its length.

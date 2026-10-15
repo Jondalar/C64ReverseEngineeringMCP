@@ -22,7 +22,7 @@
 import { readFileSync } from "node:fs";
 import { PlatformKb } from "../../platform-kb/read.js";
 import type { PlatformTag } from "../../platform-kb/schema.js";
-import { deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
+import { addrCtx, deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
 import { platformKindForAddress } from "../../platform-kb/schema.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { ownerFromAnalysisPath } from "./control-flow.js";
@@ -131,7 +131,7 @@ export function seedMemoryAccess(options: SeedMemoryAccessOptions): SeedMemoryAc
       return id;
     };
     const addrNode = (address: number, attrs: Record<string, unknown> = {}): string =>
-      addNode({ parts: { slug, ctx: { space: ctx.space }, kind: "addr", address }, kind: "addr", attrs, origin: "static", confidence: "inferred" });
+      addNode({ parts: { slug, ctx: addrCtx(ctx), kind: "addr", address }, kind: "addr", attrs, origin: "static", confidence: "inferred" });
     // The target of a direct access. Zero page, I/O and ROM belong to the
     // platform by definition — their id derives from the address alone, so
     // `$20` is one node whoever writes it, documented or not (undocumented →

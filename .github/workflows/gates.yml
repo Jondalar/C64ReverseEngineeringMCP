@@ -420,6 +420,22 @@ jobs:
       - name: I/O registers have names in every listing (Spec 908)
         run: npm run e2e:908
 
+      # Spec 909 — each cartridge in a project is its own place. Hermetic: synthetic .crt images built in the test (a GMod2
+      # and an EasyFlash, both with a bank 0 at $8000), a temp project, MCP over stdio. Two chip sets that never replace
+      # each other and each point at their own extract; a rebuilt target that stays the same cartridge and keeps its names;
+      # the cartridge's type and role declared, never guessed, and $DE00 named for each; a project written with crt/<bank>
+      # ids (the bug's state) opened once and moved, what cannot be placed listed by name, a second open changing nothing;
+      # the old form refused by name. No ROMs, no game bytes, no runtime.
+      - name: Each cartridge is its own place — chips, type, role, old projects (Spec 909)
+        run: npm run e2e:909
+
+      # Spec 909 S5 — a runtime trace lands in the cartridge that was MOUNTED. A real trx64-daemon of the run's own on a
+      # free port (never :4312), two synthetic cartridges booting their own code, the image hash matched against the
+      # registered cartridges; an image that matches none writes no cartridge-space node and says so. SKIPS LOUDLY on a
+      # runner with no trx64-daemon; C64RE_RUNTIME_BIN=<binary> runs it.
+      - name: A trace lands in the mounted cartridge (Spec 909)
+        run: npm run e2e:909-runtime
+
       # A cartridge bank listed on its own — hermetic: synthetic .crt images and one 8 KiB bank
       # of synthetic code, MCP over stdio. Where disasm files the names (space / bank, so a
       # crt-space boundary holds them), how load_address is read (one address rule, with

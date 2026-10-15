@@ -1,5 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartTokenFromName, describeCartridge, findCartridgeForImage, type RegisterCartridgeResult } from "../knowledge-graph/cartridges.js";
+import { sha256OfFile } from "../project-knowledge/cartridge-identity.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
@@ -63,6 +66,54 @@ function recordDiskSubstrate(
   }
 }
 
+function describeRegistered(r: RegisterCartridgeResult): string {
+  const how = r.minted ? "new cartridge" : `same cartridge (by ${r.joinedBy})`;
+  const unsaid = r.record.roleDeclared ? "" : " Role not declared: say what it is in this project with contract_set cartridges:[{cart,role}] (source | target | other).";
+  return `Cartridge ${describeCartridge(r.record)} — ${how}; its banks are crt/${r.record.cart}/<bank> in the graph.${unsaid}`;
+}
+
+type CartridgePlan = { ok: true; outAbs: string; cart?: string } | { ok: false; refusal: string };
+
+/**
+ * Where an extract of this image goes, and which cartridge it is: the same image (same artifact, same bytes, or the
+ * cartridge named) keeps its directory; a directory that holds another image's manifest is never reused — the default
+ * moves aside to analysis/extracted-<cartridge>, an explicit one is refused naming whose it is.
+ */
+function planCartridgeExtract(pd: string, crtAbs: string, outputDir: string | undefined, cart: string | undefined): CartridgePlan {
+  const service = new ProjectKnowledgeService(pd);
+  const artifacts = service.listArtifacts();
+  const image = artifacts.find((a) => a.path === crtAbs);
+  const sha = sha256OfFile(crtAbs);
+  const carts = projectCartridges(pd);
+  const mine = findCartridgeForImage(carts, { id: image?.id ?? "", lineageRoot: image?.lineageRoot }, sha, cart)?.record.cart;
+  const holder = (dir: string): { manifestId: string; cart?: string; image?: string } | undefined => {
+    const m = artifacts.find((a) => a.role === "crt-manifest" && dirname(a.path) === dir);
+    if (!m) return undefined;
+    const ofCart = carts.find((c) => c.manifestArtifactIds.includes(m.id) || c.extractDirs.some((d) => resolve(d) === dir));
+    return { manifestId: m.id, cart: ofCart?.cart, image: (m.sourceArtifactIds ?? [])[0] };
+  };
+  const isOurs = (h: NonNullable<ReturnType<typeof holder>>): boolean =>
+    (h.cart !== undefined && h.cart === mine) || (image !== undefined && h.image === image.id);
+  if (outputDir) {
+    const abs = resolve(pd, outputDir);
+    const h = holder(abs);
+    if (h && !isOurs(h)) {
+      return { ok: false, refusal: `extract_crt refused: ${outputDir} already holds the extract of ${h.cart ? `cartridge ${h.cart}` : `another cartridge image (manifest ${h.manifestId})`}, and ${basename(crtAbs)} is ${mine ? `cartridge ${mine}` : "a different image"}. Pick another output_dir (or leave it out: the next free one is analysis/extracted-<cartridge>).` };
+    }
+    return { ok: true, outAbs: abs, ...(mine ? { cart: mine } : {}) };
+  }
+  const base = resolve(pd, "analysis", "extracted");
+  const h0 = holder(base);
+  if (!h0 || isOurs(h0)) return { ok: true, outAbs: base, ...(mine ? { cart: mine } : {}) };
+  const stem = mine ?? cartTokenFromName(basename(crtAbs));
+  for (let n = 1; n < 100; n += 1) {
+    const dir = resolve(pd, "analysis", `extracted-${n === 1 ? stem : `${stem}-${n}`}`);
+    const h = holder(dir);
+    if (!h || isOurs(h)) return { ok: true, outAbs: dir, ...(mine ? { cart: mine } : {}) };
+  }
+  return { ok: false, refusal: "extract_crt refused: no free extract directory under analysis/ — pass output_dir." };
+}
+
 export function registerMediaTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "extract_crt",
@@ -70,14 +121,17 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from crt_path to knowledge/phase-plan.json."),
       crt_path: z.string().describe("Path to the .crt file"),
-      output_dir: z.string().optional().describe("Output directory (default: analysis/extracted)"),
+      output_dir: z.string().optional().describe("Output directory (default: analysis/extracted for the project's first cartridge, analysis/extracted-<cartridge> for every further one). A directory that already holds ANOTHER cartridge's extract is refused, never overwritten."),
+      cart: z.string().optional().describe("The cartridge token this image is a version of, when it is a rebuild of a cartridge the project already knows but sits at another path (same path = same cartridge, no need). Default: a first extract of an image mints its token from the file name; a re-extract or an image with the same bytes keeps its token."),
     },
-    async ({ project_dir, crt_path, output_dir }) => {
+    async ({ project_dir, crt_path, output_dir, cart }) => {
       const pd = context.projectDir({ projectDir: project_dir, fileHint: crt_path }, true);
       const crtAbs = resolve(pd, crt_path);
-      const outAbs = output_dir ? resolve(pd, output_dir) : resolve(pd, "analysis", "extracted");
-      const args = [crtAbs];
-      if (output_dir) args.push(outAbs);
+      // Spec 909: a cartridge is a place of its own, and so is its extract. Which cartridge is this image?
+      const placed = planCartridgeExtract(pd, crtAbs, output_dir, cart);
+      if (!placed.ok) return { content: [{ type: "text" as const, text: placed.refusal }] };
+      const outAbs = placed.outAbs;
+      const args = [crtAbs, outAbs];
       const result = await runCli("extract-crt", args, { projectDir: pd });
       if (result.exitCode === 0) {
         const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
@@ -106,6 +160,12 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         if (knowledgeRegistration.outputArtifacts?.[0]) {
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);
+            // Spec 909 D2: the cartridge exists (minted here at the first extract of its lineage) before a chip is filed.
+            const registered = knowledgeService.registerCartridges({
+              manifestIds: [knowledgeRegistration.outputArtifacts[0]],
+              ...(cart !== undefined && knowledgeRegistration.inputArtifacts?.[0] ? { named: { imageArtifactId: knowledgeRegistration.inputArtifacts[0], cart } } : {}),
+            });
+            for (const r of registered) result.stdout = (result.stdout || "CRT extraction complete.") + `\n${describeRegistered(r)}`;
             const imported = knowledgeService.importManifestArtifact(knowledgeRegistration.outputArtifacts[0]);
             result.stdout = (result.stdout || "CRT extraction complete.") + `\nImported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`;
             // Spec 752 L2 — auto-disasm + analyse every extracted payload.

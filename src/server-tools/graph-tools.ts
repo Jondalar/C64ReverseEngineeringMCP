@@ -31,6 +31,7 @@ function withGraph<T>(context: ServerToolContext, projectDir: string | undefined
 const REF = z.string().describe("A node reference: an id any graph tool returned, an address like \"$D018\" or \"bank:07:$8000\", or a name / symbol (CHROUT, VMCSB, print_string).");
 const PROJECT = z.string().optional().describe("Project root. Defaults to the session's project.");
 const BANK = z.number().int().nonnegative().optional().describe("Cartridge bank to narrow an address to.");
+const CART = z.string().optional().describe("Cartridge (its token, as project_status names it) to narrow to. Without it every cartridge answers and each hit names its own.");
 
 export function registerGraphTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -42,11 +43,12 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
       kind: z.enum(["routine", "label", "addr", "zp", "io", "rom", "ram", "subsystem", "run", "any"]).optional().describe("Node kind filter."),
       origin: z.enum(["human", "generated", "platform", "any"]).optional().describe("human = has a human row; generated = generated only; platform = the platform's own nodes."),
       bank: BANK,
+      cart: CART,
       limit: z.number().int().min(1).max(50).optional().describe("Max hits (default 10)."),
     },
-    safeHandler("graph_find", async ({ project_dir, query, kind, origin, bank, limit }) =>
+    safeHandler("graph_find", async ({ project_dir, query, kind, origin, bank, cart, limit }) =>
       withGraph(context, project_dir, (graph) => {
-        let nodes = resolveRef(graph, query, bank);
+        let nodes = resolveRef(graph, query, bank, cart);
         if (kind && kind !== "any") nodes = nodes.filter((n) => n.kind === kind);
         if (origin === "human") nodes = nodes.filter((n) => n.layers.includes("human"));
         else if (origin === "generated") nodes = nodes.filter((n) => !n.layers.includes("human") && !n.platform);
@@ -63,10 +65,10 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
   server.tool(
     "graph_node",
     "The card for one knowledge-graph node: kind, range, its generated label and its human name side by side, edge counts by type, the hardware / ROM / zero page it touches, and whether a trace run ever observed it. Use after graph_find to understand a routine or an address before reading its code. Not for walking the neighbourhood (use graph_edges) or for prose findings (use project_search). Inputs: ref, optional bank. Returns: the card plus a JSON block with next[] follow-up calls.",
-    { project_dir: PROJECT, ref: REF, bank: BANK },
-    safeHandler("graph_node", async ({ project_dir, ref, bank }) =>
+    { project_dir: PROJECT, ref: REF, bank: BANK, cart: CART },
+    safeHandler("graph_node", async ({ project_dir, ref, bank, cart }) =>
       withGraph(context, project_dir, (graph) => {
-        const nodes = resolveRef(graph, ref, bank);
+        const nodes = resolveRef(graph, ref, bank, cart);
         if (nodes.length === 0) return reply({ text: `no node for "${ref}"`, json: { ref, card: null } });
         if (nodes.length > 1) return reply({ ...formatFind(ref, nodes, 10), text: `"${ref}" is ambiguous — pick an id:\n${formatFind(ref, nodes, 10).text}` });
         return reply(formatNode(nodeCard(graph, nodes[0]!)));
@@ -85,11 +87,12 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
       origin: z.enum(["static", "runtime", "human", "any"]).optional().describe("Default any — static and runtime rows both, each labelled."),
       depth: z.number().int().min(1).max(2).optional().describe("1 or 2 hops (default 1)."),
       bank: BANK,
+      cart: CART,
       limit: z.number().int().min(1).max(200).optional().describe("Max edges (default 25)."),
     },
-    safeHandler("graph_edges", async ({ project_dir, ref, direction, kind, origin, depth, bank, limit }) =>
+    safeHandler("graph_edges", async ({ project_dir, ref, direction, kind, origin, depth, bank, cart, limit }) =>
       withGraph(context, project_dir, (graph) => {
-        const roots = resolveRef(graph, ref, bank);
+        const roots = resolveRef(graph, ref, bank, cart);
         if (roots.length === 0) return reply({ text: `no node for "${ref}"`, json: { ref, edges: [], total: 0, truncated: false } });
         return reply(formatEdges(edgesWalk(graph, roots, { direction, kind: kind as EdgeKind | undefined, origin, depth: depth as 1 | 2 | undefined, limit })));
       }),
@@ -106,11 +109,12 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
       via: z.enum(["calls", "calls+jumps", "any"]).optional().describe("Edge families to walk (default any control flow)."),
       max_depth: z.number().int().min(1).max(32).optional().describe("Default 8."),
       bank: BANK,
+      cart: CART,
     },
-    safeHandler("graph_path", async ({ project_dir, from, to, via, max_depth, bank }) =>
+    safeHandler("graph_path", async ({ project_dir, from, to, via, max_depth, bank, cart }) =>
       withGraph(context, project_dir, (graph) => {
-        const a = resolveRef(graph, from, bank)[0];
-        const b = resolveRef(graph, to, bank)[0];
+        const a = resolveRef(graph, from, bank, cart)[0];
+        const b = resolveRef(graph, to, bank, cart)[0];
         if (!a || !b) return reply({ text: `cannot resolve ${!a ? `from "${from}"` : `to "${to}"`}`, json: { from, to, paths: [], frontier: 0 } });
         return reply(formatPath(shortestPath(graph, a.id, b.id, via, max_depth)));
       }),

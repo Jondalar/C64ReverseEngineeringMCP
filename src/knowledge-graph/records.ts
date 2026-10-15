@@ -261,7 +261,7 @@ export class KnowledgeRecords {
 
   listEntities(filters?: EntityFilters): EntityRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
+      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'nodes' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -387,7 +387,7 @@ export class KnowledgeRecords {
       if (!a) return undefined;
       return this.entityFromProse(s, a, s.db.prepare("SELECT * FROM evidence WHERE target_table = 'annotations' AND target_key = ? ORDER BY captured_at DESC").all(a.id) as unknown as EvidenceRow[]);
     }
-    const rows = s.db.prepare("SELECT * FROM nodes WHERE id = ? AND kind NOT IN ('subsystem','run','anchor','candidate') ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END").all(id) as unknown as NodeRow[];
+    const rows = s.db.prepare("SELECT * FROM nodes WHERE id = ? AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge') ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END").all(id) as unknown as NodeRow[];
     if (rows.length === 0) return undefined;
     const evidence = s.db.prepare("SELECT * FROM evidence WHERE target_table = 'nodes' AND target_key = ? ORDER BY captured_at DESC, legacy_id").all(id) as unknown as EvidenceRow[];
     const summary = (s.db.prepare("SELECT body FROM annotations WHERE kind = 'entity' AND node_id = ? AND body IS NOT NULL ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1").get(id) as { body: string } | undefined)?.body;
@@ -1216,7 +1216,7 @@ export class KnowledgeRecords {
     return this.read((s) => {
       const q = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
       return {
-        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
+        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('822','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
         findings: q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'") + q("SELECT COUNT(*) AS n FROM claims"),
         relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('822','human') OR layer = 'human') AND evidence_key = '')"),
         openQuestions: q("SELECT COUNT(*) AS n FROM questions"),

@@ -72,16 +72,18 @@ function originMatches(e: EdgeHit, origin: OriginFilter | undefined): boolean {
 }
 
 /** A ref is an id, an address (`$D018`, `d018`, `bank:07:$8000`) or a name. */
-export function resolveRef(graph: Graph, ref: string, bank?: number): ResolvedNode[] {
+export function resolveRef(graph: Graph, ref: string, bank?: number, cart?: string): ResolvedNode[] {
   const text = ref.trim();
   const banked = text.match(/^bank:([0-9a-f]{1,4}):(\$?[0-9a-f]{1,4})$/iu);
-  if (banked) return graph.nodesAt({ address: parseInt(banked[2]!.replace("$", ""), 16), bank: parseInt(banked[1]!, 16) });
+  // Spec 909: a bank is a cartridge's. Without `cart` every cartridge answers, each hit naming its own.
+  if (banked) return graph.nodesAt({ address: parseInt(banked[2]!.replace("$", ""), 16), bank: parseInt(banked[1]!, 16), ...(cart !== undefined ? { cart } : {}) });
   if (text.includes(":")) {
     const n = graph.resolve(text);
     return n.dangling ? [] : [n];
   }
   let nodes = graph.find(text);
   if (bank !== undefined) nodes = nodes.filter((n) => n.bank === bank || n.platform);
+  if (cart !== undefined) nodes = nodes.filter((n) => n.cart === cart || n.platform);
   return nodes;
 }
 
@@ -140,6 +142,8 @@ export interface NodeCard {
   address: string;
   range: string | null;
   bank: number | null;
+  /** Spec 909 — the cartridge a cartridge-space node is in */
+  cart: string | null;
   owner: string | null;
   platform: boolean;
   dangling: boolean;
@@ -277,6 +281,7 @@ export function nodeCard(graph: Graph, node: ResolvedNode): NodeCard {
     address: hex(node.address),
     range: node.endAddress !== null && node.endAddress !== node.address ? `${hex(node.address)}-${hex(node.endAddress)}` : null,
     bank: node.bank,
+    cart: node.cart ?? null,
     owner: node.owner,
     platform: node.platform,
     dangling: node.dangling,
@@ -506,7 +511,7 @@ export interface Subgraph {
 }
 
 export interface SubgraphOptions {
-  /** `all` · `owner:<stem>` · `bank:<n>` · `subsystem:<id|name>` · `focus:<ref>` */
+  /** `all` · `owner:<stem>` · `bank:<n>` (that bank of every cartridge) · `cart:<token>[/<bank>]` · `subsystem:<id|name>` · `focus:<ref>` */
   scope?: string;
   /** with `focus:` — BFS hops, 1–4, default 2 */
   depth?: number;
@@ -531,6 +536,7 @@ interface StoreNode {
   end: number | null;
   owner: string | null;
   bank: number | null;
+  cart: string | null;
   label: string | null;
   name: string | null;
   layers: string[];
@@ -541,24 +547,24 @@ interface RawEdge { from: string; type: string; to: string; layer: string; origi
 /** byte order, not locale order — the body has to hash the same on every machine */
 const byString = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-function parseScope(scope: string): { kind: "all" | "owner" | "bank" | "subsystem" | "focus"; arg: string } {
+function parseScope(scope: string): { kind: "all" | "owner" | "bank" | "cart" | "subsystem" | "focus"; arg: string } {
   const text = scope.trim() || "all";
   if (text === "all") return { kind: "all", arg: "" };
-  const m = /^(owner|bank|subsystem|focus):(.+)$/su.exec(text);
-  if (!m) throw new Error(`scope "${scope}" is not all | owner:<stem> | bank:<n> | subsystem:<id> | focus:<ref>`);
-  return { kind: m[1] as "owner" | "bank" | "subsystem" | "focus", arg: m[2]!.trim() };
+  const m = /^(owner|bank|cart|subsystem|focus):(.+)$/su.exec(text);
+  if (!m) throw new Error(`scope "${scope}" is not all | owner:<stem> | bank:<n> (that bank of every cartridge) | cart:<token>[/<bank>] | subsystem:<id> | focus:<ref>`);
+  return { kind: m[1] as "owner" | "bank" | "cart" | "subsystem" | "focus", arg: m[2]!.trim() };
 }
 
 function readStoreNodes(graph: Graph): Map<string, StoreNode> {
-  const rows = graph.store.db.prepare("SELECT id, layer, kind, address, end_address, name, owner, bank FROM nodes ORDER BY id, layer").all() as Array<{
-    id: string; layer: string; kind: string; address: number; end_address: number | null; name: string | null; owner: string | null; bank: number | null;
+  const rows = graph.store.db.prepare("SELECT id, layer, kind, address, end_address, name, owner, bank, cart FROM nodes ORDER BY id, layer").all() as Array<{
+    id: string; layer: string; kind: string; address: number; end_address: number | null; name: string | null; owner: string | null; bank: number | null; cart: string | null;
   }>;
   const out = new Map<string, StoreNode>();
   for (const r of rows) {
     const cur = out.get(r.id);
     if (!cur) {
       out.set(r.id, {
-        kind: r.kind, address: r.address, end: r.end_address, owner: r.owner, bank: r.bank,
+        kind: r.kind, address: r.address, end: r.end_address, owner: r.owner, bank: r.bank, cart: r.cart,
         label: r.layer === "generated" ? r.name : null, name: r.layer === "human" ? r.name : null, layers: [r.layer],
       });
       continue;
@@ -620,6 +626,14 @@ export function subgraph(graph: Graph, options: SubgraphOptions = {}): Subgraph 
     const bank = /^(?:\$|0x)/iu.test(scope.arg) ? parseInt(scope.arg.replace(/^(?:\$|0x)/iu, ""), 16) : Number.parseInt(scope.arg, 10);
     if (!Number.isInteger(bank)) throw new Error(`bank "${scope.arg}" is not a number ($07, 0x07 or 7)`);
     for (const [id, n] of store) if (n.bank === bank) core.add(id);
+  } else if (scope.kind === "cart") {
+    // Spec 909: one cartridge — `cart:<token>` all of it, `cart:<token>/<bank>` one of its banks
+    const [token, bankText] = scope.arg.split("/");
+    const bank = bankText === undefined ? undefined : /^(?:\$|0x)/iu.test(bankText) ? parseInt(bankText.replace(/^(?:\$|0x)/iu, ""), 16) : Number.parseInt(bankText, 10);
+    if (!token) throw new Error("cart: needs a cartridge token (project_status lists them)");
+    if (bank !== undefined && !Number.isInteger(bank)) throw new Error(`bank "${bankText}" is not a number ($07, 0x07 or 7)`);
+    for (const [id, n] of store) if (n.cart === token && (bank === undefined || n.bank === bank)) core.add(id);
+    if (core.size === 0) throw new SubgraphNotFound(`no cartridge "${token}"${bank !== undefined ? ` bank ${bank}` : ""} in the graph`);
   } else if (scope.kind === "subsystem") {
     const wanted = [...store.entries()].filter(([id, n]) => n.kind === "subsystem" && (id === scope.arg || n.name === scope.arg || id.endsWith(`:sub:${scope.arg}`))).map(([id]) => id);
     if (wanted.length === 0) throw new SubgraphNotFound(`no subsystem "${scope.arg}" — assign-subsystem is the door (822)`);

@@ -6,8 +6,20 @@
 // dangling is a query result, not a constraint violation. `kind` and `type`
 // carry no CHECK because later slices append values; schema_version gates
 // readers.
+//
+// Version 2 (Spec 909): a cartridge bank lives inside a cartridge. `crt/<cart>/<bank>`
+// replaces `crt/<bank>`, and `nodes.cart` is the cartridge token read out of the id. A
+// version-1 reader cannot parse the new ids, so it must refuse the file, not misread it.
 
-export const GRAPH_SCHEMA_VERSION = 1;
+export const GRAPH_SCHEMA_VERSION = 2;
+
+/**
+ * The cartridge token out of a node id, as a virtual column: `<slug>:crt/<cart>/<bank>:...` and
+ * `<slug>:crt/<cart>:cartridge` both give `<cart>`. Derived from the id and never written, so it
+ * cannot drift from it. A pre-909 id (`crt/<bank>`) reads as its bank here; the migration finds
+ * those by shape and renames them, after which no id does.
+ */
+export const CART_COLUMN_EXPR = "CASE WHEN space = 'crt' THEN substr(substr(id, instr(id, ':crt/') + 5), 1, min(instr(substr(id, instr(id, ':crt/') + 5) || '/', '/'), instr(substr(id, instr(id, ':crt/') + 5) || ':', ':')) - 1) END";
 
 export const ORIGINS = ["static", "runtime", "user", "imported"] as const;
 export const CONFIDENCES = ["certain", "inferred", "observed", "heuristic", "user_asserted"] as const;
@@ -34,6 +46,8 @@ export interface NodeRow {
   confidence: Confidence;
   producer: string;
   evidence: string; // JSON array
+  /** Spec 909 — read out of `id` by the table itself (CART_COLUMN_EXPR); never written */
+  cart?: string | null;
 }
 
 export interface EdgeRow {
@@ -68,12 +82,14 @@ CREATE TABLE IF NOT EXISTS nodes (
   confidence   TEXT    NOT NULL CHECK (confidence IN ('certain','inferred','observed','heuristic','user_asserted')),
   producer     TEXT    NOT NULL,
   evidence     TEXT    NOT NULL DEFAULT '[]',
+  cart         TEXT GENERATED ALWAYS AS (${CART_COLUMN_EXPR}) VIRTUAL,
   PRIMARY KEY (id, layer)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS nodes_address ON nodes (address, space);
 CREATE INDEX IF NOT EXISTS nodes_owner   ON nodes (owner, kind);
 CREATE INDEX IF NOT EXISTS nodes_name    ON nodes (name);
 CREATE INDEX IF NOT EXISTS nodes_producer ON nodes (producer, run_owner, layer);
+CREATE INDEX IF NOT EXISTS nodes_cart    ON nodes (cart, bank, address);
 
 CREATE TABLE IF NOT EXISTS edges (
   from_id      TEXT    NOT NULL,

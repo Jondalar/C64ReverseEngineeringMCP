@@ -4,14 +4,15 @@
 // at $DE00 is EasyFlash's bank register on one board and GMod2's EEPROM/bank control on another.
 // The type is not guessed from bytes — the .crt header carries it at offset $16, and
 // `extract_crt` writes it into the manifest (`header.hardwareType`). This module answers "what
-// type does the project have recorded for THESE bytes", in three steps, strongest first:
+// type does the project have recorded for THESE bytes", strongest first:
 //
-//   1. lineage — the bytes' artifact descends from a cartridge image or manifest;
-//   2. place   — the file sits under the directory a manifest was extracted into;
-//   3. project — every cartridge the project holds is one type, so the bytes can only be that.
+//   0. cartridge — the cartridge named in the node's id (Spec 909) records its own type;
+//   1. lineage   — the bytes' artifact descends from a cartridge image or manifest;
+//   2. place     — the file sits under the directory a manifest was extracted into;
+//   3. project   — every cartridge the project holds is one type, so the bytes can only be that.
 //
-// Several types in one project and none of the first two: unknown, and the caller names the
-// window neutrally rather than pick one.
+// Steps 1-3 are for bytes outside the graph. Several types in one project and none of the first
+// three: unknown, and the caller names the window neutrally rather than pick one.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, sep } from "node:path";
@@ -61,7 +62,10 @@ const isCartridgeRecord = (a: ArtifactLike): boolean => a.role === "crt-manifest
 // been synced since; once it has, the role alone decides.
 const isManifestFile = (a: ArtifactLike): boolean => a.role === "crt-manifest" || /(^|[\\/])manifest\.json$/iu.test(a.path);
 
-export function cartridgeTypeFor(artifacts: ArtifactLike[], sourceAbs: string, sourceArtifactId?: string): CartridgeTypeHit | undefined {
+export function cartridgeTypeFor(artifacts: ArtifactLike[], sourceAbs: string, sourceArtifactId?: string, cartridge?: { cart: string; hardwareType?: number }): CartridgeTypeHit | undefined {
+  // 0. the cartridge in the node's own id (Spec 909): the type is a fact about THAT cartridge, whatever else the
+  //    project holds and whether or not these bytes still carry their lineage.
+  if (cartridge?.hardwareType !== undefined) return { hardwareType: cartridge.hardwareType, via: `cartridge ${cartridge.cart}` };
   const byId = new Map(artifacts.map((a) => [a.id, a]));
   const hit = (a: ArtifactLike, how: string): CartridgeTypeHit | undefined => {
     const hardwareType = typeOf(a);

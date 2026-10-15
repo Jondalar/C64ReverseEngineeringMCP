@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartOfArtifact, describeCartridge } from "../knowledge-graph/cartridges.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
@@ -509,14 +511,23 @@ export function registerInspectRangeTools(server: McpServer, context: ServerTool
       analysis_json: z.string().optional().describe("Optional override path to the analysis JSON. Defaults to <prg-dir>/<stem>_analysis.json or analysis/<stem>_analysis.json."),
       start_address: z.string().describe("Hex C64 start address, e.g. \"C000\"."),
       end_address: z.string().describe("Hex C64 end address (inclusive), e.g. \"DF40\"."),
+      cart: z.string().optional().describe("The cartridge (its token, as project_status names it) these bytes must belong to. The report says which cartridge the file came from; with cart given, a file from another cartridge (or none) is refused instead of answered."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("The machine the PRG runs on: which I/O window the register stores are read from and whose names they carry (an address the platform store has no row for is reported as such, never given a C64 name). Resolved in order: this argument, the file's artifact record, the project default, c64."),
     },
-    async ({ project_dir, prg_path, analysis_json, start_address, end_address, platform }) => {
+    async ({ project_dir, prg_path, analysis_json, start_address, end_address, cart, platform }) => {
       try {
         const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, true);
         const prgAbs = resolve(pd, prg_path);
-        let row: { platform?: string } | undefined;
-        try { row = new ProjectKnowledgeService(pd).listArtifacts().find((art) => art.path === prgAbs); } catch { /* best effort */ }
+        let row: { id?: string; platform?: string } | undefined;
+        let artifacts: ReturnType<ProjectKnowledgeService["listArtifacts"]> = [];
+        try { artifacts = new ProjectKnowledgeService(pd).listArtifacts(); row = artifacts.find((art) => art.path === prgAbs); } catch { /* best effort */ }
+        // Spec 909: which cartridge are these bytes from?
+        const carts = projectCartridges(pd);
+        const fromCart = cartOfArtifact(artifacts, carts, row?.id, prgAbs);
+        if (cart !== undefined && fromCart?.cart !== cart) {
+          const where = fromCart ? `cartridge ${describeCartridge(fromCart)}` : "no cartridge";
+          return { content: [{ type: "text" as const, text: `inspect_address_range refused: ${basename(prgAbs)} is from ${where}, not ${cart}. The project holds: ${carts.length === 0 ? "no cartridge" : carts.map(describeCartridge).join("; ")}.` }] };
+        }
         const machine = resolvePlatform({ projectDir: pd, explicit: platform, artifactPlatform: row?.platform });
         const analysisAbs = analysis_json ? resolve(pd, analysis_json) : undefined;
         const text = buildReport({
@@ -527,7 +538,7 @@ export function registerInspectRangeTools(server: McpServer, context: ServerTool
           projectDir: pd,
           platform: machine.platform,
         });
-        return { content: [{ type: "text" as const, text }] };
+        return { content: [{ type: "text" as const, text: fromCart ? `Cartridge: ${describeCartridge(fromCart)}\n${text}` : text }] };
       } catch (error) {
         return context.cliResultToContent({
           stdout: "",

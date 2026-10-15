@@ -14,6 +14,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
+import { cartOfArtifact } from "../knowledge-graph/cartridges.js";
+import { parseId } from "../knowledge-graph/ids.js";
 import { runPayloadReverseWorkflow, type PrgReverseWorkflowResult, type WorkflowMode } from "./prg-workflow.js";
 
 /**
@@ -37,7 +40,16 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
     let manifest: { files?: Array<{ relativePath?: string; type?: string; format?: string; loadAddress?: number; name?: string }>; chips?: Array<{ file?: string; bank?: number; load_address?: number }> };
     try { manifest = JSON.parse(readFileSync(manifestArt.path, "utf8")); } catch { return 0; }
     const outputDir = dirname(manifestArt.path);
-    const entities = service.listEntities();
+    // Spec 909: this manifest is ONE cartridge's. A chip is matched among that cartridge's own chips only — a bank 0
+    // chip of another cartridge with the same bytes (or the same address) is not this manifest's chip.
+    const ownCart = cartOfArtifact(artifacts, projectCartridges(projectRoot), manifestArtifactId)?.cart;
+    const cartOfEntity = (id: string): string | undefined => {
+      try { const p = parseId(id); return p.form === "project" && p.ctx.space === "crt" ? p.ctx.cart : undefined; } catch { return undefined; }
+    };
+    const entities = service.listEntities().filter((e) => {
+      const c = cartOfEntity(e.id);
+      return c === undefined || c === ownCart;
+    });
     const isManifestId = (id: string | undefined) => id === manifestArtifactId;
     let linked = 0;
 
@@ -66,6 +78,8 @@ export function linkExtractedPayloadFiles(projectRoot: string, manifestArtifactI
         path: filePath,
         role: "source-prg",
         internal: false,
+        // the extract it came out of — and through it the cartridge image it came from (Spec 909: how a node knows its cartridge)
+        sourceArtifactIds: [manifestArtifactId],
       });
       service.saveEntity({
         id: ent.id,

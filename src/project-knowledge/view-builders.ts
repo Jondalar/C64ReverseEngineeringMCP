@@ -4,6 +4,7 @@ import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFil
 import { decodeGCRTrack } from "../disk/gcr.js";
 import { classifyArtifactInternal } from "./service.js";
 import { deriveCartridgeIdentity } from "./cartridge-identity.js";
+import type { CartridgeRecord } from "../knowledge-graph/cartridges.js";
 import { loadEffectiveSegments, overlayCovering, type AnnotationSegmentOverlay } from "./effective-segments.js";
 import { partitionQuestions } from "./question-triage.js";
 import { mapSegmentKindToEntityKind } from "./analysis-import.js";
@@ -84,6 +85,8 @@ interface ViewBuildContext {
   checkpoints: ProjectCheckpoint[];
   /** Spec 750.2 — the tables this project has described. */
   lutDescriptors?: LutDescriptor[];
+  /** Spec 909 — the cartridges of the project graph: the token, type and role each manifest's layout is headed with. */
+  cartridges?: CartridgeRecord[];
 }
 
 function nowIso(): string {
@@ -2106,6 +2109,13 @@ function edgesForPayload(
   return { loadedBy: pick("loads"), writtenBy: pick("writes") };
 }
 
+/** Spec 909 D5 — the cartridge a manifest's layout belongs to, with the type and the role it has in this project. */
+function cartridgeHeader(context: ViewBuildContext, manifestArtifactId: string): Record<string, unknown> {
+  const rec = context.cartridges?.find((c) => c.manifestArtifactIds.includes(manifestArtifactId));
+  if (!rec) return {};
+  return { cart: rec.cart, role: rec.role, roleDeclared: rec.roleDeclared, cartridgeType: rec.typeName };
+}
+
 export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLayoutView {
   const cartridges = context.artifacts
     .filter((artifact) => artifact.role === "crt-manifest")
@@ -2301,6 +2311,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         spanClasses: summariseSpanClasses(lutChunks, payloadChunks, segments, emptyRegions),
         // Spec 785 A4 — what image this layout actually describes, checked
         // against the cartridge-image artifact it was derived from.
+        ...cartridgeHeader(context, artifact.id),
         identity: deriveCartridgeIdentity({
           manifestArtifact: artifact,
           artifacts: context.artifacts,
