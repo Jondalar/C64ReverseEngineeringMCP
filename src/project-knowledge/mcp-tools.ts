@@ -418,7 +418,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       derived_from: z.string().optional().describe("Artifact id of the direct parent in the lineage chain (V0 if absent)."),
       version_label: z.string().optional().describe("Free-form version label. Defaults to V<rank>."),
       enable_snapshot: z.boolean().optional().describe("If true (default), record same-path content changes in versions[]. Set false for ephemeral saves."),
-      platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Spec 020 platform marker: the machine this file runs on. Absent = the project's default platform (c64 unless project_init set one). Read by disasm, analyze, inspect_address_range and c64ref_lookup."),
+      platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Platform marker: the machine this file runs on. Absent = the project's default platform (c64 unless project_init set one). Read by disasm, analyze, inspect_address_range and c64ref_lookup."),
     },
     safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot, platform }) => {
       const root = resolveWorkspaceRoot(options, project_dir);
@@ -465,7 +465,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "snapshot_artifact_before_overwrite",
-    "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
+    "Snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -488,7 +488,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "rename_artifact_version",
-    "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
+    "Change an artifact's free-form versionLabel without touching bytes or hash.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -525,7 +525,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "register_container_entry",
-    "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
+    "Declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -573,7 +573,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // autoCloseHint is satisfied. Also runs in agent_onboard.
   server.tool(
     "close_completed_tasks",
-    "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
+    "Walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
     { project_dir: z.string().optional() },
     safeHandler("close_completed_tasks", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -585,7 +585,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 032 R24: build pipelines.
   server.tool(
     "save_build_pipeline",
-    "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
+    "Define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -628,7 +628,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_build_pipelines",
-    "Spec 032: list registered build pipelines.",
+    "List registered build pipelines.",
     { project_dir: z.string().optional() },
     safeHandler("list_build_pipelines", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -640,7 +640,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "start_build_run",
-    "Spec 032: start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
+    "Start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
     {
       project_dir: z.string().optional(),
       pipeline_id: z.string(),
@@ -664,7 +664,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "run_build_pipeline",
-    "Spec 032 follow-up: orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
+    "Orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
     {
       project_dir: z.string().optional(),
       pipeline_id: z.string(),
@@ -694,7 +694,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "record_build_step_result",
-    "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
+    "Record the outcome of a single build step (status + exit code + actual output hashes).",
     {
       project_dir: z.string().optional(),
       run_id: z.string(),
@@ -732,7 +732,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 030 R20: runtime scenarios + diff.
   server.tool(
     "define_runtime_scenario",
-    "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
+    "Define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -766,7 +766,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_runtime_scenarios",
-    "Spec 030: list defined scenarios.",
+    "List defined scenarios.",
     { project_dir: z.string().optional() },
     safeHandler("list_runtime_scenarios", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -778,7 +778,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "record_runtime_event_summary",
-    "Spec 030: persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
+    "Persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
     {
       project_dir: z.string().optional(),
       run_id: z.string().optional(),
@@ -820,7 +820,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "diff_scenario_runs",
-    "Spec 030: diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
+    "Diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
     {
       project_dir: z.string().optional(),
       baseline_run_id: z.string(),
@@ -853,7 +853,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // producer fix that populates top-level addressRange.
   server.tool(
     "backfill_finding_address_ranges",
-    "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+    "Walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
     { project_dir: z.string().optional() },
     safeHandler("backfill_finding_address_ranges", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -866,7 +866,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // producer fix populating addressRange (inherited from parent finding).
   server.tool(
     "backfill_question_address_ranges",
-    "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+    "Walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
     { project_dir: z.string().optional() },
     safeHandler("backfill_question_address_ranges", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -879,7 +879,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // artifacts + entities. Re-runs the path/role/kind heuristic.
   server.tool(
     "backfill_internal_flags",
-    "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
+    "Walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -908,7 +908,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // entities whose source artifact is directly-linked (NOT a manifest).
   server.tool(
     "backfill_payload_content_hashes",
-    "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
+    "Walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -938,7 +938,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // manifest-sourced entities by re-parsing manifest artifacts.
   server.tool(
     "backfill_manifest_payload_hashes",
-    "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
+    "Walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -969,7 +969,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // record per path with reference remap across all knowledge stores.
   server.tool(
     "dedupe_artifact_registry",
-    "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+    "Collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -1003,7 +1003,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // manifest-source entities internal=true.
   server.tool(
     "dedupe_payload_entities",
-    "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+    "Collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -1035,11 +1035,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 053 (Bug 20): phase-1 noise archive + segment confirmation.
   server.tool(
     "archive_phase1_noise",
-    "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Spec 056 R27: pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
+    "Walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
-      artifact_id: z.string().optional().describe("Spec 056 R27: scope the sweep to this artifact only."),
+      artifact_id: z.string().optional().describe("Scope the sweep to this artifact only."),
     },
     safeHandler("archive_phase1_noise", async ({ project_dir, dry_run, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1064,7 +1064,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "mark_segment_confirmed",
-    "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
+    "Mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string().describe("Source PRG/raw artifact id whose analysis JSON contains the segment."),
@@ -1095,7 +1095,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 053 / Bug 21: companion to mark_segment_confirmed.
   server.tool(
     "mark_segment_rejected",
-    "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
+    "Mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1126,7 +1126,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 052: question auto-resolution.
   server.tool(
     "propose_question_resolutions",
-    "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
+    "Read-only proposal — list what the resolver would do for open auto-resolvable questions (the finding-overlap rule and the phase-reached rule). Useful before flipping projectProfile.questionAutoResolveMode.",
     { project_dir: z.string().optional() },
     safeHandler("propose_question_resolutions", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1141,10 +1141,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "auto_resolve_questions",
-    "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
+    "Run the catch-up sweep across all auto-resolvable questions (finding-overlap and phase-reached rules; saving an annotation runs a third rule on its own). Returns counts. Pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
     {
       project_dir: z.string().optional(),
-      artifact_id: z.string().optional().describe("Spec 056 R27: scope the sweep to this artifact (only questions/findings linked to it are considered)."),
+      artifact_id: z.string().optional().describe("Scope the sweep to this artifact (only questions/findings linked to it are considered)."),
     },
     safeHandler("auto_resolve_questions", async ({ project_dir, artifact_id }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1156,7 +1156,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "confirm_question_resolution",
-    "Spec 052: confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
+    "Confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
     {
       project_dir: z.string().optional(),
       question_id: z.string(),
@@ -1204,7 +1204,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 041: relevance ranking.
   server.tool(
     "set_artifact_relevance",
-    "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
+    "Tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1227,7 +1227,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "auto_tag_relevance",
-    "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
+    "Heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
@@ -1259,7 +1259,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 034 / 035: phase orchestration tools.
   server.tool(
     "agent_advance_phase",
-    "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward. An artifact whose analysis found a split low/high table in confirmed code that no splitTables[] entry has declared or rejected is REFUSED past phase 5, whatever the project profile says; the refusal lists the open tables and how to close each.",
+    "Advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward. An artifact whose analysis found a split low/high table in confirmed code that no splitTables[] entry has declared or rejected is REFUSED past phase 5, whatever the project profile says; the refusal lists the open tables and how to close each.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1289,7 +1289,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "agent_freeze_artifact",
-    "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
+    "Freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -1313,7 +1313,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 026 project profile.
   server.tool(
     "save_project_profile",
-    "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
+    "Persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
     {
       project_dir: z.string().optional(),
       goals: z.array(z.string()).optional(),
@@ -1364,7 +1364,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 031 anti-patterns + doc render.
   server.tool(
     "save_anti_pattern",
-    "Spec 031: record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
+    "Record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1393,7 +1393,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_anti_patterns",
-    "Spec 031: list registered anti-patterns sorted by recency.",
+    "List registered anti-patterns sorted by recency.",
     { project_dir: z.string().optional() },
     safeHandler("list_anti_patterns", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1426,7 +1426,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 027 patch recipes.
   server.tool(
     "save_patch_recipe",
-    "Spec 027: persist a binary patch recipe with byte-level assertions. Status starts at draft.",
+    "Persist a binary patch recipe with byte-level assertions. Status starts at draft.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1463,7 +1463,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "apply_patch_recipe",
-    "Spec 027: apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes via Spec 025 versioning.",
+    "Apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes through artifact versioning.",
     {
       project_dir: z.string().optional(),
       recipe_id: z.string(),
@@ -1488,7 +1488,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_patch_recipes",
-    "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
+    "List patch recipes (optionally filtered by status or target artifact).",
     {
       project_dir: z.string().optional(),
       status: z.enum(["draft", "applied", "verified", "reverted", "failed"]).optional(),
@@ -1505,7 +1505,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 029 constraints.
   server.tool(
     "register_resource_region",
-    "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
+    "Declare a memory / cart / IO resource region for the constraint checker.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1527,7 +1527,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "register_operation",
-    "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
+    "Declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1546,7 +1546,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "register_constraint",
-    "Spec 029: declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
+    "Declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1573,7 +1573,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "verify_constraints",
-    "Spec 029: run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
+    "Run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
     { project_dir: z.string().optional() },
     safeHandler("verify_constraints", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -1585,7 +1585,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "register_load_context",
-    "Spec 023: register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
+    "Register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string(),
@@ -2073,7 +2073,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "record_loader_event",
-    "Spec 028: persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for VICE-observed events. Used by Spec 030 scenario diff.",
+    "Persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for runtime-observed events. Used by the scenario diff.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -2114,7 +2114,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_loader_events",
-    "Spec 028: list recorded loader events. Filter by scenario_id or loader_entry_point_id.",
+    "List recorded loader events. Filter by scenario_id or loader_entry_point_id.",
     {
       project_dir: z.string().optional(),
       scenario_id: z.string().optional(),
@@ -2135,7 +2135,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_container_entries",
-    "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
+    "List container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
     {
       project_dir: z.string().optional(),
       parent_artifact_id: z.string().optional(),
@@ -2457,8 +2457,8 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       entity_ids: z.array(z.string()).optional(),
       artifact_ids: z.array(z.string()).optional(),
       finding_ids: z.array(z.string()).optional(),
-      source: z.enum(["heuristic-phase1", "human-review", "runtime-observation", "static-analysis", "other", "untagged"]).optional().describe("Spec 036 provenance. Default human-review when called manually."),
-      auto_resolvable: z.boolean().optional().describe("Spec 036: if true, the next disasm pass / phase advance should answer this."),
+      source: z.enum(["heuristic-phase1", "human-review", "runtime-observation", "static-analysis", "other", "untagged"]).optional().describe("Provenance. Default human-review when called manually."),
+      auto_resolvable: z.boolean().optional().describe("If true, the next disasm pass / phase advance should answer this."),
       auto_resolve_hint: z.string().optional().describe("Free-form note describing when this question becomes resolvable."),
       answered_by_finding_id: z.string().optional(),
       answer_summary: z.string().optional(),

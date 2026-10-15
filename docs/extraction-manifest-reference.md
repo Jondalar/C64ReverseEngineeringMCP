@@ -1,4 +1,4 @@
-# Spec 784 — loader-extraction manifest reference
+# Loader-extraction manifest reference
 
 The **manifest** is the contract between a per-project extractor (any language) and
 C64RE's bulk registration. You author the extractor from the *annotated* loader
@@ -11,9 +11,9 @@ first), then the extractor emits this JSON. Two tools consume it:
   the REAL loader physically read) to catch a wrong static interpretation
   (the Accolade/Wasteland bug class). Both media: sector spans against `BLOCK_READ`
   (the `drive-mechanism` domain), cart slot spans against `CART_READ` (the `cart-read`
-  domain, Spec 785).
+  domain).
 
-> **What a read-set proves — Spec 785 §2.1.** It proves **used in the run you
+> **What a read-set proves.** It proves **used in the run you
 > captured**, and it never proves unused. A run that stopped at the title screen says
 > nothing about the bank level 90 needs. So a span the run did not touch is reported
 > *not seen in that run* and never fails the verdict; what fails is a span the run
@@ -44,7 +44,7 @@ followed through the pulls from `$0100`-`$01FF` in the capture (TRX64 0.13.2 and
 record them). On a capture without them the buffers are listed as unfollowed and the
 answer says that the pulls were not recorded: where they went is not in that capture.
 
-`extract_disk` auto-emits this shape for the stock-DOS layer as `manifest.spec784.json`
+`extract_disk` auto-emits this shape for the stock-DOS layer as `extraction-manifest.json` (the name older projects hold is still read)
 (LoaderModel `kernal-directory`). For the custom-loader stage you author it yourself.
 
 ## Shape
@@ -122,9 +122,9 @@ A span is a discriminated union on `kind`:
   - `track` >= 1, `sector` >= 0, `length` = DATA bytes used in this block (254 for a full
     CBM sector, the remainder for the last). `offsetInSector` default 0. `image`
     overrides `sourceImage` for a cross-medium span.
-- **`slot`** (cartridge, Spec 785): `{ kind:"slot", bank, slot, offsetInBank, length, image? }`
+- **`slot`** (cartridge): `{ kind:"slot", bank, slot, offsetInBank, length, image? }`
   - `slot` ∈ `ROML | ROMH | ULTIMAX_ROMH | EEPROM | OTHER`. Cart slot spans are
-    validated by Spec 785 (bank lane), NOT by `validate_extraction`.
+    validated by the cartridge bank lane, NOT by `validate_extraction`.
 
 ## Rules the validator enforces
 

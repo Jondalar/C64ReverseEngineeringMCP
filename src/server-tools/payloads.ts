@@ -250,7 +250,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "register_payloads_from_manifest",
-    "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/spec784-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (manifest.spec784.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
+    "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/extraction-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (extraction-manifest.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
     {
       project_dir: z.string().optional(),
       manifest_path: z.string().describe("Path (relative to the project) to the extractor manifest JSON."),
@@ -272,8 +272,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         throw new Error(
           `invalid manifest:\n- ${result.errors.join("\n- ")}\n\n` +
           `Shape: { manifestVersion:1, extractor, loaderModels[{id,kind}], payloads[{name, derivedBy=<a loaderModels[].id>, spans[{kind:"sector",track,sector,length}] }] }.\n` +
-          `Full field reference + a worked example: docs/spec784-manifest-reference.md. ` +
-          `extract_disk auto-emits this shape for the stock-DOS layer as manifest.spec784.json.`,
+          `Full field reference + a worked example: docs/extraction-manifest-reference.md. ` +
+          `extract_disk auto-emits this shape for the stock-DOS layer as extraction-manifest.json.`,
         );
       }
       const manifest = result.manifest;

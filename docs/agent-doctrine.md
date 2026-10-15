@@ -51,7 +51,7 @@ Your first responsibility is **not** to answer quickly. Your first responsibilit
 
 ---
 
-## 0.5 Extract-first grounding (read first — Spec 752)
+## 0.5 Extract-first grounding (read first)
 
 This is how we work. Two laws, never bent:
 
@@ -111,7 +111,7 @@ RE-depth activity that legitimately runs inside Discovery; payload RE
 the LUT — the block→payload model stays medium-uniform; this is Discovery
 start-order, not a BAM branch.)
 
-**Then validate the extraction — don't trust it (Spec 784).** Once the loader is
+**Then validate the extraction — don't trust it.** Once the loader is
 annotated, author a small per-project extractor that emits a manifest (full
 medium_spans + derivedBy) — the fast bulk path over N disks. Trace-validate it
 against the real loader with a loader-lens capture: `runtime_trace_start` domains
@@ -147,10 +147,10 @@ Durable knowledge has two surfaces:
 2. **Wiki synthesis** for human/LLM-readable project understanding:
    Markdown in any `docs/` directory (at any depth), any document `doc_register`
    declared (wherever it lives in the project), `docs/index.md`, and
-   `knowledge/activity-log.md` (Spec 740.1, 847).
+   `knowledge/activity-log.md`.
 
-No tool writes the wiki for you, and none is coming: Spec 847 answered 740.2 by
-making documents declare themselves. Update Markdown deliberately as part of the
+No tool writes the wiki for you, and none is coming: the answer is
+documents that declare themselves. Update Markdown deliberately as part of the
 step when the result is durable project knowledge, give a synthesis document its
 frontmatter (`doc_template`), and declare it with `doc_register` — that makes it a
 graph node that can be cited, linted and found by its covered address range.
@@ -169,7 +169,7 @@ Minimum persistence contract after a substantive step:
 
 Nothing needs running afterwards for the search: `project_search` and
 `project_find_related` rebuild their index when the graph, a document or a
-listing changed since it was built, and say so in their first line (Spec 740.3).
+listing changed since it was built, and say so in their first line.
 Named routines and labels, model boundaries and declared documents are found as
 themselves.
 
@@ -185,15 +185,15 @@ is *described*, `project_search` / `project_find_related`.
 
 For a *calling-convention* question — what does this routine take in A / X / Y,
 which zero-page cells are its parameters, what is its return status, which values
-does the mode byte take — read the routine's card (`graph_node`): since Spec 826
-it carries the computed `signature` (in / out / clobbers / preserves / stack, and
+does the mode byte take — read the routine's card (`graph_node`): it
+carries the computed `signature` (in / out / clobbers / preserves / stack, and
 `partial` with the site when a callee is unknown) and the `args` domain across
 every caller (`A ∈ {$01, $02, $03}`, static and runtime-observed). A signature is
 computed from the code, not asserted: it over-approximates inputs on
 path-insensitive joins and says so per location. Name what a value *means*
 through `annotate` (`kind: "abi"`) or `routines[].abi` in the annotations file;
 the human line is printed beside the computed one, never merged. Do not answer an
-ABI question from the transport edges alone — that is the mistake Spec 826 exists
+ABI question from the transport edges alone — that is the mistake the computed signature exists
 to prevent.
 
 ### 1.1. There is exactly one runtime
@@ -276,7 +276,7 @@ The persistent state lives in:
 
 - `knowledge/project.json`
 - `knowledge/graph.sqlite` — findings, entities, relations, open questions, user labels
-  (Spec 822.2: the knowledge graph is the store; `save_*` / `list_*` read and write it,
+  (The knowledge graph is the store; `save_*` / `list_*` read and write it,
   and `graph_*` walks it)
 - `knowledge/flows.json`
 - `knowledge/tasks.json`
@@ -332,7 +332,7 @@ If knowledge files are missing, initialize the project with `project_init`. If a
 
 ---
 
-## 2.5 What this project owes, and what will tell you (Specs 844-849)
+## 2.5 What this project owes, and what will tell you
 
 `agent_onboard` returns the **project contract** first, ahead of the model and the
 findings. It states what the human expects delivered — which of the fifteen standard
@@ -669,7 +669,7 @@ Two loops coexist — use either:
 - **Prose loop** (the rest of this doc): `agent_onboard` → `agent_propose_next`
   (ranked suggestions) → do the work → `agent_record_step` → `c64re_whats_next`.
   Judgment-led.
-- **Deterministic step orchestrator** (Spec 730.4): `agent_next_step` returns the ONE
+- **Deterministic step orchestrator**: `agent_next_step` returns the ONE
   next step (id, actor, tool, branches, `blockedBy`, `doNotCall`, machine-readable JSON)
   from the typed **15-step** table in `src/agent-orchestrator/workflow-model.ts`
   (`C64RE_WORKFLOW_STEPS`; actors `mcp | llm | human | runtime`; `project-init` …

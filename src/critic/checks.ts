@@ -66,12 +66,12 @@ export const CHECKS: readonly CheckDef[] = [
     severity: "important",
     finds: "a finding asserting something with no evidence and no address range",
     settleBy: "attach the listing line, address range or run that establishes it, or delete it",
-    because: "The cheap record. Spec 844's ratchet counts records and cannot tell this from work; this check can.",
+    because: "The cheap record. The runtime-call ratchet counts records and cannot tell this from work; this check can.",
   },
   {
     id: "overlapping-boundaries",
     severity: "important",
-    finds: "two Spec 845 boundaries at the same level claiming the same bytes",
+    finds: "two model boundaries at the same level claiming the same bytes",
     settleBy: "narrow one boundary, or demote the inner one to `component`",
   },
   {
@@ -91,14 +91,14 @@ export const CHECKS: readonly CheckDef[] = [
     severity: "important",
     finds: "a document citation (`amends:`) naming a document that is not in this project",
     settleBy: "register the cited document (doc_register), or correct the name",
-    because: "Spec 847 D5. Ultima VI holds six refutations that each name a document, and not one of those names resolves to anything — the correction exists and cannot be followed.",
+    because: "Ultima VI holds six refutations that each name a document, and not one of those names resolves to anything — the correction exists and cannot be followed.",
   },
   {
     id: "stale-render",
     severity: "important",
     finds: "a generated document whose recorded record counts no longer match the graph",
     settleBy: "re-run render_docs, or delete the render if nobody reads it",
-    because: "Spec 847 D4. Ultima VI's FINDINGS.md renders 19 of that project's 41 findings, is three days old, and says nothing about either number — and the search index serves it alongside the live record.",
+    because: "Ultima VI's FINDINGS.md renders 19 of that project's 41 findings, is three days old, and says nothing about either number — and the search index serves it alongside the live record.",
   },
   {
     id: "unreachable-routine",

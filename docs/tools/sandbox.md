@@ -10,7 +10,7 @@ opcode behaves here exactly as it does anywhere else — there is no second
 implementation to disagree with.
 
 This paragraph used to describe a TypeScript CPU at `src/sandbox/cpu6502.ts`.
-That file went with the in-repo emulator (Spec 806) and the doc kept pointing at
+That file went with the in-repo emulator and the doc kept pointing at
 it for months, which is the failure mode a tools page has: nobody re-reads the
 first paragraph.
 
@@ -24,7 +24,7 @@ stays — is documented in `docs/tools/headless.md` and `docs/runtime-sandbox.md
 |---|---|
 | `sandbox_6502_run` | Load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. |
 
-## Project resolution (Spec 833 D5, Spec 834)
+## Project resolution
 
 Relative paths — `loads[].prg_path`, `loads[].raw_path`, `input_stream_path`,
 `output_path` — resolve against the project root, and the root is found the same
@@ -35,7 +35,7 @@ The tool used to pass the resolver no hint at all, which left it depending on
 
 `sandbox_depack` works the same way and was a sharper case of it: it DECLARED
 `project_dir` and then resolved without it, so the parameter a caller passed was
-read by nobody (Spec 834). It now resolves `project_dir ?? input_path`.
+read by nobody. It now resolves `project_dir ?? input_path`.
 
 A `loads[]` made only of `hex_bytes` carries no path, and such a run needs no
 project either: every byte is inline. The root is therefore resolved on first
@@ -71,7 +71,7 @@ sandbox replaces them with byte-for-byte stream feeds.
 - optional memory snapshots of explicitly requested ranges, un-written bytes
   marked `null` (`observed` carries the raw window beside them)
 
-## Only what the run WROTE is payload (issue #17)
+## Only what the run WROTE is payload
 
 A harvest is a slice of a whole machine, and most of a machine is not this
 routine's output. The sandbox used to hand back the slice and nothing else: the
@@ -82,7 +82,7 @@ runs, so the gaps between them were exactly where a reader picked up residue and
 read it as payload. That cost a reporter significant time on a three-disk game
 with a custom backward-LZ packer.
 
-This is Spec 832 D4 with different bytes: tolerant is not the same as inventing.
+The same rule applies to bytes: tolerant is not the same as inventing.
 An unreadable thing yields no bytes rather than plausible ones.
 
 **A gap is `null`.** Not a zero, not a mask a caller can forget to read, not the

@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 307,
-  "defaultCount": 202,
+  "total": 310,
+  "defaultCount": 205,
   "advancedCount": 105,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -1100,7 +1100,7 @@
       "role": "format-forensics",
       "swimlane": "entry-project-baseline",
       "useWhen": "Map per-track/sector ownership of an extracted disk from its MANIFEST — who owns each sector, what is unclaimed, where owners overlap. The BAM is not read.",
-      "notFor": "File extraction — use extract_disk. Deciding where it is safe to WRITE: the BAM's free list does not describe occupancy on a track/sector-addressed disk (issue #24) — walk the chains and answer S15.",
+      "notFor": "File extraction — use extract_disk. Deciding where it is safe to WRITE: the BAM's free list does not describe occupancy on a track/sector-addressed disk — walk the chains and answer S15.",
       "adjacentTools": [
         "inspect_disk"
       ],
@@ -3490,7 +3490,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "runtime_inject_range",
@@ -3644,7 +3644,7 @@
       "role": "runtime-inspect",
       "swimlane": "internal-dev-only",
       "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
-      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "notFor": "New work — the default facade supersedes it.",
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "merge",
@@ -3808,7 +3808,7 @@
       "role": "trace-query",
       "swimlane": "internal-dev-only",
       "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
-      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "notFor": "New work — the default facade supersedes it.",
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "merge",
@@ -3927,7 +3927,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "runtime_promote_branch",
@@ -3967,7 +3967,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "runtime_recorder_dump",
@@ -4147,6 +4147,42 @@
       "useInstead": "runtime_session_start"
     },
     {
+      "name": "runtime_sandbox_end",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime-sandbox-session.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_sandbox_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime-sandbox-session.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_sandbox_run",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime-sandbox.ts",
@@ -4165,6 +4201,24 @@
       "pathMode": "project-or-absolute-ok"
     },
     {
+      "name": "runtime_sandbox_start",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime-sandbox-session.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_save_vsf",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -4172,7 +4226,7 @@
       "role": "runtime-inspect",
       "swimlane": "internal-dev-only",
       "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
-      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "notFor": "New work — the default facade supersedes it.",
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "merge",
@@ -4400,7 +4454,7 @@
       "role": "runtime-monitor",
       "swimlane": "internal-dev-only",
       "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
-      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
+      "notFor": "New work — the default facade supersedes it.",
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "merge",
@@ -4481,7 +4535,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "runtime_trace_finalize",
@@ -4560,7 +4614,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "runtime_type",
@@ -5189,7 +5243,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "trace_store_anchor_list",
@@ -5210,7 +5264,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "trace_store_bus_find",
@@ -5230,7 +5284,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "trace_store_info",
@@ -5252,7 +5306,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "trace_store_query",
@@ -5273,7 +5327,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "trace_store_top_pcs",
@@ -5295,7 +5349,7 @@
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
-      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+      "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables."
     },
     {
       "name": "try_depack",

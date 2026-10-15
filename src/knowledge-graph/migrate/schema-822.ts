@@ -23,6 +23,10 @@ import type { DatabaseSync } from "../../platform-kb/sqlite-quiet.js";
 import type { Confidence, Layer, Origin } from "../schema.js";
 
 export const SCHEMA_822_VERSION = 1;
+/** The meta key that stamps the record-layer schema version. */
+export const RECORD_SCHEMA_KEY = "record_schema";
+/** What graphs written before the rename carry. Read as the same stamp, replaced on the next write, never written. */
+export const LEGACY_RECORD_SCHEMA_KEY = "schema_822";
 export const MIGRATION_PRODUCER = "822";
 export const DOOR_PRODUCER = "human";
 
@@ -127,7 +131,7 @@ CREATE TABLE IF NOT EXISTS evidence (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS evidence_target ON evidence (target_table, target_key);
 CREATE INDEX IF NOT EXISTS evidence_artifact ON evidence (artifact_id);
--- BUG-067: purging one legacy id (legacy_id = ?, or its "#" range) scanned the whole table.
+-- purging one legacy id (legacy_id = ?, or its "#" range) scanned the whole table.
 CREATE INDEX IF NOT EXISTS evidence_legacy ON evidence (legacy_id);
 
 CREATE TABLE IF NOT EXISTS claims (
@@ -174,7 +178,7 @@ CREATE TABLE IF NOT EXISTS annotations (
 CREATE INDEX IF NOT EXISTS annotations_node ON annotations (node_id, kind);
 CREATE INDEX IF NOT EXISTS annotations_kind ON annotations (kind);
 CREATE INDEX IF NOT EXISTS annotations_name ON annotations (name);
--- BUG-067: an annotation file's re-import retires its rows by (producer, source_path).
+-- an annotation file's re-import retires its rows by (producer, source_path).
 CREATE INDEX IF NOT EXISTS annotations_source ON annotations (producer, source_path);
 
 CREATE TABLE IF NOT EXISTS questions (
@@ -256,7 +260,7 @@ export function ensureSchema822(db: DatabaseSync): { textIndex: TextIndex } {
   if (ddlObjectsPresent(db, SCHEMA_822_DDL)) {
     const meta = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value;
     const index = meta("annotations_text_index");
-    if (meta("schema_822") === String(SCHEMA_822_VERSION) && (index === "like" || (index === "fts5" && ddlObjectsPresent(db, FTS_DDL)))) {
+    if (meta(RECORD_SCHEMA_KEY) === String(SCHEMA_822_VERSION) && (index === "like" || (index === "fts5" && ddlObjectsPresent(db, FTS_DDL)))) {
       return { textIndex: index };
     }
   }
@@ -271,7 +275,9 @@ export function ensureSchema822(db: DatabaseSync): { textIndex: TextIndex } {
       textIndex = "like";
     }
     const set = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
-    set.run("schema_822", String(SCHEMA_822_VERSION));
+    set.run(RECORD_SCHEMA_KEY, String(SCHEMA_822_VERSION));
+    // A graph written before the rename carries the old key: its value is carried over above, the old row goes.
+    db.prepare("DELETE FROM meta WHERE key = ?").run(LEGACY_RECORD_SCHEMA_KEY);
     set.run("annotations_text_index", textIndex);
     return { textIndex };
   });

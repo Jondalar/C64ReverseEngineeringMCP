@@ -441,7 +441,7 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
     vetoed.add("trace-query");
     blockedBy.push({
       id: "ungrounded-findings",
-      prompt: `${signals.ungroundedFindings} finding(s) cite no backing extract (tagged \`ungrounded\` — Spec 752 L1). Re-save each with artifact_ids pointing at its _analysis.json / _disasm.asm. A trace runId+cycle or a heuristic is NOT grounding, so the runtime steps stay closed until this is cleared.`,
+      prompt: `${signals.ungroundedFindings} finding(s) cite no backing extract (tagged \`ungrounded\`). Re-save each with artifact_ids pointing at its _analysis.json / _disasm.asm. A trace runId+cycle or a heuristic is NOT grounding, so the runtime steps stay closed until this is cleared.`,
     });
   }
 

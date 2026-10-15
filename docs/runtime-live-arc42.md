@@ -1,6 +1,6 @@
 # C64RE Live Runtime — arc42 (daemon ↔ client, Live tab)
 
-> **Wire behaviour current, file names historical (Spec 806, 2026-08-12).** The
+> **Wire behaviour current, file names historical.** The
 > protocol, the ownership model and the frame/audio push described here are what the
 > runtime daemon still does. The TypeScript classes named as components
 > (`ws-server.ts`, `RuntimeController`, `IntegratedSession`) are deleted; their
@@ -12,10 +12,10 @@ controls, scrub). Complements `vice-iec-arc42.md` (IEC/drive-sync scope) and
 `runtime-daemon-solution-design.md` (daemon topology / binding rules).
 
 Drawn to reason about the live/client behaviour deliberately — especially the
-per-frame loop and the broadcast fan-out (open: BUG-049 audio stutter, located in
+per-frame loop and the broadcast fan-out (open: audio stutter, located in
 the delivery/hosting path, not the emulation).
 
-> **Backend-scope note (Spec 771):** the **default** runtime backend is now
+> **Backend-scope note:** the **default** runtime backend is now
 > **TRX64** (the native Rust daemon). This arc42 describes the in-repo
 > **TypeScript** live runtime — the fallback / parity-oracle that powers the
 > Live tab. Read the node daemon here as the TS oracle path, **not** the
@@ -28,9 +28,9 @@ the delivery/hosting path, not the emulation).
 - **One machine per process** (2026-06-12): the runtime core is
   single-machine-per-process; `runtimeSessions.start` *attaches* to the existing
   machine. Human + LLM co-drive the SAME session.
-- **Single execution path** (Spec 723): `Cpu65xxVice` + literal-port VIC
+- **Single execution path**: `Cpu65xxVice` + literal-port VIC
   (`vicii_cycle()` per cycle) + event-catchup `VICE1541` drive. No mode toggles.
-- **Audio = cycle-delta** (Spec 703): reSID rendered on the BACKEND per emulated
+- **Audio = cycle-delta**: reSID rendered on the BACKEND per emulated
   frame; one server-mixed, uncompressed stream; browser plays via an AudioWorklet
   ring. Confirmed-fine design — do NOT move reSID to the browser.
 
@@ -171,8 +171,8 @@ sequenceDiagram
 - **The emulation is ~15 ms of the 20 ms frame budget** (literal-port per-cycle VIC
   + VICE1541 drive). Headroom for present + audio-ship + WS + GC is ~5 ms. Measured
   identical at 706-perfect (14.27 ms) and now (15.18 ms) — so emu speed is a
-  constant, not the BUG-049 regression.
-- **BUG-049 root cause (found 2026-06-15):** the always-on checkpoint capture ran
+  constant, not the audio-stutter regression.
+- **Audio-stutter root cause (found 2026-06-15):** the always-on checkpoint capture ran
   HEAVY work on the emu thread every second — a full ~317 KiB framebuffer copy +
   3× sha256 of the ~1 MiB EF cartridge image (to decide dedup). That stole the
   per-frame budget → under-delivered audio → underrun ("kratzen"), and dragged fps
@@ -181,7 +181,7 @@ sequenceDiagram
   changed) — so NEITHER should be touched on the hot path. (Plus a 180 ms worklet
   cushion, shipped + accepted.)
 
-## §6.2 The Recorder (Spec 766 — replaces inline ring capture)
+## §6.2 The Recorder (replaces inline ring capture)
 
 The fix model (user-ratified): the checkpoint/anchor recorder is a **data-stream
 into Runtime-owned shared memory**, NOT inline work on the tick loop.
@@ -190,14 +190,13 @@ into Runtime-owned shared memory**, NOT inline work on the tick loop.
   scalars, IO, + medium ONLY when its O(1) generation moved) into a
   `SharedArrayBuffer` ring + advance an `Atomics` write-cursor. No read, no hash,
   no GC. (The framebuffer is omitted — derivable.)
-- **Async worker** (`worker_thread`, same pattern as the 726.B binary-firehose
+- **Async worker** (`worker_thread`, same pattern as the binary-firehose
   worker) = drains the ring and does ALL heavy work: delta-encode anchors, dedup
   the medium by generation, compact + index, and serve the UI/MCP evaluation API.
 - The 128 MiB is **never read/evaluated on the emu thread**. Coarse scrub =
   restore an anchor (worker API) + run one frame to repaint. Fine stepping = the
   separate CPU firehose / "⏺ Trace" + the `.c64re`-dump-from-anchor → replay-with-
-  trace flow (726.B / 746 / 707). See `specs/_archive/766-runtime-recorder-shared-memory-streaming.md`.
-  Spec 765 (the in-process flat ring) is the superseded interim.
+  trace flow. The in-process flat ring is the superseded interim.
 
 ---
 
@@ -216,5 +215,3 @@ into Runtime-owned shared memory**, NOT inline work on the tick loop.
   `resid-worklet.js` — audio path.
 - `ui/src/workbench/components/ScrubTimeline.tsx` — scrub seekbar.
 - `scripts/workspace.mjs` / project `ui.sh` — launch (HTTP :4310 + WS :4312).
-- `specs/_archive/766-runtime-recorder-shared-memory-streaming.md` — the Recorder (§6.2);
-  `specs/765-*` (superseded interim); `specs/746-*` (anchor+firehose charter).

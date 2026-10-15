@@ -250,7 +250,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   check(/const TITLE_MAX = 120/.test(src) && /capExceededText/.test(src),
     "…it is checked here, and refused in the tool's own voice");
   check(/title: title\?\.trim\(\) \|\| headline\(answer\)/.test(src), "and derives one when it is omitted");
-  check(/summary: `\$\{def\.name\} \(Spec 844 \$\{slot\}\)\.\\n\\n\$\{answer\.trim\(\)\}/.test(src),
+  check(/summary: `\$\{def\.name\} \(slot \$\{slot\}\)\.\\n\\n\$\{answer\.trim\(\)\}/.test(src),
     "while the whole answer is kept in the body");
 }
 
@@ -286,8 +286,8 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   check(d.patterns.length === 1 && d.intentional.length === 1,
     "a project can declare its own directories intentional");
   const { DEFAULT_PATTERNS } = await import("../dist/server-tools/registration.js");
-  check(DEFAULT_PATTERNS.some((p) => p.glob.endsWith("manifest.spec784.json")),
-    "and the extraction manifest the workflow itself writes is covered by a shipped pattern");
+  check(DEFAULT_PATTERNS.some((p) => p.glob.endsWith("extraction-manifest.json")) && DEFAULT_PATTERNS.some((p) => p.glob.endsWith("manifest.spec784.json")),
+    "and the extraction manifest the workflow itself writes — and the name older projects hold — are covered by a shipped pattern");
 
   head(12, "the audit recommends a door that is on the surface");
   const workflowSrc = readFileSync(join(ROOT, "src/server-tools/agent-workflow.ts"), "utf8");

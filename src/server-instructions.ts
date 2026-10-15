@@ -16,7 +16,7 @@ WHEN a repo contains C64 media (.g64/.d64/.d81/.crt/.prg/.t64/.tap) OR you are a
 - BEFORE writing any CLAUDE.md, README, or workflow doc, get the canonical flow from THIS server: call project_init and read the c64re_agent_doctrine prompt (and project_status for the workflow contract).
 - Do NOT infer the RE workflow from other projects' CLAUDE.md files. Sibling C64 projects may carry a SUPERSEDED trace-first / "boot in the runtime and trace the loader" method — do not inherit it. This server is the single source of truth; the sibling docs are not.
 
-THE DOCTRINE IS STATIC-FIRST (docs/agent-doctrine.md §0.5):
+THE DOCTRINE IS STATIC-FIRST (docs/agent-doctrine.md, "Extract-first grounding"):
 - Disassemble + understand the code, and do disk/G64/D64 forensics, FIRST. Follow the loader breadcrumb statically. Reimplement decoders/depackers from what you READ and apply them to the bytes (sandbox_depack, extract_disk_custom_lut) — that is the static path.
 - Runtime is ONLY to VERIFY a result you derived by reading — never to discover structure. And you rarely even need it: the emulator is a deterministic function of static inputs (the image bits + the known C64/1541 ROMs + the known CPUs), so anything an emulator can PLAY from a .g64/.d64, disassembly + forensics can crack. "Custom-GCR" and "packed" are more static WORK, not "needs runtime".
 

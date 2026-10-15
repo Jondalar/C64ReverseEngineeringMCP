@@ -127,9 +127,9 @@ function makeBasicCandidate(program: BasicProgramInfo): SegmentCandidate {
       confidence: clampConfidence(0.99),
       reasons: [
         `Tokenized BASIC V2 ${program.isStub ? "SYS launcher" : "program"}: the line-record chain walked cleanly over ` +
-          `${program.lineCount} line(s) from ${formatAddress(program.start)} to ${formatAddress(program.end)} (Spec 829 D2).`,
-        `Not 6502 — the disassembler renders this region as data, not instructions (Spec 829 D6, issue #11).`,
-        `Machine code discovery resumes at ${formatAddress(program.firstAddressAfter)} (Spec 829 D4.1).`,
+          `${program.lineCount} line(s) from ${formatAddress(program.start)} to ${formatAddress(program.end)}.`,
+        `Not 6502 — the disassembler renders this region as data, not instructions.`,
+        `Machine code discovery resumes at ${formatAddress(program.firstAddressAfter)}.`,
         ...factReasons,
       ],
     },
@@ -353,7 +353,7 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
         address,
         source: entryPoint.source,
         reason: "inside_basic",
-        detail: `inside the tokenized BASIC program ${formatAddress(basicProgram!.start)}-${formatAddress(basicProgram!.firstAddressAfter - 1)} (Spec 829 D4.1) — not seeded`,
+        detail: `inside the tokenized BASIC program ${formatAddress(basicProgram!.start)}-${formatAddress(basicProgram!.firstAddressAfter - 1)} — not seeded`,
       });
       continue;
     }
@@ -497,7 +497,7 @@ function makeCodeCandidate(
   const seedLine = graphSeeds.length > 0
     ? `${otherSeeds.length === 0 ? "Reached ONLY because the graph named a seed" : "Also reached from a graph seed"}: ${graphSeeds
         .map((item) => `${formatAddress(item.address)} (${item.entry.seedOrigin ?? "graph"}) — ${item.entry.reason}`)
-        .join("; ")} [Spec 838 D3b]`
+        .join("; ")}`
     : undefined;
   return {
     analyzerId: "code",

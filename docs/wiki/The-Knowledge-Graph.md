@@ -1,7 +1,7 @@
 # The Knowledge Graph
 
 Every reverse-engineering session ends the same way: somebody knows things that
-nobody can look up. The graph is where those things go. (Specs 817–826)
+nobody can look up. The graph is where those things go.
 
 ## The problem it solves
 
@@ -108,7 +108,7 @@ it into the graph; there is no second step to forget.
 
 ## Seeing it
 
-The **Graph** tab draws the whole project four ways (Specs 824–825), from one
+The **Graph** tab draws the whole project four ways, from one
 in-memory model:
 
 - **Force** — clusters by what actually calls what, so subsystems separate

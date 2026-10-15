@@ -101,7 +101,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
       count: z.number().int().nonnegative().optional().describe("For S5 (runtime count): HOW MANY resident runtimes, as a number. S6/S7 applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
       method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): 'read' (derived from the listing: a hypothesis) or 'run' (a canary/write trace saw no write). A run proves only that the range was not WRITTEN, never that it is not READ — read-only data passes a canary. Free needs the reading too: no reader and no writer in the listing. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
-      boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
+      boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the model boundary, so the model fills as a side effect of answering this question."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
       cart: z.string().optional().describe("For space=crt: the cartridge the boundary is in (default: the project's only cartridge; with several and none named the call refuses and lists them)."),
@@ -159,7 +159,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
               "them, method=\"bam\" if you read the BAM's free list — which is recorded as a",
               "hypothesis, because the BAM does not have to be true.",
               "",
-              "Measured on Crazy News side 1 (issue #24): all 30 blocks the BAM called free",
+              "Measured on Crazy News side 1: all 30 blocks the BAM called free",
               "were in use by an asset, and all 78 genuinely spare blocks were marked",
               "allocated — disjoint in both directions. A patch step asked the BAM for a",
               "spare block, got T1/S1, and overwrote the chain head of another asset.",
@@ -207,7 +207,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       const finding = rec.saveFinding({
         kind: slot === "S11" ? "memory-map" : "observation",
         title: title?.trim() || headline(answer),
-        summary: `${def.name} (Spec 844 ${slot}).\n\n${answer.trim()}\n\nEvidence: ${evidence}`,
+        summary: `${def.name} (slot ${slot}).\n\n${answer.trim()}\n\nEvidence: ${evidence}`,
         tags,
         // The evidence goes in evidence[], not only into the summary prose. The first
         // real session exposed this as an own goal: slot_record's own findings tripped

@@ -1,6 +1,6 @@
 # C64RE Runtime Daemon — Solution Design
 
-Status: binding design for Spec 744.4c.
+Status: binding design for the runtime daemon.
 
 > **SUPERSEDED / HISTORICAL.** This design specified a **C64RE-hosted** Runtime
 > Daemon as the single emulator authority for a project. That ownership is
@@ -80,9 +80,9 @@ state, the media events, the observers, the transport and the marks — and the 
 filesystem cwd. So `!pwd`, which never touches the machine, waits behind a checkpoint
 capture.
 
-That was tolerable while the capture cadence was 25 (two captures a second). Spec 808 made
+That was tolerable while the capture cadence was 25 (two captures a second). The faster checkpoint cadence made
 it 1 for the 60-second rewind window — fifty a second — and the cost became visible as
-**BUG-044**: keystrokes arriving late in the cockpit, an Enter appearing to do nothing
+**Late keystrokes**: keystrokes arriving late in the cockpit, an Enter appearing to do nothing
 until the third or eighth try. The bug was not new; it was newly *reachable*.
 
 The shipped fix is a yield, not a cure: the cockpit drains its input queue before
@@ -143,7 +143,7 @@ daemon transport.
 
 ## Acceptance
 
-Spec 744.4c is accepted only when an end-to-end product test proves:
+The daemon design is accepted only when an end-to-end product test proves:
 
 1. start Runtime Daemon;
 2. UI connects as client;
@@ -156,7 +156,7 @@ Spec 744.4c is accepted only when an end-to-end product test proves:
 9. grep/audit proves no product path creates `IntegratedSession` outside the
    daemon.
 
-## Trace Capture & Indexing (Spec 726.B + Spec 746.x)
+## Trace Capture & Indexing
 
 ### Binary trace format (`.c64retrace`)
 
@@ -211,7 +211,7 @@ On `stop()`:
 
 ### One read path + lazy-on-read
 
-Every trace read goes through the daemon's `trace/read` op (BUG-029: only the daemon
+Every trace read goes through the daemon's `trace/read` op (only the daemon
 process can open a store it owns). Before opening, the daemon calls `ensureIndex`:
 if the `.duckdb` is missing but the `.c64retrace` authority exists, it **rebuilds
 the index lazily** from the log (recovers an orphaned store, e.g. a multi-GB trace

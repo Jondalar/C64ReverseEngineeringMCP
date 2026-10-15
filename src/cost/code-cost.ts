@@ -144,7 +144,7 @@ export function compareCost(original: CodeInput, candidate: CodeInput, options: 
     const which = !a.cfg.straightLine ? "the original" : "the candidate";
     equivalence = {
       verdict: "UNKNOWN",
-      reasons: [`${which} is not straight-line code — equivalence across a branch, a loop or a call is out of scope (§6)`],
+      reasons: [`${which} is not straight-line code — equivalence across a branch, a loop or a call is out of scope`],
       assumptions,
       compared: [],
     };

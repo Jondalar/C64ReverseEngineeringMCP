@@ -1005,7 +1005,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       });
       if (phaseSubjects.length > 0) {
         lines.push(``);
-        lines.push(`## Per-Artifact Phase Actions (Spec 034)`);
+        lines.push(`## Per-Artifact Phase Actions`);
         for (const subj of phaseSubjects.slice(0, 5)) {
           const phase = subj.phase ?? 1;
           lines.push(``);

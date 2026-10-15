@@ -1,8 +1,8 @@
-// Spec 822.2 — the cut-over switch. Opening a project whose knowledge/ still
+// The cut-over switch. Opening a project whose knowledge/ still
 // holds the legacy JSON stores for the migrated record types runs the
 // migration once (idempotent by the ledger, logged to the timeline) and moves
-// the files to knowledge/_legacy-822/ — read-only archaeology for one release
-// (OQ4), never read by a writer again. Projects created after the cut never
+// the files to knowledge/_legacy-json/ — read-only archaeology for one release,
+// never read by a writer again. Projects created after the cut never
 // had the files; the fast path is five existsSync calls.
 //
 // Not a dual-write window: on this branch every reader and writer of the six
@@ -35,7 +35,7 @@ export function pendingLegacyFiles(projectDir: string): string[] {
 
 /**
  * Fold any live legacy JSON stores into the graph and park them under
- * knowledge/_legacy-822/. Returns what it did; a no-op returns `migrated: []`.
+ * knowledge/_legacy-json/. Returns what it did; a no-op returns `migrated: []`.
  * Requires knowledge/project.json (the slug the ids derive from) — a directory
  * with legacy files but no project is left alone until project_init.
  */
@@ -61,11 +61,11 @@ export function ensureCutover(projectDir: string): CutoverResult {
   const readme = join(legacyDir, "README.md");
   if (!existsSync(readme)) {
     writeFileSync(readme, [
-      "# knowledge/_legacy-822/",
+      "# knowledge/_legacy-json/",
       "",
-      "The JSON stores Spec 822 migrated into `knowledge/graph.sqlite` (findings, entities,",
+      "The JSON stores that were migrated into `knowledge/graph.sqlite` (findings, entities,",
       "relations, open-questions, labels.user). Nothing reads or writes these files any more;",
-      "they are kept for one release for `git diff` archaeology (Spec 822 §6, OQ4). Every",
+      "they are kept for one release for `git diff` archaeology. Every",
       "legacy id is in `migration_log` in the graph (`c64re graph stats`), and",
       "`c64re graph export` writes the graph back into this record shape on demand.",
       "",
@@ -148,9 +148,9 @@ function appendCutoverTimeline(projectDir: string, moved: string[], summary: Mig
   if (!existsSync(join(projectDir, "session"))) return;
   const totals = Object.values(summary.stores).reduce((acc, s) => ({ created: acc.created + s.created, merged: acc.merged + s.merged, folded: acc.folded + s.folded, already: acc.already + s.already }), { created: 0, merged: 0, folded: 0, already: 0 });
   const event = {
-    id: `timeline-822-cutover-${Date.now().toString(36)}`,
+    id: `timeline-cutover-${Date.now().toString(36)}`,
     kind: "note",
-    title: "Spec 822 cut-over: legacy knowledge JSON folded into graph.sqlite",
+    title: "Cut-over: legacy knowledge JSON folded into graph.sqlite",
     summary: `${moved.join(", ") || "(no files)"} → knowledge/${LEGACY_DIR}/; ${totals.created} created, ${totals.merged} merged, ${totals.folded} folded, ${totals.already} already in the ledger (run ${summary.runId}, ${summary.ms.toFixed(0)} ms). Structure: ${describeCutoverSeed(seed, seedNote)}`,
     payload: {
       moved, runId: summary.runId, cutoverAt: summary.cutoverAt, stores: summary.stores, graph: summary.graph,

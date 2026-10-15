@@ -256,7 +256,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         const manifest = extractDiskImage(imageAbs, outAbs);
         // Tier 2 substrate verdict (docs/runtime-discipline-gate-plan.md) — same as inspect_disk.
         const substrateNote = recordDiskSubstrate(pd, imageAbs, manifest, "extract_disk");
-        // Spec 784 (GAP 2) — emit a Spec-784 manifest for the stock-DOS layer alongside
+        // Emit an extraction manifest for the stock-DOS layer alongside
         // the legacy manifest, so validate_extraction can diff the DOS files against the
         // loader-lens read-set and they carry an explicit kernal-directory LoaderModel.
         // Soft: a failure here never breaks the extraction.
@@ -297,7 +297,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           ...(substrateNote ? [`Substrate: ${substrateNote}`] : []),
           `Output: ${manifest.outputDir}`,
           `Manifest: ${manifest.manifestPath}`,
-          ...(spec784Path ? [`Spec-784 manifest: ${spec784Path} (register_payloads_from_manifest / validate_extraction ready)`] : []),
+          ...(spec784Path ? [`Extraction manifest: ${spec784Path} (register_payloads_from_manifest / validate_extraction ready)`] : []),
           `Knowledge written to: ${join(pd, "knowledge")}`,
           "",
           ...manifest.files.map((file) => {

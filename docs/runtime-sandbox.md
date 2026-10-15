@@ -475,5 +475,5 @@ Never power-cycle the shared session to "make room" for a test — the human's s
 Cross-links: CLAUDE.md "One Machine Per Process (Session Isolation)",
 `docs/agent-doctrine.md` §1.2 (live-session control),
 `docs/tools/sandbox.md` (the sandbox tools in full),
-`docs/headless-runtime-singleton-audit.md` (why the core is single-machine — its
+`docs/_archive/headless-runtime-singleton-audit.md` (why the core is single-machine — its
 subject is deleted, its argument is not).

@@ -68,13 +68,13 @@ export function persistInspectEvidence(
     title: input.name?.trim() || `VIC inspect — ${ev.frame.mode} @ checkpoint ${ev.checkpointId}`,
     path: relPath,
     description:
-      `Spec 710 frozen-VIC inspect evidence: ${ev.selectedNodes.length} node(s)` +
+      `Frozen-VIC inspect evidence: ${ev.selectedNodes.length} node(s)` +
       `${nodeSummary ? ` [${nodeSummary}]` : ""} in ${ev.frame.mode}.` +
       `${input.notes ? ` ${input.notes}` : ""}`,
     producedByTool: "vic-inspect",
     mimeType: "application/json",
     format: "frozen-inspect-evidence",
-    tags: ["vic-inspect", "spec-710"],
+    tags: ["vic-inspect"],
     platform: "c64",
   });
 

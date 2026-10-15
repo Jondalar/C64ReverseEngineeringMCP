@@ -188,7 +188,7 @@ function refusal(
   return [
     `# ${door} refused — ${owed.length === 1 ? "a promise" : `${owed.length} promises`} in the project contract ${owed.length === 1 ? "is" : "are"} still owed.`,
     "",
-    "Spec 877: this door PUBLISHES —",
+    "This door PUBLISHES —",
     `${entry ? entry.what : "it delivers"}${entry?.when ? `, and ${entry.when}` : ""}.`,
     "The contract says what the human expected before leaving, and the shortfall is",
     "measured, not guessed:",

@@ -57,7 +57,7 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 | `build_annotated_listing_view` | Render `views/annotated-listing.json` (semantic listing window). |
 | `build_all_views` | Re-render every view in one call (including disk and cartridge layouts). |
 
-## Addressing — the tables a medium is indexed by (Spec 750)
+## Addressing — the tables a medium is indexed by
 
 Reverse-engineering a medium means eventually finding a table: a cartridge index, the
 CBM directory, a custom LUT. Recording it is what lets **every byte be traced to a

@@ -119,6 +119,17 @@ jobs:
       - name: No tool text recommends a retired door name (878)
         run: npm run check:tool-names
 
+      # The public surface — tool names and descriptions, every string the code hands back or
+      # writes into a project, the user docs, the names of files in docs/ and resources/ —
+      # carries no internal id: no spec number, bug id, decision marker. Real exceptions
+      # (names an older release wrote, still read) are in scripts/no-internal-refs.allow.json.
+      - name: No internal references on the public surface
+        run: npm run check:no-internal-refs
+
+      # A project written under the old, numbered names still opens; everything written now uses the new ones.
+      - name: Projects carrying the old names still open, new writes use the new names
+        run: npm run e2e:legacy-names
+
       # 883 — nothing ships that nothing can reach. Walks the built dist/ from every entry a
       # package user can start; a module no entry reaches is dead or belongs in `files` as an
       # exact exclusion. It is the gate for what was found by hand twice and came back.

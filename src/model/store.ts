@@ -48,7 +48,7 @@ export async function assertBoundary(projectDir: string, input: AssertBoundaryIn
   const evidence = (input.evidence ?? []).map((e) => e.trim()).filter((e) => e.length > 0);
   if (evidence.length === 0) {
     throw new ModelBoundaryError(
-      "a boundary without a citation is the claim the next session inherits and cannot check (Spec 845 D3)",
+      "a boundary without a citation is the claim the next session inherits and cannot check",
     );
   }
 

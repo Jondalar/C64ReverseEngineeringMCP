@@ -60,12 +60,12 @@ function copyBasesResolver(
   if (options.source === "json") return (copy) => fromJson(copy);
   const owner = options.owner;
   if (!owner) {
-    const note = "knowledge graph not consulted: no owner given (an analysis-time call has no seeded artifact yet) — reads_from/writes_to derived from codeSemantics.copyRoutines (820.2 fallback)";
+    const note = "knowledge graph not consulted: no owner given (an analysis-time call has no seeded artifact yet) — reads_from/writes_to derived from codeSemantics.copyRoutines (fallback)";
     return (copy) => fromJson(copy, note);
   }
   const lookup = loadAccessEdges({ projectDir: options.projectDir, owner });
   if (lookup.status === "absent") {
-    const note = `knowledge graph ABSENT — ${lookup.reason}; reads_from/writes_to derived from codeSemantics.copyRoutines (820.2 fallback)`;
+    const note = `knowledge graph ABSENT — ${lookup.reason}; reads_from/writes_to derived from codeSemantics.copyRoutines (fallback)`;
     return (copy) => fromJson(copy, note);
   }
   const edges: AccessEdge[] = lookup.edges.filter((edge) => edge.viaZp === undefined && edge.indexed);

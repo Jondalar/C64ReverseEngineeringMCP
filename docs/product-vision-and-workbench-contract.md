@@ -2,7 +2,7 @@
 
 Status: CANONICAL PRODUCT DIRECTION (2026-05-25 CEST)  
 Scope: agent workflow, runtime evidence, semantic disassembly, and human UI  
-Implements through: `docs/agent-doctrine.md`, `docs/re-phases.md`, Specs 705, 708, 710-712, 720-721, 744.4c, 746, 757, 771, 773
+Implements through: `docs/agent-doctrine.md`, `docs/re-phases.md`
 
 ## 1. Product Purpose
 
@@ -97,7 +97,7 @@ The five phases (this replaces "12 flat data tabs" as the top-level concept):
    preserve traceability between decisions, code/data changes, and runtime validation.
    *Outputs:* working modified artifact. *Tools:* workflow runner, source/versions,
    rebuilt-prg, build pipelines / patch recipes. (The code-overlay patch/validate loop is
-   Spec 711 — currently a follow-on.)
+   currently a follow-on.)
 5. **Release Management** — local test/QA; external tester loops; test notes, release
    candidates, known issues, final package. *Outputs:* release-ready artifact + docs.
    *Tools:* Docs/reports, audit, version "final", packaging/export.
@@ -115,13 +115,13 @@ axis. The existing **7-phase per-artifact analysis pipeline** (`docs/re-phases.m
 project-service **workflow-state phases** (`docs/workflow.md`, `defaultWorkflowPhases`) are
 the persisted substrate; the deterministic **step orchestrator** (`workflow-model.ts`) steps
 are tagged with their lifecycle stage. No engine is rebuilt; the lifecycle is a thin top
-axis + crosswalk (see `specs/773-workflow-cockpit-lifecycle.md`).
+axis + crosswalk.
 
 **Navigation, not a hard gate.** The UI lets the human move freely across phases; a derived
 badge marks the recommended/current phase from workflow state. Per-artifact phase gating
 (Model A) stays as the RE-internal discipline; the lifecycle itself is not gated.
 
-**Shipped UI shell (Spec 773).** The lifecycle is presented as a **left phase rail**
+**Shipped UI shell.** The lifecycle is presented as a **left phase rail**
 (C64RE emblem) + **per-phase Overview cockpits** + a **tool-tab row** per phase. The
 **Onboarding Kickoff Cockpit** carries the harness-note (the onboarding dialogue runs
 in the coding-agent harness — Claude Code / Codex — over MCP; C64RE records the brief
@@ -135,7 +135,7 @@ form**. Controlled UI writes (goal/build/release) persist via `saveProjectProfil
 
 **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. One MCP server — C64RE's: its `runtime_*` tools are the permanent door to the TRX64 daemon, not a transition, and there is no `trx64-mcp` (decided 2026-09-19). TRX64's own surfaces are the daemon's WS protocol, `trx64cli`, and the crates the UE2 emulator builds on.
 
-*Refinement (Spec 774, closed 2026-09-19):* "Capability" here means the machine's.
+*Refinement:* "Capability" here means the machine's.
 TRX64 is a runtime — for itself (`trx64cli`), C64RE and the UE2 emulator — and it hosts
 no static analysis. The analysis pipeline (the heuristic analyzers, code discovery,
 SegmentKind mapping, the firehose gate, semantic disassembly, the KickAsm/byte-verify
@@ -189,7 +189,7 @@ reveals:
 The workflow must therefore permit an early runtime/loader capture after initial
 media inventory, especially for `cracker-only` and port workflows. **The LLM can
 start a live trace itself via `runtime_trace_start` on a running session** (promoted
-to the default tool surface, Spec 746 — no cold-boot, same shared session the human
+to the default tool surface — no cold-boot, same shared session the human
 drives), so the agent begins capture without manual UI intervention. Runtime may
 also be used later to confirm or refine semantic conclusions.
 
@@ -198,8 +198,8 @@ also be used later to confirm or refine semantic conclusions.
 C64RE deliberately supports retained full or high-volume runtime traces. A full
 trace is not an accidental debug log; it is a source artifact that enables later
 questions which were not known at capture time. The **binary append-only log
-(`.c64retrace`, Spec 726.B)** is the authoritative timeline; **DuckDB is a
-rebuildable query index** derived from it (Spec 746.x), not the authority.
+(`.c64retrace`)** is the authoritative timeline; **DuckDB is a
+rebuildable query index** derived from it, not the authority.
 
 Rules:
 
@@ -219,7 +219,7 @@ Rules:
 - focused traces remain valid when the question is already narrow, but do not
   replace the ability to retain a full exploratory run.
 
-Spec 708's corrective work must make its declarative capture surface honest:
+The corrective work on declarative traces must make its declarative capture surface honest:
 unsupported trigger/capture/policy semantics must be implemented or rejected,
 never silently accepted.
 
@@ -238,7 +238,7 @@ media/extraction
   -> annotated, connected, rebuild-verified source
 ```
 
-Spec 721 is the implementation direction for this link. Runtime-derived
+Runtime-informed annotation work is the implementation direction for this link. Runtime-derived
 annotations must cite retained trace/evidence references; they must not be
 unverifiable prose.
 
@@ -295,7 +295,7 @@ On a paused checkpoint, the C64 screen becomes an evidence surface. Selecting
 visual content resolves to runtime/checkpoint evidence and may be promoted into
 project knowledge.
 
-Spec 710 currently provides:
+Frozen inspect currently provides:
 
 - exact text/charset and bitmap/multicolor cell evidence;
 - durable per-raster-line base provenance for supported raster/FLI cases;
@@ -348,25 +348,25 @@ Required alignment:
 | Project knowledge and artifacts | `src/project-knowledge/**`, `docs/workflow.md` |
 | Agent onboarding / next action | `src/server-tools/agent-workflow.ts`, `docs/agent-doctrine.md` |
 | Workflow roles / cracker mode | `src/agent-orchestrator/workflows.ts`, `docs/re-phases.md` |
-| Native checkpoint / evidence base | Spec 705, Specs 707/709/714 |
-| Declarative retained traces / DuckDB | Spec 708, `src/runtime/trace-store/**` |
-| Frozen visual inspect | Spec 710 |
-| Code/data intervention branches | Spec 711 |
-| Rewind/replay/branch diff | Spec 712 |
-| Runtime-informed semantic annotations | Specs 720-721 |
-| Current UI direction requiring unification | README architecture and archived UX Specs 350/354/355 |
+| Native checkpoint / evidence base | the checkpoint ring, snapshot persistence, media handling |
+| Declarative retained traces / DuckDB | `src/runtime/trace-store/**` |
+| Frozen visual inspect | the frozen-VIC inspect tools |
+| Code/data intervention branches | the candidate and overlay tools |
+| Rewind/replay/branch diff | the rewind and component-diff tools |
+| Runtime-informed semantic annotations | the visual-origin join and annotated listing |
+| Current UI direction requiring unification | README architecture |
 
 ## 7. Immediate Consequences for Active Work
 
-**Status (Spec 773): delivered.** The unified workbench UX and the five-phase
-lifecycle cockpits described in §2A are implemented — all 6 loops (Spec 773) ship
+**Status: delivered.** The unified workbench UX and the five-phase
+lifecycle cockpits described in §2A are implemented — all 6 loops ship
 in the current UI: a left phase rail + per-phase Overview cockpits + tool-tab row.
 The items below now record the contract each piece satisfies rather than pending
 direction.
 
-### 7.1 Spec 710 UI Integration
+### 7.1 Frozen Inspect UI Integration
 
-The Frozen Inspect UI is integrated as a workbench capability (Spec 773). It
+The Frozen Inspect UI is integrated as a workbench capability. It
 continues to honor this contract:
 
 - use the completed checkpoint-bound inspect backend;
@@ -377,7 +377,7 @@ continues to honor this contract:
 
 ### 7.2 Unified UI — Delivered
 
-The unified workbench UX is implemented (Spec 773, all 6 loops). Rather than many
+The unified workbench UX is implemented. Rather than many
 independent panels, the UI is a **left phase rail** (C64RE emblem) with **per-phase
 Overview cockpits** and a **tool-tab row** per phase, superseding the product split
 implied by archived UX drafts. It settles what earlier drafts left open:
@@ -398,7 +398,7 @@ cockpits, not the top-level structure.
 
 ### 7.3 Semantic Pipeline Refinement
 
-Spec 721 should be completed alongside, not after, all UI feature work. The UI
+The runtime-informed annotation work should be completed alongside, not after, all UI feature work. The UI
 is most valuable when it can show real annotated code and trace-derived
 relationships; the pipeline is most useful when its evidence can be inspected
 and corrected in the workbench.

@@ -35,7 +35,7 @@ fi
 
 # The steps that judge documents rather than code. A docs-only push pays for these
 # and nothing else; they are also in the full run, so `all` is still a superset.
-DOCS_STEPS='check:docs-current|check:doc-capability-claims|check:wiki|check:tool-names'
+DOCS_STEPS='check:docs-current|check:doc-capability-claims|check:wiki|check:tool-names|check:no-internal-refs'
 
 # (name, command) in workflow order. A step with no `run:` — the checkout and the
 # node setup — has nothing to execute and is not a step of ours.

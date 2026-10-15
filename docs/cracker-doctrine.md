@@ -12,28 +12,28 @@ understanding every byte. Annotate only what the patch / port needs.
 ## Priority Order (per file kind)
 
 1. **Loader / custom kernal / sector-load ABI** — annotate, document,
-   write a `loader-abi` model (Spec 028).
+   write a `loader-abi` model.
 2. **Protection / copy-check** — find triggers, document the gate,
-   write patch recipes (Spec 027) that bypass them.
+   write patch recipes that bypass them.
 3. **Save / progress / hi-score** — model storage layout and any
-   slot/erase ordering constraints (Spec 029).
+   slot/erase ordering constraints.
 4. **KERNAL replacement / IRQ table** — document overlay regions and
    constraint collisions before patching.
 5. **Asset PRGs** (sprite banks, scene data) — Phase 1 analyze + visual
-   preview only. No full annotation. The Spec 022 status checklist
+   preview only. No full annotation. The status checklist
    marks asset PRGs done at this point.
 
 ## Required Artifacts Per Patch
 
 Every behaviour-affecting change must produce:
 
-- A `patch-recipe` (Spec 027) with byte assertions.
+- A `patch-recipe` with byte assertions.
 - A byte-identity rebuild check on the affected listing artifact
   (the `// rebuild verified byte-identical` marker emitted by
   `disasm`).
-- Constraint verification (Spec 029) when overlay / flash / KERNAL
+- Constraint verification when overlay / flash / KERNAL
   state is touched.
-- A scenario diff vs original (Spec 030) when behaviour changes.
+- A scenario diff vs original when behaviour changes.
 
 ## Forbidden Shortcuts
 
@@ -45,14 +45,14 @@ Every behaviour-affecting change must produce:
 
 ## Scenario Discipline
 
-Every behaviour-affecting patch is paired with a named scenario
-(Spec 030). Run baseline before patching, run candidate after. Record
+Every behaviour-affecting patch is paired with a named scenario.
+Run baseline before patching, run candidate after. Record
 the diff. Refuse to call the change "good" without the diff.
 
 ## Output Formats
 
 - Patched binary or cartridge layout.
-- Build pipeline (Spec 032) that reproduces the patched output.
+- Build pipeline that reproduces the patched output.
 - No encyclopedic disasm. Document only what the cracker work needs.
 
 ## Switching Back

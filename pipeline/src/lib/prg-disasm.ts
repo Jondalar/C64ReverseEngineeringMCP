@@ -3208,7 +3208,7 @@ function renderSeedLedger(report: AnalysisReport): string[] {
   const rejected = report.rejectedEntryPoints ?? [];
   if (!seedReport && rejected.length === 0) return lines;
 
-  lines.push("Code seeds (Spec 838 D3)");
+  lines.push("Code seeds");
   if (seedReport) {
     // Spec 867 D1 — the window this payload owns is what scopes the seeds, so it
     // is printed before them: a reader who disagrees with a seed is really
@@ -4195,7 +4195,7 @@ function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: str
 
   const labelSuffix = reloc.label ? ` (${reloc.label})` : "";
   lines.push(
-    `      // Spec 741 relocated: stored $${formatHex16(reloc.fileStart)}-$${formatHex16(reloc.fileEnd)}` +
+    `      // relocated: stored $${formatHex16(reloc.fileStart)}-$${formatHex16(reloc.fileEnd)}` +
       ` runs at $${formatHex16(reloc.runtimeAddr)}${labelSuffix}`,
   );
   lines.push(`      .pseudopc $${formatHex16(reloc.runtimeAddr)} {`);

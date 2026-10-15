@@ -73,7 +73,7 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
       if (ids.length === 1) {
         const target = ids[0]!;
         const cand = rows.find((r) => r.id === target)!;
-        ins.run(a.id, target, RESOLVE_PRODUCER, JSON.stringify({ rule: "826.0-T2", candidates: all.length, kind: cand.kind, layer: cand.layer }));
+        ins.run(a.id, target, RESOLVE_PRODUCER, JSON.stringify({ rule: "alias-resolve", candidates: all.length, kind: cand.kind, layer: cand.layer }));
         resolved += 1;
       } else if (ids.length > 1) {
         ambiguous.push({ id: a.id, candidates: all });
@@ -84,7 +84,7 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
           const d = uniq[0]!;
           const tight = uniq.filter((r) => r.address === d.address);
           if (tight.length === 1) {
-            ins.run(a.id, d.id, RESOLVE_PRODUCER, JSON.stringify({ rule: "826.0-T4", candidates: uniq.length, kind: d.kind, layer: d.layer, offset: a.address - d.address }));
+            ins.run(a.id, d.id, RESOLVE_PRODUCER, JSON.stringify({ rule: "containment-resolve", candidates: uniq.length, kind: d.kind, layer: d.layer, offset: a.address - d.address }));
             resolved += 1;
           } else {
             ambiguous.push({ id: a.id, candidates: uniq.map((r) => r.id) });

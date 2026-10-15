@@ -347,7 +347,7 @@ export function demoteBrokenCodeIslands(
       const demotedScore = {
         confidence: Math.max(0.1, confidence),
         reasons: [
-          `Demoted from code (Spec 047): ${reasons.join("; ")}.`,
+          `Demoted from code: ${reasons.join("; ")}.`,
           ...segment.score.reasons.slice(0, 2),
         ],
         alternatives: [
@@ -381,7 +381,7 @@ export function demoteBrokenCodeIslands(
         score: {
           confidence: Math.max(segment.score.confidence, threshold),
           reasons: [
-            `Kept as code (Spec 741 / BUG-021): recursively-reached control flow ${formatAddress(start)}-${formatAddress(end)}; mixed data split off.`,
+            `Kept as code: recursively-reached control flow ${formatAddress(start)}-${formatAddress(end)}; mixed data split off.`,
             ...segment.score.reasons.slice(0, 2),
           ],
           alternatives: segment.score.alternatives,

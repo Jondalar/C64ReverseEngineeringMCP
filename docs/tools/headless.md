@@ -19,8 +19,8 @@ Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
   architecture references moved to `../TRX64/docs/` on 2026-08-12, with the port.
 
 `docs/mcp-tool-usecase-matrix.md` is the generated tool list.
-`docs/tool-surface-inventory.md` is a May-2026 audit snapshot, not the current surface —
-the live answer is `DEFAULT_TOOLS` in `src/server-tools/tier-tools.ts`.
+`docs/tool-surface-inventory.json` is the generated inventory of every tool and its description;
+the default tier is `DEFAULT_TOOLS` in `src/server-tools/tier-tools.ts`.
 
 ## Starting a session — from a cartridge, a disk, a PRG or a snapshot
 
@@ -40,7 +40,7 @@ runtime_session_start                                    # attach to the shared 
 reason this section exists: a session is a MACHINE and a medium is something you
 put in it, but the parameter was called `disk_path` and was once required — so
 starting from a cartridge meant naming a `.g64` nobody used just to satisfy the
-schema, and then mounting the CRT separately (BUG-041). That is long fixed, and
+schema, and then mounting the CRT separately. That is long fixed, and
 until now nothing said so where a caller would look.
 
 Swapping a cartridge in a session that is already running is the monitor's
@@ -243,9 +243,9 @@ clones a candidate runs on live inside the sandbox's daemon.
 | Tool | Description |
 |---|---|
 | `runtime_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
-| `runtime_monitor` | **One tool = the whole interactive monitor REPL, no per-verb allow-list.** **Names (Spec 804):** the runtime returns where it printed each address; C64RE names those addresses from the project graph and build symbols (` <name[u]>` after the address — [u] user, [b] build, [?] derived) while the payload is actually in memory, and turns a name in the command into its address before it is sent. No verb is parsed on the way. Pass ANY command string the human prompt accepts and get its text output — there is no gating, the LLM has the same reach as a person at the monitor. That includes: inspect (`m`/`d`, `r`, `df`, `screen`, `io`, `iec`); run control (`n`/`z`/`g`, `bp`/`del`, `run`/`pause`); observers + scoped trace (`obs … do break\|log\|trace`); machine (`reset`, `power on\|off`, `warp`, `turbo`); **media + drive, Spec 839** (`mount <path>` — the type comes from the file's CONTENT; `eject [cart\|disk]`; `drive`; `cart`; `drivepower`; `recent`); state (`dump`/`undump`, `savecrt`, `swapcrt`, `identify`); trace + analysis (`trace`, `tracedb`, `traceindex`, `tracering <s> <e>`, `map`, `taint`, `swimlane`, `chis`); reverse-debug (`rstep`, `whowrote`, `triage`, `revdepth`, `diff`); marks + transport (`mark`/`goto`, `play`, `frame ±N`, `rewind`, `ringdump`); **file I/O / FS mini-shell** (`cd`/`ls`, `load`/`save`, `bload`/`bsave`, `vsf`); annotations (`label`/`note`); plus `device c64\|drive8`, `sidefx`, `bank`. Run `help` for the full verb list. Routes to the `monitor/exec` WS handler with the full context, including the trace-store and project bridges. |
-| `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder (Spec 766). Its auto-feed is ON by default and is turned OFF with `C64RE_RECORDER_AUTOFEED=0` — this line claimed the opposite (`opt-in C64RE_RECORDER=1`) until 2026-08-12; that variable never existed. `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
-| `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The daemon's 705.B checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
+| `runtime_monitor` | **One tool = the whole interactive monitor REPL, no per-verb allow-list.** **Names:** the runtime returns where it printed each address; C64RE names those addresses from the project graph and build symbols (` <name[u]>` after the address — [u] user, [b] build, [?] derived) while the payload is actually in memory, and turns a name in the command into its address before it is sent. No verb is parsed on the way. Pass ANY command string the human prompt accepts and get its text output — there is no gating, the LLM has the same reach as a person at the monitor. That includes: inspect (`m`/`d`, `r`, `df`, `screen`, `io`, `iec`); run control (`n`/`z`/`g`, `bp`/`del`, `run`/`pause`); observers + scoped trace (`obs … do break\|log\|trace`); machine (`reset`, `power on\|off`, `warp`, `turbo`); **media + drive** (`mount <path>` — the type comes from the file's CONTENT; `eject [cart\|disk]`; `drive`; `cart`; `drivepower`; `recent`); state (`dump`/`undump`, `savecrt`, `swapcrt`, `identify`); trace + analysis (`trace`, `tracedb`, `traceindex`, `tracering <s> <e>`, `map`, `taint`, `swimlane`, `chis`); reverse-debug (`rstep`, `whowrote`, `triage`, `revdepth`, `diff`); marks + transport (`mark`/`goto`, `play`, `frame ±N`, `rewind`, `ringdump`); **file I/O / FS mini-shell** (`cd`/`ls`, `load`/`save`, `bload`/`bsave`, `vsf`); annotations (`label`/`note`); plus `device c64\|drive8`, `sidefx`, `bank`. Run `help` for the full verb list. Routes to the `monitor/exec` WS handler with the full context, including the trace-store and project bridges. |
+| `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder. Its auto-feed is ON by default and is turned OFF with `C64RE_RECORDER_AUTOFEED=0` — this line claimed the opposite (`opt-in C64RE_RECORDER=1`) until 2026-08-12; that variable never existed. `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
+| `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The daemon's checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
 
 **Non-halting scoped trace via observers** — start/stop a trace on PC hits without
 breakpoints, e.g. from `runtime_monitor`:
@@ -347,6 +347,6 @@ rollups, zoomable time windows, and runtime trace import.
 
 ## Where the runtime is developed
 
-Runtime work happens in TRX64, against its own gates (Spec 783). C64RE consumes it:
+Runtime work happens in TRX64, against its own gates. C64RE consumes it:
 if a runtime capability is missing, the answer is a TRX64 change plus the MCP tool
 that reaches it — never a second implementation here.

@@ -20,7 +20,7 @@ export function exportGraphRecords(projectDir: string, outDir?: string): ExportR
   const files: ExportResult["files"] = [];
   const write = (name: string, items: unknown[]) => {
     const path = join(dir, name);
-    writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, exportedAt: now, source: "knowledge/graph.sqlite (Spec 822 export)", items }, null, 2)}\n`);
+    writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, exportedAt: now, source: "knowledge/graph.sqlite (graph export)", items }, null, 2)}\n`);
     files.push({ path, records: items.length });
   };
   write("entities.json", records.listEntities());

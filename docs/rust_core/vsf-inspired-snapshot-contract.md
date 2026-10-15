@@ -1,4 +1,4 @@
-# Spec 512 — VSF-Inspired Snapshot Contract
+# VSF-Inspired Snapshot Contract
 
 **Status:** PROPOSED  
 **Phase:** after VIC-FIX  

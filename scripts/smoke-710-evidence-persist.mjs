@@ -58,7 +58,7 @@ try {
   const { artifact } = persistInspectEvidence(service, root, { evidence, name: "test cell", notes: "smoke" });
 
   gate("artifact persisted with kind=other scope=session", artifact?.kind === "other" && artifact?.scope === "session", `kind=${artifact?.kind} scope=${artifact?.scope}`);
-  gate("tags include vic-inspect + spec-710", Array.isArray(artifact?.tags) && artifact.tags.includes("vic-inspect") && artifact.tags.includes("spec-710"), `tags=${artifact?.tags?.join(",")}`);
+  gate("tags include vic-inspect and no internal id", Array.isArray(artifact?.tags) && artifact.tags.includes("vic-inspect") && !artifact.tags.includes("spec-710"), `tags=${artifact?.tags?.join(",")}`);
   gate("title carries the given name", typeof artifact?.title === "string" && artifact.title.includes("test cell"), artifact?.title);
   gate("path under knowledge/inspect-evidence/", typeof artifact?.path === "string" && artifact.path.replace(/\\/g, "/").includes("knowledge/inspect-evidence/"), artifact?.path);
 

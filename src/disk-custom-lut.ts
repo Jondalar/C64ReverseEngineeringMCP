@@ -451,7 +451,7 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
  *
  * It used to print three numbers and a JSON block holding the same three, so a caller
  * who wanted the cartography the description promises had to rebuild it out of
- * `manifest.spec784.json` by hand. 683 sectors are 35 short lines; there was never a
+ * `extraction-manifest.json` by hand. 683 sectors are 35 short lines; there was never a
  * size reason to withhold them.
  */
 export const SECTOR_MAP_LEGEND = ". free  # orphan data (unclaimed, NOT empty)  S system (BAM/dir)  K kernal file  C custom file  ! overlap";

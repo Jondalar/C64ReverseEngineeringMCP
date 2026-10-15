@@ -111,7 +111,7 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
 
   return (
     <div className="wb-scrub">
-      <span className="wb-scrub-title" title="Rewind over the in-memory checkpoint ring (705.B). Transient: oldest anchors are evicted; a power-cycle starts a fresh ring.">⟲ Scrub</span>
+      <span className="wb-scrub-title" title="Rewind over the in-memory checkpoint ring. Transient: oldest anchors are evicted; a power-cycle starts a fresh ring.">⟲ Scrub</span>
       <div
         ref={barRef}
         className={`wb-scrub-bar${busy ? " busy" : ""}`}

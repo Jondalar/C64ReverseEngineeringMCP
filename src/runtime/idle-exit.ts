@@ -33,7 +33,7 @@ const clock = (ms: number): string => new Date(ms).toTimeString().slice(0, 5);
 
 /** One line for a status answer. */
 export function describeIdleExit(s: IdleExitStatus | undefined, now = Date.now(), subject: "runtime" | "bridge" = "runtime"): string {
-  if (!s) return "Idle exit: not reported (a runtime older than TRX64 Spec 887)";
+  if (!s) return "Idle exit: not reported (a runtime older than the idle-exit option)";
   if (!s.armedSeconds) return `Idle exit: none — this ${subject} was started by hand and runs until it is stopped`;
   const window = minutes(s.armedSeconds * 1000);
   if (s.keptForever) return `Idle exit: kept alive — it does not end on its own (otherwise after ${window} idle)`;

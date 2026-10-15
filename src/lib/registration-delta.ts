@@ -77,10 +77,10 @@ const TOOL_OWNED_DIRS: Array<{ prefix: string; tool: string }> = [
   { prefix: "analysis/runtime", tool: "runtime session capture" },
   { prefix: "analysis/headless-runtime", tool: "headless runtime capture" },
   // Spec 832 §6 names this one. NOTE: no tool in THIS repo composes it — it is
-  // the conventional output directory of a per-project Spec 784 extractor, which
+  // the conventional output directory of a per-project extractor, which
   // is still machine output written by a program, not by a hand. Kept here on
   // the spec's decision, flagged so the next reader knows the difference.
-  { prefix: "analysis/carved", tool: "per-project extractor (Spec 784)" },
+  { prefix: "analysis/carved", tool: "per-project extractor" },
 ];
 
 // The one exception INSIDE a tool-owned directory: the manifest or report the
@@ -88,6 +88,7 @@ const TOOL_OWNED_DIRS: Array<{ prefix: string; tool: string }> = [
 // should be registered, so it stays ordinary — and actionable — debt.
 const TOOL_OWNED_MANIFEST_NAMES = new Set([
   "manifest.json",
+  "extraction-manifest.json",
   "manifest.spec784.json",
   "track-metadata.json",
   "summary.json",

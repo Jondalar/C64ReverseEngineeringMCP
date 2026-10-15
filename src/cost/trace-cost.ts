@@ -328,7 +328,7 @@ export function evaluateTrace(
     const hits = (options.routines ?? []).filter((r) => inst.pc >= r.start && inst.pc <= r.end);
     if (hits.length !== 1) {
       unattributed += 1;
-      const why = hits.length === 0 ? "no routine in the graph covers this address" : `${hits.length} routines cover this address — residency decides, and it has not (§4.4)`;
+      const why = hits.length === 0 ? "no routine in the graph covers this address" : `${hits.length} routines cover this address — residency decides, and it has not`;
       unattributedWhy[why] = (unattributedWhy[why] ?? 0) + 1;
       continue;
     }
@@ -385,7 +385,7 @@ export function evaluateTrace(
     rows: insns.length,
     evaluated,
     anchor,
-    anchorWhy: anchor ? `the capture's frame boundary at clock ${anchor.clock}, line ${anchor.line} cycle ${anchor.cycle}, ${anchor.cyclesPerLine}×${anchor.linesPerFrame}` : "no frame anchor in this store — raster positions are not reported (§4.2 takes the anchor from the capture's advance to a frame boundary)",
+    anchorWhy: anchor ? `the capture's frame boundary at clock ${anchor.clock}, line ${anchor.line} cycle ${anchor.cycle}, ${anchor.cyclesPerLine}×${anchor.linesPerFrame}` : "no frame anchor in this store — raster positions are not reported (the anchor is taken from the capture's advance to a frame boundary)",
     frames,
     measured, staticTotal, stolen, entries, entriesVia, inexact,
     inexactSamples: instances.filter((i) => !i.exact).slice(0, 10),
@@ -482,7 +482,7 @@ export function formatTraceCost(report: TraceCostReport, title: string): string 
 
   if (report.perRoutine.length) {
     lines.push("");
-    lines.push("  per routine (§4.3)");
+    lines.push("  per routine");
     for (const r of report.perRoutine.slice(0, 20)) {
       const perCall = r.calls > 0 ? (r.measured / r.calls).toFixed(1) : "—";
       const perCallStatic = r.calls > 0 ? (r.staticTotal / r.calls).toFixed(1) : "—";
@@ -499,7 +499,7 @@ export function formatTraceCost(report: TraceCostReport, title: string): string 
 
   if (report.unattributed.instances > 0) {
     lines.push("");
-    lines.push(`  unattributed: ${report.unattributed.instances} instance(s) — counted, never guessed (§4.4)`);
+    lines.push(`  unattributed: ${report.unattributed.instances} instance(s) — counted, never guessed`);
     for (const [why, n] of Object.entries(report.unattributed.why)) lines.push(`    ${n}× ${why}`);
   }
 

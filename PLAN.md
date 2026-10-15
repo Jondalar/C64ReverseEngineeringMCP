@@ -12,7 +12,7 @@ the **in-repo TypeScript emulator**. That emulator is deleted, so those gates ar
 with it: `proof:product`, `proof:capability`, `proof:list`, `proof:seven-game`,
 `runtime:proof`, `check:1541-fidelity`, `probe:single-path`, the seven per-game
 screenshot tests and `scripts/runtime-proof-manifest.mjs`. The frozen record of what
-they once proved stays in `docs/runtime-product-baseline-2026-05-24.md` and
+they once proved stays in `docs/_archive/runtime-product-baseline-2026-05-24.md` and
 `specs/_archive/715-runtime-product-proof-baseline.md`, as history.
 
 **Runtime regression protection now lives in TRX64** (Spec 783, its own local quality

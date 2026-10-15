@@ -1,6 +1,6 @@
 {
   "total": 310,
-  "specCount": 41,
+  "specCount": 0,
   "advancedCandidate": 105,
   "byNamespace": {
     "runtime": 100,
@@ -80,18 +80,18 @@
       "name": "agent_advance_phase",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "agent",
-      "hasSpec": true,
-      "firstSentence": "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow.",
-      "desc": "Spec 034: advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward. An artifact whose analysis found a split low/high table in confirmed code that no splitTables[] entry has declared or rejected is REFUSED past phase 5, whatever the project profile says; the refusal lists the open tables and how to close each.",
+      "hasSpec": false,
+      "firstSentence": "Advance an artifact to a target phase (1..7) in the seven-phase RE workflow.",
+      "desc": "Advance an artifact to a target phase (1..7) in the seven-phase RE workflow. Skipping more than one phase forward requires an evidence string. Cannot move backward. An artifact whose analysis found a split low/high table in confirmed code that no splitTables[] entry has declared or rejected is REFUSED past phase 5, whatever the project profile says; the refusal lists the open tables and how to close each.",
       "tier": "advanced?"
     },
     {
       "name": "agent_freeze_artifact",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "agent",
-      "hasSpec": true,
-      "firstSentence": "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack).",
-      "desc": "Spec 034: freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
+      "hasSpec": false,
+      "firstSentence": "Freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack).",
+      "desc": "Freeze an artifact at its current phase (cracker mode for asset PRGs / level data that has no relevance to the crack). Frozen artifacts skip propose_next and count as 'done' for completion math.",
       "tier": "advanced?"
     },
     {
@@ -188,18 +188,18 @@
       "name": "apply_patch_recipe",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "apply",
-      "hasSpec": true,
-      "firstSentence": "Spec 027: apply a patch recipe.",
-      "desc": "Spec 027: apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes via Spec 025 versioning.",
+      "hasSpec": false,
+      "firstSentence": "Apply a patch recipe.",
+      "desc": "Apply a patch recipe. Refuses if expected bytes do not match the target unless allow_mismatch is set. Snapshots prior bytes through artifact versioning.",
       "tier": "advanced?"
     },
     {
       "name": "archive_phase1_noise",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "archive",
-      "hasSpec": true,
-      "firstSentence": "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange.",
-      "desc": "Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Spec 056 R27: pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
+      "hasSpec": false,
+      "firstSentence": "Walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange.",
+      "desc": "Walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. Also closes paired heuristic-phase1 questions whose title address matches. dry_run=true previews without writing. Pass `artifact_id` to scope routines + hypothesis candidates + questions to those linked to a single artifact (per-file feedback signal).",
       "tier": "advanced?"
     },
     {
@@ -215,18 +215,18 @@
       "name": "auto_resolve_questions",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "auto",
-      "hasSpec": true,
-      "firstSentence": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B).",
-      "desc": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
+      "hasSpec": false,
+      "firstSentence": "Run the catch-up sweep across all auto-resolvable questions (finding-overlap and phase-reached rules; saving an annotation runs a third rule on its own).",
+      "desc": "Run the catch-up sweep across all auto-resolvable questions (finding-overlap and phase-reached rules; saving an annotation runs a third rule on its own). Returns counts. Pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
       "tier": "advanced?"
     },
     {
       "name": "auto_tag_relevance",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "auto",
-      "hasSpec": true,
-      "firstSentence": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset).",
-      "desc": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
+      "hasSpec": false,
+      "firstSentence": "Heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset).",
+      "desc": "Heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
       "tier": "advanced?"
     },
     {
@@ -234,17 +234,17 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing.",
-      "desc": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+      "firstSentence": "Walk the findings and copy evidence[0].addressRange to top-level addressRange when missing.",
+      "desc": "Walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
       "name": "backfill_internal_flags",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
-      "hasSpec": true,
-      "firstSentence": "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field).",
-      "desc": "Bug 26 / Spec 058 follow-up: walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
+      "hasSpec": false,
+      "firstSentence": "Walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field).",
+      "desc": "Walk artifacts + entities and set `internal: true` on records where the heuristic (path / role / kind) classifies them as infrastructure but the flag was never persisted (legacy data predating the schema field). Idempotent. Entity classification uses the primary linked artifact's flag after the artifact pass. dry_run=true previews without writing.",
       "tier": "advanced?"
     },
     {
@@ -252,8 +252,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash.",
-      "desc": "Bug 33 Fix A (manifest path): walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
+      "firstSentence": "Walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash.",
+      "desc": "Walk every artifact of kind=manifest, re-parse it, resolve each entry's file path to bytes, compute sha256, and write back into the matching manifest-imported entity's payloadContentHash. Matches entities by the stableId pattern that manifest-import uses. Skips already-hashed entities. dry_run=true previews. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -261,8 +261,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash.",
-      "desc": "Bug 33 Fix A: walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
+      "firstSentence": "Walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash.",
+      "desc": "Walk payload-bearing entities (kind=payload OR payloadLoadAddress set), and for each whose payloadContentHash is null AND payloadSourceArtifactId points at a directly-linked file (NOT a manifest/aggregator), read the file bytes and compute sha256, writing back into entity.payloadContentHash. For manifest-sourced entities use backfill_manifest_payload_hashes instead. Skips already-hashed entities. dry_run=true previews without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -270,8 +270,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
-      "desc": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+      "firstSentence": "Walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
+      "desc": "Walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -431,9 +431,9 @@
       "name": "close_completed_tasks",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "close",
-      "hasSpec": true,
-      "firstSentence": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied.",
-      "desc": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
+      "hasSpec": false,
+      "firstSentence": "Walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied.",
+      "desc": "Walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
       "tier": "advanced?"
     },
     {
@@ -458,9 +458,9 @@
       "name": "confirm_question_resolution",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "confirm",
-      "hasSpec": true,
-      "firstSentence": "Spec 052: confirm or reject a resolution-pending question.",
-      "desc": "Spec 052: confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
+      "hasSpec": false,
+      "firstSentence": "Confirm or reject a resolution-pending question.",
+      "desc": "Confirm or reject a resolution-pending question. accept=true marks it answered with the proposed summary; accept=false flips it back to open with a rejection note.",
       "tier": "advanced?"
     },
     {
@@ -512,27 +512,27 @@
       "name": "dedupe_artifact_registry",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "dedupe",
-      "hasSpec": true,
-      "firstSentence": "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path.",
-      "desc": "Spec 060 / Bug 30: collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+      "hasSpec": false,
+      "firstSentence": "Collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path.",
+      "desc": "Collapse legacy duplicate artifact registrations (same absolute path, different ids) into one survivor per path. Survivor = oldest createdAt; merges union sourceArtifactIds / entityIds / tags / evidence / loadContexts / versions; references across entities / findings / relations / flows / tasks / open-questions remapped from deprecated ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
       "name": "dedupe_payload_entities",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "dedupe",
-      "hasSpec": true,
-      "firstSentence": "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress).",
-      "desc": "Spec 060 / Bug 31: collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
+      "hasSpec": false,
+      "firstSentence": "Collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress).",
+      "desc": "Collapse legacy duplicate payload-bearing entities into one survivor per (payloadContentHash) or (payloadSourceArtifactId + payloadLoadAddress). Survivor preference: kind==payload first, then earliest createdAt. Other names fold into survivor.aliases[]. Manifest-source entities (linked artifact internal=true) are marked internal rather than removed. References across entities, findings, relations, flows, tasks, open-questions, artifacts remap from deprecated entity ids to survivor ids. dry_run=true previews counts + first 10 sample groups without writing. Idempotent.",
       "tier": "advanced?"
     },
     {
       "name": "define_runtime_scenario",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "define",
-      "hasSpec": true,
-      "firstSentence": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone).",
-      "desc": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
+      "hasSpec": false,
+      "firstSentence": "Define a named scenario (target artifact, breakpoints, stop condition, expected milestone).",
+      "desc": "Define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
       "tier": "advanced?"
     },
     {
@@ -593,9 +593,9 @@
       "name": "diff_scenario_runs",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "diff",
-      "hasSpec": true,
-      "firstSentence": "Spec 030: diff two recorded scenario runs (baseline vs candidate).",
-      "desc": "Spec 030: diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
+      "hasSpec": false,
+      "firstSentence": "Diff two recorded scenario runs (baseline vs candidate).",
+      "desc": "Diff two recorded scenario runs (baseline vs candidate). Emits + persists a RuntimeDiff with missingLoads, extraLoads, diffDestination, diffPayloadHash, divergentPc.",
       "tier": "advanced?"
     },
     {
@@ -917,9 +917,9 @@
       "name": "list_anti_patterns",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 031: list registered anti-patterns sorted by recency.",
-      "desc": "Spec 031: list registered anti-patterns sorted by recency.",
+      "hasSpec": false,
+      "firstSentence": "List registered anti-patterns sorted by recency.",
+      "desc": "List registered anti-patterns sorted by recency.",
       "tier": "advanced?"
     },
     {
@@ -944,18 +944,18 @@
       "name": "list_build_pipelines",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 032: list registered build pipelines.",
-      "desc": "Spec 032: list registered build pipelines.",
+      "hasSpec": false,
+      "firstSentence": "List registered build pipelines.",
+      "desc": "List registered build pipelines.",
       "tier": "advanced?"
     },
     {
       "name": "list_container_entries",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted).",
-      "desc": "Spec 025 R23: list container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
+      "hasSpec": false,
+      "firstSentence": "List container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted).",
+      "desc": "List container sub-entries for a given parent artifact (or all containers if parent_artifact_id is omitted). Sorted by container offset ascending.",
       "tier": "advanced?"
     },
     {
@@ -1007,9 +1007,9 @@
       "name": "list_loader_events",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 028: list recorded loader events.",
-      "desc": "Spec 028: list recorded loader events. Filter by scenario_id or loader_entry_point_id.",
+      "hasSpec": false,
+      "firstSentence": "List recorded loader events.",
+      "desc": "List recorded loader events. Filter by scenario_id or loader_entry_point_id.",
       "tier": "advanced?"
     },
     {
@@ -1043,9 +1043,9 @@
       "name": "list_patch_recipes",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
-      "desc": "Spec 027: list patch recipes (optionally filtered by status or target artifact).",
+      "hasSpec": false,
+      "firstSentence": "List patch recipes (optionally filtered by status or target artifact).",
+      "desc": "List patch recipes (optionally filtered by status or target artifact).",
       "tier": "advanced?"
     },
     {
@@ -1079,9 +1079,9 @@
       "name": "list_runtime_scenarios",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 030: list defined scenarios.",
-      "desc": "Spec 030: list defined scenarios.",
+      "hasSpec": false,
+      "firstSentence": "List defined scenarios.",
+      "desc": "List defined scenarios.",
       "tier": "advanced?"
     },
     {
@@ -1106,18 +1106,18 @@
       "name": "mark_segment_confirmed",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "mark",
-      "hasSpec": true,
-      "firstSentence": "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence.",
-      "desc": "Spec 053 (Bug 20): mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
+      "hasSpec": false,
+      "firstSentence": "Mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence.",
+      "desc": "Mark a sprite/charset/bitmap segment in *_analysis.json as confirmed by a render evidence. Also creates a confirmation finding with status confirmed.",
       "tier": "advanced?"
     },
     {
       "name": "mark_segment_rejected",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "mark",
-      "hasSpec": true,
-      "firstSentence": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification.",
-      "desc": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
+      "hasSpec": false,
+      "firstSentence": "Mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification.",
+      "desc": "Mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
       "tier": "advanced?"
     },
     {
@@ -1367,9 +1367,9 @@
       "name": "propose_question_resolutions",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "propose",
-      "hasSpec": true,
-      "firstSentence": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached).",
-      "desc": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
+      "hasSpec": false,
+      "firstSentence": "Read-only proposal — list what the resolver would do for open auto-resolvable questions (the finding-overlap rule and the phase-reached rule).",
+      "desc": "Read-only proposal — list what the resolver would do for open auto-resolvable questions (the finding-overlap rule and the phase-reached rule). Useful before flipping projectProfile.questionAutoResolveMode.",
       "tier": "advanced?"
     },
     {
@@ -1421,9 +1421,9 @@
       "name": "record_build_step_result",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "record",
-      "hasSpec": true,
-      "firstSentence": "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
-      "desc": "Spec 032: record the outcome of a single build step (status + exit code + actual output hashes).",
+      "hasSpec": false,
+      "firstSentence": "Record the outcome of a single build step (status + exit code + actual output hashes).",
+      "desc": "Record the outcome of a single build step (status + exit code + actual output hashes).",
       "tier": "advanced?"
     },
     {
@@ -1448,36 +1448,36 @@
       "name": "record_loader_event",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "record",
-      "hasSpec": true,
-      "firstSentence": "Spec 028: persist one observed loader call.",
-      "desc": "Spec 028: persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for VICE-observed events. Used by Spec 030 scenario diff.",
+      "hasSpec": false,
+      "firstSentence": "Persist one observed loader call.",
+      "desc": "Persist one observed loader call. Source 'static' for code-pattern inferences, 'trace' for runtime-observed events. Used by the scenario diff.",
       "tier": "advanced?"
     },
     {
       "name": "record_runtime_event_summary",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "record",
-      "hasSpec": true,
-      "firstSentence": "Spec 030: persist a runtime-event summary for a scenario run.",
-      "desc": "Spec 030: persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
+      "hasSpec": false,
+      "firstSentence": "Persist a runtime-event summary for a scenario run.",
+      "desc": "Persist a runtime-event summary for a scenario run. Pass scenarios id + observed events; usually emitted by trace tooling. Returns the assigned runId.",
       "tier": "advanced?"
     },
     {
       "name": "register_constraint",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
-      "hasSpec": true,
-      "firstSentence": "Spec 029: declare a constraint rule.",
-      "desc": "Spec 029: declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
+      "hasSpec": false,
+      "firstSentence": "Declare a constraint rule.",
+      "desc": "Declare a constraint rule. v1 stores rule text only; downstream evaluation is via built-in predicates.",
       "tier": "advanced?"
     },
     {
       "name": "register_container_entry",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
-      "hasSpec": true,
-      "firstSentence": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.).",
-      "desc": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
+      "hasSpec": false,
+      "firstSentence": "Declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.).",
+      "desc": "Declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
       "tier": "advanced?"
     },
     {
@@ -1493,18 +1493,18 @@
       "name": "register_load_context",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
-      "hasSpec": true,
-      "firstSentence": "Spec 023: register a runtime / after-decompression load context on an artifact.",
-      "desc": "Spec 023: register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
+      "hasSpec": false,
+      "firstSentence": "Register a runtime / after-decompression load context on an artifact.",
+      "desc": "Register a runtime / after-decompression load context on an artifact. Use when a custom fastloader places the file at a runtime address that differs from the on-disk PRG header. Idempotent on (artifact_id, kind, address, bank).",
       "tier": "advanced?"
     },
     {
       "name": "register_operation",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
-      "hasSpec": true,
-      "firstSentence": "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
-      "desc": "Spec 029: declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
+      "hasSpec": false,
+      "firstSentence": "Declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
+      "desc": "Declare an operation that affects one or more resource regions (overlay-copy, flash-erase, bank-switch, etc.).",
       "tier": "advanced?"
     },
     {
@@ -1520,27 +1520,27 @@
       "name": "register_payloads_from_manifest",
       "file": "server-tools/payloads.ts",
       "ns": "register",
-      "hasSpec": true,
+      "hasSpec": false,
       "firstSentence": "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads.",
-      "desc": "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/spec784-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (manifest.spec784.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
+      "desc": "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/extraction-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (extraction-manifest.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
       "tier": "default?"
     },
     {
       "name": "register_resource_region",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
-      "hasSpec": true,
-      "firstSentence": "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
-      "desc": "Spec 029: declare a memory / cart / IO resource region for the constraint checker.",
+      "hasSpec": false,
+      "firstSentence": "Declare a memory / cart / IO resource region for the constraint checker.",
+      "desc": "Declare a memory / cart / IO resource region for the constraint checker.",
       "tier": "advanced?"
     },
     {
       "name": "rename_artifact_version",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "rename",
-      "hasSpec": true,
-      "firstSentence": "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
-      "desc": "Spec 025: change an artifact's free-form versionLabel without touching bytes or hash.",
+      "hasSpec": false,
+      "firstSentence": "Change an artifact's free-form versionLabel without touching bytes or hash.",
+      "desc": "Change an artifact's free-form versionLabel without touching bytes or hash.",
       "tier": "advanced?"
     },
     {
@@ -1574,9 +1574,9 @@
       "name": "run_build_pipeline",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "run",
-      "hasSpec": true,
-      "firstSentence": "Spec 032 follow-up: orchestrate a build pipeline end-to-end.",
-      "desc": "Spec 032 follow-up: orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
+      "hasSpec": false,
+      "firstSentence": "Orchestrate a build pipeline end-to-end.",
+      "desc": "Orchestrate a build pipeline end-to-end. Runs each step's shell command via spawnSync, captures exit code + stdout/stderr tails + per-output sha256, records the BuildRun. Stops at first failed step unless continue_on_error=true. WARNING: executes shell commands; only run on trusted pipelines.",
       "tier": "advanced?"
     },
     {
@@ -2519,9 +2519,9 @@
       "name": "save_anti_pattern",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
-      "hasSpec": true,
-      "firstSentence": "Spec 031: record a 'do not try this again' anti-pattern.",
-      "desc": "Spec 031: record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
+      "hasSpec": false,
+      "firstSentence": "Record a 'do not try this again' anti-pattern.",
+      "desc": "Record a 'do not try this again' anti-pattern. Severity drives whether onboarding surfaces it as a warning. Optional commandPattern lets agent_propose_next filter actions matching the pattern.",
       "tier": "advanced?"
     },
     {
@@ -2537,9 +2537,9 @@
       "name": "save_build_pipeline",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
-      "hasSpec": true,
-      "firstSentence": "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes.",
-      "desc": "Spec 032 / R24: define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
+      "hasSpec": false,
+      "firstSentence": "Define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes.",
+      "desc": "Define an ordered build pipeline (assemble -> patch -> pack -> CRT etc.) with step input/output artifact ids and expected hashes. Idempotent on id; pass id to update.",
       "tier": "advanced?"
     },
     {
@@ -2582,18 +2582,18 @@
       "name": "save_patch_recipe",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
-      "hasSpec": true,
-      "firstSentence": "Spec 027: persist a binary patch recipe with byte-level assertions.",
-      "desc": "Spec 027: persist a binary patch recipe with byte-level assertions. Status starts at draft.",
+      "hasSpec": false,
+      "firstSentence": "Persist a binary patch recipe with byte-level assertions.",
+      "desc": "Persist a binary patch recipe with byte-level assertions. Status starts at draft.",
       "tier": "advanced?"
     },
     {
       "name": "save_project_profile",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
-      "hasSpec": true,
-      "firstSentence": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns).",
-      "desc": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
+      "hasSpec": false,
+      "firstSentence": "Persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns).",
+      "desc": "Persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
       "tier": "advanced?"
     },
     {
@@ -2636,9 +2636,9 @@
       "name": "set_artifact_relevance",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "set",
-      "hasSpec": true,
-      "firstSentence": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other).",
-      "desc": "Spec 041: tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
+      "hasSpec": false,
+      "firstSentence": "Tag an artifact with a relevance value (loader | protection | save | kernal | asset | other).",
+      "desc": "Tag an artifact with a relevance value (loader | protection | save | kernal | asset | other). Drives sorting in the dashboard + cracker-mode propose_next ranking.",
       "tier": "advanced?"
     },
     {
@@ -2672,18 +2672,18 @@
       "name": "snapshot_artifact_before_overwrite",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "snapshot",
-      "hasSpec": true,
-      "firstSentence": "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file.",
-      "desc": "Spec 025: snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
+      "hasSpec": false,
+      "firstSentence": "Snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file.",
+      "desc": "Snapshot the on-disk bytes of an artifact to <root>/snapshots/<id>/<hash>.bin BEFORE overwriting the file. Appends a versions[] entry to the artifact so the prior bytes stay recoverable without git. Call this once per overwrite; saveArtifact afterwards will see the new hash and skip duplicating the version entry. Returns the snapshot path and byte size.",
       "tier": "advanced?"
     },
     {
       "name": "start_build_run",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "start",
-      "hasSpec": true,
-      "firstSentence": "Spec 032: start a build run for a pipeline.",
-      "desc": "Spec 032: start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
+      "hasSpec": false,
+      "firstSentence": "Start a build run for a pipeline.",
+      "desc": "Start a build run for a pipeline. mode='dry-run' (default) records all steps as skipped; mode='record' marks them pending so record_build_step_result can update them as the caller executes the commands externally.",
       "tier": "advanced?"
     },
     {
@@ -2843,9 +2843,9 @@
       "name": "verify_constraints",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "verify",
-      "hasSpec": true,
-      "firstSentence": "Spec 029: run the built-in constraint checker.",
-      "desc": "Spec 029: run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
+      "hasSpec": false,
+      "firstSentence": "Run the built-in constraint checker.",
+      "desc": "Run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
       "tier": "advanced?"
     },
     {

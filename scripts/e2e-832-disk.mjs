@@ -193,7 +193,7 @@ try {
   });
   const reimported = service.importManifestArtifact(spec784Artifact.id);
   check(reimported.importedEntityCount === 1, "a manifest this repo wrote re-imports through the content reader");
-  check(/Spec 784/.test(reimported.schema), `…and the result names the schema that read it: ${reimported.schema}`);
+  check(/loader-manifest/.test(reimported.schema), `…and the result names the schema that read it: ${reimported.schema}`);
   check(reimported.skippedRows.length === 0, "…with nothing skipped");
 
   // A file that matches no schema still fails — with the shapes it was tried against.

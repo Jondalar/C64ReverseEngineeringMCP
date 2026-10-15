@@ -59,7 +59,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
               tool: "model_assert",
               missing: "evidence",
               what: "what you read that establishes this boundary — a file header, a listing line, a routine. "
-                + "A boundary without a citation is the claim the next session inherits and cannot check (Spec 845 D3).",
+                + "A boundary without a citation is the claim the next session inherits and cannot check.",
               prose: [{ name: "description", value: args.description }],
             }),
           }],

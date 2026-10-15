@@ -182,7 +182,7 @@ try {
     const line = report.split("\n").find((l) => l.includes("must preserve")) ?? "";
     const how = report.split("\n")[report.split("\n").indexOf(line) + 1] ?? "";
     check(/what the change must preserve: [A-Z]/.test(line), "it names what the change must preserve", line);
-    check(/computed signature/.test(how) && /§3.3/.test(how), "…from the interface its caller sees (826), carried backwards by liveness (§3.3)", how.trim());
+    check(/computed signature/.test(how) && /read backwards from/.test(how), "…from the interface its caller sees, carried backwards by liveness", how.trim());
   }
   {
     // A range INSIDE the routine: now liveness is the sharper answer, and it is

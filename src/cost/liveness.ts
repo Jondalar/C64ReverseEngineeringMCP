@@ -58,7 +58,7 @@ export function liveness(cfg: Cfg, declaredExit?: LocSet): Liveness {
   const exitSet = declaredExit ? new Set(declaredExit) : everything();
   const exitWhy = declaredExit
     ? `the caller declared what is live after the range: ${[...exitSet].sort().join(" ") || "nothing"}`
-    : `no live-out was declared, so every successor the graph cannot see leaves everything live (§3.3)`;
+    : `no live-out was declared, so every successor the graph cannot see leaves everything live`;
 
   let changed = true;
   let rounds = 0;

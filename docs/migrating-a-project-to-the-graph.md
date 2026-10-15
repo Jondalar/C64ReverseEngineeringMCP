@@ -1,6 +1,6 @@
 # Taking an existing project into the knowledge graph
 
-For a project that was analysed before Specs 817–826. Ten minutes, and the first
+For a project that was analysed before the knowledge graph. Ten minutes, and the first
 step is the one that already happened without you.
 
 ## 0. It has probably migrated itself
@@ -8,14 +8,14 @@ step is the one that already happened without you.
 Opening a project cuts it over. The six JSON stores — `entities.json`,
 `findings.json`, `relations.json`, `open-questions.json`, `labels.user.json`,
 `flows.json` — fold into `knowledge/graph.sqlite` and move to
-`knowledge/_legacy-822/`, where they stay for one release as read-only
+`knowledge/_legacy-json/` (a project cut over by an earlier release holds them under that release's directory name, which is still read), where they stay for one release as read-only
 archaeology. It is idempotent: the second open is a no-op.
 
 So `ls knowledge/` answers where you stand:
 
 | what you see | what it means |
 |---|---|
-| `graph.sqlite` and `_legacy-822/` | already cut over, go to step 2 |
+| `graph.sqlite` and a `_legacy-json/` directory (or the earlier release's name for it) | already cut over, go to step 2 |
 | `graph.sqlite` and the six JSON files | a partial run; step 1 finishes it |
 | only the six JSON files | never opened since the cut-over; step 1 |
 
@@ -44,9 +44,9 @@ evidence.
 node <repo>/dist/cli.js graph seed --project <project>
 ```
 
-Runs the producers over every `*_analysis.json` in the project: control flow
-(819), memory access (820), the `RESOLVES_TO` pass (826.0) and the routine
-signatures (826). It prints one line per artifact plus the totals, and it is
+Runs the producers over every `*_analysis.json` in the project: control flow,
+memory access, the `RESOLVES_TO` pass and the routine
+signatures. It prints one line per artifact plus the totals, and it is
 safe to repeat — each producer replaces exactly its own rows.
 
 **Declare the machine for any drive code first.** Code that runs on the 1541 is
@@ -116,7 +116,7 @@ concluding it does not know is the most common mistake with this surface.
 
 ## If something looks wrong
 
-- **A ROM address has callers it should not have.** Re-seed: before 826.0 a `jsr`
+- **A ROM address has callers it should not have.** Re-seed: before the `RESOLVES_TO` pass a `jsr`
   into RAM under BASIC produced a `CALLS_ROM` to a BASIC address.
 - **A path stops at an artifact boundary.** Run `graph resolve` — it links the
   ownerless address node to the routine another artifact holds there.
@@ -130,6 +130,6 @@ concluding it does not know is the most common mistake with this surface.
 ## What this does not do
 
 The migration does not delete, rename or move anything in `analysis/`. It does
-not touch the `.c64retrace` or DuckDB captures (Spec 827 decides where *new* ones
+not touch the `.c64retrace` or DuckDB captures (captures are kept outside the project: *new* ones
 go). And it does not re-run `analyze` — the graph is built from the analysis
 output that already exists.
