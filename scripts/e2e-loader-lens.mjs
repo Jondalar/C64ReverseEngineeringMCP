@@ -151,6 +151,71 @@ ok(md.length === 1 && md[0].kind === "landing" && md[0].c64Dest === 0x2000 && md
   && md[0].sha256 === createHash("sha256").update(want).digest("hex"), "downward direct landing reported at its lowest address, bytes in address order", JSON.stringify(md.map((e) => [e.c64Dest, e.len])));
 
 // ---------------------------------------------------------------------------------
+// Issue #77 — the shapes a REAL TRX64 capture of Impossible Mission II has.
+// S5: TRX64 does not emit stack PULL reads as trace records (trx64-core
+//     c64_6510core.rs `pull()` reads through `read_raw_dummy`, which the trace filters).
+//     So the S1 copy arrives with NO page-1 read before each destination write: only the
+//     pushes ($DD00 + write to page 1) and the stores. The copy must still be followed.
+// S6: an open run must not be stretched by a write millions of cycles later (IM II: the
+//     title-music unpack $1000-$26D5 at 41.9M cycles took the main game's $26D6 byte at
+//     56.6M and became a 5847-byte "landing" whose window held the main game's transfer).
+// ---------------------------------------------------------------------------------
+console.log("\nIssue #77 — stack copy without pull records; no stale run stretch\n");
+const s5 = im2.filter((e) => !(e.op === TraceOp.RAM_WRITE && e.access === ACCESS_READ && e.addr >= 0x0100 && e.addr <= 0x01ff));
+ok(s5.length === im2.length - 2 * N, "S5 fixture: the S1 capture minus its 480 page-1 read records", `${im2.length} -> ${s5.length}`);
+const m5 = buildLandingMap(s5);
+const l5a = m5.find((e) => e.kind === "landing" && e.c64Dest === 0x1000);
+const l5b = m5.find((e) => e.kind === "landing" && e.c64Dest === 0x10f0);
+ok(!!l5a && l5a.len === N && l5a.source?.sector === 1, "S5 $1000 len 240 from T33/S1 without pull records", m5.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}+${e.len}`).join(","));
+ok(!!l5b && l5b.len === N && l5b.source?.sector === 2, "S5 $10F0 len 240 from T33/S2 without pull records", JSON.stringify(l5b?.source));
+ok(!!l5a && l5a.viaBuffer?.addr === 0x0100 && l5a.viaBuffer?.len === N, "S5 $1000 lists its buffer $0100+240", JSON.stringify(l5a?.viaBuffer));
+ok(!!l5a && l5a.sha256 === createHash("sha256").update(want1).digest("hex"), "S5 sha256 equals the S1 one");
+ok(m5.every((e) => !(e.c64Dest >= 0x0100 && e.c64Dest <= 0x01ff)), "S5 no unfollowed page-1 buffer left");
+// S5b: the same push pattern, but the bytes stored afterwards are NOT the buffer (non-constant XOR) → no landing.
+const s5b = s5.map((e) => (e.op === TraceOp.RAM_WRITE && e.access === ACCESS_WRITE && e.addr >= 0x1000 && e.addr < 0x1200
+  ? { ...e, value: (e.value + e.addr) & 0xff } : e));
+const m5b = buildLandingMap(s5b);
+ok(!m5b.some((e) => e.kind === "landing" && e.c64Dest >= 0x1000 && e.c64Dest < 0x1200), "S5b stores that are not a 1:1 copy of the pushed bytes are not followed", m5b.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}`).join(","));
+
+// S5c: the same stack transfer, copied ASCENDING (`iny`) to adjacent destinations, still
+// without pull records: sector 2 starts at the address after sector 1's last byte, and
+// must stay its own landing (source T33/S2), not be fused into one 480-byte run.
+const s5c = [];
+let t5 = 100_000;
+for (const k of [1, 2]) {
+  s5c.push(blk(t5 - 500, 66, k, 320));
+  for (let j = 0; j < N; j++) {
+    const c = t5 + j * 40;
+    for (let r = 0; r < 4; r++) s5c.push(dd00(c + r * 10));
+    s5c.push(wr(c + 34, 0x01ef - j, sectorByte(k, j)));
+  }
+  t5 += N * 40 + 5000;
+  for (let i = 0; i < N; i++) s5c.push(wr(t5 + i * 20, 0x2000 + (k - 1) * N + i, sectorByte(k, N - 1 - i) ^ 0xf9));
+  t5 += N * 20 + 20_000;
+}
+const m5c = buildLandingMap(s5c);
+const l5c1 = m5c.find((e) => e.kind === "landing" && e.c64Dest === 0x2000);
+const l5c2 = m5c.find((e) => e.kind === "landing" && e.c64Dest === 0x20f0);
+ok(!!l5c1 && l5c1.len === N && l5c1.source?.sector === 1 && !!l5c2 && l5c2.len === N && l5c2.source?.sector === 2,
+  "S5c two adjacent ascending copies stay two landings ($2000 T33/S1, $20F0 T33/S2)", m5c.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}+${e.len}/S${e.source?.sector}`).join(","));
+
+const s6 = [];
+for (let i = 0; i < 64; i++) s6.push(wr(1_000_000 + i * 20, 0x3000 + i, i));          // unpack, no $DD00
+for (let i = 0; i < 64; i++) { const c = 5_000_000 + i * 8; s6.push(dd00(c)); s6.push(wr(c + 2, 0x5000 + i, i ^ 0x55)); } // a real transfer
+s6.push(wr(9_000_000, 0x3040, 0xaa));                                                // one byte at the old run's next address
+const m6 = buildLandingMap(s6);
+ok(!m6.some((e) => e.c64Dest === 0x3000), "S6 a run is not extended across a multi-million-cycle gap into a later transfer's window", m6.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}+${e.len}`).join(","));
+ok(m6.some((e) => e.kind === "landing" && e.c64Dest === 0x5000 && e.len === 64), "S6 the real transfer at $5000 is still a landing");
+// S6b: the stale run's next address is the LAST byte of a later descending landing (IM II:
+// the old $0860-$087F run vs the main game's sector $096F..$0880). The stale run must not
+// win the ascending tie and cut that byte off the landing.
+const s6b = [];
+for (let i = 0; i < 32; i++) s6b.push(wr(1_000_000 + i * 20, 0x0860 + i, i));         // old run, next = $0880
+for (let i = 0; i < 240; i++) { const c = 5_000_000 + i * 8; s6b.push(dd00(c)); s6b.push(wr(c + 2, 0x096f - i, i)); } // $096F down to $0880
+const m6b = buildLandingMap(s6b);
+ok(m6b.some((e) => e.kind === "landing" && e.c64Dest === 0x0880 && e.len === 240), "S6b the later descending landing keeps its last byte ($0880 len 240)", m6b.map((e) => `${e.kind}:$${e.c64Dest.toString(16)}+${e.len}`).join(","));
+
+// ---------------------------------------------------------------------------------
 // Spec 907 D3 / S4 — BLOCK_READ2 (0x37): the read-set is on the C64 clock, a drive reset
 // that restarts the drive clock at 0 changes nothing, a sector the head only passed is
 // not a source, and a legacy 0x35 capture is flagged.

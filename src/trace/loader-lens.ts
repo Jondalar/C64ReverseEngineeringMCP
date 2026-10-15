@@ -54,6 +54,10 @@
 //           page-1 bytes a transfer pushed. A pure memory-copy (relocator moving
 //           already-loaded bytes) has ZERO $DD00 reads and reads no transfer-written
 //           stack bytes → dropped. This is what killed the old 78×T35 false map.
+//           TRX64 does not record stack PULL reads, so when no page-1 read precedes a
+//           store the pull is inferred: the run's n-th byte is the n-th byte popped from
+//           the last transfer push upward (issue #77). A run is not extended by a write
+//           more than STALE_RUN_GAP cycles after its last byte (issue #77).
 //       (c) Page 1 is the stack. A transfer run lying wholly in it is a buffer, never a
 //           landing; it is listed under the destination it was copied to, or on its own
 //           as kind "buffer" when no copy was followed.
@@ -426,6 +430,12 @@ interface Run {
   upKey: number;
   downKey: number;
   prov: Provenance | null;
+  /** Issue #77 — for a capture without stack PULL records: the page-1 address the
+   *  run's FIRST byte would have been pulled from (the last transfer push before the
+   *  run began; a `pla` pops upward from there), and the transfer window it belongs to.
+   *  -1 when no transfer push preceded the run. */
+  pullBase: number;
+  pullWin: number;
 }
 
 // Bounds the number of simultaneously-open write streams. Real loader traces keep 1-2
@@ -445,6 +455,13 @@ const TRANSFER_GAP = 1000;
 const PROVENANCE_WINDOW = 16;
 /** Share of a run's bytes that must be provably copied out of the buffer. */
 const PROVENANCE_SHARE = 0.9;
+/** Issue #77 — an open run is not extended by a write this many cycles after its last
+ *  byte; that write starts a new run. A loader's gap inside one payload is at most a
+ *  sector wait (one disk revolution is ~197,000 PAL cycles at 300 rpm) plus a track step.
+ *  Without this bound, an unpack that wrote $1000-$26D5 took a byte at $26D6 written
+ *  14.4M cycles later by another load, and its cycle window then held that load's $DD00
+ *  reads (measured on an Impossible Mission II capture). */
+const STALE_RUN_GAP = 1_000_000;
 const PAGE1_LO = 0x0100;
 const PAGE1_HI = 0x01ff;
 
@@ -495,6 +512,12 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
   // Page-1 reads that took an intact transfer-written byte, in the last PROVENANCE_WINDOW.
   interface BufRead { cycle: number; xorSrc: number; win: number; srcCycle: number; run: Run | null }
   let bufReads: BufRead[] = [];
+  // Issue #77 — the last page-1 byte a transfer pushed (the stack top after the receive
+  // loop) and its window. TRX64 does not record stack PULL reads (trx64-core
+  // c64_6510core.rs `pull()` reads through `read_raw_dummy`, which the trace drops), so a
+  // `pla / ... / sta` copy shows no page-1 read: the pull is inferred from here instead.
+  let lastPushAddr = -1;
+  let lastPushWin = -1;
 
   const complete = (run: Run) => {
     if (run.upKey >= 0 && openUp.get(run.upKey) === run) openUp.delete(run.upKey);
@@ -581,12 +604,25 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
     // Provenance of a write OUTSIDE page 1.
     const follow = inPage1 ? null : followedRead(ev.cycle);
 
+    // A write long after a run's last byte belongs to something else (issue #77): such a
+    // run is closed first, so it can neither take this byte nor win the tie below.
+    let up = openUp.get(addr);
+    let down = openDown.get(addr);
+    if (up && ev.cycle - up.cycleEnd > STALE_RUN_GAP) { complete(up); up = undefined; }
+    if (down && ev.cycle - down.cycleEnd > STALE_RUN_GAP) { complete(down); down = undefined; }
+
     // Pick the run to extend: direction-fixed beats a one-byte run; ascending wins a tie.
-    const up = openUp.get(addr);
-    const down = openDown.get(addr);
     let existing: Run | undefined;
     if (up && down) existing = up.dir !== 0 ? up : down.dir !== 0 ? down : up;
     else existing = up ?? down;
+    // Inferred-pull path (no page-1 read recorded): a run that followed an earlier
+    // window's buffer ends when a new window's buffer has been pushed, so two sectors
+    // copied to adjacent addresses stay two landings (the rule below, for the inferred case).
+    if (existing && !follow && !inPage1 && existing.prov && existing.prov.hits > 0
+        && existing.prov.win !== windowId && lastPushWin === windowId) {
+      complete(existing);
+      existing = undefined;
+    }
 
     // A destination write following a different transfer window's buffer ends the run.
     if (existing && follow && existing.prov && existing.prov.hits > 0 && existing.prov.win !== follow.win) {
@@ -605,15 +641,31 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
       // A run that walked off the 16-bit address space is finished.
       if (run.nextAddr >= 0 && run.nextAddr <= 0xffff) register(run); else complete(run);
     } else {
+      const fresh = !inPage1 && lastPushAddr >= 0 && lastPushWin === windowId;
       run = {
         startAddr: addr, nextAddr: addr, dir: 0, bytes: [ev.value],
         cycleStart: ev.cycle, cycleEnd: ev.cycle, upKey: -1, downKey: -1, prov: null,
+        pullBase: fresh ? lastPushAddr : -1, pullWin: fresh ? windowId : -1,
       };
       register(run);
       if (openAll.size > MAX_OPEN_RUNS) evictOldest();
     }
 
-    if (follow) {
+    // No page-1 read recorded before this write: infer the pull. The run's n-th byte
+    // (write order) is the n-th byte popped, i.e. page-1 address pullBase + n, while that
+    // byte is still the one the same transfer window pushed. Only a constant XOR over
+    // >= PROVENANCE_SHARE of the run's bytes makes the run a landing (pass 1), so stores
+    // that are not a 1:1 copy of the pushed bytes are not followed.
+    let src: BufRead | null = follow;
+    if (!src && !inPage1 && run.pullBase >= 0 && run.pullWin === windowId) {
+      const a = run.pullBase + run.bytes.length - 1;
+      if (a <= PAGE1_HI && bufWin[a - PAGE1_LO] === run.pullWin) {
+        const i = a - PAGE1_LO;
+        src = { cycle: ev.cycle, xorSrc: bufVal[i], win: bufWin[i], srcCycle: bufCycle[i], run: bufRun[i] };
+      }
+    }
+    if (src) {
+      const follow = src;
       const p = run.prov ?? (run.prov = {
         hits: 0, xor: -1, xorBroken: 0, win: follow.win, srcCycle: Infinity, bufRuns: new Set(),
       });
@@ -627,6 +679,7 @@ export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMap
       const i = addr - PAGE1_LO;
       const inWindow = ev.cycle - lastTransfer <= TRANSFER_WRITE_WINDOW;
       bufWin[i] = inWindow ? windowId : -1;
+      if (inWindow) { lastPushAddr = addr; lastPushWin = windowId; }
       bufVal[i] = ev.value;
       bufCycle[i] = ev.cycle;
       bufRun[i] = run;
