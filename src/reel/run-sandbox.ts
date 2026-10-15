@@ -438,7 +438,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       // becomes the machine and a .prg is loaded. A sandbox that only took disks
       // would send the cartridge case straight back to the shared machine, which
       // is the defect this whole spec is about.
-      const mediaPath = opts.mediaPath;
+      // A copy (#91): the daemon writes a mounted disk back to its file when it ends.
+      const mediaPath = box.privateMedium(opts.mediaPath);
       const opened = await openFittingDrive(call, () => box.call<{ message?: string; kind?: string; autostart?: boolean; run?: number | null }>(
         "media/open", opts.run == null ? { path: mediaPath } : { path: mediaPath, run: opts.run },
       ), log);
@@ -647,7 +648,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
           await box.call("media/unmount", { slot: 8 });
           await runCycles(F * 30);
-          await openFittingDrive(call, () => box.call("media/open", { path }), log);
+          await openFittingDrive(call, () => box.call("media/open", { path: box.privateMedium(path) }), log);
           await box.call("debug/pause", { source: "sandbox" });
           await readMachine();
           resync();

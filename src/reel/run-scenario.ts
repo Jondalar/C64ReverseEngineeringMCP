@@ -282,7 +282,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         await box.call("snapshot/undump", { path });
         log.push(`undumped ${path}`);
       } else {
-        await openFittingDrive(call, () => box.call("media/mount", { path }), log);
+        await openFittingDrive(call, () => box.call("media/mount", { path: box.privateMedium(path) }), log);
         log.push(`mounted ${path}`);
       }
     } else if (scenario.origin.kind === "mark") {
@@ -409,7 +409,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           const path = opts.resolveMedium ? opts.resolveMedium(step.path, "insert") : step.path;
           await box.call("media/unmount", { slot: 8 });
           await runCycles(F * 30);
-          await openFittingDrive(call, () => box.call("media/mount", { path }), log);
+          await openFittingDrive(call, () => box.call("media/mount", { path: box.privateMedium(path) }), log);
           // A mount can flip the controller to running; this front owns the clock.
           await box.call("debug/pause", { source: "reel" });
           await readMachine();

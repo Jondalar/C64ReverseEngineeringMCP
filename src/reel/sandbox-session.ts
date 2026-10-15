@@ -32,9 +32,9 @@
 import { WebSocket } from "ws";
 import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveDaemonSpawn } from "../runtime/resolve-daemon-spawn.js";
 import { runtimeSetupRecipe } from "../runtime/setup-recipe.js";
@@ -166,6 +166,8 @@ export class SandboxSession {
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private ownTmp: string | null = null;
+  /** Where `privateMedium` keeps its copies (removed on close). */
+  private mediaTmp: string | null = null;
   private reaper: NodeJS.Timeout | null = null;
   private closed = false;
   private endedBecause: string | null = null;
@@ -341,6 +343,25 @@ export class SandboxSession {
       try { rmSync(this.ownTmp, { recursive: true, force: true }); } catch { /* best effort */ }
       this.ownTmp = null;
     }
+    // After the daemon is gone: it writes a mounted disk back to its file when it ends.
+    if (this.mediaTmp) {
+      try { rmSync(this.mediaTmp, { recursive: true, force: true }); } catch { /* best effort */ }
+      this.mediaTmp = null;
+    }
+  }
+
+  /**
+   * Issue #91 — a private machine never changes the caller's medium. The runtime writes
+   * a mounted disk back to the file it was opened from when the machine ends, so a
+   * program that saves would change the project's D64. Every medium this session opens
+   * goes through here: a copy in the session's own temp dir, removed on close.
+   */
+  privateMedium(path: string): string {
+    if (!this.mediaTmp) this.mediaTmp = mkdtempSync(join(tmpdir(), "c64re-media-"));
+    const dir = mkdtempSync(join(this.mediaTmp, "m-"));
+    const copy = join(dir, basename(path));
+    copyFileSync(path, copy);
+    return copy;
   }
 
   /** Why the sandbox went away, when it did so on its own. */
