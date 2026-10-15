@@ -1,6 +1,6 @@
 # Spec 907 — A loader capture says where the bytes landed and which sector they came from
 
-**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 D2 is released in TRX64 0.13.1 and C64RE 0.9.1 pins it, so new captures are 0x37; older 0x35 captures stay report-only for read-past. The reporter's IM II retest (2026-10-15) failed on the C64RE side; fixed (see "D1 follow-up"), needs TRX64 0.13.2 for the stack pulls. S6 (the reporter's re-retest on #77) is by hand.
+**Status:** BUILT and merged (2026-10-14): C64RE D1+D3+D4, TRX64 D2 on TRX64 main cd0a54f (`../TRX64/docs/_archive/907-loader-capture-read-set.md`). TRX64 D2 is released in TRX64 0.13.1 and C64RE 0.9.1 pins it, so new captures are 0x37; older 0x35 captures stay report-only for read-past. The reporter's IM II retest (2026-10-15) failed on the C64RE side; fixed (see "D1 follow-up"); the stack pulls are recorded since TRX64 0.13.2, which C64RE 0.9.2 pins. S6 (the reporter's re-retest on #77) is by hand.
 **Repo:** both. TRX64: which sector a drive read is credited to (P2). C64RE: the landing map (P1),
 the verdict (P3), the decoder for what TRX64 adds. Leitregel: the drive's facts are a runtime
 capability → TRX64; what they mean for an extraction → C64RE.
