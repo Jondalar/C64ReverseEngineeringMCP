@@ -53,6 +53,10 @@ let warnCount = 0;
 const ok = (msg) => { pass += 1; console.log(`  PASS  ${msg}`); };
 const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
 const warn = (msg) => { warnCount += 1; console.log(`  WARN  ${msg}`); };
+// A case whose input is a local-only file (samples/ and analysis/tmp are gitignored): it says what it did not
+// prove and names the file, and is counted apart from the passes.
+let skipCount = 0;
+const skip = (msg) => { skipCount += 1; console.log(`  SKIPPED  ${msg} — NOT passed`); };
 const info = (msg) => console.log(`  info  ${msg}`);
 const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 const hex4 = (n) => n.toString(16).toUpperCase().padStart(4, "0");
@@ -173,7 +177,7 @@ const LNR = join(ROOT, "analysis/tmp/spec-816/samples_lnr_boot_02a7_fff7_prg.ana
 const LNR_PRG = join(ROOT, "samples/lnr_boot_02a7_fff7.prg");
 const OWNER = "lnr_boot_02a7_fff7";
 if (!existsSync(LNR) || !existsSync(LNR_PRG)) {
-  fail(`lnr_boot report or PRG absent (${LNR}) — the acceptance input; run npm run measure:816 first`);
+  skip(`A needs ${LNR_PRG} and ${LNR} (local only; the report comes from npm run measure:816)`);
 } else {
   const project = makeProject("lnr");
   const analysisPath = join(project, "analysis", `${OWNER}_analysis.json`);
@@ -330,9 +334,9 @@ console.log("\nC. absent graph — loud fallback (pipeline side), seed on demand
 {
   // C1: a directory that cannot be seeded (no knowledge/project.json) — every walk says so
   const bare = makeProject("bare", false);
-  const src = existsSync(LNR) ? LNR : undefined;
+  const src = existsSync(LNR) && existsSync(LNR_PRG) ? LNR : undefined;
   if (!src) {
-    fail("C needs the lnr_boot report");
+    skip(`C needs ${LNR_PRG} and ${LNR} (local only)`);
   } else {
     const analysisPath = join(bare, "analysis", `${OWNER}_analysis.json`);
     copyFileSync(src, analysisPath);
@@ -372,5 +376,5 @@ console.log("\nC. absent graph — loud fallback (pipeline side), seed on demand
   }
 }
 
-console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 820.2: ${pass} pass, ${failCount} fail, ${warnCount} warn.  diffs under ${DIFF_DIR}/{before,after}`);
+console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 820.2: ${pass} pass, ${failCount} fail, ${warnCount} warn, ${skipCount} skipped (not passed).  diffs under ${DIFF_DIR}/{before,after}`);
 process.exit(failCount ? 1 : 0);
