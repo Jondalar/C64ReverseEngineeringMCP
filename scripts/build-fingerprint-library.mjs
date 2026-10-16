@@ -13,6 +13,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const verbose = process.argv.includes("--verbose");
@@ -21,7 +22,7 @@ const verbose = process.argv.includes("--verbose");
 let extractRoutinesFromRomFile;
 try {
   ({ extractRoutinesFromRomFile } = await import(
-    `${repoRoot}/dist/analysis/fingerprint-extractor.js`
+    pathToFileURL(`${repoRoot}/dist/analysis/fingerprint-extractor.js`).href
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
