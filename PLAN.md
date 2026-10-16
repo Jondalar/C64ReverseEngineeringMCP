@@ -114,20 +114,11 @@ this repo actually has:
 `npm run` lists them all. Runtime regression protection is TRX64's own gates (Spec 783)
 and is not reproducible from here.
 
-**CI reports, it never gates.** `.github/workflows/gates.yml` runs the hermetic
-subset on a bare runner — the two builds, then the gates that need no ROMs, no
-media, no assembler and no runtime daemon. It is there so a pull request from
-outside this machine says something about itself; a **human reads the PR and
-decides**, and branch protection blocks only force-push and branch deletion, not
-merging. Anything needing an asset the runner cannot have stays a local gate:
-`smoke:741`, `check:platform-kb`, the graph e2e set, `measure:*`. A gate
-that goes red for the wrong reason gets ignored and takes the rest of CI with
-it — which is exactly what happened here before, when four workflows referenced
-36 scripts that Spec 806 had deleted and the nightly went red every day from
-June until nothing ran at all.
-
-Branch strategy: master stays green; one branch per work item; merge only after the
-relevant gates pass.
+**No gates** (owner, 2026-10-16: "ALLE gates raus"). There is no CI test workflow and
+no git hook. The tests are npm scripts (`e2e:*`, `smoke:*`, `check:*`), run by hand for
+what a change touches: a fix runs the tests of the affected part, a feature adds its
+surrounding integration, a breaking change runs everything, and a docs-only change runs
+the doc checks. The only workflow left is `release-npm.yml`, which publishes on a tag.
 
 ## Out of scope / deferred
 

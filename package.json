@@ -62,7 +62,6 @@
     "INSTALL.md"
   ],
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks || true",
     "e2e:844-teeth": "node scripts/e2e-844-teeth.mjs",
     "e2e:844-slots": "node scripts/e2e-844-slots.mjs",
     "e2e:845-model": "node scripts/e2e-845-model.mjs",
@@ -336,8 +335,7 @@
     "e2e:881-graph-first": "node scripts/e2e-881-graph-first.mjs",
     "check:dist-reachable": "node scripts/check-dist-reachable.mjs",
     "e2e:crt-manifest-role": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-role.mjs",
-    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs",
-    "check:gate-coverage": "node scripts/check-gate-coverage.mjs"
+    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
