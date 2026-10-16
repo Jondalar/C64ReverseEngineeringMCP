@@ -46,10 +46,17 @@ function test(name, fn) {
     results.push({ name, pass: true });
     console.log(`  PASS  ${name}`);
   } catch (e) {
+    if (e instanceof Skip) {
+      results.push({ name, pass: true, skipped: true });
+      console.log(`  SKIPPED  ${name}: ${e.message} — this case is NOT passed`);
+      return;
+    }
     results.push({ name, pass: false, err: e.message });
     console.log(`  FAIL  ${name}: ${e.message}`);
   }
 }
+
+class Skip extends Error {}
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg ?? "assertion failed");
@@ -70,7 +77,7 @@ test("1. loadLibraries from bundled path returns ≥1 library with ≥20 entries
 test("2. scanFingerprints on KERNAL ROM bytes returns ≥1 match", () => {
   if (!existsSync(kernalJson)) throw new Error("bundled library missing");
   const kernalPath = join(repoRoot, "resources/roms/kernal-901227-03.bin");
-  if (!existsSync(kernalPath)) throw new Error("KERNAL ROM missing");
+  if (!existsSync(kernalPath)) throw new Skip(`${kernalPath} is absent (the ROMs are not in the repository)`);
   const bytes = new Uint8Array(readFileSync(kernalPath));
   const matches = scanFingerprints("kernal-test", bytes, 0xE000, {
     libraryPaths: [bundledDir],
@@ -289,9 +296,11 @@ test("10. findRoutineBoundaries finds JSR-targeted subroutines", () => {
 
 // ---- Summary --------------------------------------------------------------
 
-const passed = results.filter(r => r.pass).length;
+const skipped = results.filter(r => r.skipped).length;
+if (skipped > 0) console.log(`\n${skipped} case(s) SKIPPED, not passed.`);
+const passed = results.filter(r => r.pass && !r.skipped).length;
 const failed = results.filter(r => !r.pass).length;
-console.log(`\n${passed}/${results.length} PASS${failed > 0 ? `, ${failed} FAIL` : ""}`);
+console.log(`\n${passed}/${results.length - skipped} PASS${failed > 0 ? `, ${failed} FAIL` : ""}`);
 
 if (failed > 0) {
   console.error("Some smoke cases failed.");

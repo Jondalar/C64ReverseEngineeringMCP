@@ -28,7 +28,7 @@ eq("title re", LIFECYCLE_TITLES.re, "Reverse Engineering");
 eq("D workspace-init", lifecycleForWorkflowPhaseId("workspace-init"), "onboarding");
 eq("D input-registration", lifecycleForWorkflowPhaseId("input-registration"), "discovery");
 eq("D deterministic-extraction", lifecycleForWorkflowPhaseId("deterministic-extraction"), "discovery");
-eq("D structural-enrichment", lifecycleForWorkflowPhaseId("structural-enrichment"), "re");
+eq("D structural-enrichment", lifecycleForWorkflowPhaseId("structural-enrichment"), "discovery"); // building entities is the payload inventory, a Discovery task
 eq("D semantic-enrichment", lifecycleForWorkflowPhaseId("semantic-enrichment"), "re");
 eq("D runtime-capture", lifecycleForWorkflowPhaseId("runtime-capture"), "re");
 eq("D view-build", lifecycleForWorkflowPhaseId("view-build"), "re");
