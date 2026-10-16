@@ -10,12 +10,12 @@ stores `cartridge.state = cart.getState()` (continuation) + `captureCartFlash` =
 only rejects when `!persistsWritableState()` — all five families return true, so
 a dirty cart is captured, not rejected (the temporary corruption guard is gone
 for them). **714.5 CARTRIDGE PERSISTENCE = COMPLETE**, proved by TWO gates:
-`scripts/probe-714-5-persist.mjs` (33/33) for **GMOD2, GMOD3, MegaByter and
+`scripts/probe-714-5-persist.mjs` (33/33) for **GMOD2, MegaByter and
 C64MegaCart** + the generic ring policy, and `scripts/probe-714-5.mjs` (16/16) for
 **EasyFlash**. Both header-inferred (no override), through the real
 RuntimeController. Matrix:
 - **checkpoint** (capture→clobber→restore) + **`.c64re` FRESH-session** dump/undump
-  — `probe-714-5-persist`: MegaByter flash, C64MegaCart flash, GMOD3 SPI flash,
+  — `probe-714-5-persist`: MegaByter flash, C64MegaCart flash,
   GMOD2 flash AND m93c86 EEPROM (0xABCD@5 survives both paths); `probe-714-5`:
   EasyFlash flash + IO2 RAM;
 - **ring** multi-version + pin + forced eviction (format-generic `cartFlash` pool,
@@ -23,15 +23,14 @@ RuntimeController. Matrix:
   remaining version exact;
 - **mid-operation**: `probe-714-5-persist` — GMOD2 Flash040 + MegaByter Flash800
   mid-sector-erase busy-window through `.c64re` (state + erase-alarm clk +
-  erase-mask identical after fresh-session undump) and GMOD3 mid-SPI-READ
-  (command + shift-register continuation identical); `probe-714-5` — EasyFlash
+  erase-mask identical after fresh-session undump); `probe-714-5` — EasyFlash
   mid-erase checkpoint + `.c64re` fresh-session.
 Operations-in-progress + modified media are captured (not rejected).
 
 **Reconcile (2026-05-30):** 714.5 cartridge-persistence is COMPLETE + gated, but it
 rides on the Spec 713 device cores, which live on branch `spec-713-cart-families`
 (BEHAVIOR COMPLETE, NOT yet merged to master). So 714.5 is proven-on-branch, not yet
-on the master baseline. Honest gap shared with 713: GMOD3 + C64MegaCart have no real
+on the master baseline. Honest gap shared with 713: C64MegaCart has no real
 commercial sample (header-inferred synthetic gates only). The disk path (714.1-714.4)
 is on master and DONE.
 
@@ -122,7 +121,6 @@ their VICE state surfaces:
 
 - EasyFlash flash and IO RAM;
 - GMOD2 flash and EEPROM;
-- GMOD3 SPI flash;
 - MegaByter flash;
 - any writable mapped state present in supported VICE cartridge modules.
 
@@ -295,7 +293,7 @@ Output internally:
 
 This is not an EasyFlash-only persistence slice. It is the continuation and
 storage integration of the complete Spec 713 active cartridge batch. For each
-supported writable family (`EasyFlash`, `MegaByter`, `GMOD2`, `GMOD3`) after
+supported writable family (`EasyFlash`, `MegaByter`, `GMOD2`) after
 its VICE mapper/device-core port is complete:
 
 - capture full mutable device state in RuntimeCheckpoint;
@@ -384,7 +382,6 @@ Minimum family-specific coverage:
 - EasyFlash: IO1 mirrors, IO2 RAM, flash program/erase and flash-state restore;
 - MegaByter: IO1 mode/bank and `flash800core` state restore;
 - GMOD2: flash plus EEPROM protocol/image/state restore;
-- GMOD3: SPI flash protocol/image/state restore.
 
 For Ocean, Magic Desk, Magic Desk 16 and generic Normal/Ultimax mapping, prove
 bank/mode/line continuation in checkpoint and `.c64re` even though there is no
@@ -562,7 +559,7 @@ The committed EasyFlash attempt established useful cartridge blob pooling
 - it captured flash byte arrays but reset command state on restore;
 - it omitted EasyFlash IO2 RAM and did not fix IO1 mirror/mapping behavior;
 - it did not implement AM29F040 `old & byte` program behavior;
-- it left MegaByter, GMOD2 and GMOD3 as deferred active approximations.
+- it left MegaByter and GMOD2 as deferred active approximations.
 
 The earlier `probe:714-5` result demonstrated byte-array transport only. It is
 not a VICE-fidelity completion gate and must be replaced/extended by the
@@ -576,7 +573,6 @@ Spec 714.5 now integrates all VICE-shaped state supplied by the complete Spec
 - `flash040core` state for EasyFlash and GMOD2;
 - `flash800core` state for MegaByter;
 - `m93c86` state for GMOD2;
-- `spi-flash` state for GMOD3;
 - mapper registers, RAM, writable images and in-progress operations;
 - bank/mode/line continuation for read-only banked cartridge families.
 
@@ -612,7 +608,7 @@ superseded. Current downstream contract:
 - **Disk path (714.1-714.4): DONE.** Checkpoint, `.c64re` and the bounded
   content-addressed ring carry + exactly restore written D64/G64 disks.
 - **Cartridge continuation (complete Spec 713 batch + 714.5): IN PROGRESS** —
-  EasyFlash, MegaByter, GMOD2 and GMOD3 writable device state plus banked
+  EasyFlash, MegaByter and GMOD2 writable device state plus banked
   cartridge continuation must be ported and gated together as the next
   cartridge work.
 - Any interim dirty/mid-command reject is implementation scaffolding only; it

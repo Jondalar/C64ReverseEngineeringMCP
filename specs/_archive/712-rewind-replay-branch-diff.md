@@ -9,12 +9,12 @@ Owner: runtime / v3 UI / experiments / knowledge
 > media. The DISK is content-addressed in the 705.B ring; rewinding across a disk
 > save reproduces the written state exactly (714 gate 8.3). As of Spec 713 + 714.5
 > (LANDED 2026-05-24) flash/EEPROM/SPI rewind is supported for EVERY writable
-> cartridge family — EasyFlash, GMOD2 (+m93c86), GMOD3 (+spi-flash), MegaByter
+> cartridge family — EasyFlash, GMOD2 (+m93c86), MegaByter
 > (+flash800), C64MegaCart — with `cartFlash` content-addressed in the ring and
 > device command-state in the checkpoint (`probe-714-5-persist` 33/33, incl.
 > mid-operation .c64re continuation). Dirty carts are now ACCEPTED; the old
 > reject-on-dirty barrier is retired. Remaining honest gaps (header-inferred
-> gates, no durable real-sample evidence): GMOD3 / C64MegaCart have no commercial
+> gates, no durable real-sample evidence): C64MegaCart has no commercial
 > sample, and EasyFlash's `$DF00` 256-byte cart-RAM is not yet modelled.
 
 ## 1. Purpose

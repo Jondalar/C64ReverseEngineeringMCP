@@ -354,7 +354,7 @@ restore). Flash-delta persistence is a future slice.
 > + IO1 mirror + IO2 RAM + command-state snapshot), so a written/mid-command
 > EasyFlash IS persisted, not rejected (probe-714-5 16/16; probe-709-media G12
 > asserts the accepted dump). The dirty-CRT reject survives only for the writable
-> cartridge families still pending under Spec 713 (GMOD2/GMOD3/MegaByter, and the
+> cartridge families still pending under Spec 713 (GMOD2/MegaByter, and the
 > not-yet-verified Ocean/Magic Desk). Those are removed family-by-family as each
 > faithful port + its 714.5 gates pass.
 

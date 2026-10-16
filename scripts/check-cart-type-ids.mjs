@@ -3,9 +3,8 @@
 //
 // `CART_TYPE_PROFILES` in src/project-knowledge/view-builders.ts names the CRT
 // hardware types the workbench can describe. It is hand-written, and on 2026-08-11
-// it was found to carry "GMod3" at id 71 — which is BlackBox 9. A real GMod3 (62)
-// fell through to the generic fallback and stayed nameless, and a BlackBox 9 would
-// have rendered as a flash cart it is not. Nothing checked, so nothing complained.
+// it was found to carry a wrong name at id 71 — which is BlackBox 9, and
+// would have rendered as a flash cart it is not. Nothing checked, so nothing complained.
 //
 // Two rules, and the second is the one that would have caught it:
 //
@@ -155,7 +154,7 @@ function checkIdentity(rows, byId) {
     if (owners.length && !owners.includes(id)) {
       fails.push(
         `id ${id} "${name}": that name belongs to id ${owners.join("/")} in cartridge.h. ` +
-          `This is the exact shape of the GMod3-at-71 defect.`,
+          `This is the shape of the id-71 mislabel defect.`,
       );
       continue;
     }
