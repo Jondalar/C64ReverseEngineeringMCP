@@ -9,6 +9,8 @@
 //
 //   node scripts/gen-tool-surface-inventory.mjs        (writes the JSON)
 //   node scripts/gen-tool-surface-inventory.mjs --check (fails if out of date)
+//   node scripts/gen-tool-surface-inventory.mjs --quiet (writes the JSON, prints nothing;
+//     the npm scripts use it instead of `>/dev/null`, which npm's cmd shell on Windows refuses)
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
@@ -82,4 +84,4 @@ if (process.argv.includes("--check")) {
 }
 
 writeFileSync(OUT, serialized);
-console.log(`wrote ${OUT}: ${tools.length} tools (${specCount} with Spec ref, ${advancedCandidate} advanced)`);
+if (!process.argv.includes("--quiet")) console.log(`wrote ${OUT}: ${tools.length} tools (${specCount} with Spec ref, ${advancedCandidate} advanced)`);
