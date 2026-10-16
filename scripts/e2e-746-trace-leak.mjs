@@ -18,12 +18,13 @@
 //   4. trace stop is clean and the daemon stays responsive afterwards.
 //
 // Runs on its OWN daemon/port — never 4312 (the human's live session).
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, statSync, mkdirSync, rmSync } from "node:fs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { rssKiB } from "./lib/processes.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
@@ -45,7 +46,7 @@ const killPort = () => killPortListeners(PORT);
 // (runtime-daemon.mjs) around it, whose RSS sat at a flat 43 MiB while the daemon itself
 // grew 148 → 334 MiB — so checks 5 and 6 measured nothing until 2026-10-02.
 const listenerPid = () => listenerPids(PORT)[0] || 0;
-const rssMiB = (pid) => { try { return Math.round(Number(execSync(`ps -o rss= -p ${pid}`).toString().trim()) / 1024); } catch { return -1; } };
+const rssMiB = (pid) => { const k = rssKiB(pid); return k > 0 ? Math.round(k / 1024) : -1; };
 
 let wsId = 1;
 const wsRpc = (ws, method, params, to = 30000) => new Promise((res, rej) => {

@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const load = (rel) => import(pathToFileURL(join(ROOT, rel)).href);
@@ -147,7 +147,7 @@ try {
     const out = join(dir, "analysis", "disk", "g");
     mkdirSync(out, { recursive: true });
     const written = writeDiskSpec784Manifest({ ...synthetic, sourceImage: join(dir, "g.d64"), outputDir: out, manifestPath: join(out, "manifest.json") }, dir);
-    check(!!written && written.path.endsWith("/extraction-manifest.json"), `extract_disk's manifest is written as extraction-manifest.json (${written?.path?.split("/").pop()})`);
+    check(!!written && basename(written.path) === "extraction-manifest.json", `extract_disk's manifest is written as extraction-manifest.json (${written ? basename(written.path) : "nothing written"})`);
     check(!readdirSync(out).some((f) => /spec784/.test(f)), "…and nothing carrying the old name is written");
   }
 

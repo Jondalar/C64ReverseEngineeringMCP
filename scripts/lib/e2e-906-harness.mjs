@@ -1,7 +1,7 @@
 // Shared by the two Spec 906 gates: the project, the MCP processes, the daemons of a test's own,
 // the synthetic programs. Nothing here reaches :4312 — every daemon is spawned on a free port and every
 // MCP process is told its endpoint.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -56,13 +56,7 @@ export async function findDaemon() {
 }
 
 /** Every process whose command line contains `needle` (pid + command). */
-export function processesMatching(needle) {
-  const r = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
-  return String(r.stdout).split("\n").filter((l) => l.includes(needle) && !l.includes("ps -axo")).map((l) => {
-    const m = /^\s*(\d+)\s+(.*)$/.exec(l);
-    return m ? { pid: Number(m[1]), command: m[2] } : undefined;
-  }).filter(Boolean);
-}
+export { processesMatching } from "./processes.mjs";
 
 export const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 

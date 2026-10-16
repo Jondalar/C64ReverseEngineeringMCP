@@ -44,6 +44,13 @@ export interface ReceiverStatus {
 
 export const DEFAULT_PAUSED_AFTER_MS = 250;
 
+// Windows gives a UDP socket a 64 KiB receive buffer: 85 video datagrams, a little over one PAL
+// frame (68). Whatever arrives while the event loop is busy for longer than that is dropped by
+// the OS, and a frame whose last packet is among them is only handed out when the next one
+// starts. macOS (786 896 bytes, net.inet.udp.recvspace) and Linux (rmem_default) start larger;
+// there the OS default stays.
+export const WIN32_RECV_BUFFER_BYTES = 1024 * 1024;
+
 export class StreamReceiver {
   private vSock: Socket | null = null;
   private aSock: Socket | null = null;
@@ -76,7 +83,11 @@ export class StreamReceiver {
       });
       await new Promise<void>((resolve, reject) => {
         s.once("error", (e) => reject(new Error(`${what} stream: cannot bind ${bind}:${port}: ${e.message}`)));
-        s.bind(port, bind, () => { s.removeAllListeners("error"); s.on("error", () => { /* a socket error after bind never kills the server */ }); resolve(); });
+        s.bind(port, bind, () => {
+          s.removeAllListeners("error"); s.on("error", () => { /* a socket error after bind never kills the server */ });
+          if (process.platform === "win32") { try { s.setRecvBufferSize(WIN32_RECV_BUFFER_BYTES); } catch { /* the OS default stays */ } }
+          resolve();
+        });
       });
       return s;
     };

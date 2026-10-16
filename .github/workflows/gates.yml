@@ -78,6 +78,10 @@ jobs:
       - name: Tools answer in text
         run: npm run check:text-only-tools
 
+      # npm runs these scripts through cmd.exe on Windows, which has no /dev/null.
+      - name: npm scripts run under cmd.exe too
+        run: npm run check:npm-scripts-portable
+
       # The graph owns the six migrated record types; a writer that still
       # appends to their old JSON files makes a store the next open sweeps away.
       - name: Nothing writes a migrated store

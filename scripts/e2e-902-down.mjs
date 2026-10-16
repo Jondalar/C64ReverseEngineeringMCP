@@ -30,6 +30,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { request } from "node:http";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { processes } from "./lib/processes.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const IS_WIN = process.platform === "win32";
@@ -195,11 +196,8 @@ async function acceptance(label, bin, extraEnv = {}) {
     check(!w.selectionExists(), "runtime-selection.json is gone");
     check(w.ledgerRecords().length === 0, "the ledger is empty");
     check(w.holdExists(), "the hold is written");
-    if (!IS_WIN) {
-      const psOut = await new Promise((res) => { const p = spawn("ps", ["-axo", "pid=,command="], { stdio: ["ignore", "pipe", "ignore"] }); let o = ""; p.stdout.on("data", (d) => { o += d; }); p.on("close", () => res(o)); });
-      const left = psOut.split("\n").filter((l) => l.includes(w.state) || l.includes(`--port ${RT}`) || l.includes(`--port ${bridgeRec.port}`));
-      check(left.length === 0, "ps shows no process with this run's state directory or ports on its command line", left.join(" | ").slice(0, 300));
-    }
+    const left = processes().map((p) => `${p.pid} ${p.command}`).filter((l) => l.includes(w.state) || l.includes(`--port ${RT}`) || l.includes(`--port ${bridgeRec.port}`));
+    check(left.length === 0, "ps shows no process with this run's state directory or ports on its command line", left.join(" | ").slice(0, 300));
     check(down.out.includes("hold written"), "the report says the hold is written");
 
     // B: down stays down

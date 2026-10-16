@@ -22,7 +22,7 @@
 //   I  a bridge that ended: a process that used it starts it again, a fresh process does not
 //
 // Exit 0 = pass, 1 = fail.   npm run smoke:889-bridge
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createSocket } from "node:dgram";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -34,6 +34,7 @@ import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
 import { AudioGen, VideoGen, udpSender } from "./lib/stream-datagrams.mjs";
 import { distLoader, reapBridges } from "./lib/bridge-harness.mjs";
+import { commandLine } from "./lib/processes.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -464,7 +465,7 @@ try {
   const locked = await fake({ password: PW });
   const hp = await launch.ensureBridge({ host: "127.0.0.1", restPort: locked.restPort, password: PW, projectDir: PROJ });
   check(hp.ping.bridge.state === "ready" && locked.requests.some((q) => q.password === PW), "a bridge started with a password (handed over on stdin) talks to the device with it");
-  const argv = spawnSync("ps", ["-o", "args=", "-p", String(hp.pid)]).stdout.toString();
+  const argv = commandLine(hp.pid);
   check(argv.includes("c64u-bridge") && !argv.includes(PW), "the password is not in the bridge's command line", argv.trim().slice(0, 160));
   const found = [];
   const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); let s; try { s = statSync(p); } catch { continue; } if (s.isDirectory()) walk(p); else if (s.size < 64 * 1024 * 1024 && readFileSync(p).includes(PW)) found.push(p); } };
