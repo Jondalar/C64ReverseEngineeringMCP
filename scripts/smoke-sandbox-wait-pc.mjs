@@ -9,13 +9,16 @@
 //   4. the breakpoint is gone afterwards: a later plain wait runs, a second wait works and
 //      $C001 keeps counting
 //   2b. reaches $FF48 (the IRQ handler's first instruction, right after the 7-cycle entry) within 10
-// Needs a TRX64 daemon (the sibling release build, or C64RE_TRX64_BIN).
+// Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly).
 //
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:sandbox-wait-pc");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");

@@ -13,6 +13,9 @@
 // asserted for the whole window, released after, exact cycle count, run state
 // restored. The shared session is never touched.
 import { SandboxSession } from "../dist/reel/sandbox-session.js";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:issue6");
 // Spec 863 — a frame is the machine's; this gate reads it from the machine (a PAL sandbox).
 let F = 0;
 

@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { findDaemon } from "./lib/e2e-906-harness.mjs";
+import { freePortBlock } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -53,10 +55,19 @@ ok(/height:100vh/.test(liveModeRule) && /overflow:hidden/.test(liveModeRule) && 
   "4b BUG-016: Live tab binds the cockpit to the viewport (.app-root.live-mode)", liveModeRule ? "bound" : "rule missing");
 
 // ---- live routing assertions (boot the real workspace, HTTP+WS) ----
-const PORT = 4326;
+// Never the shared session's :4312 — the workspace is told its own runtime endpoint, on a free port.
+const daemonBin = await findDaemon();
+if (!daemonBin) {
+  console.log("  SKIPPED  5-12 workspace + runtime routing: no trx64-daemon found (set C64RE_RUNTIME_BIN=<binary>) — NOT passed.");
+  console.log(`\n${fail === 0 ? "GREEN" : "RED"} product-ui: ${pass} pass, ${fail} fail, runtime half skipped (not passed).`);
+  process.exit(fail === 0 ? 0 : 1);
+}
+process.env.C64RE_RUNTIME_BIN = daemonBin;
+const PORT = await freePortBlock(2);
+const WS_PORT = PORT + 1;
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-prod-"));
 const srv = spawn("node", [join(ROOT, "scripts/workspace.mjs"), "--project", projectDir, "--port", String(PORT)],
-  { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  { cwd: ROOT, env: { ...process.env, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${WS_PORT}` }, stdio: ["ignore", "pipe", "pipe"] });
 let log = ""; srv.stdout.on("data", (b) => log += b); srv.stderr.on("data", (b) => log += b);
 const tcpUp = (port, ms = 800) => new Promise((r) => { const s = createConnection({ host: "127.0.0.1", port }); const d = (v) => { try { s.destroy(); } catch {} r(v); }; const t = setTimeout(() => d(false), ms); s.once("connect", () => { clearTimeout(t); d(true); }); s.once("error", () => { clearTimeout(t); d(false); }); });
 const waitTcp = async (port, ms = 45000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await tcpUp(port)) return true; await new Promise((r) => setTimeout(r, 300)); } return false; };
@@ -65,8 +76,8 @@ const json = async (p) => { const r = await fetch(`http://127.0.0.1:${PORT}${p}`
 
 try {
   ok(await waitTcp(PORT), "5 workspace HTTP up", `:${PORT}`);
-  const wsUp = await waitTcp(4312);
-  ok(wsUp, "6 runtime WS backend up (Live tab can get a session/frame)", wsUp ? ":4312" : log.slice(-160));
+  const wsUp = await waitTcp(WS_PORT);
+  ok(wsUp, "6 runtime WS backend up (Live tab can get a session/frame)", wsUp ? `:${WS_PORT}` : log.slice(-160));
 
   const root = await text("/");
   ok(root.status === 200 && /C64RE Workbench/.test(root.body) && /assets\/index-/.test(root.body),
@@ -85,7 +96,7 @@ try {
 
   const WebSocket = (await import("ws")).default;
   const sessions = await new Promise((resolve, reject) => {
-    const w = new WebSocket("ws://127.0.0.1:4312"); const id = 1;
+    const w = new WebSocket(`ws://127.0.0.1:${WS_PORT}`); const id = 1;
     const t = setTimeout(() => { try { w.close(); } catch {} reject(new Error("ws timeout")); }, 8000);
     w.on("open", () => w.send(JSON.stringify({ jsonrpc: "2.0", id, method: "session/list", params: {} })));
     // A live session broadcasts BINARY VIC frames on this socket; JSON.parse on
@@ -101,7 +112,7 @@ try {
   // ("frame connected nicht zum Headless Backend"): prove a frame arrives.
   const sid = sessions?.[0]?.sessionId;
   const frame = await new Promise((resolve) => {
-    const w = new WebSocket("ws://127.0.0.1:4312");
+    const w = new WebSocket(`ws://127.0.0.1:${WS_PORT}`);
     let got = false;
     const done = (v) => { if (!got) { got = true; try { w.close(); } catch {} resolve(v); } };
     const t = setTimeout(() => done(null), 12000);
@@ -116,7 +127,7 @@ try {
   console.log(`\n--- report ---`);
   console.log(`product UI: / + /index.html = the workbench (C64RE Workbench) + embedded Live tab`);
   console.log(`routing: /v3.html → 404 (one UI, no second entry)`);
-  console.log(`Live: scoped .wb-live CSS, WS :4312 reachable, session present`);
+  console.log(`Live: scoped .wb-live CSS, WS :${WS_PORT} reachable, session present`);
 } catch (e) {
   ok(false, "harness", e.message + (log ? " | " + log.slice(-160) : ""));
 } finally {

@@ -7,11 +7,14 @@
 //      is SIGKILLed — nothing of its own runs after that;
 //   2. the daemon must be gone within a few seconds, and its scratch dir with it;
 //   3. a sandbox whose budget runs out while its caller is alive ends too.
-// Needs a TRX64 daemon (the sibling release build, or TRX64_DAEMON_BIN).
+// Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly).
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:sandbox-orphan");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mod = pathToFileURL(join(ROOT, "dist/reel/sandbox-session.js")).href;

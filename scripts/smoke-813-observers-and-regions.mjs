@@ -17,6 +17,9 @@ import {
   normalizeScreenText,
 } from "../dist/project-knowledge/region.js";
 import { runScenario } from "../dist/reel/run-scenario.js";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:813");
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };

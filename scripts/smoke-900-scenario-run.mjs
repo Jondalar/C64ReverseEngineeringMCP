@@ -7,13 +7,16 @@
 //   - mixed.feature: a failing check (expected vs actual), prose only (UNCHECKED), a mark
 //     (SKIP), a missing medium (ERROR) → exit 1, and --json says the same
 //   - runtime_sandbox_run with Then entries in steps → the same verdicts
-// Needs a TRX64 daemon (the sibling release build, or TRX64_DAEMON_BIN). Every machine is
+// Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly). Every machine is
 // a child of its run and gone when it returns.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:900");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");

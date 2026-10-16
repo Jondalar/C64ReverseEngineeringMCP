@@ -10,7 +10,7 @@
 // The runtime is a SANDBOX of this smoke's own, on a free port, ended by this smoke
 // — never the shared session (doctrine rule 2).
 //
-//   TRX64_DAEMON_BIN=<trx64-daemon> node scripts/smoke-867-residency.mjs
+//   C64RE_RUNTIME_BIN=<trx64-daemon> node scripts/smoke-867-residency.mjs
 //   (needs `npm run build`)
 
 import { spawn } from "node:child_process";
@@ -20,11 +20,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { resolveDaemonSpawn } = await import("../dist/runtime/resolve-daemon-spawn.js");
-const DAEMON = process.env.TRX64_DAEMON_BIN || process.env.C64RE_TRX64_BIN
-  || resolveDaemonSpawn({ repoRoot: ROOT, projectDir: tmpdir(), port: "1" }).cmd;
+const DAEMON = await daemonOrSkip("smoke:867");
 
 const { GRAPH_DDL } = await import("../dist/knowledge-graph/schema.js");
 const { Graph } = await import("../dist/knowledge-graph/query.js");
@@ -41,10 +40,6 @@ const freePort = () => new Promise((res, rej) => {
   s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); });
 });
 
-if (!existsSync(DAEMON)) {
-  console.log(`FAIL  no runtime daemon at ${DAEMON} — set TRX64_DAEMON_BIN`);
-  process.exit(1);
-}
 console.log(`Spec 867 §6.4 — residency, against a real machine  (runtime: ${DAEMON})\n`);
 
 const cleanups = [];

@@ -19,6 +19,9 @@ import { recordScenario, encodeKeys } from "../dist/reel/record-scenario.js";
 import { runScenario } from "../dist/reel/run-scenario.js";
 import { runSandbox } from "../dist/reel/run-sandbox.js";
 import { SandboxSession } from "../dist/reel/sandbox-session.js";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:814");
 
 let pass = 0, fail = 0;
 const ok = (cond, what, detail) => {

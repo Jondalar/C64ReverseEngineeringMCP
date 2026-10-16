@@ -17,6 +17,7 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
+import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -24,11 +25,12 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-010 — workspace bootstrap starts HTTP + runtime WS for one project\n");
 
-const HTTP_PORT = 4318; // off the defaults to avoid clashing with a running UI
+await daemonOrSkip("smoke:workspace-runtime");
+const HTTP_PORT = await freePortBlock(2); // a free pair, off the defaults
 // NOT 4312: that is the shared session's port. The workspace is started against its own
 // endpoint, and the proof is that the server hands exactly that one to the page — a page
 // that assumed :4312 attached to whatever held it, another workspace's runtime included.
-const WS_PORT = Number(process.env.SMOKE_WORKSPACE_WS_PORT || 4396);
+const WS_PORT = HTTP_PORT + 1;
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug010-"));
 
 function tcpUp(port, timeoutMs = 800) {

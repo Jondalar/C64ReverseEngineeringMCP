@@ -10,6 +10,9 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("e2e:stall-heal");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");

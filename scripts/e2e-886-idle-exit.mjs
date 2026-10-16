@@ -17,6 +17,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("e2e:886-idle-exit");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -37,7 +40,7 @@ const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/
 new ProjectKnowledgeService(proj).initProject({ name: "886" });
 
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: proj, port: String(PORT) });
-if (plan.mode === "none") { console.log("FAIL  no TRX64 daemon found"); process.exit(1); }
+if (plan.mode === "none") { console.log("SKIPPED e2e:886-idle-exit: no trx64-daemon found — NOT passed."); process.exit(0); }
 const startDaemon = (idle) => {
   const d = spawn(plan.cmd, [...plan.args, "--headless", "--idle-exit", String(idle)], { stdio: ["ignore", "pipe", "pipe"] });
   d.log = ""; d.stdout.on("data", (b) => { d.log += b; }); d.stderr.on("data", (b) => { d.log += b; });

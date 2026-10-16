@@ -6,13 +6,16 @@
 //   2. machine code at $C100 with no BASIC line, started with run="$C100" → writes $2B;
 //   3. a typed step after a plain boot: `I type "POKE49152,7{RETURN}"` lands ($C000 = 7).
 // Each checks the byte the program wrote, not the log line — then that the log line
-// agrees with it. Needs a TRX64 daemon (the sibling release build, or TRX64_DAEMON_BIN);
+// agrees with it. Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly);
 // the sandbox is a child of each call and gone when it returns.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+
+await daemonOrSkip("smoke:sandbox-prg-start");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");

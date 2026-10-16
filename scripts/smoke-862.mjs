@@ -56,10 +56,10 @@ const work = mkdtempSync(join(tmpdir(), "c64re-862-"));
 
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: work, port: "0" });
 if (plan.mode === "none") {
-  console.log("  SKIP  no runtime binary — this gate runs a real C64, so it cannot run here.");
+  console.log("  SKIPPED  no runtime binary — this gate runs a real C64, so it did NOT run and is NOT passed.");
   console.log("        Build the sibling runtime (../TRX64: cargo build --release) or set C64RE_RUNTIME_BIN.");
   rmSync(work, { recursive: true, force: true });
-  process.exit(2);
+  process.exit(0);
 }
 
 // ── a runtime of our own, for the trace reads ───────────────────────────────
