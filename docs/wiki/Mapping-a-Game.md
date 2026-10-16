@@ -126,7 +126,10 @@ Scenario: the goal holds
   Then $03 is $01
 ```
 
-and a second map can start there: `anchor = maze.goal` finds what lies beyond. A crash
+and a second map can start there: `anchor = maze.goal` finds what lies beyond. A walkthrough
+is that chain: the path of one map to its goal, then the path of the map that starts at the
+goal anchor, and so on - each map's `STARTS_FROM` link in the graph names the anchor the
+previous one wrote. A crash
 on the map is where a fix starts: set an anchor on the way to it (or start from a state
 anchor) and try the fix as described in [Trying a Fix](Trying-a-Fix).
 
