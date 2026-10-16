@@ -75,17 +75,20 @@ export function registerAnchorTools(server: McpServer, context: ServerToolContex
         }
       } catch { /* a runtime without a transport answers the set itself */ }
       const proj = await anchorProject(context, session_id, project_dir);
-      if (proj) {
-        const { anchorFileExists, anchorFileRel } = await import("../anchors/file.js");
-        const { projectHoldsGraph } = await import("../anchors/graph.js");
-        if (projectHoldsGraph(proj) && anchorFileExists(proj, name)) {
-          return text(`runtime_anchor_set: not set — the project already has an anchor file for "${name}" (${anchorFileRel(name)}). Drop it first (runtime_anchor_drop), or give this one another name.`);
-        }
-      }
       let cap: { ref?: { id?: string; cycles?: number } } | undefined;
       try { cap = await d.checkpointCapture<{ ref?: { id?: string; cycles?: number } }>(sid); } catch (e) { return refusal("runtime_anchor_set", e); }
       let r: { mark: MarkRow; used: number; cap: number; message?: string };
       try { r = await d.call("mark/set", { name, ...sessionParams(session_id) }); } catch (e) { return refusal("runtime_anchor_set", e); }
+      if (proj) {
+        // A name the ring did not hold can still have a file (an anchor a feature made, or one whose daemon is gone):
+        // the runtime's own refusal above comes first; this one is the project's.
+        const { anchorFileExists, anchorFileRel } = await import("../anchors/file.js");
+        const { projectHoldsGraph } = await import("../anchors/graph.js");
+        if (projectHoldsGraph(proj) && anchorFileExists(proj, name)) {
+          try { await d.call("mark/drop", { name, ...sessionParams(session_id) }); } catch { /* the name is taken back; nothing else to undo */ }
+          return text(`runtime_anchor_set: not set — the project already has an anchor file for "${name}" (${anchorFileRel(name)}). Drop it first (runtime_anchor_drop), or give this one another name.`);
+        }
+      }
       const lines = [`ANCHOR ${r.mark.name} — cycle ${r.mark.cycle}, frame ${r.mark.frame ?? "?"} (checkpoint ${r.mark.anchorId}); ${r.used} of ${r.cap} anchors used.`];
       if (cap?.ref?.id && cap.ref.id !== r.mark.anchorId) {
         lines.push(`Note: the transport cursor is not at the head of the ring, so the runtime marked the checkpoint under the cursor (${r.mark.anchorId}, cycle ${r.mark.cycle}), not the one just captured (${cap.ref.id}, cycle ${cap.ref.cycles}). Resume to the head and set again if you meant the live instant.`);

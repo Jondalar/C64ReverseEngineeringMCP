@@ -261,15 +261,38 @@ steer at once, so:
   a sandbox is never in their UI; you need neither their permission nor
   their help. **`docs/runtime-sandbox.md`** has the whole picture.
 
-- **Several fixes to try from one instant?** Name the instant and run the
-  variants side by side, none of them on the shared machine:
-  `runtime_anchor_set` → `runtime_candidate_create` / `_variant` → `runtime_candidate_run`
-  (the baseline without a patch plus every variant at once, each on a clone, with the
-  same inputs) → `runtime_candidate_choose` → `runtime_candidate_derive_delta` →
-  `runtime_candidate_verify_build`, which proves the project's build really holds the
-  chosen bytes. The candidate is kept in the project (`knowledge/candidates/`) and the
-  anchor's meaning in the graph; only `runtime_anchor_goto` and `runtime_overlay_run`
-  move the shared machine, and both say so. The loop end to end is in
+- **A fix to try? A feature file runs it; you do not drive it.** The loop is split: *you*
+  decide, *the script* runs. You find the instant before the problem (the graph, the listing,
+  a read-only scrub of the ring), set the anchor (`runtime_anchor_set` — a file in the
+  project, `knowledge/anchors/<name>.c64re`, so it outlives the ring and the daemon), write
+  the fixes as source files, and write one scenario that tries them. The script —
+  `c64re scenario run` or `runtime_feature_run`, the same code — plays it: the baseline and
+  every variant on a machine of its own, from the anchor, in parallel, the shared machine
+  untouched; it stops on a condition (`I wait until the CPU reaches $0B00 within 500
+  frames`), not a cycle count; the `Then` lines alone decide PASS/FAIL per run, and the
+  places a variant changed besides are listed next to the verdict. You read the verdicts,
+  choose a variant or write the next one, and run the file again. The run is kept as the
+  project's candidate (`knowledge/candidates/`), so what was tried and what it did survive
+  the session. The winner goes `runtime_candidate_choose` → `runtime_candidate_derive_delta`
+  → `runtime_candidate_verify_build`, which proves the project's build really holds the
+  chosen bytes.
+
+  ```gherkin
+  Scenario: the lift at level 3
+    Given the mark "before_lift"
+    And variant "fix1" assembles "fixes/lift-fix1.tas" at $0A20
+    And variant "fix2" assembles "fixes/lift-fix2.tas" at $0A20
+    And variant "fix2" assembles "fixes/lift-fix2-table.tas" at roml bank 3 $9100
+    When I hold joystick 2 down for 10 frames
+    And I wait until the CPU reaches $0B00 within 500 frames
+    Then $0310 is $2A throughout the next 50 frames
+  ```
+
+  A fix is a source file assembled at an address in RAM or in a cartridge bank (its own
+  origin must equal that address). A scenario with no instant at hand makes one from a
+  boot: `… And I set the anchor "before_lift"`. **Never write your own stepper, boot loop
+  or trace parser for this** — that is what the feature file is. Only `runtime_anchor_goto`
+  and `runtime_overlay_run` move the shared machine, and both say so. The whole loop is in
   `docs/runtime-sandbox.md`.
 
 The persistent state lives in:

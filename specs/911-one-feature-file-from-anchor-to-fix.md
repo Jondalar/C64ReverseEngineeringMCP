@@ -1,6 +1,6 @@
 # Spec 911 — One feature file takes a fix from an anchor to a verdict: a script runs it, the LLM only finds, writes and judges
 
-**Status:** BUILDING (2026-10-16), owner: "Ja Bau."
+**Status:** BUILT on branch spec/911 (2026-10-16), not merged. Owner: "Ja Bau." S8 (a fresh agent finds the loop) is by hand and not yet done.
 **Repo:** C64RE. The runs use what TRX64 already has (private daemons, snapshot dump/undump,
 memory writes, the scenario step program); no TRX64 change is planned. If a cartridge-ROM write
 into a running sandbox turns out to be missing, that one capability goes to TRX64 (§5).
@@ -262,4 +262,51 @@ Scenario: S8 a fresh agent finds the loop
 
 ## §5 Decisions taken while building
 
-(filled in at the end)
+- **Writing code into a running sandbox, RAM and cartridge bank alike.** The runtime has no plain memory write
+  into a running session. A run takes `checkpoint/capture` of the machine as it stands and `runtime/overlay_run`
+  with `run_cycles: 0` against that checkpoint: the helper `apply_overlay_patches` that the removed `sandbox/runMany`
+  used (RAM, or `roml`/`romh` + bank), here against a restore of the very state just captured, so only the patch
+  differs. The baseline takes the same round trip with no patches, so baseline and variants start from the same
+  kind of machine. Cartridge-bank writes work where the runtime's mapper supports an overlay (EasyFlash; others are
+  refused by the runtime with its own text). No TRX64 change was needed.
+- **A mark starts exactly where it was dumped.** Opening a snapshot used to be followed by an advance to the next
+  frame boundary (the probe for "is the VIC sweeping"), which moved the machine up to a frame. For `Given the mark`
+  the run skips it (`startExactly`), so registers, clock and RAM equal the anchor's. Other snapshot origins
+  (`Given the snapshot`) keep their old alignment, so recorded scenarios replay as before.
+- **The anchor file is the machine at the call.** `runtime_anchor_set` names the checkpoint, then dumps. On a
+  stopped machine (a sandbox between calls) that is the same instant; on a running shared machine it is a few
+  milliseconds later, and the answer says how many cycles. A name that already has a file is refused; drop deletes
+  the file, including an anchor that is only a file (the ring no longer holds it).
+- **A run opens a copy of the anchor file**, in a scratch folder of its own, because the runtime lays an anchor's
+  embedded media out beside the file it opens; parallel machines must not share one disk, and the project must
+  not collect `_media` folders.
+- **A wait that does not happen is FAIL (not ERROR) in scenarios with variants only.** A scenario without
+  variants still reports it as ERROR, as before. In a variant run the steps after the failed wait do not run and its
+  later `Then` lines are not decided.
+- **Exit codes apply to every run of `c64re scenario run`**, not only to files with variants: 0 / 1 / 2 as D4 says
+  (a parse error was 1 before and is 2 now). The default for `--jobs` is min(4, CPUs) (it was 1).
+- **Side effects** are read as RAM (two 32 KiB reads, the largest one read takes), the I/O area ($D000-$DFFF: VIC,
+  SID, CIAs, colour RAM, the cartridge's I/O windows, a peek with no side effects) and compared with the
+  baseline's at the end of the run. Left out: the variant's own RAM bytes, the registers that move by themselves
+  (raster, SID read-backs, CIA timers and clocks) and the chips' mirrors. The text lists the first six places, the
+  JSON all of them. Cartridge ROM is not read (it does not change by running); a variant's bank bytes are checked by
+  its own `Then` lines.
+- **A scenario with variants cannot set an anchor** (every machine would write the same file) and cannot be swept
+  (`--sweep`): both are ERRORs that say so.
+- **The slot gate stays with the tool.** `runtime_feature_run` is gated like the doors that allocate memory, when the
+  file has variants (the door that used to carry it, `runtime_candidate_variant`, is gone); the command line is not
+  a door and is not gated.
+- **Candidate key and shape.** One record per feature path (relative to the project) + scenario name; the
+  scenario's line is stored and may move. A scenario that starts from a medium has no anchor and no STARTS_FROM
+  edge, but its record links to the feature file (node kind `feature`, edge `FROM_FEATURE`). A feature passed to
+  the tool as text is recorded as `(inline)` with its text. A re-run clears the choice if the chosen variant left
+  the file, and the delta and build check if its bytes changed.
+- **`runtime_inject_range`** put raw bytes into a candidate variant, which no longer exists, and raw bytes are not in
+  the grammar (§4). It now writes the bytes as a source file (`* = $addr` and `.byte` lines) and returns the
+  variant line to add. `runtime_candidate_remove_patch` went with `_patch` (its answer named a removed tool);
+  `runtime_candidate_export` stays as the pointer to the list.
+- **A reel refuses** an anchor step and variant lines, by name: a reel assembles pictures.
+- **e2e:905** keeps the anchor doors, the 32-anchor limit and the build check (on a record as the old runner left it);
+  its sections for the removed runner (three fixes at once, inputs, restart) are the feature run's now.
+- **Seen on master, not touched:** `scripts/probe-mcp-llm-playbooks.mjs` check 9 fails for `runtime_sandbox_start`,
+  `_list` and `_end` (default tools in no playbook); it is not in a gate.

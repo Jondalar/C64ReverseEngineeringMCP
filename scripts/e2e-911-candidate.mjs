@@ -155,6 +155,26 @@ try {
   const after2 = store.loadCandidate(proj, id);
   check(after2.chosen === "fix1" && !after2.delta && !after2.build && /assembles to other bytes/.test(changed), "…and says so, clearing the delta, when the chosen fix now assembles to other bytes", changed.slice(0, 400));
 
+  head("S6  two scenarios in one file are two records");
+  writeFileSync(sc("two.feature"), lines(
+    "Scenario: first",
+    '  Given the mark "a2"',
+    '  And variant "fix1" assembles "../fixes/fix1.tas" at $C100',
+    "  When I hold joystick 2 down for 5 frames",
+    "  And I wait 2 frames",
+    "  Then $C300 is $77",
+    "",
+    "Scenario: second",
+    '  Given the mark "a2"',
+    '  And variant "fix2" assembles "../fixes/fix2.tas" at $C100',
+    "  When I hold joystick 2 down for 5 frames",
+    "  And I wait 2 frames",
+    "  Then $C300 is $00",
+  ));
+  const two = await m.call("runtime_feature_run", { feature_path: "scenarios/two.feature" });
+  const twoIds = [...two.matchAll(/→ candidate (cand-\d+)/g)].map((x) => x[1]);
+  check(twoIds.length === 2 && twoIds[0] !== twoIds[1] && store.listCandidates(proj).length === 3, "each gets a record of its own (never the same number twice)", `${twoIds.join(",")} / ${store.listCandidates(proj).length}`);
+
   head("S6  a cartridge bank in the build");
   writeFileSync(sc("cart.feature"), lines(
     "Scenario: a fix in a cartridge bank",

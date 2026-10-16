@@ -5,7 +5,7 @@
 
 import { projectHoldsGraph, recordCandidate } from "../anchors/graph.js";
 import {
-  listCandidates, loadCandidate, nextCandidateId, saveCandidate,
+  listCandidates, loadCandidate, saveCandidate,
   type Candidate, type FeatureRef, type RunResult, type VariantTarget, type Variant,
 } from "./store.js";
 
@@ -83,4 +83,3 @@ export async function recordFeatureRun(projectDir: string, r: FeatureRunRecord):
 
 const bytesOf = (t: VariantTarget): unknown => [t.space, t.bank ?? null, t.addr, t.bytes];
 
-export { nextCandidateId };

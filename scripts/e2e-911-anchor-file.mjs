@@ -143,6 +143,10 @@ try {
   check(uj.results[1].verdict === "SKIP" && /never_set/.test(uj.results[1].reason) && /no file|has no file/.test(uj.results[1].reason), "a mark without a file is still SKIP and says so", uj.results[1].reason);
   check(used.code === 0, "…and a SKIP does not fail the file", String(used.code));
 
+  const fileOnly = await m.call("runtime_anchor_set", { name: "a2" });
+  check(/not set/.test(fileOnly) && /already has an anchor file/.test(fileOnly) && /a2\.c64re/.test(fileOnly), "an anchor that is only a file cannot be set over from a session: refused, naming the file", fileOnly.slice(0, 300));
+  check(!/\ba2\b.*cycle/.test((await m.call("runtime_anchor_list", {})).split("In the project as a file")[0]), "…and the refused set left no name in the ring");
+
   const clash = runCli([join(proj, "scenarios", "make.feature"), "--json"]);
   const cj = jsonOf(clash.stdout);
   check(cj.results[0].verdict === "ERROR" && /already exists/.test(cj.results[0].reason) && /--replace-anchors/.test(cj.results[0].reason), "an anchor of that name that exists is an ERROR naming it, unless --replace-anchors", cj.results[0].reason);

@@ -2,7 +2,8 @@
 
 State what a run has to achieve, in the same `.feature` files as
 [Capture Scenarios](Capture-Scenarios). Partly built — see [Status](#status) before
-planning around it.
+planning around it. To run a scenario against several fixes of your own, see
+[Trying a Fix](Trying-a-Fix).
 
 ## The idea
 

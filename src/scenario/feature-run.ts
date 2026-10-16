@@ -208,7 +208,7 @@ interface Prepared {
 
 type Prep = { result: ScenarioResult } | { prep: Prepared };
 
-async function prepare(file: string, text: string | undefined, scenario: Scenario, projectDir: string): Promise<Prep> {
+async function prepare(file: string, text: string | undefined, scenario: Scenario, projectDir: string, reserved: Set<string>): Promise<Prep> {
   const startedAt = Date.now();
   const unchecked = scenario.criteria.filter((c) => !c.check).map((c) => ({ line: c.line, text: c.text }));
   const base = { file, line: scenario.line ?? 0, scenario: scenario.name, unchecked };
@@ -260,7 +260,7 @@ async function prepare(file: string, text: string | undefined, scenario: Scenari
       return done("ERROR", "a scenario with variants cannot set an anchor: every machine would write the same file. Make the anchor in a scenario of its own, then start this one from it", { model });
     }
     try {
-      variants = await assembleVariants(file, text, scenario, projectDir, here, cleanups);
+      variants = await assembleVariants(file, text, scenario, projectDir, here, cleanups, reserved);
     } catch (e) {
       cleanup();
       return done("ERROR", e instanceof Error ? e.message : String(e), { model });
@@ -274,13 +274,20 @@ async function prepare(file: string, text: string | undefined, scenario: Scenari
 }
 
 async function assembleVariants(
-  file: string, _text: string | undefined, scenario: Scenario, projectDir: string, here: string, cleanups: (() => void)[],
+  file: string, _text: string | undefined, scenario: Scenario, projectDir: string, here: string, cleanups: (() => void)[], reserved: Set<string>,
 ): Promise<NonNullable<Prepared["variants"]>> {
   const { assembleTarget } = await import("../candidates/variant.js");
   const { findFeatureCandidate } = await import("../candidates/feature-record.js");
-  const { nextCandidateId } = await import("../candidates/store.js");
+  const { listCandidates } = await import("../candidates/store.js");
   const known = findFeatureCandidate(projectDir, projectPath(projectDir, file === INLINE ? INLINE : file), scenario.name);
-  const candidateId = known?.id ?? nextCandidateId(projectDir);
+  // A new record takes the next number nobody has — and nobody in this run has either: two scenarios of one file
+  // are prepared before either is saved.
+  let candidateId = known?.id;
+  if (!candidateId) {
+    const used = new Set([...listCandidates(projectDir).map((c) => c.id), ...reserved]);
+    for (let n = 1; ; n++) if (!used.has(`cand-${n}`)) { candidateId = `cand-${n}`; break; }
+  }
+  reserved.add(candidateId);
   const scratch = mkdtempSync(join(tmpdir(), "c64re-fix-"));
   cleanups.push(() => rmSync(scratch, { recursive: true, force: true }));
   const list: { name: string; targets: VariantTarget[] }[] = [];
@@ -516,8 +523,9 @@ export async function runFeatures(opts: FeatureRunOptions): Promise<FeatureRun> 
   // Prepare in order (assembling is quick and its failure is the scenario's), then run every machine of every
   // scenario through one pool.
   const tasks: (() => Promise<void>)[] = [];
+  const reserved = new Set<string>();
   for (const [i, w] of work.entries()) {
-    const prep = await prepare(w.file, w.text, w.scenario, w.projectDir);
+    const prep = await prepare(w.file, w.text, w.scenario, w.projectDir, reserved);
     if ("result" in prep) { emit(i, prep.result); continue; }
     const p: Prepared = w.text === undefined ? prep.prep : { ...prep.prep, inlineText: w.text };
     if (!p.variants) {

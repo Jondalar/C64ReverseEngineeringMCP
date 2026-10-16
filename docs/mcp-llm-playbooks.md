@@ -464,34 +464,31 @@ inventory.
 
 **Use when:** Try my fix and tell me if it changed anything. / Does this patch break the game? / Freeze the life counter and see if it holds.
 
-**Preconditions:** A running session you can name an instant of.; Inputs, if the effect needs a press, as an input list with cycles relative to the anchor.
+**Preconditions:** A machine you can bring to the instant before the problem (the shared session, or a sandbox you started), or a feature file that gets there from a medium.; The fixes as source files in the project: each assembles at the address it is tried at, in RAM or in a cartridge bank.
 
 **Steps:**
 
-1. _(llm)_ Name the instant before the interesting thing happens. The anchor is captured fresh, nothing moves, and the project remembers what it meant.
+1. _(llm)_ Find the instant before the interesting thing happens (the graph, the listing, a read-only scrub of the ring) and name it. The anchor is a file in the project, so a script can start from it long after the ring has rolled on.
    - tools: `runtime_anchor_set`, `runtime_anchor_list`, `runtime_anchor_goto`, `runtime_anchor_drop`
    - persist: anchor name, why
-2. _(llm)_ Create the candidate from the anchor: the input list and the cycle budget. It is saved in the project and survives a restart.
-   - tools: `runtime_candidate_create`, `runtime_candidate_list`
-   - persist: candidate id
-3. _(llm)_ Add the variants — a few lines of source or bytes each. Setting a name again replaces that variant.
-   - tools: `runtime_candidate_variant`
-   - persist: variants
-4. _(llm)_ Run the candidate: the baseline without a patch and every variant at once, each on a clone, the shared machine untouched. Read each verdict against the baseline.
-   - tools: `runtime_candidate_run`
-   - persist: verdict per variant
-5. _(llm)_ For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the candidate.
-   - tools: `runtime_find_cheat`, `runtime_candidate_variant`, `runtime_candidate_run`
+2. _(llm)_ Write the fixes as source files, and the scenario that tries them: Given the mark, one variant line per fix (And variant "fix1" assembles "fixes/fix1.tas" at $0A20), the joystick and keys, a wait until the CPU reaches the address, and the Then lines that say what has to be true. The Then lines decide; nothing else does.
+   - tools: `assemble_source`, `runtime_inject_range`
+   - persist: fixes, the .feature file
+3. _(llm)_ Run the file. The script plays it: the baseline and every variant on a machine of its own from the anchor, in parallel, the shared machine untouched. Read the verdict per run and the places each variant changed besides.
+   - tools: `runtime_feature_run`
+   - persist: candidate id, verdict per variant
+4. _(llm)_ For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the file.
+   - tools: `runtime_find_cheat`, `runtime_feature_run`
    - persist: cheat candidates, confirmation
-6. _(llm)_ Choose the variant that does what was intended, write it as a delta, wire the delta into the build, and prove the build holds it.
-   - tools: `runtime_candidate_choose`, `runtime_candidate_derive_delta`, `runtime_candidate_verify_build`, `runtime_candidate_delete`, `agent_record_step`
+5. _(llm)_ Judge, and write the next fix or choose: the variant that does what was intended becomes a delta, the delta goes into the build, and the build is proved to hold it.
+   - tools: `runtime_candidate_list`, `runtime_candidate_choose`, `runtime_candidate_derive_delta`, `runtime_candidate_verify_build`, `runtime_candidate_delete`, `agent_record_step`
    - persist: delta files, build check
 
 **Stop when:** The chosen variant is what the change intended, and the project's build is verified to contain it.
 
 **Next:** Change / Patch / Crack / Port for the real build.
 
-**Do not:** Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; the candidate run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
+**Do not:** Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it. Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
 
 ## Rewind and Scrub
 
