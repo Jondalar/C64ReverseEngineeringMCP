@@ -36,7 +36,9 @@ jobs:
     # That pushed a job that used to finish in ~11 minutes past its own limit, and the
     # first symptom was a bare "The operation was canceled" with no failing step above it
     # — which reads like a flake and is not one.
-    timeout-minutes: 30
+    # Raised to 50 when the 96 test scripts that were in no step joined: on a bare runner they add about 10 minutes
+    # (most print SKIPPED after a rebuild), on a machine with the daemon and the samples about 13.
+    timeout-minutes: 50
     # Spec 902 D5 — every step runs with a state directory of its own and says it is a smoke, so the
     # process ledger records what a step starts as a smoke's, and the last step can name the one that
     # left something running.
