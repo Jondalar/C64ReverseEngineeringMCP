@@ -29,7 +29,8 @@ Session start checklist:
    \`agent_record_step(...)\` → next turn.
 
 To try a fix: anchor, a .feature with variants, \`runtime_feature_run\`;
-never your own stepper or boot loop.
+never your own stepper or boot loop. To learn a game's rooms, levels or
+crashes: anchor, then \`runtime_state_map\`; never one call per move.
 
 ${MARKER_END}`;
 

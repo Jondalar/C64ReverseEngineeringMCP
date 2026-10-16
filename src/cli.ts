@@ -74,6 +74,8 @@ if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     "  c64re graph <verb>           query a project's knowledge graph",
     "  c64re scenario run <files>   run .feature scenarios on private machines and",
     "                               decide their Then lines (exit 1 on a failure)",
+    "  c64re state map <file.json>  map a game by its moves: every state reachable from an anchor,",
+    "                               the crashes and the shortest way to a goal (kept in the graph)",
     "  c64re doc lint|check|index   the document checks, as a hook or CI can call them",
     "  c64re setup <agent>          write the process-discipline block into an agent config",
     "  c64re mcp-config [--project <dir>] [--print]",
@@ -110,6 +112,14 @@ if (argv[0] === "graph") {
   }).catch((error: unknown) => {
     console.error(`[c64re scenario] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
+  });
+} else if (argv[0] === "state") {
+  // `c64re state map <file.json>` — the same function as the MCP tool runtime_state_map.
+  await import("./statemap/cli.js").then(async (mod) => {
+    await mod.runStateCli(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re state] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 2;
   });
 } else if (argv[0] === "doc") {
   // Spec 847 D7: `c64re doc lint|check|index`. The logic a write hook calls, kept HERE

@@ -226,6 +226,7 @@
     "e2e:911-variants": "npm run build:mcp && node scripts/e2e-911-variants.mjs",
     "e2e:911-door": "npm run build:mcp && node scripts/e2e-911-door.mjs",
     "e2e:911-candidate": "npm run build:mcp && node scripts/e2e-911-candidate.mjs",
+    "e2e:912": "npm run build:mcp && node scripts/e2e-912-state-map.mjs",
     "e2e:cartridge-bank": "npm run build && node scripts/e2e-cartridge-bank-listing.mjs",
     "smoke:900": "npm run build:mcp && node scripts/smoke-900-scenario-run.mjs",
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",

@@ -232,7 +232,12 @@ a verdict for each runtime tool, and a tool added without one fails the gate.
 
 Anchors work on a sandbox too: `runtime_anchor_*` take the sandbox's `session_id`, and the
 anchor's file lands in the project the sandbox is bound to. A feature file is run with
-`runtime_feature_run`, which starts machines of its own and needs no session id.
+`runtime_feature_run`, which starts machines of its own and needs no session id. So does
+`runtime_state_map`: from an anchor it tries every move in every state it finds (a state is
+the bytes you name as the key, a move is a stick direction, fire or a key), on one machine
+of its own that ends before the answer, and returns the states, the moves between them, the
+crashes and the shortest path to a goal; the map is kept in the project graph and the goal
+is written as an anchor to continue from.
 
 ## Monitor, Interrupts, And Rendering
 

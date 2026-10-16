@@ -142,6 +142,13 @@ runtime_candidate_verify_build  id        builds, then checks the image holds th
 it made — a PRG, or a cartridge image bank by bank — and compares every byte of the
 chosen fix. It answers GREEN, or RED naming the first address that does not have it.
 
+## Finding the place to start
+
+A crash or a wrong room that you can only reach by moves is found by a map, not by hand:
+[Mapping a Game](Mapping-a-Game) lists every state reachable from an anchor, the moves
+between them and the moves that crash, and writes the goal as an anchor. Start from the
+anchor on the way to the crash, and try the fix as above.
+
 ## Good to know
 
 - An anchor file is a snapshot of the machine **with its media embedded**; it can be

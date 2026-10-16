@@ -86,7 +86,7 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
     {
       project_dir: z.string().optional().describe("Project root directory. Absolute or project-relative; defaults to the active project."),
       query: z.string().describe("Free text and/or tokens like $FC00, T18/S11, 'track 36', a label, an artifact/finding id, or a topic."),
-      kind: z.string().optional().describe("Filter by record kind: finding, entity, relation, flow, open_question, artifact, artifact_version, routine, label, model, document, doc_section, wiki_page, asm_section, view, activity_log_entry."),
+      kind: z.string().optional().describe("Filter by record kind: finding, entity, relation, flow, open_question, artifact, artifact_version, routine, label, model, document, state_map, doc_section, wiki_page, asm_section, view, activity_log_entry."),
       tag: z.string().optional().describe("Filter by an exact tag."),
       address: z.string().optional().describe("Filter to records touching an address/track, e.g. $FC00 or 'track 36'."),
       artifact_id: z.string().optional().describe("Filter to records linked to this artifact id."),
