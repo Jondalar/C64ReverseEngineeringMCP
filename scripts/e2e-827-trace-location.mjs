@@ -40,7 +40,8 @@ check(traceRoot(macEnv, "darwin") === "/Users/alex/Library/Application Support/c
 check(traceRoot(linEnv, "linux") === "/home/alex/.local/share/c64re/traces", `linux → ~/.local/share (${traceRoot(linEnv, "linux")})`);
 check(traceRoot({ ...linEnv, XDG_DATA_HOME: "/data/xdg" }, "linux") === "/data/xdg/c64re/traces", "linux honours XDG_DATA_HOME");
 for (const [plat, env] of [["win32", winEnv], ["darwin", macEnv], ["linux", linEnv]]) {
-  check(traceRoot({ ...env, C64RE_TRACE_DIR: "/scratch/traces" }, plat) === "/scratch/traces", `C64RE_TRACE_DIR overrides the ${plat} default`);
+  // the override is a directory on THIS host, resolved here: on Windows "/scratch/traces" gets the current drive
+  check(traceRoot({ ...env, C64RE_TRACE_DIR: "/scratch/traces" }, plat) === resolve("/scratch/traces"), `C64RE_TRACE_DIR overrides the ${plat} default`);
 }
 // A data directory, not a cache: the .c64retrace beside the index is evidence (726.B).
 for (const [plat, env] of [["darwin", macEnv], ["linux", linEnv]]) {
