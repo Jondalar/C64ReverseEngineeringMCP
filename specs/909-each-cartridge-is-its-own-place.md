@@ -1,6 +1,6 @@
 # Spec 909 — Each cartridge in a project is its own place, with its own type and its own role
 
-**Status:** BUILT and merged (2026-10-15). `e2e:909`, `e2e:909-runtime` and `e2e:payload-headerless` green; real-data acceptance on copies of Wasteland_EF, Claude V2 and Yeti_Mountain (two real CRTs of one game: 118 chip payloads in two carts, chip listings at their window, all byte-identical). Fixes #90. Open: TRX64 records the mounted image's hash in the capture (owner-approved, 2026-10-15), so a shared-session trace is filed by hash, not by the file-name fallback.
+**Status:** BUILT and merged (2026-10-15). `e2e:909`, `e2e:909-runtime` and `e2e:payload-headerless` green; real-data acceptance on copies of Wasteland_EF, Claude V2 and Yeti_Mountain (two real CRTs of one game: 118 chip payloads in two carts, chip listings at their window, all byte-identical). Fixes #90. TRX64 0.13.3 records the mounted image's hash in the capture header and session/state (owner-approved, 2026-10-15); C64RE 0.9.3 pins it. Open: C64RE's trace import files a shared-session trace by that hash, not by the file-name fallback.
 **Repo:** C64RE (meaning and memory: the graph's id grammar and everything that writes or reads it).
 TRX64 untouched.
 **Number:** 909 (registry: `specs/README.md`).
