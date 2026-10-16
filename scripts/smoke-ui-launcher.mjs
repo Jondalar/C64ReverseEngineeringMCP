@@ -19,7 +19,7 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSyn
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { ensureUiLaunchers } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/ui-launcher.js")).href);
@@ -30,6 +30,9 @@ const ok = (msg) => { pass += 1; console.log(`  PASS  ${msg}`); };
 const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
 const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 const info = (msg) => console.log(`  info  ${msg}`);
+// Windows has no execute bit (Node reports none) and no lsof: those checks are POSIX-only.
+const WIN = process.platform === "win32";
+const skip = (msg) => console.log(`  skip  ${msg} — loudly skipped, not passed`);
 
 console.log("Workspace launchers — ui.sh + ui.ps1 + the double-click shims\n");
 
@@ -45,7 +48,7 @@ mkdirSync(projectDir, { recursive: true });
 mkdirSync(repoDir, { recursive: true });
 
 const r1 = ensureUiLaunchers(projectDir, repoDir, { platform: "windows" });
-const names = r1.files.map((f) => f.path.replace(`${projectDir}/`, ""));
+const names = r1.files.map((f) => basename(f.path));
 info(`created: ${names.join(", ")}`);
 
 const WANT = ["ui.ps1", "ui-start.cmd", "ui-stop.cmd", "ui-restart.cmd"];
@@ -235,11 +238,12 @@ for (const [platform, want] of Object.entries(SETS)) {
     const f = join(dir, `ui-${action}.desktop`);
     files.push(f);
     const t = readFileSync(f, "utf8");
-    check(t.includes(`Path=${dir}\n`) && dir.startsWith("/"), `ui-${action}.desktop: Path= is the absolute project dir`);
+    check(t.includes(`Path=${dir}\n`) && isAbsolute(dir), `ui-${action}.desktop: Path= is the absolute project dir`);
     check(t.includes("Type=Application") && t.includes("Terminal=true") && t.includes("Icon=utilities-terminal"), `ui-${action}.desktop: Type=Application, Terminal=true, Icon=utilities-terminal`);
     const open = action === "stop" ? "" : " --open";
     check(t.includes(`Exec=bash -c "./ui.sh ${action}${open}; read -rp 'Press Enter to close'"`), `ui-${action}.desktop: Exec runs ui.sh ${action}${open} and waits for Enter`);
-    check((statSync(f).mode & 0o111) === 0o111, `ui-${action}.desktop: executable`);
+    if (WIN) skip(`ui-${action}.desktop: executable — win32 has no execute bit`);
+    else check((statSync(f).mode & 0o111) === 0o111, `ui-${action}.desktop: executable`);
   }
   const dfv = spawnSync("desktop-file-validate", files, { encoding: "utf8" });
   if (dfv.error) console.log("  skip  desktop-file-validate: not installed here — loudly skipped, not passed");
@@ -250,14 +254,21 @@ for (const [platform, want] of Object.entries(SETS)) {
     const f = join(mdir, `ui-${action}.command`);
     const t = readFileSync(f, "utf8");
     const open = action === "stop" ? "" : " --open";
-    check(t === `#!/bin/bash\ncd "$(dirname "$0")" || exit 1\n./ui.sh ${action}${open}\n` && (statSync(f).mode & 0o111) === 0o111,
-      `ui-${action}.command: bash, cd to its own folder, ./ui.sh ${action}${open}, executable`);
+    if (WIN) {
+      check(t === `#!/bin/bash\ncd "$(dirname "$0")" || exit 1\n./ui.sh ${action}${open}\n`, `ui-${action}.command: bash, cd to its own folder, ./ui.sh ${action}${open}`);
+      skip(`ui-${action}.command: executable — win32 has no execute bit`);
+    } else {
+      check(t === `#!/bin/bash\ncd "$(dirname "$0")" || exit 1\n./ui.sh ${action}${open}\n` && (statSync(f).mode & 0o111) === 0o111,
+        `ui-${action}.command: bash, cd to its own folder, ./ui.sh ${action}${open}, executable`);
+    }
     check(spawnSync("bash", ["-n", f]).status === 0, `ui-${action}.command: bash -n clean`);
   }
 }
 
 // ── ui.sh start --open, against a stub opener and a stand-in workspace ────────
-{
+// ui.sh is the Linux/macOS starter: its port probe and stop use lsof, which Windows lacks.
+if (WIN) skip("ui.sh start/stop/--open run: ui.sh is the Linux/macOS starter and probes ports with lsof (absent on win32)");
+else {
   const freePort = () => new Promise((res) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });
   const httpPort = await freePort();
   const wsPort = await freePort();
