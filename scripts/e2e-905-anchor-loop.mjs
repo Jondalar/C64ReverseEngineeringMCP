@@ -1,23 +1,18 @@
 #!/usr/bin/env node
-// From an anchor to the build: name an instant, try variants of code from it at once on clones,
-// take the one that works into the project's build and prove the build holds it.
+// The anchor doors, and the winner into the build. (The runs of fixes from an anchor — baseline beside variants, inputs,
+// the verdicts — are the feature file's now: e2e-911-variants, e2e-911-door, e2e-911-candidate.)
 //
 //   S1 name the instant            anchor set/list/drop disturb nothing; listed with cycle + frame; recorded in the graph
 //   S2 go back to it               goto moves the shared machine and pauses it there; the description says so
-//   S3 three fixes at once         4 runs (baseline + 3) in ONE runMany, verdicts, shared machine byte-identical
-//   S4 the inputs are played       a press at a cycle shows exactly where it acts; no press = the baseline's end state
-//   S5 the iteration is remembered candidate, variants' bytes and verdicts survive a daemon restart; the rerun agrees
-//   S6 the winner goes into build  verify_build green, and red naming the first differing address (PRG, CRT, source)
+//   S6 the winner goes into build  verify_build green, and red naming the first differing address (PRG, CRT), on a record
+//                                  as the old runner left it (inputs + cycle budget, no feature file)
 //   S7 the old door is gone        runtime/candidate_* refused by name pointing at sandbox/runMany; no tool calls it
 //   S8 refusals are the daemon's   the 33rd anchor is refused with the daemon's text
 //
 // S6 and the descriptions need no daemon and run everywhere (the Linux CI job included). Everything else
 // starts a trx64-daemon of this run's own on a free port with a temp project and ends it; it SKIPS LOUDLY
 // when there is no daemon binary. Nothing here touches :4312 or the owner's session.
-//
-// S3/S4 (inputs) and S7 need a TRX64 whose sandbox plays inputs and which has dropped the candidate
-// RPCs. Against an older runtime those checks FAIL and are labelled [waits on TRX64 T1] / [T2]: they are
-// not skipped and not weakened. Locally:  C64RE_RUNTIME_BIN=../TRX64/target/release/trx64-daemon npm run e2e:905
+//   Locally:  C64RE_RUNTIME_BIN=../TRX64/target/release/trx64-daemon npm run e2e:905
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -77,7 +72,7 @@ async function mcpFor(projectDir, endpoint) {
 head("the doors, their descriptions and the retired names (no daemon)");
 const projA = newProject("surface");
 const mA = await mcpFor(projA);
-for (const n of ["runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_drop", "runtime_anchor_goto", "runtime_candidate_create", "runtime_candidate_variant", "runtime_candidate_run", "runtime_candidate_list", "runtime_candidate_choose", "runtime_candidate_derive_delta", "runtime_candidate_verify_build", "runtime_candidate_delete"]) {
+for (const n of ["runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_drop", "runtime_anchor_goto", "runtime_feature_run", "runtime_candidate_list", "runtime_candidate_choose", "runtime_candidate_derive_delta", "runtime_candidate_verify_build", "runtime_candidate_delete"]) {
   check(mA.tools.some((t) => t.name === n), `${n} is on the default surface`);
 }
 {
@@ -85,14 +80,17 @@ for (const n of ["runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_dr
   check(/MOVES the shared machine/.test(d) && /human/.test(d), "S2: runtime_anchor_goto's description says it moves the shared machine the human watches");
   check(/not move, pause or change the machine/.test(mA.desc("runtime_anchor_set")), "runtime_anchor_set's description says it disturbs nothing");
   check(/LABEL in a trace, not an anchor/.test(mA.desc("runtime_mark")) && /runtime_anchor_set/.test(mA.desc("runtime_mark")), "runtime_mark's description says it is not an anchor and points at runtime_anchor_set");
-  check(/not moved, paused or changed/.test(mA.desc("runtime_candidate_run")), "runtime_candidate_run's description says the shared machine is not moved");
+  check(/shared machine is not touched/.test(mA.desc("runtime_feature_run")), "runtime_feature_run's description says the shared machine is not touched");
   check(/an anchor's name is refused/.test(mA.desc("runtime_checkpoint_unpin")), "unpin's description says a name is refused (measured below)");
 }
-for (const [old, succ] of [["runtime_candidate_patch", "runtime_candidate_variant"], ["runtime_candidate_remove_patch", "runtime_candidate_variant"], ["runtime_candidate_export", "runtime_candidate_list"]]) {
+for (const gone of ["runtime_candidate_create", "runtime_candidate_variant", "runtime_candidate_run", "runtime_candidate_patch", "runtime_candidate_remove_patch"]) {
+  check(!mA.tools.some((t) => t.name === gone), `${gone} is not on the surface any more (the feature file replaced it)`);
+}
+for (const [old, succ] of [["runtime_candidate_export", "runtime_candidate_list"]]) {
   const a = await mA.call(old, { session_id: "shared", id: "x", addr: 49152 });
   check(a.includes(succ) && a.split("\n").filter((l) => l.trim()).length === 1 && /Nothing was done/.test(a), `${old} answers in one line naming ${succ}`, a);
 }
-const toolSources = ["server-tools/anchor-tools.js", "server-tools/candidate-tools.js", "server-tools/runtime.js", "server-tools/headless.js", "candidates/run.js", "candidates/store.js", "candidates/variant.js", "candidates/verify.js", "anchors/graph.js"];
+const toolSources = ["server-tools/anchor-tools.js", "server-tools/candidate-tools.js", "server-tools/runtime.js", "server-tools/headless.js", "candidates/store.js", "candidates/variant.js", "candidates/verify.js", "anchors/graph.js"];
 check(toolSources.every((f) => !/runtime\/candidate_/.test(readFileSync(join(ROOT, "dist", f), "utf8"))), "S7: no tool or library module calls runtime/candidate_* (the one remaining mention is the C64U bridge's refusal list)");
 mA.stop();
 
@@ -178,8 +176,11 @@ if (w.crt) {
   check(/does not exist/.test(gone), "a missing image is said to be missing", gone);
 
   // a cartridge image, bank by bank
-  const choose3 = await m.call("runtime_candidate_variant", { id: "cand-1", name: "cart", targets: [{ space: "roml", bank: 3, addr: 0x8100, bytes: [0x4c, 0x00, 0x90] }] });
-  check(/Variant "cart" of cand-1 set/.test(choose3), "a cartridge variant (roml, bank 3) is set", choose3);
+  {
+    const c = store.loadCandidate(proj, "cand-1");
+    c.variants.push({ name: "cart", targets: [{ space: "roml", bank: 3, addr: 0x8100, source: "", bytes: [0x4c, 0x00, 0x90] }] });
+    store.saveCandidate(proj, c);
+  }
   await m.call("runtime_candidate_choose", { id: "cand-1", variant: "cart" });
   wire([], { crt: [{ addr: 0x8100, bytes: [0x4c, 0x00, 0x90] }], crtBank: 3 });
   const crtGreen = await m.call("runtime_candidate_verify_build", { id: "cand-1", image: "out/game.crt" });
@@ -193,25 +194,6 @@ if (w.crt) {
   const rawNo = await m.call("runtime_candidate_verify_build", { id: "cand-1", image: "out/raw.bin", skip_build: true, raw_load_address: 0x8000 });
   check(/^RED/.test(rawNo) && /holds RAM only|raw_load_address/.test(rawNo), "a raw image cannot hold a cartridge target: red, saying why", rawNo.slice(0, 300));
 
-  // a source variant, built by the real assembler: only where KickAssembler is
-  const kick = (await load("assemble-source.js")).findKickAssemblerJar();
-  if (!kick) {
-    console.log("  SKIPPED  a variant from assembler source, built with KickAssembler into the PRG — KickAssembler not found (set C64RE_KICKASS_JAR); skipped, NOT passed");
-  } else {
-    writeFileSync(join(proj, "fix.asm"), "* = $c400\n lda #$07\n sta $d020\n rts\n");
-    const sv = await m.call("runtime_candidate_variant", { id: "cand-1", name: "src", targets: [{ addr: 0xc400, source_path: "fix.asm" }] });
-    check(/ram \$c400  6 byte\(s\)  from fix.asm|\$c400  6 byte\(s\)  from fix.asm/.test(sv), "a variant from a source file is assembled here", sv);
-    const bad = await m.call("runtime_candidate_variant", { id: "cand-1", name: "wrongorg", targets: [{ addr: 0xc500, source_path: "fix.asm" }] }).catch((e) => String(e));
-    check(/assembles at \$c400 but the target is \$c500/.test(bad), "…a source whose org is not the target is refused", bad.slice(0, 300));
-    await m.call("runtime_candidate_choose", { id: "cand-1", variant: "src" });
-    await m.call("runtime_candidate_derive_delta", { id: "cand-1" });
-    // the project's build includes the delta with the real assembler
-    writeFileSync(join(proj, "game.asm"), "* = $c000\n nop\n#import \"delta-cand-1/patch_0_ram_c400.asm\"\n");
-    svc.saveProjectProfile({ build: { command: `java -jar "${kick}" game.asm -o out/game.prg`, outputs: ["out/game.prg"] } });
-    // KickAssembler writes ONE segment per `* =`: the PRG covers $c000.. only if the delta follows the nop; build and compare
-    const kg = await m.call("runtime_candidate_verify_build", { id: "cand-1" });
-    check(/^(GREEN|RED)/.test(kg) && !/BUILD FAILED/.test(kg), "the project's real KickAssembler build runs through the pipeline and the image is read", kg.slice(0, 300));
-  }
   m.stop();
 }
 
@@ -288,15 +270,6 @@ let d1 = await startDaemon(proj);
 let ws = await wsClient(d1.port);
 let m = await mcpFor(proj, d1.endpoint);
 await bringUp(m);
-const T1 = await (async () => {
-  // does this runtime's sandbox play inputs? asked of the runtime itself, on a throwaway anchor
-  await m.call("runtime_anchor_set", { name: "probe905" });
-  const r = (await ws.call("sandbox/run", { from: "probe905", cycles: 2000, inputs: [{ atCycle: 100, kind: "joystick2", payload: { fire: true } }] })).result;
-  await m.call("runtime_anchor_drop", { name: "probe905" });
-  return typeof r?.inputsPlayed === "number";
-})();
-console.log(`TRX64 T1 (sandbox plays inputs): ${T1 ? "present" : "ABSENT — S3/S4 input checks will FAIL, labelled"}`);
-
 head("S1  name the instant");
 const before1 = await shot(ws, m);
 const setOut = await m.call("runtime_anchor_set", { name: "vor_level3", why: "just before level 3 loads" });
@@ -346,9 +319,6 @@ check((await m.call("runtime_anchor_goto", { name: "no_such" })).includes("refus
   await m.call("runtime_session_run", { session_id: "shared", cycle_budget: 50000, max_instructions: 10000000 });
   const ov = await m.call("runtime_overlay_run", { session_id: "shared", anchor_id: "vor_level3", patches: [{ addr: 0xc700, bytes: [1] }], run_cycles: 1000 });
   check(/"applied"/.test(ov) && !/error|unknown/i.test(ov.slice(0, 120)), "runtime_overlay_run accepts the name as anchor_id", ov.slice(0, 200));
-  const cc = await m.call("runtime_candidate_create", { anchor: "vor_level3", cycle_budget: 1000, id: "cand-probe" });
-  check(/created from anchor "vor_level3"/.test(cc), "runtime_candidate_create takes the name", cc.slice(0, 200));
-  await m.call("runtime_candidate_delete", { id: "cand-probe" });
 }
 // in replay (after a goto) an anchor is not set: the runtime would name the older checkpoint under the cursor and replace ITS name
 await m.call("runtime_anchor_goto", { name: "vor_level3" });
@@ -360,65 +330,6 @@ await m.call("runtime_anchor_goto", { name: "vor_level3" });
   await m.call("runtime_monitor", { session_id: "shared", command: `goto ${tot}` });
   check((await ws.call("transport/status")).result.atHead === true, "…the way out (goto the last frame) brings the transport back to the head");
 }
-
-head("S3  three fixes at once, the shared machine untouched");
-const v = (name, addr, bytes) => ({ name, targets: [{ addr, bytes }] });
-// c1: no inputs. The loop's counter increment is retargeted: $C100 / $C200, or left alone.
-await m.call("runtime_candidate_create", { anchor: "vor_level3", cycle_budget: BUDGET, id: "c1", title: "counter retarget" });
-await m.call("runtime_candidate_variant", { id: "c1", name: "to_c100", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc1] }] });
-await m.call("runtime_candidate_variant", { id: "c1", name: "to_c200", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc2] }] });
-await m.call("runtime_candidate_variant", { id: "c1", name: "no_change", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc0] }] });
-const s3Before = await shot(ws, m);
-const run1 = await m.call("runtime_candidate_run", { id: "c1" });
-const s3After = await shot(ws, m);
-check(/4 runs in parallel on clones/.test(run1) || /3 variants|runs in parallel/.test(run1), "the candidate is run: one batch", run1);
-const rows = run1.split("\n").filter((l) => /^(\(baseline\)|to_c100|to_c200|no_change)/.test(l));
-check(rows.length === 4, "4 runs come back — the baseline and the 3 variants", String(rows.length));
-check(rows.every((r) => /\$[0-9a-f]{4}/.test(r)) && rows.every((r) => /\b\d{6}\b/.test(r)), "…each with its cycles and registers (final PC)", rows.join(" | "));
-check(/to_c100\s.*DIFFERS — .*ram:/.test(run1) && /to_c200\s.*DIFFERS — .*ram:/.test(run1), "…a verdict against the baseline: a retargeted counter DIFFERS in ram", run1);
-check(/no_change\s.*same as baseline/.test(run1), "…and a variant that writes the original bytes is the same as the baseline", run1);
-check(s3Before === s3After, "the shared machine's cycle count, registers, run state and RAM are byte-for-byte unchanged by the run");
-const c1 = store.loadCandidate(proj, "c1");
-const ends = c1.variants.map((x) => x.verdict.endStateId).concat(c1.baseline.endStateId).map((e) => Number(/sb-r-(\d+)/.exec(e)?.[1])).sort((a, b) => a - b);
-check(ends.length === 4 && ends.every((e, i) => i === 0 || e === ends[i - 1] + 1), "they ran as ONE sandbox/runMany: four consecutive run ids on clones", ends.join(","));
-{
-  const d = (await ws.call("runtime/component_diff", { idA: c1.baseline.endStateId, idB: c1.variants[0].verdict.endStateId, exclude: { presets: ["equivalence"] } })).result;
-  const idx = (d.components.ram.changes ?? []).flatMap((c) => (c.sample ?? []).map((s) => s.index)).sort((a, b) => a - b);
-  check(idx.length > 0 && idx.every((i) => i === 0x081a || i === 0xc000 || i === 0xc100), "…and what differs is exactly the counters ($C000 / $C100) and the patched byte itself ($081A), nothing else", idx.map(hex).join(" "));
-}
-
-head("S4  the inputs are played in the sandbox");
-tag = T1 ? "" : "[waits on TRX64 T1]";
-// c2: a press at cycle 40000. The fire path's counter is retargeted from $C001 to $C101 — it only runs while fire is down.
-const press = [{ atCycle: 40000, kind: "joystick2", payload: { fire: true } }];
-await m.call("runtime_candidate_create", { anchor: "vor_level3", cycle_budget: BUDGET, id: "c2", inputs: press });
-await m.call("runtime_candidate_variant", { id: "c2", name: "fire_to_c101", targets: [{ addr: FIRE_INC_OPERAND, bytes: [0x01, 0xc1] }] });
-await m.call("runtime_candidate_variant", { id: "c2", name: "loop_to_c100", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc1] }] });
-await m.call("runtime_candidate_variant", { id: "c2", name: "no_change", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc0] }] });
-const s4Before = await shot(ws, m);
-const run2 = await m.call("runtime_candidate_run", { id: "c2" });
-check(s4Before === (await shot(ws, m)), "S3 with an input script: 4 runs, shared machine byte-for-byte unchanged");
-check(/inputs: 1 given, 1 played/.test(run2), "the runtime reports the input played in every run", run2.slice(0, 400));
-check(/fire_to_c101\s.*DIFFERS — .*ram:/.test(run2), "the variant whose effect shows only after the press differs from the baseline", run2);
-check(/no_change\s.*same as baseline/.test(run2), "…the unpatched variant does not", run2);
-{
-  const c2 = store.loadCandidate(proj, "c2");
-  const ev = c2.variants.find((x) => x.name === "fire_to_c101").verdict;
-  if (ev?.endStateId && c2.baseline?.endStateId) {
-    const d = (await ws.call("runtime/component_diff", { idA: c2.baseline.endStateId, idB: ev.endStateId, exclude: { presets: ["equivalence"] } })).result;
-    const idx = (d.components.ram.changes ?? []).flatMap((c) => (c.sample ?? []).map((s) => s.index)).sort((a, b) => a - b);
-    check(idx.length > 0 && idx.every((i) => i === 0x0817 || i === 0xc001 || i === 0xc101), "its end state differs exactly where the press acts: the fire counters $C001 / $C101 (and the patched byte $0817 itself)", idx.map(hex).join(" "));
-  } else check(false, "its end state differs exactly where the press acts", "no end state recorded");
-  // the same script with the press removed
-  await m.call("runtime_candidate_create", { anchor: "vor_level3", cycle_budget: BUDGET, id: "c3", inputs: [] });
-  await m.call("runtime_candidate_variant", { id: "c3", name: "fire_to_c101", targets: [{ addr: FIRE_INC_OPERAND, bytes: [0x01, 0xc1] }] });
-  const run3 = await m.call("runtime_candidate_run", { id: "c3" });
-  check(/fire_to_c101\s.*same as baseline/.test(run3), "the same variant with the press removed gives the baseline's end state", run3);
-  const c3 = store.loadCandidate(proj, "c3");
-  check(c3.variants[0].verdict.ramDigest !== c3.baseline.ramDigest && c3.variants[0].verdict.identical === true, "…its RAM differs from the baseline's only by the patched byte itself, which the verdict does not count", `${c3.variants[0].verdict.ramDigest} vs ${c3.baseline.ramDigest}`);
-  check(c3.baseline.ramDigest !== c2?.baseline?.ramDigest, "…and the baseline WITH the press is a different end state than without it (the press acted)", c2?.baseline?.ramDigest);
-}
-tag = "";
 
 head("S8  refusals are the daemon's, verbatim");
 {
@@ -437,57 +348,8 @@ head("S8  refusals are the daemon's, verbatim");
   for (let i = 0; i < 32; i++) await ws.call("mark/drop", { name: `fill_${i}` });
 }
 
-head("S5  the iteration is remembered — daemon restart, project reopened");
-const filesBefore = { c1: readFileSync(join(proj, "knowledge/candidates/c1.json"), "utf8"), c2: readFileSync(join(proj, "knowledge/candidates/c2.json"), "utf8") };
-const verdictsBefore = (id) => JSON.stringify(store.loadCandidate(proj, id).variants.map((x) => [x.name, x.verdict?.identical, x.verdict?.differing, x.verdict?.changes, x.verdict?.ramDigest, x.verdict?.registers]));
-const c1Before = verdictsBefore("c1"), c2Before = verdictsBefore("c2");
-const c1Base = store.loadCandidate(proj, "c1").baseline.ramDigest;
-ws.close(); m.stop(); await d1.stop();
-d1 = await startDaemon(proj);
-ws = await wsClient(d1.port);
-m = await mcpFor(proj, d1.endpoint);
-{
-  const listed = await m.call("runtime_candidate_list", { id: "c1" });
-  check(/anchor "vor_level3"/.test(listed) && /to_c100/.test(listed) && /to_c200/.test(listed) && /no_change/.test(listed), "after the restart: the candidate, its anchor name and its variants are listed", listed.slice(0, 300));
-  check(/DIFFERS — .*ram:/.test(listed) && /same as baseline/.test(listed) && /\$c000|ram \$0819|\$0819/.test(listed), "…with their last verdicts and targets", listed);
-  check(readFileSync(join(proj, "knowledge/candidates/c1.json"), "utf8") === filesBefore.c1, "…and the file is byte-identical to before the restart");
-  const c1f = store.loadCandidate(proj, "c1");
-  check(c1f.variants[0].targets[0].bytes.join() === "0,193", "…the assembled bytes of a variant are in the file", JSON.stringify(c1f.variants[0].targets[0]));
-  const slist = await m.call("runtime_candidate_list", {});
-  check(/c1 /.test(slist) && /c2 /.test(slist), "the project's candidate list names all of them");
-  const gone = await m.call("runtime_candidate_run", { id: "c1" });
-  check(/not in the ring any more/.test(gone) && /recorded it at cycle \d+/.test(gone) && gone.includes(String(anchorCycle)), "running it with the anchor gone from the ring says so and names the recorded cycle", gone);
-  check(store.loadCandidate(proj, "c1").variants[0].verdict.ranAt !== undefined && verdictsBefore("c1") === c1Before, "…and the saved verdicts were not touched by the refused run");
-  const al = await m.call("runtime_anchor_list", {});
-  check(/Recorded in the project, not in the ring any more/.test(al) && /vor_level3\s+cycle \d+/.test(al), "the anchor list shows the anchor as remembered by the project, gone from the ring", al);
-  check((await m.call("runtime_anchor_goto", { name: "vor_level3" })).includes(`cycle ${anchorCycle}`), "goto to it names the recorded cycle", (await m.call("runtime_anchor_goto", { name: "vor_level3" })).slice(0, 300));
-  // bring the machine to the same instant and set the anchor again
-  await bringUp(m);
-  const reset = await m.call("runtime_anchor_set", { name: "vor_level3", why: "just before level 3 loads" });
-  check(new RegExp(`cycle ${anchorCycle},`).test(reset), "re-setting the anchor at the same moment lands on the same cycle (the machine is deterministic)", reset);
-  const again = await m.call("runtime_candidate_run", { id: "c1" });
-  check(verdictsBefore("c1") === c1Before && store.loadCandidate(proj, "c1").baseline.ramDigest === c1Base, "running it again gives the same verdicts: same changes, same RAM digests, same registers", again.slice(0, 500));
-  const g = await load("knowledge-graph/store.js");
-  const gs = g.GraphStore.open(proj, { readOnly: true });
-  const edge = gs.db.prepare("SELECT from_id, to_id FROM edges WHERE type = 'STARTS_FROM' AND layer = 'human'").all();
-  gs.close();
-  check(edge.length >= 3 && edge.every((e) => /:sub:candidate\./.test(e.from_id) && /:sub:anchor\.vor_level3$/.test(e.to_id)), "the graph links each candidate to its anchor node (STARTS_FROM) after the reopen", JSON.stringify(edge));
-  void c2Before;
-  if (T1) {
-    // the input-carrying candidate agrees too
-    const wasc2 = verdictsBefore("c2");
-    await m.call("runtime_candidate_run", { id: "c2" });
-    check(verdictsBefore("c2") === wasc2, "…the candidate with the input script too (inputs are part of the file)");
-  } else {
-    tag = "[waits on TRX64 T1]";
-    check(false, "…the candidate with the input script runs again to the same verdicts", "this runtime does not play sandbox inputs");
-    tag = "";
-  }
-}
-
 head("S7  the old door no longer exists in a form that moves the machine");
 {
-  tag = "[waits on TRX64 T2]";
   const shotBefore = await shot(ws, m);
   const r = await ws.call("runtime/candidate_run", { id: "cand-1" });
   const msg = r.error?.message ?? JSON.stringify(r.result ?? {});
@@ -495,7 +357,6 @@ head("S7  the old door no longer exists in a form that moves the machine");
   const c = await ws.call("runtime/candidate_create", { anchor: "vor_level3" });
   check(c.error !== undefined && /sandbox\/runMany/.test(c.error.message ?? ""), "…runtime/candidate_create too", JSON.stringify(c).slice(0, 200));
   check(shotBefore === (await shot(ws, m)), "…and the shared machine did not move");
-  tag = "";
 }
 
 ws.close(); m.stop(); await d1.stop();

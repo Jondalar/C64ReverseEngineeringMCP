@@ -493,14 +493,32 @@ jobs:
       - name: Input offsets, sweeps, windows and series on real machines (Spec 899)
         run: npm run e2e:899-sweep
 
-      # Spec 905 — from an anchor to the build. The doors and their descriptions, the retired
-      # names, and the winner into the build (a chosen variant, the project's build command, the
-      # built PRG/CRT compared byte by byte: GREEN, and RED naming the first differing address)
-      # run on any runner; the real KickAssembler case skips loudly without a jar. The runtime
-      # half — anchors, a candidate run on clones with inputs, the daemon restart — starts a
-      # trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
-      - name: Anchors, candidates and the build (Spec 905)
+      # Spec 905 — the anchor doors, and the winner into the build. The doors and their descriptions,
+      # the retired names, and the winner into the build (a chosen variant, the project's build
+      # command, the built PRG/CRT compared byte by byte: GREEN, and RED naming the first differing
+      # address) run on any runner. The runtime half — set/list/drop/goto, the 32-anchor limit — starts
+      # a trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
+      - name: Anchors and the build (Spec 905)
         run: npm run e2e:905
+
+      # Spec 911 — one feature file takes a fix from an anchor to a verdict. Four gates on daemons
+      # of their own (free ports, a TMPDIR of the run's own that is removed on exit, a test PRG and a
+      # test EasyFlash image built in the script, fixes assembled by 64tass); each SKIPS LOUDLY on a
+      # runner with no trx64-daemon (the last three also without 64tass).
+      #   anchor    — an anchor is a file that outlives the ring, and a feature makes one with no session
+      #   variants  — fixes in RAM and in a cartridge bank beside the baseline, in parallel; the stop is a
+      #               condition; the Then lines decide and the difference only informs
+      #   door      — `c64re scenario run` and runtime_feature_run say the same; the exit codes
+      #   candidate — the run is the candidate record; choose, derive the delta, verify the build; the old
+      #               door is gone and an old record still works
+      - name: An anchor is a file, and a feature makes one (Spec 911)
+        run: npm run e2e:911-anchor
+      - name: Fixes beside the baseline, judged by the Then lines (Spec 911)
+        run: npm run e2e:911-variants
+      - name: One door for the script and the LLM (Spec 911)
+        run: npm run e2e:911-door
+      - name: The run is the candidate, and the winner goes into the build (Spec 911)
+        run: npm run e2e:911-candidate
 
       # Replay across FRESH starts (issue #67 retest). Spec 899's acceptance proved "the same seed, the
       # same run" inside one daemon; identical arguments pressed up to 15 frames apart because every

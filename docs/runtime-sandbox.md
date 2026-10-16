@@ -199,9 +199,9 @@ in code — `src/runtime/sandbox-parity.ts`:
 
 | Verdict | Tools |
 |---|---|
-| works, on the session | everything that takes a `session_id` and reads or moves a machine: run control, monitor, breakpoints, trace start/mark/finalize, checkpoints and the recorder, rewind and overlay, the VIC inspection tools, media, `runtime_type` / `runtime_joystick` / `runtime_render_screen`, anchors, `runtime_candidate_create` / `_run`, the scenario registry |
-| works, from files | the tools that read or write files and the project and involve no machine: the trace readers (`trace_store_*`, `runtime_swimlane_slice`, `runtime_query_events`, …), snapshot diffs, `runtime_candidate_variant` and the rest of the candidate store |
-| works, a machine per call | `runtime_sandbox_run`, `runtime_scene_reel` |
+| works, on the session | everything that takes a `session_id` and reads or moves a machine: run control, monitor, breakpoints, trace start/mark/finalize, checkpoints and the recorder, rewind and overlay, the VIC inspection tools, media, `runtime_type` / `runtime_joystick` / `runtime_render_screen`, anchors, the scenario registry |
+| works, from files | the tools that read or write files and the project and involve no machine: the trace readers (`trace_store_*`, `runtime_swimlane_slice`, `runtime_query_events`, …), snapshot diffs, the candidate store (`runtime_candidate_*`) |
+| works, a machine per call | `runtime_sandbox_run`, `runtime_scene_reel`, `runtime_feature_run` |
 | **refused by name** | what serves a human's UI: `runtime_session_start` and `runtime_session_close` (the shared session's lifecycle — a sandbox has its own doors), `runtime_keep_alive`, `runtime_backend`, `runtime_down`, `runtime_input_*` (the keymap of the workbench's keyboard), `runtime_session_export_audio` (a sandbox is born headless, with no A/V stream) |
 
 A refused tool answers with the reason and does nothing — also `runtime_down`, which would
@@ -244,55 +244,89 @@ the device's refusal of a live trace names `runtime_sandbox_start` as the way to
 
 ---
 
-## From an anchor to the build — several variants at once, the winner into the project
+## From an anchor to the build — a feature file tries the fixes, the winner goes into the project
 
 `runtime_sandbox_run` starts a whole medium on a machine of its own. The other job is
-different: the shared machine is *already* at the interesting instant, and you want to try
-several fixes from exactly there — each on a clone, none of them moving the machine the human
-is watching — and then take the one that works into the project's source and build.
+different: there is an interesting instant — just before a crash, a level change, a lift —
+and you want to try several fixes from exactly there, none of them on the machine the human
+is watching, and then take the one that works into the project's source and build.
+
+The loop is split between you and a script. **You** find the instant (the graph, the listing,
+a read-only scrub of the ring), set the anchor, write the fixes as source files, write one
+scenario, read the verdicts and decide whether to choose a fix or write the next one. **The
+script** — `c64re scenario run` on the command line or `runtime_feature_run` as a tool, the same
+code — does everything that has no judgement in it: it starts every machine from the instant,
+writes each fix in, plays the inputs, stops on a condition and checks.
 
 ```
-1  runtime_anchor_set      { name: "vor_level3", why: "just before level 3 loads" }
-2  runtime_candidate_create{ anchor: "vor_level3", cycle_budget: 400000,
-                             inputs: [{ atCycle: 40000, kind: "joystick2", payload: { fire: true } }] }
-3  runtime_candidate_variant{ id: "cand-1", name: "lda01",  targets: [{ addr: 0xC10A, source_path: "fixes/lda01.asm" }] }
-   runtime_candidate_variant{ id: "cand-1", name: "skip",   targets: [{ addr: 0xC10A, bytes: [0xEA, 0xEA] }] }
-   runtime_candidate_variant{ id: "cand-1", name: "both",   targets: [{ addr: 0xC10A, source_path: "fixes/lda01.asm" },
-                                                                     { addr: 0xC230, source_path: "fixes/guard.asm" }] }
-4  runtime_candidate_run   { id: "cand-1" }
-5  runtime_candidate_choose{ id: "cand-1", variant: "both" }
+1  runtime_anchor_set { name: "before_lift", why: "just before the lift at level 3" }
+   // knowledge/anchors/before_lift.c64re is written; it outlives the ring and the daemon
+2  write fixes/lift-fix1.tas, fixes/lift-fix2.tas … (each: `* = $0A20` and the code)
+3  write scenarios/lift.feature:
+
+     Feature: level 3 no longer crashes when the lift is used
+
+     Scenario: the lift at level 3
+       Given the mark "before_lift"
+       And variant "fix1" assembles "fixes/lift-fix1.tas" at $0A20
+       And variant "fix2" assembles "fixes/lift-fix2.tas" at $0A20
+       And variant "fix2" assembles "fixes/lift-fix2-table.tas" at roml bank 3 $9100
+       When I hold joystick 2 down for 10 frames
+       And I wait until the CPU reaches $0B00 within 500 frames
+       Then $0310 is $2A throughout the next 50 frames
+
+4  runtime_feature_run { feature_path: "scenarios/lift.feature" }     // or: c64re scenario run scenarios/lift.feature
+5  runtime_candidate_choose{ id: "cand-1", variant: "fix1" }
 6  runtime_candidate_derive_delta{ id: "cand-1" }      // delta-cand-1/…  + the files registered as artifacts
    … wire the delta into the project's build …
 7  runtime_candidate_verify_build{ id: "cand-1" }
 ```
 
-**The anchor.** A name on a checkpoint of the shared machine (32 at most). Setting one captures a
-fresh checkpoint and names it; it does not move, pause or change the machine, and neither do
-`runtime_anchor_list` and `runtime_anchor_drop`. `runtime_anchor_goto` is the one that **moves the
-shared machine** — it jumps to the anchor and pauses there, and the human at the UI sees it. In an
-open project the anchor is also written into the graph (name, cycle, frame, why), so it is
-remembered after the daemon is gone; going to one the ring no longer holds says so and names the
-recorded cycle. While the machine stands in replay (after a goto) an anchor is not set: the runtime
-would name the older checkpoint under the transport cursor and replace its name. `runtime_monitor
-goto <last frame>` returns to the head. `runtime_mark` writes a label into a trace and names no instant of the
-machine; it is not an anchor.
+Step 4 prints one line per machine and exits 0 when a variant passed:
 
-**The candidate.** One file per candidate under `knowledge/candidates/` — anchor, input list, cycle
-budget, and per variant its targets with the **assembled bytes** and the source they came from, plus
-the last verdict. A daemon restart loses nothing but the anchor in the ring; set it again at that
-moment and the same candidate runs again to the same verdicts. A target is RAM (default) or a
-cartridge window (`space: roml|romh`, `bank`, the window address); source is a file or inline text
-assembled with the project's assembler and its own `* =` must equal the target address.
+```
+FAIL  baseline  wait until the CPU reaches $0B00: not within 500 frames (PC now $0812)
+PASS  fix1      1 checked  (also changed: $C000-$C0FF, 256 bytes)
+FAIL  fix2      line 10: $0310 is $2A throughout the next 50 frames — got $00
+→ candidate cand-7 (scenarios/lift.feature:3)
+```
 
-**The run.** One `runtime_candidate_run` is **one parallel batch**: run 0 without any patch, runs
-1…N one per variant, all from the anchor with the same inputs and the same budget, each on a clone.
-The shared machine is touched only to take a snapshot of the anchor. Each variant's end state is
-then compared with the baseline's, whole machine, volatile lanes (cycles, raster, noise) masked. The
-variant's own patched bytes are not counted as a difference — they differ by construction; the verdict
-is about what the code *did*. The answer is a table: variant, cycles, final PC, `same as baseline` or
-`DIFFERS — <component>: <what moved>`. Inputs are `[{ atCycle, kind, payload }]` with `atCycle`
-counted from the anchor; one at or past the budget is not played and the answer says so. Which
-change is right is your call (`runtime_candidate_choose`), the verdict only says what changed.
+**The anchor.** A name on a checkpoint of the machine (32 at most) *and a file in the project*:
+`runtime_anchor_set` captures a fresh checkpoint, names it, and dumps the machine as it stands to
+`knowledge/anchors/<name>.c64re` (the media embedded, as in every `.c64re`). It does not move, pause
+or change the machine, and neither do `runtime_anchor_list` and `runtime_anchor_drop` (which deletes the
+file too). `runtime_anchor_goto` is the one that **moves the shared machine** — it jumps to the
+anchor in the ring and pauses there, and the human at the UI sees it. The file is what a scenario
+starts from, so the instant survives a daemon restart and the ring rolling past it. A name that
+already has a file is refused by `runtime_anchor_set` (drop it first). While the machine stands in
+replay (after a goto) an anchor is not set: the runtime would name the older checkpoint under the
+transport cursor and replace its name; `runtime_monitor goto <last frame>` returns to the head.
+`runtime_mark` writes a label into a trace and names no instant of the machine; it is not an
+anchor. A scenario can make an anchor itself, with no session: boot a medium, wait for the instant,
+then `And I set the anchor "before_lift"` — the same file, the same graph record. An anchor that
+already exists is replaced only when the run says so (`--replace-anchors` / `replace_anchors`).
+
+**The variant line.** `And variant "<name>" assembles "<path>" at [roml|romh bank <n> ]$<addr>`. The source is assembled
+with the project's assembler (a `.tas` file with 64tass, a `.asm` with KickAssembler) and its own `* =`
+must equal the address. Say the name again for a second place. The path resolves beside the
+`.feature` file, then in the project. The bytes are written into the machine after the origin is loaded
+and before the first step. A scenario with no variant line runs on one machine, as it always did.
+
+**The run.** The baseline (no fix) and every variant each get a private machine from the same origin and
+play the same steps, up to four at once (`--jobs`, default min(4, CPUs)). `I wait until … within N frames`
+stops the run on the condition; one that does not happen makes that run FAIL, saying so. The `Then` lines
+alone decide PASS, FAIL, ERROR or UNCHECKED per run. At the end of each run the script reads RAM, the I/O
+area (colour RAM, the cartridge's I/O windows) and lists the ranges that differ from the baseline's as side
+effects; the variant's own bytes and the registers that move by themselves (raster, timers) are left out. A
+side effect decides nothing. The exit code is 0 when a variant passed (or, without variants, every scenario
+passed), 1 when none did, 2 when a line does not parse or every run failed to run.
+
+**The candidate.** Every run of a scenario with variants is kept in `knowledge/candidates/<id>.json`: the
+feature file and scenario, the anchor, per variant its targets with the **assembled bytes**, the source they
+came from, the verdict, the checks and the side effects, the history of every run of that scenario (the same
+id, a new entry) and the choice. The graph links the candidate to its anchor and to the feature file. A record
+written before feature files (an input list and a cycle budget instead) is still listed and can still be
+chosen, derived and verified.
 
 **Into the build.** `runtime_candidate_derive_delta` writes the chosen variant as one `.asm` per
 target (each with its own org), `delta-manifest.json` and `DELTA.md` beside the project's source —
@@ -304,7 +338,7 @@ each target, RED names the first differing address (or says the target is not in
 `skip_build: true` checks an image that is already built.
 
 Anchor names are accepted wherever a checkpoint id is: `runtime_checkpoint_pin`,
-`runtime_checkpoint_restore`, `runtime_overlay_run`'s `anchor_id`, the candidate. `runtime_checkpoint_unpin`
+`runtime_checkpoint_restore`, `runtime_overlay_run`'s `anchor_id`. `runtime_checkpoint_unpin`
 takes the id only — an anchor holds its own pin; `runtime_anchor_drop` releases it.
 
 For a single quick try that you *want* on the shared machine (and the human knows), `runtime_overlay_run`
@@ -464,7 +498,7 @@ a machine of their own.
 | Step / breakpoint / monitor / trace / rewind, interactively, NOT on the shared machine | **`runtime_sandbox_start`** — a sandbox session: purpose, budget, a `session_id` for every `runtime_*` tool, `runtime_sandbox_end` |
 | Deterministic tool/logic test, no watching | **`runtime_sandbox_run`** with explicit `I wait N frames` steps |
 | A written scenario that should come back as a reel | `runtime_scene_reel` (same private daemon, `.feature` in front) |
-| Try several fixes from one instant at once, then put the winner into the build | **`runtime_anchor_set`** → `runtime_candidate_*` (this doc, "From an anchor to the build") |
+| Try several fixes from one instant at once, then put the winner into the build | **`runtime_anchor_set`** → a `.feature` file with variant lines → **`runtime_feature_run`** → `runtime_candidate_*` (this doc, "From an anchor to the build") |
 | Run a 6502 routine with no VIC/CIA/drive around it | `sandbox_6502_run`, or `sandbox_depack` for a game's own depacker |
 | A wire method no tool exposes | raw WS daemon on your own port (this doc) |
 | Just boot something and look at one frame | `runtime_sandbox_run` with `frame_path`, or `trx64cli boot … --render` |

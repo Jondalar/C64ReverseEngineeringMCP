@@ -110,7 +110,7 @@ try {
     check("read-derived free RAM is a HYPOTHESIS, not a fill", statusOf(r, "free-ram") === "hypothesis",
       r.states.find((s) => s.slot.id === "free-ram")?.detail);
 
-    const g = await checkSlotGate("runtime_candidate_variant", d);
+    const g = await checkSlotGate("runtime_feature_run", d);
     check("a hypothesis does NOT open the allocating door", !g.allowed,
       (g.refusal ?? "").split("\n")[0] ?? "(allowed)");
 
@@ -119,7 +119,7 @@ try {
     check("a run-watched free-ram fills the slot", statusOf(r, "free-ram") === "filled", r.states.find((s) => s.slot.id === "free-ram")?.detail);
     check("…and its text says a run saw no write, never that a run proved it free",
       /saw no write/.test(r.states.find((s) => s.slot.id === "free-ram")?.detail ?? "") && !/confirmed by running/.test(r.states.find((s) => s.slot.id === "free-ram")?.detail ?? ""));
-    check("the allocating door opens", (await checkSlotGate("runtime_candidate_variant", d)).allowed);
+    check("the allocating door opens", (await checkSlotGate("runtime_feature_run", d)).allowed);
   }
 
   // ------------------------------------------ writable-space: the BAM is a hypothesis, chains settle it

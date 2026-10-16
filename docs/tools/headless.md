@@ -230,9 +230,9 @@ a verdict for each runtime tool, and a tool added without one fails the gate.
   about 54 s, finishing the capture and building its index about 59 s, for 28.6 million
   events (a 504 MB `.c64retrace`, an 855 MB index).
 
-Anchors and candidates work on a sandbox too: `runtime_anchor_*` and
-`runtime_candidate_create` / `runtime_candidate_run` take the sandbox's `session_id`, and the
-clones a candidate runs on live inside the sandbox's daemon.
+Anchors work on a sandbox too: `runtime_anchor_*` take the sandbox's `session_id`, and the
+anchor's file lands in the project the sandbox is bound to. A feature file is run with
+`runtime_feature_run`, which starts machines of its own and needs no session id.
 
 ## Monitor, Interrupts, And Rendering
 

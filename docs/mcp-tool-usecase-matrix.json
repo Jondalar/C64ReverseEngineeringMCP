@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 310,
-  "defaultCount": 205,
+  "total": 306,
+  "defaultCount": 201,
   "advancedCount": 105,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -3130,24 +3130,6 @@
       "pathMode": "no-path"
     },
     {
-      "name": "runtime_candidate_create",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/candidate-tools.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "Internal-dev variants — those are advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
       "name": "runtime_candidate_delete",
       "namespace": "runtime",
       "sourceFile": "server-tools/candidate-tools.ts",
@@ -3203,78 +3185,6 @@
     },
     {
       "name": "runtime_candidate_list",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/candidate-tools.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "Internal-dev variants — those are advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_candidate_patch",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/candidate-tools.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "Internal-dev variants — those are advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_candidate_remove_patch",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/candidate-tools.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "Internal-dev variants — those are advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_candidate_run",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/candidate-tools.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "Internal-dev variants — those are advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_candidate_variant",
       "namespace": "runtime",
       "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
@@ -3440,6 +3350,24 @@
       "name": "runtime_down",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime-down.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_feature_run",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/candidate-tools.ts",
       "tier": "default",
       "role": "runtime-control",
       "swimlane": "runtime-explore",

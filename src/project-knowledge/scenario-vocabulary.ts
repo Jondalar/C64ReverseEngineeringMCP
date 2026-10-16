@@ -95,7 +95,13 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     section: "given",
     form: 'Given the mark "<name>"',
     sample: 'Given the mark "before-death"',
-    doc: "Start from a named anchor in the checkpoint ring.",
+    doc: "Start from a named anchor: the file the anchor wrote into the project (knowledge/anchors), so it works without the shared machine and long after it was set. An anchor without a file is skipped, and the run says so.",
+  },
+  {
+    section: "given",
+    form: 'And variant "<name>" assembles "<path>" at [roml|romh bank <n> ]$<addr>',
+    sample: 'And variant "fix1" assembles "fixes/fix1.tas" at roml bank 3 $9100',
+    doc: "A fix to try. The source is assembled with the project's assembler (its own origin must equal the address) and its bytes are written into the machine, in RAM or in a cartridge bank, before the first step. Say it again with the same name for a second place. The run without any fix (baseline) always runs beside the variants; the Then lines decide each one.",
   },
   {
     section: "given",
@@ -186,6 +192,13 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     form: 'And I capture "<label>"',
     sample: 'And I capture "title"',
     doc: "Take a picture here. Where the pictures go is an authoring decision, so it is never automatic.",
+  },
+  {
+    section: "step",
+    kind: "anchor",
+    form: 'And I set the anchor "<name>"',
+    sample: 'And I set the anchor "before_lift"',
+    doc: "Dump the machine as it stands here to knowledge/anchors/<name>.c64re, so another scenario can start from it with `Given the mark \"<name>\"`. An anchor of that name that already exists is replaced only when the run says so (--replace-anchors).",
   },
   {
     section: "step",

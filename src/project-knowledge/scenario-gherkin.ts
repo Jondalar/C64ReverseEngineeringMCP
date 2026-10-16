@@ -261,6 +261,11 @@ export type Step =
       readonly text: string;
     }
   | { readonly kind: "capture"; readonly label: string; readonly text: string }
+  /**
+   * `I set the anchor "name"` — the machine, as it stands here, is dumped to the project's
+   * anchor file of that name, so a later scenario can start from it (`Given the mark "name"`).
+   */
+  | { readonly kind: "anchor"; readonly name: string; readonly text: string }
   | { readonly kind: "insert"; readonly path: string; readonly text: string }
   /**
    * Spec 863 — `the machine switches to c64-ntsc`: the machine changes model at the next
@@ -343,7 +348,7 @@ export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
  */
 export const STEP_KINDS = [
   "wait", "type", "key", "joystick", "keyDown", "keyUp", "joystickDown", "joystickUp",
-  "waitUntil", "capture", "insert", "model", "series",
+  "waitUntil", "capture", "anchor", "insert", "model", "series",
 ] as const;
 export const PREDICATE_KINDS = [
   "driveIdle",
@@ -386,6 +391,30 @@ export type Predicate =
   | { readonly kind: "regionChanges"; readonly region: string }
   | { readonly kind: "memoryIs"; readonly address: number; readonly value: number };
 
+/** Where a variant's code goes: RAM, or a window of one cartridge bank. */
+export type VariantSpace = "ram" | "roml" | "romh";
+
+/** One `And variant "<name>" assembles "<path>" at … $<addr>` line. */
+export interface VariantTargetDecl {
+  readonly space: VariantSpace;
+  /** Cartridge bank; absent for RAM. */
+  readonly bank?: number;
+  readonly address: number;
+  /** The source file, as written (resolved beside the .feature file, then in the project). */
+  readonly path: string;
+  readonly line: number;
+}
+
+/** A named fix: one or more source files, each assembled at an address in the machine. */
+export interface VariantDecl {
+  readonly name: string;
+  readonly targets: readonly VariantTargetDecl[];
+  readonly line: number;
+}
+
+/** The name the run without any fix goes by in a report. */
+export const BASELINE = "baseline";
+
 /** Where a scenario starts. A mark is 810's; a medium is 812's. */
 export type Origin =
   | { readonly kind: "mark"; readonly name: string }
@@ -405,6 +434,8 @@ export interface Scenario {
   readonly frames: number;
   /** Spec 812 — the driven steps, in written order. Empty for an 810 branch scenario. */
   readonly steps: readonly Step[];
+  /** The fixes to try beside the run without one. Empty: the scenario runs as it always did. */
+  readonly variants: readonly VariantDecl[];
   /**
    * Spec 813 §5 — the regions this scenario names. A rectangle makes it LOCAL to the
    * file; a bare name is resolved from the project store. Local wins, and the run
@@ -884,6 +915,16 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
     return { error: `"${t}": a series is I read the series "$D01C:1@io", "$D029@io" every frame for 600 frames — optionally "at raster line 250"` };
   }
 
+  // I set the anchor "before_lift"
+  const anc = t.match(/^I set the anchor\s+"([^"]*)"$/i);
+  if (anc) {
+    if (!/^[\w.-]+$/.test(anc[1])) {
+      return { error: `"${t}": an anchor name is letters, digits, "_", "." and "-" — \`Given the mark "name"\` has to be able to say it` };
+    }
+    return { step: { kind: "anchor", name: anc[1], text: t } };
+  }
+  if (/^I set the anchor\b/i.test(t)) return { error: `"${t}": an anchor needs a quoted name — \`I set the anchor "before_lift"\`` };
+
   // I capture "title"
   const cap = t.match(/^I capture\s+"([^"]*)"$/i);
   if (cap) return { step: { kind: "capture", label: cap[1].trim() || "shot", text: t } };
@@ -910,7 +951,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
 
   let cur: {
     name: string; targets: string[]; mark?: string; branch?: string; frames?: number;
-    origin?: Origin; steps: Step[]; stepLines: number[]; regions: RegionDef[];
+    origin?: Origin; steps: Step[]; stepLines: number[]; variants: VariantDecl[]; regions: RegionDef[];
     criteria: Criterion[]; mask: string[]; model?: string; line: number;
   } | null = null;
   let pendingTargets: string[] = [];
@@ -936,7 +977,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
       scenarios.push({
         name: cur.name, targets: cur.targets, origin,
         mark: cur.mark ?? "", branch: cur.branch ?? "",
-        frames: cur.frames ?? 1, steps: cur.steps, regions: cur.regions,
+        frames: cur.frames ?? 1, steps: cur.steps, variants: cur.variants, regions: cur.regions,
         criteria: cur.criteria, mask: cur.mask, ...(cur.model ? { model: cur.model } : {}), file, line: cur.line,
       });
     }
@@ -986,7 +1027,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (sc) {
       flush(n);
       cur = {
-        name: sc[1].trim(), targets: [...pendingTargets], steps: [], stepLines: [], regions: [], criteria: [], mask: [...pendingMask],
+        name: sc[1].trim(), targets: [...pendingTargets], steps: [], stepLines: [], variants: [], regions: [], criteria: [], mask: [...pendingMask],
         ...(pendingModel ? { model: pendingModel } : {}), line: n,
       };
       pendingTargets = [];
@@ -1030,6 +1071,34 @@ export function parseFeature(source: string, file?: string): ParseResult {
           `"${line}": a region is either a rectangle — \`Given the region "score" covers 30,1 to 37,1\` — ` +
           `or a bare name the project store knows`,
       });
+      return;
+    }
+
+    // `And variant "fix1" assembles "fixes/lift.tas" at [roml bank 3 ]$0A20` — a fix to try. The same
+    // name again adds another target to that variant.
+    const variantForm = '`And variant "fix1" assembles "fixes/fix1.tas" at $0A20` or, in a cartridge bank, `… at roml bank 3 $9100`';
+    const variant = line.match(
+      /^(?:Given|And)\s+variant\s+"([^"]+)"\s+assembles\s+"([^"]+)"\s+at\s+(?:(roml|romh)\s+bank\s+(\d+)\s+)?(\$[0-9a-f]{1,4}|0x[0-9a-f]{1,4})\s*$/i,
+    );
+    if (variant) {
+      const [, vname, path, space, bank, addrText] = variant;
+      if (vname.toLowerCase() === BASELINE) {
+        issues.push({ line: n, message: `"${line}": "${BASELINE}" is the run without a fix — name the variant something else` });
+        return;
+      }
+      const address = checkNumber(addrText)!;
+      const target: VariantTargetDecl = {
+        space: (space?.toLowerCase() ?? "ram") as VariantSpace,
+        ...(bank === undefined ? {} : { bank: Number(bank) }),
+        address, path, line: n,
+      };
+      const at = cur.variants.findIndex((v) => v.name === vname);
+      if (at < 0) cur.variants.push({ name: vname, targets: [target], line: n });
+      else cur.variants[at] = { ...cur.variants[at], targets: [...cur.variants[at].targets, target] };
+      return;
+    }
+    if (/^(?:Given|And)\s+variant\b/i.test(line)) {
+      issues.push({ line: n, message: `"${line}": a variant is ${variantForm}` });
       return;
     }
 

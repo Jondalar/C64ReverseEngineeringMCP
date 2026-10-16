@@ -1124,13 +1124,13 @@
         "Freeze the life counter and see if it holds."
       ],
       "preconditions": [
-        "A running session you can name an instant of.",
-        "Inputs, if the effect needs a press, as an input list with cycles relative to the anchor."
+        "A machine you can bring to the instant before the problem (the shared session, or a sandbox you started), or a feature file that gets there from a medium.",
+        "The fixes as source files in the project: each assembles at the address it is tried at, in RAM or in a cartridge bank."
       ],
       "steps": [
         {
           "actor": "llm",
-          "action": "Name the instant before the interesting thing happens. The anchor is captured fresh, nothing moves, and the project remembers what it meant.",
+          "action": "Find the instant before the interesting thing happens (the graph, the listing, a read-only scrub of the ring) and name it. The anchor is a file in the project, so a script can start from it long after the ring has rolled on.",
           "tools": [
             "runtime_anchor_set",
             "runtime_anchor_list",
@@ -1144,42 +1144,33 @@
         },
         {
           "actor": "llm",
-          "action": "Create the candidate from the anchor: the input list and the cycle budget. It is saved in the project and survives a restart.",
+          "action": "Write the fixes as source files, and the scenario that tries them: Given the mark, one variant line per fix (And variant \"fix1\" assembles \"fixes/fix1.tas\" at $0A20), the joystick and keys, a wait until the CPU reaches the address, and the Then lines that say what has to be true. The Then lines decide; nothing else does.",
           "tools": [
-            "runtime_candidate_create",
-            "runtime_candidate_list"
+            "assemble_source",
+            "runtime_inject_range"
           ],
           "persist": [
-            "candidate id"
+            "fixes",
+            "the .feature file"
           ]
         },
         {
           "actor": "llm",
-          "action": "Add the variants — a few lines of source or bytes each. Setting a name again replaces that variant.",
+          "action": "Run the file. The script plays it: the baseline and every variant on a machine of its own from the anchor, in parallel, the shared machine untouched. Read the verdict per run and the places each variant changed besides.",
           "tools": [
-            "runtime_candidate_variant"
+            "runtime_feature_run"
           ],
           "persist": [
-            "variants"
-          ]
-        },
-        {
-          "actor": "llm",
-          "action": "Run the candidate: the baseline without a patch and every variant at once, each on a clone, the shared machine untouched. Read each verdict against the baseline.",
-          "tools": [
-            "runtime_candidate_run"
-          ],
-          "persist": [
+            "candidate id",
             "verdict per variant"
           ]
         },
         {
           "actor": "llm",
-          "action": "For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the candidate.",
+          "action": "For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the file.",
           "tools": [
             "runtime_find_cheat",
-            "runtime_candidate_variant",
-            "runtime_candidate_run"
+            "runtime_feature_run"
           ],
           "persist": [
             "cheat candidates",
@@ -1188,8 +1179,9 @@
         },
         {
           "actor": "llm",
-          "action": "Choose the variant that does what was intended, write it as a delta, wire the delta into the build, and prove the build holds it.",
+          "action": "Judge, and write the next fix or choose: the variant that does what was intended becomes a delta, the delta goes into the build, and the build is proved to hold it.",
           "tools": [
+            "runtime_candidate_list",
             "runtime_candidate_choose",
             "runtime_candidate_derive_delta",
             "runtime_candidate_verify_build",
@@ -1209,7 +1201,8 @@
         "Change / Patch / Crack / Port for the real build."
       ],
       "forbiddenShortcuts": [
-        "Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; the candidate run does not).",
+        "Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it.",
+        "Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not).",
         "Do not call a delta done before runtime_candidate_verify_build says the build holds it."
       ]
     },

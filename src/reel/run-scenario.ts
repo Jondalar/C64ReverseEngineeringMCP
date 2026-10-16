@@ -152,6 +152,14 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     );
   }
 
+  const anchorStep = scenario.steps.find((s) => s.kind === "anchor");
+  if (anchorStep || scenario.variants.length > 0) {
+    throw new Error(
+      `${anchorStep ? `"${anchorStep.text}"` : `variant "${scenario.variants[0].name}"`}: a reel assembles pictures. An anchor to set and fixes to try belong to ` +
+        `\`c64re scenario run\` and runtime_feature_run, which judge the Then lines; a capture stays here.`,
+    );
+  }
+
   // Spec 863 — the machine a scenario runs on: the one the caller names, else the one it
   // was recorded on, else the caller's default (the project's). A recorded scenario on
   // another model is refused below, once the machine has said what it is.

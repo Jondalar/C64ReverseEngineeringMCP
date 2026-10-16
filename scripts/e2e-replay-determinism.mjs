@@ -9,7 +9,7 @@
 //   C  …with sweep: 8 (every offset its own machine; they differ ONLY by the offset) x4
 //   D  runtime_scene_reel's runner (runScenario): captures, their cycles, their pixels x4
 //   E  `c64re scenario run` --input-offset / --jitter-seed / --sweep, a process per run x4
-//   F  a candidate run (anchor + variants + an input) across a daemon restart          x4
+//   F  a feature file: an anchor made by one run, a fix tried from it in another         x4
 //
 // per run: frames to READY, press/release cycle of each step, end cycle, registers, a digest of all 64K
 // of RAM, the check results, the screen. And the negative: another offset gives another press cycle.
@@ -209,52 +209,46 @@ try {
   }
 
   // ── F ─────────────────────────────────────────────────────────────────────────
-  head("F  a candidate run from a re-set anchor, across a daemon restart");
-  const CPRG = prgWithStub(["SEI", "loop:", "LDA $DC00", "AND #$10", "BNE nofire", "INC $C001", "nofire:", "INC $C000", "JMP loop"]);
-  const cprg = join(dir, "cand.prg");
-  writeFileSync(cprg, CPRG);
-  const LOOP_INC_OPERAND = 0x0819, FIRE_INC_OPERAND = 0x0816;
-  const proj = join(dir, "proj");
-  mkdirSync(proj, { recursive: true });
-  new ProjectKnowledgeService(proj).initProject({ name: "replay" });
-  const startDaemon = async () => {
-    const port = await freePort();
-    // the shared-machine start (NOT headless): the candidate loop is driven on the machine a person co-drives
-    const p = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: proj, port: String(port) });
-    const c = spawn(p.cmd, p.args, { stdio: "ignore" });
-    const stop = () => { try { c.kill("SIGTERM"); } catch { /* gone */ } };
-    cleanups.push(stop);
-    for (let i = 0; i < 80; i++) { try { const ws = new WebSocket(`ws://127.0.0.1:${port}/?av=0`); await new Promise((res, rej) => { ws.once("open", res); ws.once("error", rej); }); ws.close(); break; } catch { await sleep(250); } }
-    return { port, endpoint: `ws://127.0.0.1:${port}`, stop: async () => { stop(); await new Promise((r) => (c.exitCode !== null ? r() : c.once("exit", r))); } };
-  };
-  const fPrints = [];
-  for (let i = 0; i < N; i++) {
-    const d = await startDaemon();
-    if (i > 0) await sleep(Math.floor(Math.random() * HOSTILE_MS));
-    const m = startMcp({ root: ROOT, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_STATE_DIR: join(dir, "state"), C64RE_RUNTIME_ENDPOINT: d.endpoint } });
-    try {
-      await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-replay", version: "1" } });
-      await m.call("agent_onboard", {});
-      await m.call("runtime_session_start", {});
-      await m.call("runtime_run_prg", { session_id: "shared", prg_path: cprg, run: "080d" });
-      await m.call("runtime_session_run", { session_id: "shared", cycle_budget: 300000, max_instructions: 10000000 });
-      const set = await m.call("runtime_anchor_set", { name: "a1" });
-      const anchorCycle = /cycle (\d+)/.exec(set)?.[1];
-      const id = `c${i}`;
-      await m.call("runtime_candidate_create", { anchor: "a1", cycle_budget: 200000, id, inputs: [{ atCycle: 40000, kind: "joystick2", payload: { fire: true } }] });
-      await m.call("runtime_candidate_variant", { id, name: "fire_to_c101", targets: [{ addr: FIRE_INC_OPERAND, bytes: [0x01, 0xc1] }] });
-      await m.call("runtime_candidate_variant", { id, name: "loop_to_c100", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc1] }] });
-      await m.call("runtime_candidate_variant", { id, name: "no_change", targets: [{ addr: LOOP_INC_OPERAND, bytes: [0x00, 0xc0] }] });
-      await m.call("runtime_candidate_run", { id });
-      const c = candStore.loadCandidate(proj, id);
-      const v = (x) => x && [x.state, x.cycles, x.registers, x.ramDigest, x.identical, x.differing, x.changes, x.inputsPlayed, x.inputsSkipped];
-      fPrints.push(JSON.stringify({ anchorCycle, baseline: v(c.baseline), variants: c.variants.map((x) => [x.name, v(x.verdict)]) }));
-    } finally { m.stop(); await d.stop(); }
+  head("F  a feature makes an anchor, another tries a fix from it — in fresh daemons every time");
+  const { find64tassBinary } = await load("assemble-source.js");
+  if (!find64tassBinary()) {
+    if (process.env.C64RE_REQUIRE_RUNTIME === "1") { check(false, "F: 64tass is needed and was not found"); }
+    else console.log("  SKIPPED  F — 64tass not found (put it on PATH). Skipped, NOT passed.");
+  } else {
+    const { runFeatures } = await load("scenario/feature-run.js");
+    const { pollPrg, writeFixes } = await import("./lib/e2e-911-fixtures.mjs");
+    const proj = join(dir, "proj");
+    mkdirSync(join(proj, "media"), { recursive: true });
+    mkdirSync(join(proj, "scenarios"), { recursive: true });
+    new ProjectKnowledgeService(proj).initProject({ name: "replay" });
+    const { prg, poll } = pollPrg();
+    writeFileSync(join(proj, "media", "poll.prg"), prg);
+    writeFixes(proj);
+    const at = `$${poll.toString(16).toUpperCase().padStart(4, "0")}`;
+    writeFileSync(join(proj, "scenarios", "make.feature"), [
+      "Scenario: boot to the waiting loop", '  Given the medium "../media/poll.prg"',
+      `  When I wait until the CPU reaches ${at} within 600 frames`, '  And I set the anchor "a2"', `  Then the CPU is at ${at}`, "",
+    ].join("\n"));
+    writeFileSync(join(proj, "scenarios", "fix.feature"), [
+      "Scenario: a fix from the anchor", '  Given the mark "a2"',
+      '  And variant "fix1" assembles "../fixes/fix1.tas" at $C100', '  And variant "fix2" assembles "../fixes/fix2.tas" at $C100',
+      "  When I hold joystick 2 down for 5 frames", "  And I wait 2 frames", "  Then $C300 is $77", "",
+    ].join("\n"));
+    const fPrints = [];
+    for (let i = 0; i < N; i++) {
+      if (i > 0) await sleep(Math.floor(Math.random() * HOSTILE_MS));
+      const made = await runFeatures({ paths: [join(proj, "scenarios", "make.feature")], replaceAnchors: true, jobs: 1 });
+      const tried = await runFeatures({ paths: [join(proj, "scenarios", "fix.feature")], jobs: 4 });
+      fPrints.push(JSON.stringify({
+        anchor: made.results[0].anchors,
+        runs: (tried.results[0].runs ?? []).map((r) => [r.name, r.verdict, r.reason, r.endCycle, r.pc, r.checks.map((c) => [c.text, c.pass, c.actual, c.cycle]), r.sideEffects ?? null]),
+      }));
+    }
+    const fSame = fPrints.every((p) => p === fPrints[0]);
+    check(fSame, `F: ${N} times, fresh daemons: same anchor cycle and PC, same end cycles, registers, verdicts and side effects`, fSame ? fPrints[0].slice(0, 160) : fPrints.map(sha).join(" / ") + "\n" + fPrints.join("\n"));
+    const f0 = JSON.parse(fPrints[0]);
+    check(f0.anchor?.[0]?.pc === poll && f0.runs.length === 3 && f0.runs.some((r) => r[1] === "PASS"), "…and the runs are real ones (the anchor at the waiting loop, three machines, one fix passing)", fPrints[0].slice(0, 200));
   }
-  const fSame = fPrints.every((p) => p === fPrints[0]);
-  check(fSame, `F: ${N} daemon restarts, anchor re-set, candidate re-run: same anchor cycle, verdicts, cycles, registers, RAM digests`, fSame ? fPrints[0].slice(0, 160) : fPrints.map(sha).join(" / ") + "\n" + fPrints.join("\n"));
-  const f0 = JSON.parse(fPrints[0]);
-  check(f0.baseline?.[0] === "done" && f0.variants.length === 3 && f0.baseline[8] !== undefined, "…and the runs are real ones (done, with inputs played)", fPrints[0].slice(0, 200));
 } finally {
   SandboxSession.prototype.call = orig;
 }

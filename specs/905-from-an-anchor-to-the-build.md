@@ -1,6 +1,6 @@
 # Spec 905 — From an anchor to the build: try variants in parallel, keep the one that works
 
-**Status:** BUILT and merged (2026-10-11): C64RE half on master, TRX64 half released in TRX64 0.13.0, C64RE 0.9.0 pins it. Open for the owner's by-hand loop on a real project.
+**Status:** BUILT and merged (2026-10-11): C64RE half on master, TRX64 half released in TRX64 0.13.0, C64RE 0.9.0 pins it. Open for the owner's by-hand loop on a real project. **Replaced in part by 911** (branch spec/911, not merged): the runner — `runtime_candidate_create` / `_variant` / `_run` with an input list and a cycle budget — is gone; a feature file with variant lines runs the fixes. The anchor doors and `_choose` / `_derive_delta` / `_verify_build` stand.
 **Repo:** both. TRX64: a sandbox run plays inputs; the candidate RPCs go. C64RE: anchors as
 doors and in the workbench, the candidate as project memory, the parallel loop, the way into
 the build.
