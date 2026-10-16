@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, extname, join, resolve, toNamespacedPath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type SupportedAssembler = "kickassembler" | "64tass";
@@ -126,9 +126,18 @@ async function run64tass(projectDir: string, sourcePath: string, outputPath: str
   const binaryPath = resolve64tassBinaryPath();
   return execTool(
     binaryPath,
-    ["-a", "-B", "-o", outputPath, ...(symbolsPath ? ["--vice-labels", "-l", symbolsPath] : []), sourcePath],
+    ["-a", "-B", "-o", longPathArg(outputPath), ...(symbolsPath ? ["--vice-labels", "-l", longPathArg(symbolsPath)] : []), longPathArg(sourcePath)],
     projectDir,
   );
+}
+
+/**
+ * Windows: 64tass cannot open a path of MAX_PATH (260) characters or more without the `\\?\`
+ * prefix (measured with 64tass 1.60: the source, `-o` and `-l` alike). Shorter paths pass
+ * unchanged, so `.include` beside a short source still resolves; nothing changes off Windows.
+ */
+function longPathArg(path: string): string {
+  return process.platform === "win32" && path.length >= 260 ? toNamespacedPath(path) : path;
 }
 
 function execTool(binary: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
