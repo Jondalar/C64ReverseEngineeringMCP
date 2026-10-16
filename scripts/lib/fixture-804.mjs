@@ -130,7 +130,9 @@ export async function buildFixture804(root, log = () => {}) {
     const asm = await mcp.tool("assemble_source", { source_path: src, assembler: "kickassembler" });
     log(`assemble_source gamma: ${/Symbols: /u.test(asm.text) ? "symbols registered" : asm.text.slice(0, 300)}`);
     paths.gamma = join(pay, "gamma.prg");
-    return { dir, paths };
+    // No KickAssembler on this machine (a bare CI runner): there is no build layer to test.
+    const noAssembler = /KickAssembler jar not found/u.test(asm.text);
+    return { dir, paths, noAssembler };
   } finally {
     mcp.close();
   }

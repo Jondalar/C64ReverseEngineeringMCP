@@ -31,7 +31,8 @@ const { explainPc } = await dist("symbols/resolve-pc.js");
 const { parseSymbolFile } = await dist("symbols/sym-file.js");
 
 console.log("Spec 804 — the resolver, residency, and the generic monitor join\n");
-const { dir, paths } = await buildFixture804(ROOT);
+const { dir, paths, noAssembler } = await buildFixture804(ROOT);
+const skipBuild = (msg) => console.log(`  SKIP  ${msg} — no KickAssembler on this machine (set C64RE_KICKASS_JAR); skipped, NOT passed`);
 const R = SymbolResolver.forProject(dir);
 
 // ---------------------------------------------------------------- memory
@@ -56,8 +57,13 @@ const nameAt = async (addr, space = "c64", extra = {}) => {
 console.log("[layers]");
 const origins = new Set(R.layers.entries.map((e) => e.origin));
 check(R.layers.sources.graph && R.size > 0, "the graph is read", `${R.size} names`);
-check(origins.has("user") && origins.has("derived") && origins.has("build"), "all three layers are present", [...origins].join(","));
-check(R.layers.sources.symbolFiles.length === 1, "assemble_source registered one build symbol file", R.layers.sources.symbolFiles.join(","));
+if (noAssembler) {
+  check(origins.has("user") && origins.has("derived"), "the user and derived layers are present", [...origins].join(","));
+  skipBuild("the build layer and its one symbol file");
+} else {
+  check(origins.has("user") && origins.has("derived") && origins.has("build"), "all three layers are present", [...origins].join(","));
+  check(R.layers.sources.symbolFiles.length === 1, "assemble_source registered one build symbol file", R.layers.sources.symbolFiles.join(","));
+}
 check(!R.layers.entries.some((e) => /^code_|^unknown_|^entry_/u.test(e.name)), "generated descriptors (code_1000_1008, entry_1000) are not names");
 const kick = parseSymbolFile("al C:0816 .print_string\nal 8:0500 .drv_loop\nal 9:0500 .other\n.label start=$810\nplain = $0400");
 check(kick.length === 4 && kick[1].space === "drive8" && kick[0].space === "c64", "VICE memspace is kept: C: → c64, 8: → drive8, 9: skipped", JSON.stringify(kick.map((k) => `${k.name}@${k.space}`)));
@@ -90,12 +96,16 @@ wipe(); put(PAYLOADS.delta.load, PAYLOADS.delta.bytes);
 check(await nameAt(0xc000) === null, "delta only at its stored $3000 → nothing is running at $C000, no name");
 
 console.log("\n[build layer]");
-wipe(); put(0x2000, [...readFileSync(paths.gamma)].slice(2));
-check(await nameAt(0x2000) === "start[b]", "the assembled build in memory → start[b]", await nameAt(0x2000));
-const psAddr = R.layers.entries.find((e) => e.name === "print_string").address;
-check(await nameAt(psAddr) === "print_string[b]", `…and print_string[b] at $${psAddr.toString(16)}`);
-wipe();
-check(await nameAt(0x2000) === null, "the build's bytes gone → its names gone");
+if (noAssembler) {
+  skipBuild("the assembled build's names in memory");
+} else {
+  wipe(); put(0x2000, [...readFileSync(paths.gamma)].slice(2));
+  check(await nameAt(0x2000) === "start[b]", "the assembled build in memory → start[b]", await nameAt(0x2000));
+  const psAddr = R.layers.entries.find((e) => e.name === "print_string").address;
+  check(await nameAt(psAddr) === "print_string[b]", `…and print_string[b] at $${psAddr.toString(16)}`);
+  wipe();
+  check(await nameAt(0x2000) === null, "the build's bytes gone → its names gone");
+}
 
 console.log("\n[ambiguity — two resident payloads, two names, one address]");
 const tmp = mkdtempSync(join(tmpdir(), "c64re-804-amb-"));
