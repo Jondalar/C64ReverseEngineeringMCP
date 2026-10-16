@@ -43,7 +43,10 @@ jobs:
     # That pushed a job that used to finish in ~11 minutes past its own limit, and the
     # first symptom was a bare "The operation was canceled" with no failing step above it
     # — which reads like a flake and is not one.
-    timeout-minutes: 30
+    # Raised from 30 on 2026-10-16: the job took 22 minutes, four new steps pushed it past 30 and
+    # it was cancelled the same way. Every e2e that a test script adds lands here, so the limit
+    # has headroom now; a run that needs it is still visible in its duration.
+    timeout-minutes: 60
     # Spec 902 D5 — every step runs with a state directory of its own and says it is a smoke, so the
     # process ledger records what a step starts as a smoke's, and the last step can name the one that
     # left something running.
