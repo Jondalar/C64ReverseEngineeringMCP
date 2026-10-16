@@ -17,7 +17,7 @@
 // Run: npm run e2e:payload-headerless
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { Buffer } from "node:buffer";
 import { chipBytes, bankSwitchCode, HW_EASYFLASH, HW_GMOD2, makeCrt } from "./lib/cartridge-fixture-909.mjs";
 import { d64WithPrg } from "./lib/d64-fixture.mjs";
@@ -92,7 +92,16 @@ try {
   head("H2. a disk PRG keeps its 2-byte header");
   const ed = await call("extract_disk", { project_dir: dir, image_path: "media/t.d64" });
   const rd = rb(ed);
-  check(rd && +rd[1] >= 1 && +rd[2] === 0, "H2.1 the PRG listing rebuilds byte-identical", rd?.[0] ?? ed.split("\n").slice(0, 6).join(" | "));
+  // Without KickAssembler or 64tass nothing can be rebuilt: the extract says "not verified". That is a loud skip,
+  // never a pass — and only when no assembler is on this machine; with one, "not verified" is a failure.
+  const haveAssembler = !!process.env.C64RE_KICKASS_JAR && existsSync(process.env.C64RE_KICKASS_JAR)
+    || [process.env.C64RE_64TASS_BIN, "/opt/homebrew/bin/64tass", "/usr/local/bin/64tass", "/usr/bin/64tass"].some((p) => p && existsSync(p))
+    || (process.env.PATH ?? "").split(delimiter).some((d) => d && (existsSync(join(d, "64tass")) || existsSync(join(d, "64tass.exe"))));
+  if (rd && +rd[1] === 0 && +rd[2] === 0 && +rd[3] >= 1 && !haveAssembler) {
+    console.log("  SKIP  H2.1 the PRG listing rebuilds byte-identical — no KickAssembler or 64tass on this machine; skipped, NOT passed");
+  } else {
+    check(rd && +rd[1] >= 1 && +rd[2] === 0, "H2.1 the PRG listing rebuilds byte-identical", rd?.[0] ?? ed.split("\n").slice(0, 6).join(" | "));
+  }
   const diskListings = listingsUnder(join(dir, "artifacts", "generated")).filter((p) => !chipListings.includes(p));
   check(diskListings.some((p) => origin(readFileSync(p, "utf8")) === "C000"), "H2.2 its origin is the file's own load address $C000", diskListings.map((p) => origin(readFileSync(p, "utf8"))).join(","));
 
