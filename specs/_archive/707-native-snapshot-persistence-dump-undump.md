@@ -170,7 +170,7 @@ non-authoritative identity/baseline; the mutable content rides in the checkpoint
 > command-state snapshot), so its flash rides in `cartFlash` (content-addressed
 > in the ring) and a written/mid-command EasyFlash dumps + restores faithfully.
 > The dirty-cartridge dump reject survives only for the writable families still
-> pending under Spec 713 (GMOD2/GMOD3/MegaByter, not-yet-verified Ocean/Magic
+> pending under Spec 713 (GMOD2/MegaByter, not-yet-verified Ocean/Magic
 > Desk) — removed per family as each faithful port + its 714.5 gates pass.
 
 **dump/undump (§4):** `src/runtime/headless/kernel/snapshot-persistence.ts` — the

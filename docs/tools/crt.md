@@ -53,7 +53,6 @@ The cart-type → slot-layout map currently covers:
 | 19 | Magic Desk       | ROML |
 | 32 | EasyFlash        | ROML + ROMH |
 | 60 | GMod2            | ROML + EEPROM (M93C86 SPI) |
-| 71 | GMod3            | ROML |
 | 86 | Protovision MegaByter | ROML |
 
 Anything outside the table falls back to a generic 8K/16K/Ultimax decision

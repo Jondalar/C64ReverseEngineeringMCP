@@ -35,7 +35,7 @@ export interface CartridgeTypeHit {
 const CRT_MAGIC = "C64 CARTRIDGE   ";
 
 /** CRT hardware-type ids the listing knows by name (VICE `cartridge.h`); anything else prints as its number. */
-const NAMES: Record<number, string> = { 0: "Generic", 3: "Final Cartridge III", 5: "Ocean", 19: "Magic Desk", 32: "EasyFlash", 60: "GMod2", 62: "GMod3", 86: "Protovision MegaByter" };
+const NAMES: Record<number, string> = { 0: "Generic", 3: "Final Cartridge III", 5: "Ocean", 19: "Magic Desk", 32: "EasyFlash", 60: "GMod2", 86: "Protovision MegaByter" };
 
 export function cartridgeTypeName(hardwareType: number): string {
   return NAMES[hardwareType] ?? `hardware type ${hardwareType}`;

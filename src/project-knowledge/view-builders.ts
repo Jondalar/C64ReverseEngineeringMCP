@@ -1310,8 +1310,7 @@ interface CartTypeProfile {
 // without a citation is suspect by construction: this table describes what a
 // cartridge IS (read direction), never how one is built, and the citation is what
 // makes that checkable rather than a matter of trust. Corrected 2026-08-11 — id 71
-// was labelled "GMod3", which is wrong in both directions: 71 is BlackBox 9
-// (`cartridge.h:262`) and GMod3 is 62 (`cartridge.h:253`).
+// was labelled with a wrong name: 71 is BlackBox 9 (`cartridge.h:262`).
 //
 // PRIVATE IDS above `CARTRIDGE_LAST` (86, `cartridge.h:278`), shared by TRX64,
 // TRX_CRT_cli, C64RE and TRX64-Ultimate since 2026-10-03: 87 = GMod4,
@@ -1361,9 +1360,6 @@ const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: true },
   // gmod2.c — AM29F040 flash plus a separate M93C86 serial EEPROM for saves.
   60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, canFlash: true,  eepromKindHint: "M93C86 (SPI)" },
-  // gmod3.c:124,232,241 — 8K GAME by default with an ULTIMAX mode; bank is 11 bits
-  // (`value + ((addr & 7) << 8)`), storage is SPI flash of 2/4/8/16 MB (gmod3.c:110).
-  62: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true,  eepromKindHint: "SPI flash (2-16 MB)" },
   // megabyter.c:103 — MX29F800CB, $DE00 bank (A1 clear) / $DE02 mode (A1 set),
   // 128 × 8K ROML. Mode 2 is the kill; flash programs only in mode 3 (ULTIMAX).
   86: { hardwareTypeName: "Protovision MegaByter", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true },
