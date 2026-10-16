@@ -270,5 +270,33 @@ const rsLegacy = buildReadSet([blk(5, 66, 0, 254)]);
 ok(rsLegacy.length === 1 && rsLegacy[0].record === "block-read" && rsLegacy[0].taken === true && rsLegacy[0].cycle === 5, "a 0x35 record still decodes into the read-set on its drive clock");
 ok(/off by one/.test(readSetNote(rsLegacy) ?? "") && /drive reset/.test(readSetNote(rsLegacy) ?? ""), "a 0x35 read-set carries the off-by-one / clock note");
 
+// ---------------------------------------------------------------------------------
+// #77 — a sync hunt that latches the block id after the DATA sync and rejects the block
+// leaves dataBytes 1-2. That is a pass, not a read: taken needs most of the 325-byte GCR
+// data block. Values from the IM II capture (d1/d2 passes, d324/d326 reads).
+// ---------------------------------------------------------------------------------
+console.log("\n#77 — header passes with 1-2 data bytes are passed, not taken\n");
+const s77 = [
+  blk2(1000, 100, 16, 9, 9, 326),   // T8/S9 read
+  blk2(1100, 200, 16, 10, 3, 2),    // T8/S10 passed: block id latched, rejected
+  blk2(1200, 300, 16, 12, 0, 1),    // T8/S12 passed: 1 byte after the data sync
+  blk2(1300, 400, 16, 13, 10, 8),   // T8/S13 passed: a loader that checks 8 bytes per sync
+  blk2(1400, 500, 16, 14, 10, 162), // T8/S14 half a block or less: not taken
+  blk2(1500, 600, 16, 15, 10, 163), // T8/S15 more than half: taken
+  blk2(1600, 700, 16, 16, 5, 324),  // T8/S16 read
+  blk2(1700, 800, 70, 0xff, 0, 1),  // headerless half-track: any data byte is a read
+];
+// A landing filled after the T8/S10 and T8/S12 passes is sourced to the block really read (S9).
+for (let i = 0; i < 40; i++) { const c = 320 + i * 2; s77.push(wr(c, 0x2000 + i, (0x30 + i) & 0xff)); if (i % 4 === 0) s77.push(dd00(c + 1)); }
+s77.sort((a, b) => (a.c64Cycle ?? a.cycle) - (b.c64Cycle ?? b.cycle));
+const rs77 = buildReadSet(s77);
+const t77 = Object.fromEntries(rs77.map((e) => [e.sector, e.taken]));
+ok(t77[10] === false && t77[12] === false, "#77 d2 / d1 after the data sync = passed, not taken", JSON.stringify(t77));
+ok(t77[13] === false && t77[14] === false, "#77 8 or 162 data bytes (half a block or less) = passed", JSON.stringify(t77));
+ok(t77[9] === true && t77[15] === true && t77[16] === true, "#77 163, 324, 326 data bytes (most of a block) = taken", JSON.stringify(t77));
+ok(t77[0xff] === true, "#77 sector 0xff with 1 data byte stays taken (no block length to measure)", JSON.stringify(t77));
+const l77 = buildLandingMap(s77).find((e) => e.c64Dest === 0x2000);
+ok(l77?.source?.sector === 9, "#77 a landing after two header passes is sourced to the block read (T8/S9), not the pass", JSON.stringify(l77?.source));
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  loader-lens A2/Option A: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);
