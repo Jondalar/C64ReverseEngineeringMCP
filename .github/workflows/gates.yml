@@ -90,6 +90,11 @@ jobs:
       # Read first, then cite: the runtime doors refuse a hypothesis that is not
       # read-derived. The gate for it ran nowhere, and went stale when the doors
       # became async — every "allowed" case silently read undefined.
+      # The extract-first grounding doctrine: steering text, the ungrounded-findings rung, the enforcement.
+      # In package.json since it was written; in no workflow, and a gate that is not here does not run.
+      - name: Extract-first grounding (e2e:752)
+        run: npm run e2e:752
+
       - name: Runtime discipline is enforced
         run: npm run e2e:discipline-gate
 

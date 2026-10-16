@@ -159,7 +159,7 @@ const ns = computeNextStep(sp);
 const vetoed = (ns.blockedBy ?? []).some((b) => b.id === "ungrounded-findings");
 ok(vetoed, "S8 ungrounded finding → the runtime branch is vetoed, naming the finding", `blockedBy=${(ns.blockedBy ?? []).map((b) => b.id).join(",")}`);
 ok(!/^runtime-/.test(ns.primary.stepId), "S8 no runtime step is primary while something is ungrounded", `step=${ns.primary.stepId}`);
-ok(/ungrounded/i.test(ns.primary.why) && /L1/.test(ns.primary.why), "S8 the why names L1 / ungrounded", ns.primary.why.slice(0, 60));
+ok(/ungrounded/i.test(ns.primary.why) && /no backing extract/.test(ns.primary.why) && /artifact_ids/.test(ns.primary.why) && !/Spec \d+/.test(ns.primary.why), "S8 the why names the ungrounded finding, the missing extract and the remedy, and no internal id", ns.primary.why.slice(0, 60));
 
 // Control: no ungrounded findings → the rung does not fire.
 const sp2 = mkdtempSync(join(tmpdir(), "c64re-752g-"));
