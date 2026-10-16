@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -21,6 +22,7 @@ const killPort = () => killPortListeners(PORT);
 
 console.log("Spec 746.4 — checkpoint ring (scrub/rewind) tools on the shared session\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
+await daemonOrSkip("e2e:746-checkpoint");
 killPort();
 
 const procs = [];
@@ -56,6 +58,8 @@ try {
   ok(l0 && l0.stats && Array.isArray(l0.checkpoints), "1 runtime_checkpoint_list routes to the shared ring (stats present)", `count=${l0?.stats?.count}`);
 
   // advance the shared session so a capture has real state.
+  // The daemon self-runs the session; a manual session/run is refused until it is paused.
+  await wsRpc(ui, "debug/pause", { session_id: S });
   await wsRpc(ui, "session/run", { session_id: S, cycles: 1_000_000 });
 
   // 2 capture NOW — returns a ref with an id.

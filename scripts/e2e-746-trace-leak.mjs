@@ -25,6 +25,7 @@ import { existsSync, statSync, mkdirSync, rmSync } from "node:fs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { rssKiB } from "./lib/processes.mjs";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
@@ -56,7 +57,8 @@ const wsRpc = (ws, method, params, to = 30000) => new Promise((res, rej) => {
 });
 
 console.log("Spec 746.x — trace memory-leak gate (live warp trace + disk swap must NOT OOM the daemon)\n");
-if (!existsSync(DISK)) { console.error(`missing test disk ${DISK}`); process.exit(2); }
+if (!existsSync(DISK)) { console.log(`SKIPPED ${DISK} is absent (a local-only game image, not in the repository) — the trace-leak gate is NOT passed.`); process.exit(0); }
+await daemonOrSkip("e2e:746-trace-leak");
 killPort();
 try { rmSync(PROJECT, { recursive: true, force: true }); } catch {}
 mkdirSync(PROJECT, { recursive: true });

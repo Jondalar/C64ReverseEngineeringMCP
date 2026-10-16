@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -22,6 +23,7 @@ const killPort = () => killPortListeners(PORT);
 
 console.log("BUG-028 — input/drive tools route to the shared daemon session\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
+await daemonOrSkip("e2e:bug028");
 killPort();
 
 const procs = [];
@@ -54,6 +56,8 @@ try {
   const ui = await new Promise((res, rej) => { const w = new WebSocket(ENDPOINT); w.once("open", () => res(w)); w.once("error", rej); });
   const S = (await wsRpc(ui, "session/list", {}))[0]?.sessionId;
   ok(!!S, "0b default session", S);
+  // The daemon self-runs the session; a manual session/run is refused until it is paused.
+  await wsRpc(ui, "debug/pause", { session_id: S });
   await wsRpc(ui, "session/run", { session_id: S, cycles: 3_500_000 }); // boot to BASIC READY
   const m = spawnMcp(); await ready(m);
 
