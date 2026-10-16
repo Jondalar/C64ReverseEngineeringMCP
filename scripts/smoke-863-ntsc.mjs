@@ -15,7 +15,7 @@
 // Every runtime here is a sandbox of this smoke's own, on a free port — never the shared
 // one (doctrine rule 2). Each ends with the smoke.
 //
-//   TRX64_DAEMON_BIN=<trx64-daemon with C64 models> node scripts/smoke-863-ntsc.mjs
+//   C64RE_RUNTIME_BIN=<trx64-daemon with C64 models> node scripts/smoke-863-ntsc.mjs
 //   (needs `npm run build`)
 
 import { spawn } from "node:child_process";
@@ -25,15 +25,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
+import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { resolveDaemonSpawn } = await import("../dist/runtime/resolve-daemon-spawn.js");
-const DAEMON = process.env.TRX64_DAEMON_BIN || process.env.C64RE_TRX64_BIN
-  || resolveDaemonSpawn({ repoRoot: ROOT, projectDir: tmpdir(), port: "1" }).cmd;
+const DAEMON = await daemonOrSkip("smoke:863");
 // Everything this smoke spawns through C64RE's own resolver (sandboxes, the workspace)
 // uses the same binary.
-process.env.C64RE_TRX64_BIN = DAEMON;
-delete process.env.C64RE_RUNTIME_BIN;
+process.env.C64RE_RUNTIME_BIN = DAEMON;
 delete process.env.C64RE_RUNTIME_BIN_ARGS;
 
 const mm = await import("../dist/runtime/machine-model.js");
@@ -58,10 +57,6 @@ const freePort = () => new Promise((res, rej) => {
 const PAL = 19_656;
 const NTSC = 17_095;
 
-if (!existsSync(DAEMON)) {
-  console.log(`FAIL  no runtime daemon at ${DAEMON} — set TRX64_DAEMON_BIN to a build with C64 models`);
-  process.exit(1);
-}
 console.log(`Spec 863 — NTSC, the C64RE half  (runtime: ${DAEMON})\n`);
 
 const cleanups = [];
@@ -203,8 +198,8 @@ try {
     "§7.2 runtime_session_start { model: \"c64-ntsc\" } starts an NTSC machine", `${st1.model} ${st1.cyclesPerLine}×${st1.linesPerFrame}`);
   check(/Machine: c64-ntsc/.test(started) && /was c64-pal; it SWITCHED to c64-ntsc at the frame boundary/.test(started),
     "  and says so: switched at the frame boundary, nothing restarted", started.split("\n").find((l) => /SWITCHED/.test(l)));
-  const refused = await tool("runtime_session_start", { model: "c64c-pal" });
-  check(/6526A/.test(refused) && (await state()).model === "c64-ntsc", "  a model the runtime cannot run is refused by name, nothing changes", refused.slice(0, 100));
+  const refused = await tool("runtime_session_start", { model: "c64-old-pal" }); // names blocks (6569R1 luminances, KERNAL rev2) TRX64 does not have
+  check(/6569R1/.test(refused) && (await state()).model === "c64-ntsc", "  a model the runtime cannot run is refused by name, nothing changes", refused.slice(0, 100));
   const status = await tool("runtime_session_status", { session_id: S });
   check(/Machine: c64-ntsc .*17095 cycles\/frame/.test(status), "runtime_session_status says which C64 it is", status.split("\n").find((l) => /Machine/.test(l)));
   const mon = await tool("runtime_monitor", { session_id: S, command: "model" });
