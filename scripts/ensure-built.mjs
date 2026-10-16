@@ -87,6 +87,15 @@ function writeStamp(patch) {
 const outputsPresent = (kind) => OUTPUTS[kind].every((f) => existsSync(f));
 const fresh = (kind, stamp, hash) => stamp[kind] === hash && outputsPresent(kind);
 
+// `npm run build` starts from an empty dist, so an output whose source was deleted is gone. tsc alone leaves
+// it behind, and a stale file nothing builds any more would pass for part of the product. Clear what the
+// build being run produces: dist minus dist/pipeline for mcp, dist/pipeline for pipeline.
+function clean(k) {
+  if (k === "pipeline") return rmSync("dist/pipeline", { recursive: true, force: true });
+  if (k !== "mcp" || !existsSync("dist")) return;
+  for (const e of readdirSync("dist")) if (e !== "pipeline" && e !== ".build-stamp.json") rmSync(join("dist", e), { recursive: true, force: true });
+}
+
 function npm(script) {
   const r = spawnSync("npm", ["run", script], { stdio: "inherit", shell: process.platform === "win32" });
   if (r.status !== 0) process.exit(r.status ?? 1);
@@ -138,6 +147,7 @@ try {
     npm("build"); // wipes dist and writes the stamp itself
   } else {
     for (const k of stale) {
+      if (k !== "ui") clean(k);
       npm({ mcp: "build:mcp", pipeline: "build:pipeline", ui: "ui:build" }[k]);
       writeStamp({ [k]: hashes[k] });
     }

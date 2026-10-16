@@ -110,6 +110,11 @@ appendFileSync("builds.log", w + "\\n");
   const n = builds().length;
   run("ui");
   check(builds().length === n, "--stamp ui records a bundle built by hand (prepack), so the next call does not rebuild");
+  writeFileSync(join(tmp, "dist/stale.js"), "");
+  mkdirSync(join(tmp, "dist/pipeline"), { recursive: true });
+  edit("src/a.ts", "export const a = 6;\n");
+  run("mcp");
+  check(!existsSync(join(tmp, "dist/stale.js")) && existsSync(join(tmp, "dist/pipeline/cli.cjs")), "an mcp rebuild drops outputs of deleted sources and leaves the pipeline alone");
   check(run("bogus").status === 2, "an unknown kind is refused");
 } finally {
   rmSync(tmp, { recursive: true, force: true });
