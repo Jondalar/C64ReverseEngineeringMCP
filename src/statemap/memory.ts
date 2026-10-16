@@ -76,7 +76,7 @@ export function saveMap(projectDir: string, spec: StateMapSpec, hash: string, re
       crashes: result.states.filter((s) => s.crash).length, goal_state: result.goalState ?? null,
       frames_per_move: result.framesPerMove, machine: result.machine, elapsed_ms: result.elapsedMs,
       spilled: result.spilled, stale_jams: result.staleJams, runtime_version: result.runtimeVersion ?? null,
-      mapped_at: new Date().toISOString(), anchors,
+      mapped_at: new Date().toISOString(), anchors, key_follows_time: result.keyFollowsTime === true,
     };
     st.upsertHuman({ id: mapId, kind: "state_map", name: spec.name, attrs, origin: "runtime", confidence: "observed" }, DOOR_PRODUCER);
     const edge = st.db.prepare(
@@ -161,6 +161,7 @@ export function loadMap(projectDir: string, name: string): StoredMap | undefined
       framesPerMove: a.frames_per_move as number, machine: a.machine as string, elapsedMs: a.elapsed_ms as number,
       spilled: (a.spilled as number) ?? 0, staleJams: (a.stale_jams as number) ?? 0,
       ...(typeof a.runtime_version === "string" ? { runtimeVersion: a.runtime_version } : {}),
+      ...(a.key_follows_time === true ? { keyFollowsTime: true } : {}),
     };
     return { nodeId: mapId, input, spec, hash: String(a.inputs_hash), mappedAt: String(a.mapped_at), result, anchors: (a.anchors as SavedAnchor[]) ?? [] };
   } catch {

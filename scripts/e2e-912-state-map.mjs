@@ -24,7 +24,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSy
 import { join } from "node:path";
 import { Harness, ROOT, findDaemon, load, makeChecker, processesMatching, sleep } from "./lib/e2e-906-harness.mjs";
 import { jsonOf, liveMachines, privateTmp, runCli } from "./lib/e2e-911-env.mjs";
-import { buildMaze } from "./lib/e2e-912-maze.mjs";
+import { buildCounter, buildMaze } from "./lib/e2e-912-maze.mjs";
 import { spawnSync } from "node:child_process";
 
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
@@ -280,6 +280,36 @@ try {
   check(/runtime_state_map: key — changes with every run/.test(unstable) && /Nothing was saved/.test(unstable), "a key that is new with every one of the first 20 runs (a hash of every frame's stick) is refused, and nothing is saved", unstable.slice(0, 220));
   const noTimerMap = await m.call("graph_find", { query: "timer" });
   check(!/state_map/.test(noTimerMap), "…no map of that name is in the graph");
+
+  // ── a key that follows time ──────────────────────────────────────────────────────────────────
+  head("a key that follows time is not a map");
+  const counter = await buildCounter(proj);
+  writeFileSync(join(proj, "media", "counter.prg"), counter.prg);
+  writeFileSync(sc("counter.feature"), lines(
+    "Scenario: boot to the counter loop",
+    '  Given the medium "../media/counter.prg"',
+    `  When I wait until the CPU reaches ${hex4(counter.loop)} within 600 frames`,
+    '  And I set the anchor "counter_loop"',
+    `  Then the CPU is at ${hex4(counter.loop)}`,
+  ));
+  check(runCli([sc("counter.feature")]).code === 0, "setup: a program with only a frame counter, anchor counter_loop");
+  const tick = { anchor: "counter_loop", key: ["$02"], actions: ["L", "R", "U", "D", "F", "N"], frames: 2, release_frames: 2, name: "ticks" };
+  new KnowledgeRecords(proj).saveFinding({ kind: "observation", title: "the counter", addressRange: { start: 0x0002, end: 0x0002 } });
+  const tickText = await m.call("runtime_state_map", tick);
+  check(tickText.startsWith("complete — but the key follows time, not the moves: every move from every state leads to the same next state") && /\$02/.test(tickText.split("\n")[0]), "the answer says so, naming the key", tickText.split("\n")[0].slice(0, 200));
+  const tickJson = await mapJson({ ...tick, name: "ticks" });
+  check(tickJson.keyFollowsTime === true && tickJson.complete, "the JSON carries keyFollowsTime");
+  writeFileSync(join(proj, "ticks.json"), JSON.stringify({ ...tick, name: "ticks_cli" }));
+  const tickCli = spawnSync(process.execPath, [join(ROOT, "dist/cli.js"), "state", "map", join(proj, "ticks.json")], { encoding: "utf8" });
+  check(tickCli.status === 1 && tickCli.stdout.split("\n")[0] === tickText.split("\n")[0].replace(/ \d+ runs/, (x) => x), "the command line says the same and exits 1", `${tickCli.status} ${tickCli.stdout.slice(0, 120)}`);
+  const { loadMap } = await load("statemap/memory.js");
+  const { GraphStore } = await load("knowledge-graph/store.js");
+  const gs = GraphStore.open(proj, { readOnly: true });
+  const row = gs.db.prepare("SELECT attrs FROM nodes WHERE kind = 'state_map' AND name = 'ticks'").get();
+  gs.close();
+  check(JSON.parse(row.attrs).key_follows_time === true && loadMap(proj, "ticks")?.result.states.length > 2, "the map is saved, and the state_map node is flagged key_follows_time: true", row.attrs.slice(0, 120));
+  check(full.keyFollowsTime === false && solved.keyFollowsTime === false && goOn.keyFollowsTime === false, "the maze is not flagged", String(full.keyFollowsTime));
+  check(!/key follows time/.test(text), "…and its text says plain complete");
 
   // ── S6 ─────────────────────────────────────────────────────────────────────────────────────────
   head("S6  the map is knowledge");

@@ -254,5 +254,10 @@ Scenario: S7 a fresh agent maps instead of driving
   runs) fires on a key that differs for every move even from one state (a hash of the input, a random seed). A counter that
   advances by the same amount whatever the move (a frame counter) makes one new state per state and is not caught by it; the
   caps stop that search (`max_states`, `max_runs`).
+- **A key that follows time.** Found on a real EasyFlash game: the key held a counter, every move from every state led to the same
+  next state (a chain), and the 20-run check did not fire. After the search, when at least two states were expanded and each has
+  exactly one successor other than itself whatever the move, the answer begins `complete — but the key follows time, not the
+  moves…`, the `state_map` node carries `key_follows_time: true`, the JSON has `keyFollowsTime`, and the command line exits 1.
+  The map is saved. It is decided after the search, not earlier.
 - **Seen, not touched:** `check:wiki`'s comparison with the published wiki fails for the pages of both specs (nothing is
   published from this branch); `probe-mcp-llm-playbooks` check 9 still names the three sandbox session tools.

@@ -130,3 +130,38 @@ export async function buildMaze(dir) {
   };
   return { prgPath: out, prg: readFileSync(out), loop: label("loop"), crash: label("crash") };
 }
+
+/** A program whose only state is a frame counter at $02: whatever the stick does, the next frame is the next number. */
+export const COUNTER_SOURCE = `
+        * = $0801
+        .word (+), 2026
+        .text $9e, "2061", 0
++       .word 0
+
+        * = $080d
+        sei
+        lda #0
+        sta $02
+loop
+-       lda $d012
+        cmp #$fa
+        bne -
+-       lda $d012
+        cmp #$fa
+        beq -
+        inc $02
+        jmp loop
+`;
+
+export async function buildCounter(dir) {
+  const { assembleSource } = await load("assemble-source.js");
+  mkdirSync(join(dir, "src"), { recursive: true });
+  const src = join(dir, "src", "counter.tas");
+  writeFileSync(src, COUNTER_SOURCE);
+  const out = join(dir, "build", "counter.prg");
+  const r = await assembleSource({ projectDir: dir, sourcePath: src, assembler: "64tass", outputPath: out, symbols: true });
+  if (r.exitCode !== 0) throw new Error(`64tass failed: ${r.stderr || r.stdout}`);
+  const vs = readFileSync(r.symbolsPath, "utf8");
+  const m = /^al\s+([0-9a-f]+)\s+\.loop\s*$/im.exec(vs);
+  return { prg: readFileSync(out), loop: parseInt(m[1], 16) };
+}

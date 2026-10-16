@@ -59,6 +59,8 @@ export interface SearchResult {
   /** Jam reports at a PC that holds no JAM opcode, which were not taken for crashes. */
   readonly staleJams: number;
   readonly runtimeVersion?: string;
+  /** Every move from every expanded state led to the one same successor: the key follows time, not the moves. */
+  readonly keyFollowsTime?: boolean;
 }
 
 export interface SearchContext {
@@ -299,8 +301,14 @@ async function drive(spec: StateMapSpec, ctx: SearchContext, box: SandboxSession
 
   if (!outcome) outcome = depthCut !== undefined && states.some((s) => !s.expanded && !s.crash && !s.dead) ? { kind: "stopped", cap: "max_depth", limit: depthCut } : { kind: "complete" };
 
+  const expanded = states.filter((st) => st.expanded && !st.crash && !st.dead);
+  const keyFollowsTime = expanded.length >= 2 && spec.moves.length >= 2 && expanded.every((st) => {
+    const succ = new Set(edges.filter((e) => e.from === st.index).map((e) => e.to));
+    if (st.stays.length > 0) succ.add(st.index);
+    return succ.size === 1 && !succ.has(st.index);
+  });
   return {
-    outcome, states, edges, runs, ...(goalState === undefined ? {} : { goalState }),
+    outcome, states, edges, runs, ...(keyFollowsTime ? { keyFollowsTime } : {}), ...(goalState === undefined ? {} : { goalState }),
     framesPerMove: spec.frames + spec.releaseFrames,
     machine: describeMachine(machine),
     elapsedMs: Date.now() - startedAt, spilled, staleJams,

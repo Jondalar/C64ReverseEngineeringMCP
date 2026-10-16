@@ -107,6 +107,11 @@ A **JAM** is a state of its own, named by the address the CPU stopped at. Every 
 that lands on the same JAM is one crash. `edges = "all"` also lists the moves that left
 the state as it was.
 
+If the answer begins `complete — but the key follows time, not the moves`, every move
+from every state led to the same next state: the key holds a counter or timer, not the
+bytes the room or level code indexes with. The map is kept but flagged, and the command
+line exits 1. Read the code again and pick other bytes.
+
 ## 5. What is kept
 
 The map is saved in the project's graph under its `name` (default: the anchor's name):

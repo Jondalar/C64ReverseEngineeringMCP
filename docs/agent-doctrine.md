@@ -320,7 +320,7 @@ steer at once, so:
   frame counter or sprite position in the key (every run is a new state; the tool refuses a key that
   does that); a **debounce longer than `frames`** (the game never sees the press: raise `frames`);
   a goal or a wait on `the screen shows "…"` that the BASIC banner already satisfies (the text of the
-  banner stays in screen RAM until the game overwrites it, so it holds before the game has done anything). The wiki page *Mapping a Game* has the walk-through.
+  banner stays in screen RAM until the game overwrites it, so it holds before the game has done anything). An answer that begins *complete — but the key follows time, not the moves* means every move from every state led to the one same successor: the key is a counter, not the room; the map is flagged and unusable, so read the code again for the right bytes. The wiki page *Mapping a Game* has the walk-through.
 
 The persistent state lives in:
 

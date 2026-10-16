@@ -20,7 +20,7 @@ const USAGE = [
   "",
   "  --project <dir>  the project the anchor lives in (default: found by walking up from the file, else the current directory)",
   "  --json           the answer as one JSON document",
-  "  Exit 0 when the map is complete or the goal was reached, 1 when a cap stopped it, 2 when the description was refused or the run failed.",
+  "  Exit 0 when the map is complete or the goal was reached, 1 when a cap stopped it or the key follows time (not a usable map), 2 when the description was refused or the run failed.",
 ];
 
 export async function runStateCli(argv: string[]): Promise<void> {
@@ -51,7 +51,7 @@ export async function runStateCli(argv: string[]): Promise<void> {
   try {
     const answer = await runStateMap(input, { projectDir });
     console.log(json ? JSON.stringify(answerJson(answer), null, 2) : renderAnswer(answer));
-    process.exitCode = answer.result.outcome.kind === "stopped" ? 1 : 0;
+    process.exitCode = answer.result.outcome.kind === "stopped" || answer.result.keyFollowsTime ? 1 : 0;
   } catch (e) {
     if (e instanceof Refusal) { console.log(e.message); process.exitCode = 2; return; }
     throw e;

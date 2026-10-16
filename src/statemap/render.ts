@@ -22,7 +22,10 @@ function headline(a: MapAnswer): string {
   const crashes = r.states.filter((s) => s.crash).length;
   const tail = `${plural(r.states.length, "state")}, ${plural(r.runs, "run")}, ${plural(crashes, "crash", "crashes")}`;
   switch (r.outcome.kind) {
-    case "complete": return `complete: ${tail}`;
+    case "complete":
+      return r.keyFollowsTime
+        ? `complete — but the key follows time, not the moves: every move from every state leads to the same next state (key ${a.spec.key.map((k) => k.text).join(" ")}): ${tail}. This is not a usable map. Read the code that picks the room or level and name the bytes it indexes with; a counter or timer is not one.`
+        : `complete: ${tail}`;
     case "goal": return `goal reached: ${tail}`;
     case "stopped": return `stopped: ${r.outcome.cap} ${r.outcome.limit}${r.outcome.cap === "budget" ? " min" : ""} — ${tail}; the map is not complete`;
   }
@@ -78,6 +81,7 @@ export function answerJson(a: MapAnswer): Record<string, unknown> {
     name: a.name,
     outcome: r.outcome.kind === "stopped" ? { kind: "stopped", cap: r.outcome.cap, limit: r.outcome.limit } : { kind: r.outcome.kind },
     complete: r.outcome.kind === "complete",
+    keyFollowsTime: r.keyFollowsTime === true,
     fromGraph: a.fromGraph ?? null,
     runs: r.runs,
     states: r.states.map((s) => ({
