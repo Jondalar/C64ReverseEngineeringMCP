@@ -198,7 +198,7 @@ try {
 
   ok(/Analysis-driven rendering enabled/.test(asm5), "5 analysis path active alongside relocations");
   ok(/SEGMENT/i.test(asm5) || /\/\/\s*\$C000/.test(asm5), "5 gap rendered via analysis (segment header present)");
-  ok(/lda\s+#\$01/.test(asm5) && /sta\s+\$D020/.test(asm5), "5 gap code rendered at file offset");
+  ok(/lda\s+#\$01/.test(asm5) && /sta\s+vic_border\b/.test(asm5) && /\.label\s+vic_border\s*=\s*\$D020/.test(asm5), "5 gap code rendered at file offset (the border register by its platform name)");
   ok(/^\s*\.pseudopc\s+\$E000\s*\{/m.test(asm5), "5 relocated blob rendered as .pseudopc $E000");
   ok((asm5.match(/lda\s+\$FFFF,y/gi) || []).length === 1, "5 relocated bytes emitted exactly once");
   await assertByteExact("5", comboAsm, "kickassembler", combo);
