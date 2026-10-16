@@ -104,6 +104,12 @@ appendFileSync("builds.log", w + "\\n");
   edit("src/a.ts", "export const a = 5;\n");
   run("ui");
   check(builds().length === before + 3, "the bundle imports from src: a src edit rebuilds it too");
+  edit("ui/src/u.ts", "export const u = 3;\n");
+  spawnSync("npm", ["run", "ui:build"], { cwd: tmp, encoding: "utf8" });
+  spawnSync(process.execPath, ["scripts/ensure-built.mjs", "--stamp", "ui"], { cwd: tmp });
+  const n = builds().length;
+  run("ui");
+  check(builds().length === n, "--stamp ui records a bundle built by hand (prepack), so the next call does not rebuild");
   check(run("bogus").status === 2, "an unknown kind is refused");
 } finally {
   rmSync(tmp, { recursive: true, force: true });

@@ -325,7 +325,7 @@
     "e2e:bug060-dup-segment": "node scripts/ensure-built.mjs all && node scripts/e2e-bug060-duplicate-segment.mjs",
     "e2e:877-write": "node scripts/ensure-built.mjs all && node scripts/e2e-877-annotations-write.mjs",
     "e2e:877-merge": "node scripts/ensure-built.mjs all && node scripts/e2e-877-annotations-merge.mjs",
-    "prepack": "npm run build && npm run ui:build",
+    "prepack": "npm run build && npm run ui:build && node scripts/ensure-built.mjs --stamp ui",
     "e2e:716-package": "node scripts/e2e-716-package.mjs",
     "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs",
     "e2e:881-graph-first": "node scripts/e2e-881-graph-first.mjs",

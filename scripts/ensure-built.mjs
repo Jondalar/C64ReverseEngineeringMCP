@@ -13,7 +13,8 @@
  *   all       both; when both are stale, one full `npm run build`
  *   ui        inputs: ui/** except ui/dist and node_modules, src/** (the bundle imports from it),
  *             tsconfig.json, package.json, the vite version                  (npm run ui:build)
- *   --stamp   record the current hashes (the last step of `npm run build`)
+ *   --stamp   record the current hashes of mcp and pipeline (the last step of `npm run build`)
+ *   --stamp ui   record the hash of the bundle (the last step of `prepack`, after `npm run ui:build`)
  *
  * The stamp is dist/.build-stamp.json. `npm run build` wipes dist and so wipes the stamp, then
  * rewrites it.
@@ -112,6 +113,10 @@ function lock() {
 const unlock = () => rmSync(lockDir, { recursive: true, force: true });
 
 const kind = process.argv[2];
+if (kind === "--stamp" && process.argv[3] === "ui") {
+  writeStamp({ ui: hashOf("ui") });
+  process.exit(0);
+}
 if (kind === "--stamp") {
   writeStamp({ mcp: hashOf("mcp"), pipeline: hashOf("pipeline") });
   process.exit(0);
