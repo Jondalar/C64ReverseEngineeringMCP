@@ -157,6 +157,8 @@ function ownerOfId(id: string): string | undefined {
   const parts = id.split(":");
   if (parts.length !== 4) return undefined;
   const ctx = (parts[1] ?? "").split("/");
+  // a cartridge bank is `crt/<cart>/<bank>`: ctx[1] is the cartridge, shared by every bank of it, so the window is keyed by the whole context
+  if (ctx[0] === "crt") return parts[1];
   return ctx.length > 1 ? ctx[1] : undefined;
 }
 

@@ -599,6 +599,11 @@ jobs:
       - name: The window a payload owns (Spec 867)
         run: npm run e2e:867-window
 
+      # list_payloads {address} keeps a payload exactly when the window it prints for it covers the address;
+      # a cartridge chip's id names a cartridge and a bank, not an owner (issue 123).
+      - name: A payload answers the address its window covers (issue 123)
+        run: npm run e2e:issue123-payload-address-filter
+
       # Spec 866 — two doors, not four: the load address decides how bytes are read,
       # never the file name. Hermetic: it builds its own project through project_init /
       # agent_onboard, writes synthetic 6502 and 1541 code into .bin and .prg files and

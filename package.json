@@ -225,6 +225,7 @@
     "e2e:cartridge-bank": "npm run build && node scripts/e2e-cartridge-bank-listing.mjs",
     "smoke:900": "npm run build:mcp && node scripts/smoke-900-scenario-run.mjs",
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",
+    "e2e:issue123-payload-address-filter": "npm run build && node scripts/e2e-issue123-payload-address-filter.mjs",
     "e2e:867-window": "npm run build && node scripts/e2e-867-window.mjs",
     "e2e:866": "npm run build && node scripts/e2e-866-two-doors.mjs",
     "e2e:877-equates": "npm run build && node scripts/e2e-877-equates.mjs",
