@@ -22,7 +22,7 @@ import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -380,7 +380,7 @@ try {
     const names = /EXTCOL|CHROUT|Border/i;
     const first = await call("disasm", { path: "artifacts/foreign.prg", platform: "none", import_graph: false });
     const where = /([^\s"]*foreign[^\s"]*_disasm\.asm)/.exec(first)?.[1];
-    const read = () => readFileSync(where.startsWith("/") ? where : join(proj, where), "utf8");
+    const read = () => readFileSync(isAbsolute(where) ? where : join(proj, where), "utf8");
     check(!!where && !names.test(read()), "render with none: no C64 names", where ?? first.slice(0, 200));
     await call("disasm_prg", { prg_path: "artifacts/foreign.prg", import_graph: false });
     check(!names.test(read()), "re-render without platform (disasm_prg): still no C64 names");
