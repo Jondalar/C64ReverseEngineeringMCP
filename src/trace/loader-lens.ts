@@ -93,9 +93,33 @@ export interface ReadSetEntry {
   drvCycle?: number;
   headerBytes?: number;
   dataBytes?: number;
-  /** The visit took the sector's data. BLOCK_READ2: dataBytes > 0 (header bytes only =
-   *  the head passed the sector). Legacy: always true, the record cannot tell. */
+  /** The visit took the sector's data. BLOCK_READ2: dataBytes >= TAKEN_MIN_DATA_BYTES
+   *  (most of the data block; header bytes only, or the 1-2 bytes a sync hunt latches after
+   *  the data sync, = the head passed the sector); sector 0xff: dataBytes > 0. Legacy:
+   *  always true, the record cannot tell. */
   taken: boolean;
+}
+
+/** GCR bytes of one 1541 data block after its sync: 260 decoded bytes (block id $07,
+ *  256 data, checksum, 2 off bytes) x 5/4. */
+export const GCR_DATA_BLOCK_BYTES = 325;
+
+/** A BLOCK_READ2 visit of a sector WITH a header took its data only when the drive latched
+ *  MORE THAN HALF of the 325-byte GCR data block. The producer counts every byte latched
+ *  after the data sync as data, so a loader that hunts for the next header sync and
+ *  rejects the data block after its first byte or two (the block id) leaves a record with
+ *  dataBytes 1 or 2 — a pass, not a read (#77: IM II, 905 of 1282 records were d1/d2;
+ *  every real read was d324/d326). A loader reading the sector's data reads all of it
+ *  (>= 321 bytes even when it skips the checksum), so half a block keeps every genuine
+ *  read and also drops a loader that checks a few bytes after each sync before giving up.
+ *  Sector 0xff (no header: the producer has no block length to measure against) keeps
+ *  dataBytes > 0. */
+export const TAKEN_MIN_DATA_BYTES = Math.floor(GCR_DATA_BLOCK_BYTES / 2) + 1;
+
+/** Passed vs taken for one BLOCK_READ2 visit (see TAKEN_MIN_DATA_BYTES). */
+export function blockRead2Taken(sector: number, dataBytes: number): boolean {
+  if (sector === 0xff) return dataBytes > 0;
+  return dataBytes >= TAKEN_MIN_DATA_BYTES;
 }
 
 /** The caveat a read-set carries when it includes legacy BLOCK_READ (0x35) records, else
@@ -228,7 +252,7 @@ export function newReadSetFold(): Fold<ReadSetEntry[]> {
           drvCycle: ev.cycle,
           headerBytes: ev.headerBytes ?? 0,
           dataBytes: ev.dataBytes ?? 0,
-          taken: (ev.dataBytes ?? 0) > 0,
+          taken: blockRead2Taken(ev.sector, ev.dataBytes ?? 0),
         });
         return;
       }

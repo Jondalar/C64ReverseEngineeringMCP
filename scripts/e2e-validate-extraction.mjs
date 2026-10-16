@@ -5,6 +5,8 @@
 // truth (BLOCK_READ2 0x37, legacy 0x35), immune to write-time buffering. Run after build:mcp.
 import { validateExtraction } from "../dist/server-tools/validate-extraction.js";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
+import { buildReadSet } from "../dist/trace/loader-lens.js";
+import { TraceOp } from "../dist/trace/binary-format.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -81,6 +83,23 @@ const passedRes = validateExtraction(withPassed, mk([
 ]));
 ok(passedRes.verdict === "fail" && passedRes.readPast.length === 1 && passedRes.matchedSpans === 2, "a sector the head only passed is not matched; read past fails", JSON.stringify({ m: passedRes.matchedSpans, r: passedRes.readPast.length }));
 ok(!passedRes.unclaimed.some((u) => u.sector === 5), "a passed sector is not an unclaimed read");
+
+// #77 — the read-set as the producer emits it (BLOCK_READ2 events through buildReadSet):
+// a sync hunt latches 1-2 bytes after a sector's DATA sync and rejects it. Those passes
+// are no reads, so a payload the run only passed over is not seen, never read past.
+const ev2 = (track, sector, cycle, hdr, dat) => ({ op: TraceOp.BLOCK_READ2, cycle, c64Cycle: cycle, halftrack: track * 2, sector, headerBytes: hdr, dataBytes: dat, bytes: hdr + dat });
+const span3 = mk([
+  { kind: "sector", track: 33, sector: 0, length: 254 },
+  { kind: "sector", track: 33, sector: 5, length: 254 },
+  { kind: "sector", track: 33, sector: 1, length: 254 },
+]);
+const onlyPassed = validateExtraction(buildReadSet([ev2(33, 0, 10, 3, 1), ev2(33, 1, 500, 4, 2), ev2(33, 2, 900, 0, 1)]), span3);
+ok(onlyPassed.verdict === "pass" && onlyPassed.readPast.length === 0 && onlyPassed.matchedSpans === 0, "#77 spans the head only passed (d1/d2) → not seen, no read past, not FAIL", JSON.stringify({ v: onlyPassed.verdict, m: onlyPassed.matchedSpans, r: onlyPassed.readPast.length }));
+ok(onlyPassed.payloadsReached === 0 && onlyPassed.unclaimed.length === 0, "#77 d1/d2 passes reach no payload and are no unclaimed reads", JSON.stringify({ reached: onlyPassed.payloadsReached, u: onlyPassed.unclaimed.length }));
+const realReads = validateExtraction(buildReadSet([ev2(33, 0, 10, 9, 326), ev2(33, 5, 300, 5, 324), ev2(33, 1, 500, 5, 324)]), span3);
+ok(realReads.verdict === "pass" && realReads.matchedSpans === 3, "#77 full data-block visits (d324/d326) are still reads → 3 matched", JSON.stringify({ v: realReads.verdict, m: realReads.matchedSpans }));
+const realHole = validateExtraction(buildReadSet([ev2(33, 0, 10, 9, 326), ev2(33, 5, 300, 4, 2), ev2(33, 1, 500, 5, 324)]), span3);
+ok(realHole.verdict === "fail" && realHole.readPast.length === 1 && realHole.readPast[0].sector === 5, "#77 a real hole (S5 only passed between two reads) still FAILs as read past", JSON.stringify({ v: realHole.verdict, r: realHole.readPast.length }));
 
 // S5 — 91 payloads, the run loaded two of them.
 const many = {
