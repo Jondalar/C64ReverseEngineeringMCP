@@ -8,7 +8,7 @@ can actually finish.
 - **Check `master` first.** If the issue is already fixed there, or an open issue already covers it, do not
   open another one. Comment on the existing issue instead.
 - **One defect per issue.** Do not bundle findings, and do not add new findings to an issue that is
-  being retested. Open a new issue for each one.
+  closed after a fix. Open a new issue for each one.
 - **Windows-only failures come as a pull request, not an issue.** We develop and test on macOS and
   Linux and cannot reproduce, fix or verify anything that happens only on Windows. If you can, send a
   PR (see below). The same goes for portability fixes in test scripts.
@@ -37,8 +37,9 @@ reproduced at all, before anyone starts on it.
 
 ## Retests
 
-When you retest a fix, report only that fix. Retest on the real project and the real data you reported
-with. If something new turns up during a retest, open a new issue for it.
+We close an issue as soon as the fix is on `master`. Retest it on the real project and the real data you
+reported with; if the fix does not hold, reopen the issue and report only that fix. If something new turns
+up during a retest, open a new issue for it.
 
 ## Pull requests
 
