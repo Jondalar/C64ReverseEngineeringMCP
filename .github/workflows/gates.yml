@@ -82,6 +82,11 @@ jobs:
       - name: npm scripts run under cmd.exe too
         run: npm run check:npm-scripts-portable
 
+      # The test scripts build through scripts/ensure-built.mjs (one build per source state, not one per
+      # script); it must rebuild exactly when the content of the inputs changed.
+      - name: ensure-built rebuilds exactly when the sources changed
+        run: npm run check:ensure-built
+
       # The graph owns the six migrated record types; a writer that still
       # appends to their old JSON files makes a store the next open sweeps away.
       - name: Nothing writes a migrated store
