@@ -13,6 +13,12 @@
 # machine. The gates that need those assets stay what they were: run them by hand
 # when the work touches what they cover.
 #
+# Parallel: a `# gate: parallel` (or `# gate: runtime`) comment on the line(s) above a step in gates.yml
+# marks it as safe to run beside others — CI ignores the comment. A step WITHOUT a tag is serial: a new
+# step cannot start sharing state with the others by accident, it has to be proved and tagged. `runtime`
+# is a step that starts a daemon or server on a free port (at most 3 of them at once).
+# The scheduler is scripts/gate-pool.mjs; GATE_JOBS=1 makes the whole run serial again.
+#
 # Usage:
 #   scripts/gate.sh              every step in the workflow
 #   scripts/gate.sh docs         only the steps that judge documents
@@ -51,18 +57,26 @@ STEPS=$(
       next
     }
     job != "gates" { next }
+    /^[[:space:]]*#[[:space:]]*gate:[[:space:]]*(parallel|runtime|serial)/ {
+      tag = $0
+      sub(/^[[:space:]]*#[[:space:]]*gate:[[:space:]]*/, "", tag)
+      sub(/[^a-z].*$/, "", tag)
+      next
+    }
     /^[[:space:]]*-[[:space:]]+name:[[:space:]]*/ {
       sub(/^[[:space:]]*-[[:space:]]+name:[[:space:]]*/, "")
       name = $0
+      mode = (tag == "" ? "serial" : tag)
+      tag = ""
       next
     }
     /^[[:space:]]*run:[[:space:]]*/ {
       if (name == "") next
       sub(/^[[:space:]]*run:[[:space:]]*/, "")
-      print name "\t" $0
+      print name "\t" mode "\t" $0
       name = ""
     }
-  ' "$WORKFLOW" | grep -v '	npm ci$'
+  ' "$WORKFLOW" | grep -v '	npm ci$' | sed -e 's#\(	\)npm run build$#\1node scripts/ensure-built.mjs all#' -e 's#\(	\)npm run ui:build$#\1node scripts/ensure-built.mjs ui#'
 )
 
 if [ "$TIER" = "docs" ]; then
@@ -78,7 +92,7 @@ fi
 
 if [ "${GATE_LIST:-0}" = "1" ]; then
   printf '%s steps (tier=%s):\n' "$TOTAL" "$TIER"
-  printf '%s\n' "$STEPS" | awk -F'\t' '{ printf "  %s\n      %s\n", $1, $2 }'
+  printf '%s\n' "$STEPS" | awk -F'\t' '{ printf "  %s\n      %s  [%s]\n", $1, $3, $2 }'
   exit 0
 fi
 
@@ -121,27 +135,23 @@ fi
 export C64RE_STATE_DIR
 export C64RE_STARTED_BY=smoke
 
-N=0
 START=$(date +%s)
 printf '\n=== gate: %s step(s) from gates.yml (tier=%s) ===\n' "$TOTAL" "$TIER" >&2
 
-printf '%s\n' "$STEPS" | sed '/^$/d' > /tmp/.c64re-gate-steps.$$
-while IFS="$(printf '\t')" read -r NAME CMD; do
-  N=$((N + 1))
-  printf '\n[%s/%s] %s\n' "$N" "$TOTAL" "$NAME" >&2
-  # </dev/null: a step must never inherit the caller's stdin. When this runs from
-  # pre-push that stdin is git's ref pipe, and a step that reads it kills the push.
-  if ! C64RE_GATE_STEP="$NAME" sh -c "$CMD" >&2 </dev/null; then
-    ELAPSED=$(( $(date +%s) - START ))
-    printf '\n=== gate RED at step %s/%s after %ss ===\n' "$N" "$TOTAL" "$ELAPSED" >&2
-    printf '    %s\n' "$NAME" >&2
-    printf '    re-run it alone:  %s\n\n' "$CMD" >&2
-    rm -f /tmp/.c64re-gate-steps.$$
-    [ "${GATE_OWNS_STATE:-0}" = "1" ] && rm -rf "$C64RE_STATE_DIR"
-    exit 1
-  fi
-done < /tmp/.c64re-gate-steps.$$
-rm -f /tmp/.c64re-gate-steps.$$
+# One run directory for the logs, the per-step scratch and the timings; the scheduler writes into it.
+GATE_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/c64re-gate-run.XXXXXX")
+export GATE_RUN_DIR
+GATE_TIMINGS_IN="$(git rev-parse --git-dir 2>/dev/null || echo .git)/c64re-gate-timings.tsv"
+export GATE_TIMINGS_IN
+printf '%s\n' "$STEPS" | sed '/^$/d' > "$GATE_RUN_DIR/steps.tsv"
+# </dev/null: a step must never inherit the caller's stdin. When this runs from
+# pre-push that stdin is git's ref pipe, and a step that reads it kills the push.
+if ! node scripts/gate-pool.mjs "$GATE_RUN_DIR/steps.tsv" </dev/null; then
+  ELAPSED=$(( $(date +%s) - START ))
+  printf '=== gate RED after %ss (logs: %s) ===\n\n' "$ELAPSED" "$GATE_RUN_DIR" >&2
+  [ "${GATE_OWNS_STATE:-0}" = "1" ] && rm -rf "$C64RE_STATE_DIR"
+  exit 1
+fi
 
 LEFT_BEHIND=$(temp_daemons | grep -vxF -- "${TEMP_DAEMONS_AT_START:-\x00}")
 if [ -n "$LEFT_BEHIND" ]; then
@@ -154,6 +164,9 @@ fi
 
 ELAPSED=$(( $(date +%s) - START ))
 [ "${GATE_OWNS_STATE:-0}" = "1" ] && rm -rf "$C64RE_STATE_DIR"
+cp "$GATE_RUN_DIR/timings.tsv" "$(git rev-parse --git-dir 2>/dev/null || echo .git)/c64re-gate-timings.tsv" 2>/dev/null || true
+cp "$GATE_RUN_DIR/watch.tsv" "$(git rev-parse --git-dir 2>/dev/null || echo .git)/c64re-gate-watch.tsv" 2>/dev/null || true
+rm -rf "$GATE_RUN_DIR"
 
 # Leave a note saying WHAT was proved, so the pre-push hook does not prove it again.
 #

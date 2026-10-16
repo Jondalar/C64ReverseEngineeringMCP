@@ -16,6 +16,15 @@ name: gates
 # `check:gate-coverage` fails when a test script is in neither place. The measure:* scripts are not tests.
 # e2e:830 uses KickAssembler when it is present and skips that one check loudly on a runner that has no jar.
 
+# `# gate: parallel` and `# gate: runtime` on the line above a step are read by scripts/gate.sh and ignored by GitHub:
+# they mark a step that scripts/gate.sh may run beside others. A step with NO tag is serial. Serial is the default
+# because the tag is a claim that has to be proved (no write into the repository, no fixed port, no fixed /tmp
+# path, no judging of other processes), and a new step must not become a neighbour of the others by accident.
+#   parallel  hermetic; runs in the worker pool (min(6, cpus) workers)
+#   runtime   starts a daemon or server, on a free port and in its own TMPDIR and C64RE_STATE_DIR; at most 3 at once
+# The steps that stay serial are the ones that build or pack, hold a fixed port, write a fixed path, or look at
+# the processes of the whole machine.
+
 on:
   pull_request:
   push:
@@ -70,29 +79,35 @@ jobs:
 
       # Rule 9 — no document may describe a world that no longer exists.
       # A tool that returns structuredContent hides its own text from the model.
+      # gate: parallel
       - name: Tools answer in text
         run: npm run check:text-only-tools
 
       # Nothing may be in package.json as a gate and run nowhere: every e2e:/smoke:/test:/probe: script is a step of
       # this workflow or carries a one-line reason in scripts/gate-coverage-allow.json.
+      # gate: parallel
       - name: Every test script is in the gate or says why not
         run: npm run check:gate-coverage
 
       # npm runs these scripts through cmd.exe on Windows, which has no /dev/null.
+      # gate: parallel
       - name: npm scripts run under cmd.exe too
         run: npm run check:npm-scripts-portable
 
       # The test scripts build through scripts/ensure-built.mjs (one build per source state, not one per
       # script); it must rebuild exactly when the content of the inputs changed.
+      # gate: parallel
       - name: ensure-built rebuilds exactly when the sources changed
         run: npm run check:ensure-built
 
       # The graph owns the six migrated record types; a writer that still
       # appends to their old JSON files makes a store the next open sweeps away.
+      # gate: parallel
       - name: Nothing writes a migrated store
         run: npm run check:legacy-store-writers
 
       # Doctrine rule 8 — a session in a project onboards before it works.
+      # gate: parallel
       - name: Work refuses until the session onboards
         run: npm run e2e:onboarding-gate
 
@@ -101,21 +116,26 @@ jobs:
       # became async — every "allowed" case silently read undefined.
       # The extract-first grounding doctrine: steering text, the ungrounded-findings rung, the enforcement.
       # In package.json since it was written; in no workflow, and a gate that is not here does not run.
+      # gate: parallel
       - name: Extract-first grounding (e2e:752)
         run: npm run e2e:752
 
+      # gate: parallel
       - name: Runtime discipline is enforced
         run: npm run e2e:discipline-gate
 
       # The gate of a call that names project_dir checks THAT project: its citation, its ratchet file, its records (issue 124).
+      # gate: parallel
       - name: The discipline gate checks the project the call names (issue 124)
         run: npm run e2e:issue124-loader-lens-gate-project
 
       # Both measures a session can be pushed to game live here, and this gate
       # was in package.json and in no workflow.
+      # gate: parallel
       - name: The slot measures say what they count
         run: npm run smoke:project-rules
 
+      # gate: parallel
       - name: Docs are current
         run: npm run check:docs-current
 
@@ -125,6 +145,7 @@ jobs:
       # greps those documents for a denial next to a tool name and fails when the
       # named tool exists; it generates the surface it checks against, so it is
       # hermetic.
+      # gate: runtime
       - name: No document denies a capability we have (877 D3)
         run: npm run check:doc-capability-claims
 
@@ -134,6 +155,7 @@ jobs:
       # `analyze_prg` in parameter descriptions, refusal bodies and next-step hints. The
       # gate reads the retired names from ALIAS_SUCCESSOR and scans string literals only,
       # so a comment may still tell the history.
+      # gate: parallel
       - name: No tool text recommends a retired door name (878)
         run: npm run check:tool-names
 
@@ -141,38 +163,45 @@ jobs:
       # writes into a project, the user docs, the names of files in docs/ and resources/ —
       # carries no internal id: no spec number, bug id, decision marker. Real exceptions
       # (names an older release wrote, still read) are in scripts/no-internal-refs.allow.json.
+      # gate: parallel
       - name: No internal references on the public surface
         run: npm run check:no-internal-refs
 
       # A project written under the old, numbered names still opens; everything written now uses the new ones.
+      # gate: parallel
       - name: Projects carrying the old names still open, new writes use the new names
         run: npm run e2e:legacy-names
 
       # 883 — nothing ships that nothing can reach. Walks the built dist/ from every entry a
       # package user can start; a module no entry reaches is dead or belongs in `files` as an
       # exact exclusion. It is the gate for what was found by hand twice and came back.
+      # gate: parallel
       - name: Nothing ships that nothing can reach (883)
         run: npm run check:dist-reachable
 
       # 881 — the graph comes before the listing. A door that refuses a large listing until
       # the graph has been asked, and a footer line that measures the habit without
       # refusing anything. Hermetic: one stdio session over a temp project.
+      # gate: parallel
       - name: The graph before the listing (881)
         run: npm run e2e:881-graph-first
 
       # Issue #28 — one spelling of a path in knowledge/artifacts.json, whoever writes it.
       # Plants what a Windows store written before the fix holds, so it bites here too.
+      # gate: parallel
       - name: One spelling per path in the artifact store (#28)
         run: npm run e2e:relpath-spelling
 
       # extract_crt registers its manifest as crt-manifest / manifest — for the first CRT, the
       # second, and a project still holding the old disasm-target / prg record. Hermetic.
+      # gate: parallel
       - name: The CRT manifest keeps its role (extract_crt)
         run: npm run e2e:crt-manifest-role
 
       # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
       # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
       # built no Intel Mac while the installer claimed to serve one.
+      # gate: runtime
       - name: The runtime pin, mapping and resolution (716.3)
         run: npm run e2e:716-runtime
 
@@ -188,15 +217,19 @@ jobs:
       # (it needs assets a runner does not have), so CI stayed green over a
       # generated file describing the old state — rule 9, missed by a gate that
       # was never here. This one line is hermetic; the rest of that suite is not.
+      # gate: parallel
       - name: Generated tool surface is current
         run: npm run gen:tool-surface -- --check
 
+      # gate: parallel
       - name: Cartridge type ids agree with VICE
         run: npm run check:cart-type-ids
 
+      # gate: parallel
       - name: Project knowledge store
         run: npm run test:project-knowledge
 
+      # gate: parallel
       - name: Project steering (Spec 748)
         run: npm run e2e:748
 
@@ -208,42 +241,50 @@ jobs:
 
       # Spec 893 — the project a call names is the project it gets, and a project is in git.
       # Spawns the MCP over stdio in temp directories; no daemon, no :4312.
+      # gate: parallel
       - name: Named project and git (Spec 893)
         run: npm run smoke:893
 
       # Spec 895 — the host config is written by C64RE, never typed: project_init and
       # `c64re mcp-config` write it, the check reads it. Temp directories; no daemon, no :4312.
+      # gate: parallel
       - name: Host config written by C64RE (Spec 895)
         run: npm run smoke:895
 
       # Spec 896 — a self-extracting depack, `until` on the runtime, an honest run answer, a
       # refusal that says the server restarted. Own temp dirs; its daemon and trx64cli parts
       # start their own process on a free port and SKIP LOUDLY on a runner that has neither.
+      # gate: runtime
       - name: Runtime items 4, 5, 9, 10 (Spec 896)
         run: npm run smoke:896-runtime
       # Spec 896 items 1, 2, 3, 6, 8 — the rebuild check follows preferredAssembler, hex
       # offsets, missing output folders, depack results with/without a load address, BASIC
       # launchers. Temp dirs only, own MCP servers, no daemon. Rebuild cases skip loudly
       # when 64tass is absent.
+      # gate: parallel
       - name: Static findings (Spec 896)
         run: npm run smoke:896-static
 
+      # gate: parallel
       - name: Model router skills and agents
         run: npm run smoke:model-router
 
       # Spec 827 — pure path policy, so the platform it targets does not have to
       # be the platform it runs on.
+      # gate: parallel
       - name: Trace storage location (Spec 827)
         run: npm run e2e:827
 
       # Spec 828 — hermetic on purpose: the fix is that a lookup must not need
       # the network, so its gate must not either.
+      # gate: parallel
       - name: Reference coverage (Spec 828)
         run: npm run e2e:828
 
       # Spec 829 — hermetic: the token table is checked against the ROM's own
       # ordering, the DATA rule and the round trip against real bytes. No ROM
       # image, no network, no assembler.
+      # gate: parallel
       - name: BASIC V2 tooling (Spec 829)
         run: npm run e2e:829
 
@@ -251,15 +292,18 @@ jobs:
       # the bundled analyzer on it (the byte-identical rebuild half skips loudly
       # when KickAssembler is absent, which on a bare runner it is), and the seed
       # gate makes a temp project with a mirror in it.
+      # gate: parallel
       - name: Entry point inside an operand (Spec 830)
         run: npm run e2e:830
 
+      # gate: parallel
       - name: Seed owner collision (Spec 830)
         run: npm run e2e:830-seed
 
       # Spec 831 — hermetic: a temp project, the path library, the route and the
       # two call sites read as source. The point of the spec is that the path is
       # decided on this side, so it can be checked without a daemon.
+      # gate: parallel
       - name: Dump location and receipt (Spec 831)
         run: npm run e2e:831
 
@@ -268,30 +312,38 @@ jobs:
       # projects. No ROMs, no real media, no daemon. (e2e:832-annotations uses
       # KickAssembler for the byte-identity half and skips that check loudly
       # without a jar, the same way e2e:830 does.)
+      # gate: parallel
       - name: Annotation labels (Spec 832 D1)
         run: npm run e2e:832-annotations
 
+      # gate: parallel
       - name: Disk load address and manifest readers (Spec 832 D2/D3)
         run: npm run e2e:832-disk
 
+      # gate: parallel
       - name: GCR extraction fidelity (Spec 832 D4)
         run: npm run e2e:832-gcr
 
+      # gate: parallel
       - name: Audit policy and ids (Spec 832 D5/D6)
         run: npm run e2e:832-ids
 
+      # gate: parallel
       - name: LUT refusal names its class limit (Spec 832 §8)
         run: npm run e2e:832-lut
 
       # Spec 833 — all three hermetic: synthetic PRGs, a GCR track from this
       # repo's own encoder, and a temp project with C64RE_PROJECT_DIR removed
       # from the child environment so the fallback cannot rescue the resolver.
+      # gate: parallel
       - name: Render truth (Spec 833 D1/D2/D3)
         run: npm run e2e:833-render
 
+      # gate: parallel
       - name: Sector filenames (Spec 833 D4)
         run: npm run e2e:833-sectors
 
+      # gate: parallel
       - name: Sandbox project hint (Spec 833 D5)
         run: npm run e2e:833-sandbox
 
@@ -300,39 +352,48 @@ jobs:
       # fallback can rescue the resolver. The daemon is stubbed; they assert
       # RESOLUTION, never a run, which is why an absent runtime cannot decide
       # the verdict.
+      # gate: runtime
       - name: Headless project hints (Spec 834 §2)
         run: npm run e2e:834-headless
 
+      # gate: parallel
       - name: Trace-store resolution (Spec 834 §3)
         run: npm run e2e:834-trace-store
 
+      # gate: parallel
       - name: Scene reel project hint (Spec 834 §4)
         run: npm run e2e:834-scene-reel
 
       # Spec 835 — hermetic: it reads the generated tool surface and the
       # source, no daemon and no network.
+      # gate: runtime
       - name: The session tool says what it accepts (Spec 835)
         run: npm run e2e:835
 
       # Spec 836 — hermetic on purpose: the defect is a WRITE to a machine
       # somebody else is using, so the gate must not need that machine to exist.
+      # gate: runtime
       - name: An attach never swaps the shared medium (Spec 836)
         run: npm run e2e:836-attach
 
       # Spec 836 D3 — the live half needs the runtime binary and skips loudly
       # without it; everything else is source and surface.
+      # gate: runtime
       - name: A machine of your own (Spec 836 D3)
         run: npm run e2e:836-sandbox
 
       # Spec 838 — three field reports, three gates, all hermetic. The paths
       # gate runs its Windows assertions on every platform on purpose: the
       # platform it targets is not the platform it runs on.
+      # gate: parallel
       - name: An id is not a path (Spec 838 D1)
         run: npm run e2e:838-paths
 
+      # gate: parallel
       - name: A harvest may not invent bytes (Spec 838 D2)
         run: npm run e2e:838-harvest
 
+      # gate: parallel
       - name: Code entered from another overlay (Spec 838 D3)
         run: npm run e2e:838-islands
 
@@ -341,34 +402,41 @@ jobs:
       # checkout to know what a daemon verb IS, and says so and passes when it is
       # absent rather than guessing — guessing the verb list from string shapes is
       # exactly how the first measurement of this delta went wrong.
+      # gate: runtime
       - name: A cartridge comes out, and a tool says what it does (Spec 839)
         run: npm run e2e:839-media
 
+      # gate: runtime
       - name: UI reaches nothing the LLM cannot (Spec 839)
         run: npm run check:ui-mcp-delta
 
       # Spec 841 — three levels merged per binding. Hermetic: the levels are
       # injected, because a gate that depends on what happens to be in ~/.config
       # is not a gate.
+      # gate: parallel
       - name: A keyset belongs to the game (Spec 841)
         run: npm run e2e:841-keyset
 
       # Spec 842 — a data island inside a relocated block. Synthetic: the
       # reporter's shape, not his file, so the gate runs more than once.
+      # gate: parallel
       - name: A data island survives relocation (Spec 842)
         run: npm run e2e:842-reloc-data
 
+      # gate: parallel
       - name: The graph knows where a relocated byte runs (Spec 842 D4)
         run: npm run e2e:842-graph
 
       # Spec 843 — the frozen screen. Hermetic over source, surface and a temp
       # project; the daemon half SKIPS loudly without a TRX64 checkout rather than
       # passing on an absence.
+      # gate: runtime
       - name: Click a pixel, name the thing (Spec 843)
         run: npm run e2e:843-inspect
 
       # Spec 804 §4.5 — no name over 20 characters in a project created since the rule.
       # Hermetic: a temp project through project_init, a 9-byte PRG, the bundled pipeline.
+      # gate: parallel
       - name: A name fits its column (Spec 804)
         run: node scripts/smoke-804-naming.mjs
 
@@ -378,6 +446,7 @@ jobs:
       # tool's JSON block are one document. Hermetic — the committed platform-kb is
       # the only asset it reads. It was in no workflow and went red the day the
       # onboarding gate arrived, unobserved for weeks; that is what this entry is for.
+      # gate: parallel
       - name: The graph MCP surface (Spec 823)
         run: npm run e2e:823
 
@@ -389,6 +458,7 @@ jobs:
       - name: Graph subgraph route (Spec 825 D1)
         run: npm run smoke:825-routes
 
+      # gate: parallel
       - name: Graph explorer (Spec 825)
         run: npm run smoke:825
 
@@ -396,6 +466,7 @@ jobs:
       # the product's doors (project_init, analyze_prg + disasm_prg with an annotations
       # file, model_assert, doc_register, save_finding, render_docs) over MCP stdio,
       # with the bundled analyzer. No fixture, no ROM, no assembler, no daemon.
+      # gate: parallel
       - name: The search sees the graph (Spec 740.3)
         run: npm run smoke:740-graph
 
@@ -403,6 +474,7 @@ jobs:
       # model and its refusal, the VIC view's geometry on a wrapped NTSC header, and a
       # project's model reaching the runtime's command line (a stand-in binary). The
       # half that needs a runtime is smoke:863, a local gate.
+      # gate: runtime
       - name: C64 models as the runtime reports them (Spec 863)
         run: npm run e2e:863-model
 
@@ -410,6 +482,7 @@ jobs:
       # HTTP server and UDP on 127.0.0.1 free ports (never a device, never :4312). Frames
       # and audio from the device's stream, the relay's binary bytes decoded back the way
       # the UI parses them, the REST start that must not block, and the player's stream rate.
+      # gate: runtime
       - name: Picture and sound from a C64 Ultimate (Spec 889 streams)
         run: npm run smoke:889-streams
 
@@ -419,12 +492,14 @@ jobs:
       # own WsClient connecting to the bridge directly, the assistant and the workbench
       # following each other's switch, the REST password staying in memory. Child server on a
       # free port, UDP on 127.0.0.1, never a device, never :4312.
+      # gate: runtime
       - name: The C64 Ultimate in the workbench (Spec 889 UI)
         run: npm run smoke:889-ui
 
       # Spec 900 — hermetic: what a Then parses to, where it stands, and that a line which
       # starts like a check and does not parse is an error. The half that runs machines is
       # smoke:900, a local gate.
+      # gate: parallel
       - name: A Then a runner can decide (Spec 900)
         run: npm run e2e:900-checks
 
@@ -436,6 +511,7 @@ jobs:
       # probable code that is listed but binds nothing. No ROMs, no game bytes, no runtime.
       # The two rebuild checks need KickAssembler / 64tass and skip loudly without them,
       # like e2e:830.
+      # gate: parallel
       - name: Split low/high tables are declared, and a found one is decided (Spec 903)
         run: npm run e2e:903
 
@@ -446,6 +522,7 @@ jobs:
       # is RAM for one routine, the cartridge window by type, and memoryMap through
       # write_annotations / merge_annotations / the loader. No ROMs, no game bytes, no runtime.
       # The rebuild checks need KickAssembler / 64tass and skip loudly without them.
+      # gate: parallel
       - name: I/O registers have names in every listing (Spec 908)
         run: npm run e2e:908
 
@@ -455,6 +532,7 @@ jobs:
       # the cartridge's type and role declared, never guessed, and $DE00 named for each; a project written with crt/<bank>
       # ids (the bug's state) opened once and moved, what cannot be placed listed by name, a second open changing nothing;
       # the old form refused by name. No ROMs, no game bytes, no runtime.
+      # gate: parallel
       - name: Each cartridge is its own place — chips, type, role, old projects (Spec 909)
         run: npm run e2e:909
 
@@ -462,6 +540,7 @@ jobs:
       # Cartridge chips list from their window base ($8000) and rebuild byte-identical (none "diverged"); a disk PRG keeps its
       # own load address; a raw payload lists at its declared address, with none declared it is refused; a LUT's destination
       # is never written into a chunk by the tool. Needs KickAssembler or 64tass for the rebuild checks.
+      # gate: parallel
       - name: Payloads are headerless unless they are PRG files
         run: npm run e2e:payload-headerless
 
@@ -469,6 +548,7 @@ jobs:
       # free port (never :4312), two synthetic cartridges booting their own code, the image hash matched against the
       # registered cartridges; an image that matches none writes no cartridge-space node and says so. SKIPS LOUDLY on a
       # runner with no trx64-daemon; C64RE_RUNTIME_BIN=<binary> runs it.
+      # gate: runtime
       - name: A trace lands in the mounted cartridge (Spec 909)
         run: npm run e2e:909-runtime
 
@@ -477,6 +557,7 @@ jobs:
       # crt-space boundary holds them), how load_address is read (one address rule, with
       # relocations too), and what $DE00 is called: the cartridge type recorded for the bytes
       # decides (GMod2, EasyFlash, Magic Desk), and no known type is a neutral "cartridge I/O".
+      # gate: parallel
       - name: A cartridge bank listed on its own — space, load address, $DE00
         run: npm run e2e:cartridge-bank
 
@@ -484,6 +565,7 @@ jobs:
       # input offset, the jitter seed and the sweep's offsets as pure functions, a runtime
       # that cannot place input refused by name, a stopped probe reported as a stop, and the
       # tools' descriptions. No daemon, no media, no :4312.
+      # gate: runtime
       - name: Input offsets, windows and series — the notation (Spec 899)
         run: npm run e2e:899-notation
 
@@ -492,6 +574,7 @@ jobs:
       # runtime with cycle-exact input and the frame probe; without a daemon binary it SKIPS
       # LOUDLY, and against a runtime that predates them it proves the refusal and skips the
       # rest. Ports of its own, never :4312.
+      # gate: runtime
       - name: Input offsets, sweeps, windows and series on real machines (Spec 899)
         run: npm run e2e:899-sweep
 
@@ -501,6 +584,7 @@ jobs:
       # run on any runner; the real KickAssembler case skips loudly without a jar. The runtime
       # half — anchors, a candidate run on clones with inputs, the daemon restart — starts a
       # trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
+      # gate: runtime
       - name: Anchors, candidates and the build (Spec 905)
         run: npm run e2e:905
 
@@ -515,6 +599,7 @@ jobs:
       # against the sibling build). Not in the Windows job below for the same reason: that runner has
       # no daemon binary either (e2e:716-runtime resolves one with nothing downloaded, e2e:902 uses a
       # stand-in), so the step would only print SKIPPED there.
+      # gate: runtime
       - name: Replay across fresh starts — identical arguments, identical cycles (issue #67)
         run: npm run e2e:replay-determinism
 
@@ -524,6 +609,7 @@ jobs:
       # here), every UI-only tool refusing a sandbox id by name, "not yours" / "ended: <reason>" /
       # "no such session" told apart from the records, the C64U refusal naming runtime_sandbox_start,
       # and the docs and doctrine saying what is built.
+      # gate: runtime
       - name: A sandbox session — the refusals, the parity table, the doors (Spec 906)
         run: npm run e2e:906-refusals
 
@@ -534,11 +620,13 @@ jobs:
       # with the trace finalized; job mode past the grace window; the C64U refusal followed through to a
       # working trace and a store read with the device selected. SKIPS LOUDLY on a runner with no
       # trx64-daemon; C64RE_E2E_LONG=1 adds the 60M-cycle capture.
+      # gate: runtime
       - name: A sandbox session on real machines (Spec 906)
         run: npm run e2e:906
 
       # Spec 905 — the workbench's anchor code (the page's own, bundled with its WsClient) against a
       # daemon of this run's own beside an MCP session; the source and bundle checks run everywhere.
+      # gate: runtime
       - name: Anchors in the workbench (Spec 905)
         run: npm run smoke:905
 
@@ -549,6 +637,7 @@ jobs:
       # pass from a real emulator run is e2e:889-pass, a local gate (it needs the runtime
       # and skips loudly without it); the half that talks to a real UE2 emulator is
       # scripts/e2e-889-ue2emu.mjs, run by hand.
+      # gate: runtime
       - name: The C64 Ultimate backend (Spec 889)
         run: npm run smoke:889
 
@@ -558,6 +647,7 @@ jobs:
       # connection at the device, A/V frames to subscribers only, a second start attaching, the
       # gate for a raw WebSocket client, idle exit with Spec 886's rules, one selection for
       # every process, the password on stdin only, a bridge that ended.
+      # gate: runtime
       - name: The C64U bridge, a daemon of its own (Spec 889 bridge)
         run: npm run smoke:889-bridge
 
@@ -570,12 +660,15 @@ jobs:
       # the table against the machine, the VIC's stolen cycles, the interrupts,
       # the drive — is smoke:861, a local gate: it needs the runtime, its ROMs
       # and a few minutes.
+      # gate: parallel
       - name: The cycle table is the same table twice (Spec 861)
         run: npm run check:cycle-table
 
+      # gate: parallel
       - name: What code costs, and whether two versions are the same (Spec 861)
         run: npm run e2e:861-static
 
+      # gate: parallel
       - name: What a change breaks (Spec 861)
         run: npm run e2e:861-impact
 
@@ -588,9 +681,11 @@ jobs:
       # evaluator, because ranking by frequency needs a measurement and a
       # runner has no machine. The half that records a real capture is
       # smoke:862, a local gate.
+      # gate: parallel
       - name: A fixture per rule, and nothing applied (Spec 862)
         run: npm run e2e:862-rules
 
+      # gate: parallel
       - name: Frequency ranks, and a page crossing is a count (Spec 862)
         run: npm run e2e:862-rank
 
@@ -600,6 +695,7 @@ jobs:
       # needs KickAssembler and skips those four checks loudly without a jar, like
       # e2e:830 — everything else (the rendering, the seeding, the window, the
       # annotations, the provenance, the registration) is asserted either way.
+      # gate: parallel
       - name: Bytes at an address (Spec 865)
         run: npm run e2e:865
 
@@ -609,11 +705,13 @@ jobs:
       # schema, and runs the bundled analyzer. The capture the byte-match needs is
       # handed in as a `ByteSource`, which is the interface the runtime implements — the
       # same question against a real machine is `smoke:867`, a local gate.
+      # gate: parallel
       - name: The window a payload owns (Spec 867)
         run: npm run e2e:867-window
 
       # list_payloads {address} keeps a payload exactly when the window it prints for it covers the address;
       # a cartridge chip's id names a cartridge and a bank, not an owner (issue 123).
+      # gate: parallel
       - name: A payload answers the address its window covers (issue 123)
         run: npm run e2e:issue123-payload-address-filter
 
@@ -623,12 +721,14 @@ jobs:
       # drives disasm / analyze and the three old names over MCP. No ROMs, no media, no
       # daemon. The two reassembly checks need KickAssembler and skip loudly without a
       # jar, like e2e:830 and e2e:865; everything else is asserted either way.
+      # gate: parallel
       - name: Two doors, not four (Spec 866)
         run: npm run e2e:866
 
       # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
       # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
+      # gate: parallel
       - name: Thirteen tooling defects (BUG-054)
         run: npm run e2e:tooling-defects
 
@@ -637,6 +737,7 @@ jobs:
       # that all eight registrations are in the file — a serial run cannot see this
       # defect at all. Hermetic: temp projects, synthetic PRGs, one small fixture D64,
       # no ROMs, no assembler, no daemon.
+      # gate: parallel
       - name: Two writers, one knowledge store
         run: npm run e2e:store-concurrency
       # The address rule has been written down twice and drifted twice. It now lives
@@ -645,6 +746,7 @@ jobs:
       # answer identically, and a third copy — a re-statement in a string, or an
       # inline parseInt on an address or a count in any door of the disassembly
       # family — fails the gate by file and line. Pure source and dist; hermetic.
+      # gate: parallel
       - name: One address rule, not three
         run: npm run check:address-rule
 
@@ -655,21 +757,25 @@ jobs:
       # answer, and an unrenderable packed stream with no remedy in its message.
       # Hermetic: temp projects, synthetic bytes, a synthetic graph.sqlite. The
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
+      # gate: parallel
       - name: The disassembly family
         run: npm run e2e:disasm-family
       # A label on a zero-page address names the operand in every zero-page mode, gets
       # one equate before first use, and the rebuild stays byte-identical in KickAssembler
       # and 64tass (an abs-encoded zero-page operand stays absolute). Hermetic.
+      # gate: parallel
       - name: Zero-page labels
         run: npm run e2e:zp-labels
       # The absolute twin: a label on an address outside the image (game RAM, a KERNAL
       # variable) names the operand in every absolute form, gets one equate before first
       # use, and the rebuild stays byte-identical. Hermetic.
+      # gate: parallel
       - name: Labels outside the image
         run: npm run e2e:ext-labels
       # Issue #70 - a name on a runtime address inside a relocated block is defined at its
       # instruction there, and names every absolute operand that targets it (outside, other
       # blocks, same block); mid-instruction and zero-page names are equates. Hermetic.
+      # gate: parallel
       - name: Names inside relocated blocks
         run: npm run e2e:reloc-names
       # Spec 898 — the VIC-20 and the TED machines as platforms: the memory map per tag,
@@ -677,6 +783,7 @@ jobs:
       # USES_HARDWARE, the resolution order, the lookups, the guessed load addresses.
       # Hermetic: temp projects, synthetic bytes. The rebuild half needs KickAssembler and
       # 64tass and skips loudly without them, like e2e:830.
+      # gate: parallel
       - name: The VIC-20 and the TED machines are platforms (Spec 898)
         run: npm run e2e:898
       # BUG-054 follow-up — the three that came back: 220 open questions from one
@@ -684,6 +791,7 @@ jobs:
       # contradicted the sync about the same files. Hermetic: temp projects, files
       # of a few bytes, and one live MCP session over stdio. No ROMs, no media, no
       # assembler, no daemon.
+      # gate: parallel
       - name: Inventory sync tells the truth (BUG-054 follow-up)
         run: npm run e2e:inventory-truth
       # BUG-067 — the closed-loop sweep that ran after every disasm archived the same
@@ -694,12 +802,14 @@ jobs:
       # nothing, the questions are read a constant number of times, no whole-ledger read,
       # and a scoped footer runs no project-wide pass. Hermetic: a temp project and a
       # synthetic analysis JSON.
+      # gate: parallel
       - name: The closed-loop sweep archives once and reads once (BUG-067)
         run: npm run e2e:bug067
       # A scratch render stays in the graph under its stem for good. graph_remove_owner
       # drops what the owner's runs and annotations file put there and nothing a door
       # wrote; disasm import_graph=false renders without touching the graph at all.
       # Hermetic: a temp project, synthetic PRGs; the rebuild verdict is not tested.
+      # gate: parallel
       - name: Dropping an owner, and the preview render
         run: npm run e2e:graph-remove-owner
       # A second autonomous run put five more defects into doors these two gates
@@ -708,30 +818,37 @@ jobs:
       # disk; and a document demand naming a whole medium, which the contract could
       # state but never satisfy. Both hermetic — temp projects, synthetic bytes, no
       # media and no runtime — and neither ran here before.
+      # gate: parallel
       - name: A described table resolves its rows (Spec 750.2)
         run: npm run e2e:750-lut
 
+      # gate: parallel
       - name: The contract, checked (Spec 848)
         run: npm run e2e:848-contract
 
+      # gate: parallel
       - name: The contract says which files it is about (Spec 897)
         run: npm run e2e:897-scope
 
       # A loader capture says where the bytes landed (stack-buffered and downward copies
       # follow to their destination, page 1 is a buffer) and the verdict says what the
       # run proves (not seen is not a failure). Synthetic events and manifests, no daemon.
+      # gate: parallel
       - name: The loader lens follows stack-buffered copies (Spec 907)
         run: npm run e2e:907-lens
 
+      # gate: parallel
       - name: validate_extraction says what the run proves (Spec 907)
         run: npm run e2e:907-validate
 
       # S12's denominator: a raw payload counts every byte, only a headed PRG gives up two.
+      # gate: parallel
       - name: Coverage counts a payload's body, whatever its format (issue 82)
         run: npm run e2e:payload-body-size
 
       # An immediate is a label half only when its pointer is dereferenced. Needs the
       # assembler for the rebuild half and skips that half loudly without it.
+      # gate: parallel
       - name: Immediates stay literals unless a pointer is built (issue 83)
         run: npm run e2e:zp-pointer-halves
 
@@ -741,49 +858,61 @@ jobs:
       # digit immediately before the word "runtime" in S5's prose. Hermetic:
       # temp projects and a synthetic graph.sqlite, no media and no runtime. It
       # was never in this workflow, which is how both got in.
+      # gate: parallel
       - name: The slot list, and what its measures reward (Spec 844 / BUG-059)
         run: npm run e2e:844-slots
 
       # The other half of 844: the gates that make a slot's measure REFUSE. It was
       # written with 844-slots, shipped with it, and was left out of this file — so
       # for a month the measures were watched and the teeth on them were not.
+      # gate: parallel
       - name: The slot gates bite (Spec 844)
         run: npm run e2e:844-teeth
 
       # 846 and 847 complete the same family as 848 above: the critic's verdict and
       # the rule that a document declares what it covers. All three are one arc, all
       # three are hermetic, and only 848 was here.
+      # gate: parallel
       - name: The critic's verdict (Spec 846)
         run: npm run e2e:846-critic
 
+      # gate: parallel
       - name: Documents declare themselves (Spec 847)
         run: npm run e2e:847-docs
 
       # Three field reports from one LLM-driven project, all hermetic: a negative claim is judged
       # within the owner it names (#79) and only by edges that are real uses (#84), an I/O store is not a RAM byte in the sandbox image (#72;
       # its live half skips without a trx64cli), and a pulled-but-not-rebuilt pipeline says so (#71).
+      # gate: parallel
       - name: A negative claim is judged within its owner (#79)
         run: npm run e2e:issue79-negative-claim-owner
 
+      # gate: parallel
       - name: Only real uses refute a negative claim (#84)
         run: npm run e2e:issue84-negative-claim-edges
 
+      # gate: parallel
       - name: A hand-written NEXT.md survives step records (#87)
         run: npm run e2e:issue87-next-md-guard
 
+      # gate: parallel
       - name: A human zero-page label carries no platform meaning (#88)
         run: npm run e2e:issue88-zp-human-label
 
+      # gate: runtime
       - name: runtime_until stops at its cycle budget (#89)
         run: npm run e2e:issue89-until-budget
 
       # Needs a trx64-daemon (C64RE_RUNTIME_BIN / the installed pin); skips loudly without one.
+      # gate: runtime
       - name: A sandbox works on a copy of its medium (#91)
         run: npm run e2e:issue91-sandbox-media-copy
 
+      # gate: parallel
       - name: An I/O store is not a RAM byte (#72)
         run: npm run smoke:issue72-sandbox-io-ram
 
+      # gate: parallel
       - name: A stale pipeline build is reported (#71)
         run: npm run smoke:pipeline-version
 
@@ -791,9 +920,11 @@ jobs:
       # each, and the standing file the contract's shortfall is computed into. Both
       # hermetic — temp projects, no media, no runtime — and neither ran anywhere.
       # 877 D4's ledger is 849 D5's shape, so this gate is what keeps that shape.
+      # gate: parallel
       - name: A rule is said once, at its own moment (Spec 849)
         run: npm run e2e:849-rules
 
+      # gate: parallel
       - name: The contract's standing, recorded (Spec 849)
         run: npm run e2e:849-standing
 
@@ -806,6 +937,7 @@ jobs:
       # with its pins, its stale marks and its group ids asserted intact.
       # Hermetic: temp projects, files of a few bytes, one MCP session over
       # stdio. No ROMs, no media, no assembler, no daemon.
+      # gate: parallel
       - name: A subject is one thing (BUG-057)
         run: npm run e2e:subject-identity
 
@@ -817,6 +949,7 @@ jobs:
       # for it. Hermetic: temp projects, synthetic PRGs, a synthetic CRT, synthetic
       # cartridge banks, one MCP session over stdio. No ROMs, no media, no
       # assembler, no daemon.
+      # gate: parallel
       - name: One writer, one store (BUG-058)
         run: npm run e2e:one-store-writer
 
@@ -827,6 +960,7 @@ jobs:
       # path and emitted `.byte` with no value — which assembles to nothing.
       # Hermetic: synthetic bytes, the bundled analyzer and renderer. The
       # byte-identity half needs KickAssembler and skips loudly without it.
+      # gate: parallel
       - name: A code segment that ends mid-instruction (BUG-060)
         run: npm run e2e:bug060-code-tail
 
@@ -837,6 +971,7 @@ jobs:
       # was the only sign the graph had got nothing. Hermetic: a temp project,
       # synthetic bytes, one MCP session over stdio. No ROMs, no media, no
       # assembler, no daemon.
+      # gate: parallel
       - name: Two annotation segments on one start (BUG-060)
         run: npm run e2e:bug060-dup-segment
 
@@ -849,6 +984,7 @@ jobs:
       # projects, synthetic PRGs, one MCP session over stdio. No ROMs, no media,
       # no daemon. The byte-identity half needs KickAssembler and skips loudly
       # without it.
+      # gate: parallel
       - name: Equates for the names outside the image (877 D5)
         run: npm run e2e:877-equates
 
@@ -859,6 +995,7 @@ jobs:
       # D1/D2 — an owed promise refuses the doors that PUBLISH, and the human's waiver
       # releases the door without laundering the number. Hermetic: temp projects, a
       # synthetic graph.sqlite, no media and no runtime.
+      # gate: runtime
       - name: A promise with teeth, and the human's override (877 D1/D2)
         run: npm run e2e:877-teeth
 
@@ -866,9 +1003,11 @@ jobs:
       # a contradiction by naming both sides. Hermetic: temp projects, synthetic PRGs,
       # one MCP session over stdio. The byte-identical rebuild half needs KickAssembler
       # and skips loudly without it, like e2e:830 and e2e:865.
+      # gate: parallel
       - name: The annotations writer (877 D6)
         run: npm run e2e:877-write
 
+      # gate: parallel
       - name: The annotations merger (877 D6)
         run: npm run e2e:877-merge
 
@@ -885,6 +1024,7 @@ jobs:
         run: npm run e2e:902-leak
 
       # build_tools runs npm without a shell: npm-cli.js by this Node, never a batch file.
+      # gate: parallel
       - name: npm without a shell
         run: npm run smoke:npm-cli
 
@@ -895,133 +1035,193 @@ jobs:
       # runner has none of those, this machine has all of them.
 
       # Hermetic: synthetic temp projects and fixtures built by the test, MCP over stdio. No daemon, no media.
+      # gate: parallel
       - name: A carved code-derived load registers as a first-class payload (e2e:024)
         run: npm run e2e:024
+      # gate: parallel
       - name: One call, many paths — the bulk door on disasm and analyze (e2e:060-bulk)
         run: npm run e2e:060-bulk
+      # gate: parallel
       - name: slot_record's title cap, in the tool's own voice (e2e:060-slot-title)
         run: npm run e2e:060-slot-title
+      # gate: parallel
       - name: Relocated-code disassembly through the MCP, end to end (e2e:741)
         run: npm run e2e:741
+      # gate: parallel
       - name: The cartridge layout overlays slot spans per cart image (e2e:750-cart)
         run: npm run e2e:750-cart
+      # gate: parallel
       - name: The server-side effective segments match the pipeline's (e2e:751)
         run: npm run e2e:751
+      # gate: parallel
       - name: Static code discovery finds what flow-only descent cannot (e2e:758)
         run: npm run e2e:758
+      # gate: parallel
       - name: The project address index resolves across artifacts (e2e:759)
         run: npm run e2e:759
+      # gate: parallel
       - name: Cartridge identity on the layout (e2e:785-identity)
         run: npm run e2e:785-identity
+      # gate: parallel
       - name: Scenario notation over the model that exists (e2e:810)
         run: npm run e2e:810
+      # gate: parallel
       - name: Address identity, the store, the query API (e2e:818)
         run: npm run e2e:818
+      # gate: parallel
       - name: The model layer — each case able to fail (e2e:845-model)
         run: npm run e2e:845-model
+      # gate: parallel
       - name: The best version of an artifact is the default source (e2e:artifact-best-version)
         run: npm run e2e:artifact-best-version
+      # gate: parallel
       - name: The disk layout overlays payload sector spans per disk image (e2e:bug031)
         run: npm run e2e:bug031
+      # gate: parallel
       - name: Artifact-version reconcile clears a stale flag when the file returns (e2e:bug033)
         run: npm run e2e:bug033
+      # gate: parallel
       - name: A payload shorter than its declared chain warns (e2e:chain-coverage)
         run: npm run e2e:chain-coverage
+      # gate: parallel
       - name: Cartridge chunk defaults (e2e:crt-chunk-default)
         run: npm run e2e:crt-chunk-default
+      # gate: parallel
       - name: extract_disk's manifest spans are the block chain (e2e:disk-chain-spans)
         run: npm run e2e:disk-chain-spans
+      # gate: parallel
       - name: Raw disk tools default to the raw door (e2e:disk-raw-default)
         run: npm run e2e:disk-raw-default
+      # gate: parallel
       - name: extract_disk emits a manifest for the stock-DOS layer (e2e:disk-spec784)
         run: npm run e2e:disk-spec784
+      # gate: parallel
       - name: The UI's firehose de-duplication helper (e2e:firehose-dedupe)
         run: npm run e2e:firehose-dedupe
+      # gate: parallel
       - name: Manifest to payload registration, full span chains (e2e:manifest-register)
         run: npm run e2e:manifest-register
+      # gate: parallel
       - name: Uniform block coverage over the medium substrate (e2e:medium-coverage)
         run: npm run e2e:medium-coverage
+      # gate: parallel
       - name: Manifest import fills medium spans and provenance (e2e:medium-span-import)
         run: npm run e2e:medium-span-import
+      # gate: parallel
       - name: No tool text recommends an internal door (e2e:no-internal-recommendations)
         run: npm run e2e:no-internal-recommendations
+      # gate: parallel
       - name: The pipeline writes POSIX-relative paths into its manifests (e2e:pipeline-posix-relative)
         run: npm run e2e:pipeline-posix-relative
+      # gate: parallel
       - name: A list of paths in an environment variable splits on the platform's separator (e2e:issue113-path-list-delimiter)
         run: npm run e2e:issue113-path-list-delimiter
+      # gate: parallel
       - name: 64tass is handed paths of 260+ characters it can open (e2e:issue118-64tass-long-path)
         run: npm run e2e:issue118-64tass-long-path
+      # gate: runtime
       - name: The default tool surface against the full inventory (probe:tool-surface)
         run: npm run probe:tool-surface
+      # gate: parallel
       - name: Keyboard mapping at the left edge (smoke:026)
         run: npm run smoke:026
+      # gate: parallel
       - name: D64 to GCR encode, scanned back byte-identical (smoke:413-d64-gcr)
         run: npm run smoke:413-d64-gcr
+      # gate: parallel
       - name: Project search and wiki (smoke:740)
         run: npm run smoke:740
+      # gate: parallel
       - name: Names are joined in C64RE — the resolver, residency, the generic monitor join (smoke:804)
         run: npm run smoke:804
+      # gate: parallel
       - name: No name over 20 characters in a project created since the rule (smoke:804-naming)
         run: npm run smoke:804-naming
+      # gate: parallel
       - name: The Graph tab at bundle and source level (smoke:824)
         run: npm run smoke:824
+      # gate: parallel
       - name: Jump into the source line — bundle, source and unit level (smoke:824-2)
         run: npm run smoke:824-2
       - name: The graph HTTP routes, on a temp project (smoke:824-routes)
         run: npm run smoke:824-routes
+      # gate: parallel
       - name: Disk tab — stable selection (smoke:bug008-009)
         run: npm run smoke:bug008-009
+      # gate: parallel
       - name: project_init sorts loose root media into typed folders (smoke:bug015)
         run: npm run smoke:bug015
+      # gate: parallel
       - name: Raw track/sector navigation in the disk geometry (smoke:bug017)
         run: npm run smoke:bug017
+      # gate: parallel
       - name: The product UI shows runtime connection and session status (smoke:bug018)
         run: npm run smoke:bug018
+      # gate: parallel
       - name: The disk file inspector defaults to the current best source version (smoke:bug019)
         run: npm run smoke:bug019
+      # gate: parallel
       - name: A file-space routine annotation renames the auto-label (smoke:bug033-label)
         run: npm run smoke:bug033-label
+      # gate: parallel
       - name: A trace is read as a stream, never one buffer (smoke:bug052)
         run: npm run smoke:bug052
+      # gate: parallel
       - name: The diff-trace library (smoke:diff-trace)
         run: npm run smoke:diff-trace
       - name: The fingerprint library (the ROM case skips loudly without resources/roms) (smoke:fingerprint)
         run: npm run smoke:fingerprint
       - name: The synthetic disk generator (smoke:gen)
         run: npm run smoke:gen
+      # gate: parallel
       - name: The keyboard and joystick input library (smoke:input)
         run: npm run smoke:input
+      # gate: parallel
       - name: The five-phase lifecycle crosswalk (test:lifecycle)
         run: npm run test:lifecycle
+      # gate: parallel
       - name: The MCP workflow harness (fixtures it cannot find skip loudly) (test:mcp-workflow)
         run: npm run test:mcp-workflow
 
       # Graph slices: ground-truth fixtures run through the real pipeline. Parts that need the local lnr_boot report
       # (analysis/tmp, from measure:816) or a Wasteland_EF checkout skip loudly and say so.
+      # gate: parallel
       - name: The control-flow producer (e2e:819)
         run: npm run e2e:819
+      # gate: parallel
       - name: The memory access graph (e2e:820)
         run: npm run e2e:820
+      # gate: parallel
       - name: The four private walks read the store — output parity (e2e:820-2)
         run: npm run e2e:820-2
+      # gate: parallel
       - name: The runtime producer on a synthetic capture (e2e:821)
         run: npm run e2e:821
+      # gate: parallel
       - name: Migration of the JSON store, on a temp copy of the Wasteland_EF checkout (e2e:822)
         run: npm run e2e:822
+      # gate: parallel
       - name: The cut-over leaves a project with structure, not just prose (e2e:822-cutover-seed)
         run: npm run e2e:822-cutover-seed
+      # gate: parallel
       - name: Routine signatures (e2e:826)
         run: npm run e2e:826
+      # gate: parallel
       - name: Human nodes without a generated twin, by kind (e2e:826-boundaries)
         run: npm run e2e:826-boundaries
+      # gate: parallel
       - name: The runtime half of routine signatures, synthetic capture (e2e:826-runtime-args)
         run: npm run e2e:826-runtime-args
+      # gate: parallel
       - name: A real image — skips loudly when none is configured (e2e:750-real)
         run: npm run e2e:750-real
+      # gate: parallel
       - name: A real trace — skips loudly when there is no capture (e2e:821-real)
         run: npm run e2e:821-real
+      # gate: parallel
       - name: Cartridge read-set decoded out of a trace (e2e:785-cart-readset)
         run: npm run e2e:785-cart-readset
+      # gate: parallel
       - name: Relocated code — .pseudopc and .logical, rebuilt byte-exact (smoke:741)
         run: npm run smoke:741
 
@@ -1039,58 +1239,81 @@ jobs:
         run: npm run e2e:746-checkpoint
       - name: A warp trace plus a disk swap does not run the daemon out of memory (needs samples/POLARBEAR.d64; skips loudly without it) (e2e:746-trace-leak)
         run: npm run e2e:746-trace-leak
+      # gate: parallel
       - name: Sandbox bridge batches (needs trx64cli; skips loudly) (e2e:805-sandbox-batch)
         run: npm run e2e:805-sandbox-batch
       - name: An auto-started runtime ends itself when nobody uses it (e2e:886-idle-exit)
         run: npm run e2e:886-idle-exit
+      # gate: runtime
       - name: A green emulator run is recorded and the C64U gate reads it (e2e:889-pass)
         run: npm run e2e:889-pass
+      # gate: runtime
       - name: The C64U bridge against a software Ultimate (e2e:889-ue2emu)
         run: npm run e2e:889-ue2emu
       - name: Input and drive tools drive the shared session (e2e:bug028)
         run: npm run e2e:bug028
       - name: A wedged daemon is healed (e2e:stall-heal)
         run: npm run e2e:stall-heal
+      # gate: runtime
       - name: The monitor with names, against a sandbox runtime (smoke:804-monitor)
         run: npm run smoke:804-monitor
+      # gate: runtime
       - name: A written capture scenario, end to end (smoke:812)
         run: npm run smoke:812
+      # gate: runtime
       - name: Waiting on a state instead of a cycle, and checking one (smoke:813)
         run: npm run smoke:813
+      # gate: runtime
       - name: The scenario recorder — play it once, get the file (smoke:814)
         run: npm run smoke:814
+      # gate: runtime
       - name: The runtime serves the project you are looking at (smoke:858)
         run: npm run smoke:858
+      # gate: runtime
       - name: The raster line as the VIC saw it (smoke:859)
         run: npm run smoke:859
+      # gate: runtime
       - name: The frozen frame as a view (smoke:860)
         run: npm run smoke:860
+      # gate: runtime
       - name: The cycle table, the VIC, the interrupts and the drive on a real machine (smoke:861)
         run: npm run smoke:861
+      # gate: runtime
       - name: Frequency ranks and page crossings on a real machine (smoke:862)
         run: npm run smoke:862
+      # gate: runtime
       - name: NTSC — the switch, the project's model, the VIC view on an NTSC frame (smoke:863)
         run: npm run smoke:863
+      # gate: runtime
       - name: Residency against a real machine (smoke:867)
         run: npm run smoke:867
+      # gate: runtime
       - name: c64re scenario run, and Then in runtime_sandbox_run (smoke:900)
         run: npm run smoke:900
+      # gate: runtime
       - name: A .d81 runs on a private machine (smoke:d81-drive)
         run: npm run smoke:d81-drive
+      # gate: runtime
       - name: A joystick press held for a number of frames (smoke:issue6)
         run: npm run smoke:issue6
+      # gate: runtime
       - name: The product UI and its runtime routing (the runtime half skips loudly without a daemon) (smoke:product-ui)
         run: npm run smoke:product-ui
+      # gate: runtime
       - name: runtime_type key tokens and the still-booting guard (smoke:runtime-type-keys)
         run: npm run smoke:runtime-type-keys
       - name: A sandbox daemon does not outlive the process that started it (smoke:sandbox-orphan)
         run: npm run smoke:sandbox-orphan
+      # gate: runtime
       - name: A PRG in runtime_sandbox_run starts and the report says what happened (smoke:sandbox-prg-start)
         run: npm run smoke:sandbox-prg-start
+      # gate: runtime
       - name: Waiting for a PC is an execution breakpoint, not a sample (smoke:sandbox-wait-pc)
         run: npm run smoke:sandbox-wait-pc
+      # gate: runtime
       - name: A bounded session run advances with or without an A/V viewer (smoke:session-run-advance)
         run: npm run smoke:session-run-advance
+      # gate: runtime
       - name: npm run workspace brings up both backends for one project (smoke:workspace-runtime)
         run: npm run smoke:workspace-runtime
 
