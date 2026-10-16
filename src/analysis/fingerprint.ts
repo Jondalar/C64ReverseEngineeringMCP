@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ---- Types ----------------------------------------------------------------
@@ -186,7 +186,8 @@ export function loadLibrary(path: string): FingerprintLibrary {
 
 /**
  * Load multiple libraries in chain order.
- * If paths is empty, falls back to C64RE_FINGERPRINT_LIBS env (colon-separated),
+ * If paths is empty, falls back to C64RE_FINGERPRINT_LIBS env (separated by path.delimiter:
+ * ";" on Windows, ":" elsewhere),
  * then the bundled library shipped with the repo.
  */
 export function loadLibraries(paths?: string[]): FingerprintLibrary[] {
@@ -194,7 +195,7 @@ export function loadLibraries(paths?: string[]): FingerprintLibrary[] {
   if (resolved.length === 0) {
     const env = process.env["C64RE_FINGERPRINT_LIBS"];
     if (env) {
-      resolved = env.split(":").filter(Boolean);
+      resolved = env.split(delimiter).filter(Boolean);
     } else {
       // Default: bundled directory next to resources/ from repo root.
       const here = fileURLToPath(import.meta.url);
