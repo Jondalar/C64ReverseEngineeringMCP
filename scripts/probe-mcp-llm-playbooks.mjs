@@ -74,7 +74,7 @@ ok(/raw SQL/i.test(gr) && /ONE runtime/i.test(gr) && /cwd/i.test(gr), "8b global
 const inPlaybooks = new Set(named.map((x) => x.t));
 const defaults = matrix.rows.filter((r) => r.tier === "default").map((r) => r.name);
 const uncovered = defaults.filter((n) => !inPlaybooks.has(n));
-const SUPPORTING = new Set(["runtime_candidate_patch", "runtime_candidate_remove_patch", "runtime_candidate_export", /* retired names kept one release */ "runtime_down", "runtime_session_status", "runtime_trace_status", "runtime_media_browse",
+const SUPPORTING = new Set(["runtime_candidate_export", /* retired names kept one release */ "runtime_down", "runtime_session_status", "runtime_trace_status", "runtime_media_browse",
   "runtime_media_unmount", "runtime_step_into", "runtime_step_over", "runtime_monitor_disasm",
   "runtime_monitor_registers", "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "get_artifact_lineage", "ram_report", "pointer_report", "build_all_views",
