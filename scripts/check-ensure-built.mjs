@@ -25,6 +25,8 @@ try {
   mkdirSync(join(tmp, "pipeline/src"), { recursive: true });
   copyFileSync(join(here, "ensure-built.mjs"), join(tmp, "scripts/ensure-built.mjs"));
   writeFileSync(join(tmp, "scripts/fix-pipeline-ext.mjs"), "// stand-in\n");
+  mkdirSync(join(tmp, "ui/src"), { recursive: true });
+  writeFileSync(join(tmp, "ui/src/u.ts"), "export const u = 1;\n");
   writeFileSync(join(tmp, "src/a.ts"), "export const a = 1;\n");
   writeFileSync(join(tmp, "pipeline/src/p.ts"), "export const p = 1;\n");
   writeFileSync(join(tmp, "tsconfig.json"), "{}\n");
@@ -34,6 +36,7 @@ try {
     join(tmp, "fake-build.mjs"),
     `import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 const w = process.argv[2];
+if (w === "ui") { mkdirSync("ui/dist", { recursive: true }); writeFileSync("ui/dist/index.html", ""); appendFileSync("builds.log", "ui\\n"); process.exit(0); }
 if (w === "all") rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist/pipeline", { recursive: true });
 if (w !== "pipeline") { writeFileSync("dist/cli.js", ""); writeFileSync("dist/server.js", ""); }
@@ -50,6 +53,7 @@ appendFileSync("builds.log", w + "\\n");
         build: "node fake-build.mjs all && node scripts/ensure-built.mjs --stamp",
         "build:mcp": "node fake-build.mjs mcp",
         "build:pipeline": "node fake-build.mjs pipeline",
+        "ui:build": "node fake-build.mjs ui",
       },
     }),
   );
@@ -90,6 +94,16 @@ appendFileSync("builds.log", w + "\\n");
   check(builds().slice(6).join() === "all", "all with both stale runs one full build");
   run("all");
   check(builds().length === 7, "...which stamps both");
+  const before = builds().length;
+  run("ui");
+  run("ui");
+  check(builds().length === before + 1 && builds()[before] === "ui", "ui builds once, then settles");
+  edit("ui/src/u.ts", "export const u = 2;\n");
+  run("ui");
+  check(builds().length === before + 2, "an edited ui source rebuilds the bundle");
+  edit("src/a.ts", "export const a = 5;\n");
+  run("ui");
+  check(builds().length === before + 3, "the bundle imports from src: a src edit rebuilds it too");
   check(run("bogus").status === 2, "an unknown kind is refused");
 } finally {
   rmSync(tmp, { recursive: true, force: true });

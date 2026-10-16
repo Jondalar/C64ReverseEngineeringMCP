@@ -83,5 +83,9 @@ if (process.argv.includes("--check")) {
   process.exit(0);
 }
 
-writeFileSync(OUT, serialized);
-if (!process.argv.includes("--quiet")) console.log(`wrote ${OUT}: ${tools.length} tools (${specCount} with Spec ref, ${advancedCandidate} advanced)`);
+// Unchanged is not rewritten: several smokes run this, side by side in the gate, and a truncate-then-write
+// of identical bytes is a window in which a reader sees half a file.
+let unchanged = false;
+try { unchanged = readFileSync(OUT, "utf8") === serialized; } catch { /* not there yet */ }
+if (!unchanged) writeFileSync(OUT, serialized);
+if (!process.argv.includes("--quiet")) console.log(`${unchanged ? "unchanged" : "wrote"} ${OUT}: ${tools.length} tools (${specCount} with Spec ref, ${advancedCandidate} advanced)`);

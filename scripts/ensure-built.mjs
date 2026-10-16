@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ensure-built.mjs <mcp|pipeline|all> — build only when the sources changed.
+ * ensure-built.mjs <mcp|pipeline|ui|all> — build only when the sources changed.
  *
  * A test script used to start with `npm run build:mcp`, and one gate run rebuilt identical code
  * over a hundred times. This builds when the content hash of the inputs differs from the hash
@@ -11,6 +11,8 @@
  *   pipeline  inputs: pipeline/src/**, pipeline/tsconfig.json, scripts/fix-pipeline-ext.mjs,
  *             the tsc version                                                (npm run build:pipeline)
  *   all       both; when both are stale, one full `npm run build`
+ *   ui        inputs: ui/** except ui/dist and node_modules, src/** (the bundle imports from it),
+ *             tsconfig.json, package.json, the vite version                  (npm run ui:build)
  *   --stamp   record the current hashes (the last step of `npm run build`)
  *
  * The stamp is dist/.build-stamp.json. `npm run build` wipes dist and so wipes the stamp, then
@@ -30,12 +32,16 @@ const STAMP = "dist/.build-stamp.json";
 const OUTPUTS = {
   mcp: ["dist/cli.js", "dist/server.js"],
   pipeline: ["dist/pipeline/cli.cjs"],
+  ui: ["ui/dist/index.html"],
 };
 
 function walk(dir, out) {
   for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) walk(p, out);
+    if (e.isDirectory()) {
+      if (p === "ui/dist" || e.name === "node_modules") continue;
+      walk(p, out);
+    }
     else if (e.isFile()) out.push(p);
   }
   return out;
@@ -46,16 +52,20 @@ function hashOf(kind) {
   const files =
     kind === "mcp"
       ? [...walk("src", []), "tsconfig.json", "package.json"]
-      : [...walk("pipeline/src", []), "pipeline/tsconfig.json", "scripts/fix-pipeline-ext.mjs"];
+      : kind === "ui"
+        ? [...walk("ui", []), ...walk("src", []), "tsconfig.json", "package.json"]
+        : [...walk("pipeline/src", []), "pipeline/tsconfig.json", "scripts/fix-pipeline-ext.mjs"];
   for (const f of files) {
     h.update(f + "\0");
     h.update(readFileSync(f));
     h.update("\0");
   }
-  try {
-    h.update("tsc " + JSON.parse(readFileSync("node_modules/typescript/package.json", "utf8")).version);
-  } catch {
-    h.update("tsc ?");
+  for (const tool of kind === "ui" ? ["vite"] : ["typescript"]) {
+    try {
+      h.update(tool + " " + JSON.parse(readFileSync(`node_modules/${tool}/package.json`, "utf8")).version);
+    } catch {
+      h.update(tool + " ?");
+    }
   }
   return h.digest("hex");
 }
@@ -106,8 +116,8 @@ if (kind === "--stamp") {
   writeStamp({ mcp: hashOf("mcp"), pipeline: hashOf("pipeline") });
   process.exit(0);
 }
-if (!["mcp", "pipeline", "all"].includes(kind)) {
-  console.error("usage: node scripts/ensure-built.mjs <mcp|pipeline|all> | --stamp");
+if (!["mcp", "pipeline", "all", "ui"].includes(kind)) {
+  console.error("usage: node scripts/ensure-built.mjs <mcp|pipeline|ui|all> | --stamp");
   process.exit(2);
 }
 
@@ -123,7 +133,7 @@ try {
     npm("build"); // wipes dist and writes the stamp itself
   } else {
     for (const k of stale) {
-      npm(k === "mcp" ? "build:mcp" : "build:pipeline");
+      npm({ mcp: "build:mcp", pipeline: "build:pipeline", ui: "ui:build" }[k]);
       writeStamp({ [k]: hashes[k] });
     }
   }
