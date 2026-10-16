@@ -95,8 +95,8 @@ for (const t of ["runtime_rip_range", "runtime_inject_range"]) {
 const inv = JSON.parse(read(join(ROOT, "docs/tool-surface-inventory.json")) || "{}");
 const tools = Array.isArray(inv) ? inv : (inv.tools ?? []);
 const desc = (n) => tools.find((t) => t.name === n)?.desc ?? "";
-check(/OVERLAY/.test(desc("runtime_inject_range")) && /reset drops the layer/.test(desc("runtime_inject_range")),
-  "runtime_inject_range says it is a layer and that a reset drops it");
+check(/writes a source file/.test(desc("runtime_inject_range")) && /variant line/.test(desc("runtime_inject_range")),
+  "runtime_inject_range says it writes a source file and the variant line that tries it (it does not touch a machine)");
 check(/there is none/.test(desc("runtime_inject_range")),
   "…and that there is no permanent write to the medium, rather than leaving the caller to hope");
 check(/refusing to write a short file/.test(runtimeTs),

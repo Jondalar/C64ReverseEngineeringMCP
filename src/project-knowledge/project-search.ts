@@ -34,7 +34,7 @@ export type ProjectSearchKind =
   | "artifact" | "artifact_version" | "doc_section" | "wiki_page"
   | "activity_log_entry" | "asm_section" | "view" | "trace_mark"
   // 740.3 D1 — the human layer of the graph, each under its own kind.
-  | "routine" | "label" | "model" | "document";
+  | "routine" | "label" | "model" | "document" | "state_map";
 
 /** The kinds whose address range is a DECLARATION of extent — a query address inside it counts. */
 const RANGE_KINDS = new Set<string>(["model", "document", "routine"]);
@@ -81,8 +81,8 @@ export interface ProjectSearchIndex {
   records: ProjectSearchRecord[];
 }
 
-/** 2 = Spec 740.3: the human layer, documents at any depth, renders as copies, a fingerprint. */
-export const PROJECT_SEARCH_INDEX_VERSION = 2;
+/** 2 = the human layer, documents at any depth, renders as copies, a fingerprint. 3 = state maps. */
+export const PROJECT_SEARCH_INDEX_VERSION = 3;
 export const CACHE_RELPATH = join("knowledge", ".cache", "project-search-index.json");
 const GRAPH = join("knowledge", "graph.sqlite");
 const GRAPH_WAL = `${GRAPH}-wal`;
@@ -428,6 +428,7 @@ interface HumanLayer {
   labels: ProjectSearchRecord[];
   models: ProjectSearchRecord[];
   documents: ProjectSearchRecord[];
+  stateMaps: ProjectSearchRecord[];
 }
 
 /**
@@ -448,7 +449,7 @@ function readHumanLayer(
   live: RenderCounts,
   warnings: string[],
 ): HumanLayer {
-  const out: HumanLayer = { routines: [], labels: [], models: [], documents: [] };
+  const out: HumanLayer = { routines: [], labels: [], models: [], documents: [], stateMaps: [] };
   const seen = new Set<string>();
   const entityBits = (id: string) => {
     const e = entityById.get(id);
@@ -541,6 +542,22 @@ function readHumanLayer(
       }
     } catch (err) { warnings.push(`${GRAPH} (user labels): ${err instanceof Error ? err.message : String(err)}`); }
 
+    // ---- state maps: one record per map, found by its name (its states and moves are graph nodes)
+    if (store) {
+      try {
+        const rows = store.db.prepare("SELECT id, name, attrs FROM nodes WHERE layer = 'human' AND kind = 'state_map' ORDER BY name").all() as Array<{ id: string; name: string | null; attrs: string }>;
+        for (const r of rows) {
+          let a: Record<string, any> = {};
+          try { a = JSON.parse(r.attrs) as Record<string, any>; } catch { /* keep empty */ }
+          const outcome = a.outcome?.kind === "stopped" ? `stopped: ${a.outcome.cap} ${a.outcome.limit}` : a.outcome?.kind ?? "?";
+          const key = Array.isArray(a.input?.key) ? a.input.key.join(" ") : "";
+          out.stateMaps.push(record("state_map", r.id, r.name ?? r.id,
+            `game map from anchor ${a.anchor ?? "?"}: ${outcome}, ${a.states ?? "?"} states, ${a.crashes ?? 0} crashes${a.goal_state != null ? ", goal found" : ""}; key ${key}; moves ${Array.isArray(a.input?.actions) ? a.input.actions.join(" ") : ""}`,
+            undefined, { tags: ["state_map", "map", "game-map", "states", "moves"], updatedAt: typeof a.mapped_at === "string" ? a.mapped_at : undefined }));
+        }
+      } catch (err) { warnings.push(`${GRAPH} (state maps): ${err instanceof Error ? err.message : String(err)}`); }
+    }
+
     if (store) {
       // ---- the model: a boundary's range lives in attrs, not in the node's address
       try {
@@ -632,7 +649,7 @@ export function buildProjectSearchIndex(projectDir: string): ProjectSearchIndex 
   const entityById = new Map<string, any>(entities.map((e) => [e.id, e]));
   const human = readHumanLayer(root, graph, entityById, scannedByPath, live, warnings);
   const humanIds = new Set<string>();
-  for (const recs of [human.routines, human.labels, human.models, human.documents]) {
+  for (const recs of [human.routines, human.labels, human.models, human.documents, human.stateMaps]) {
     for (const r of recs) { humanIds.add(r.id); records.push(r); }
   }
   if (humanIds.size > 0 && !sourcesRead.includes(GRAPH)) sourcesRead.push(GRAPH);

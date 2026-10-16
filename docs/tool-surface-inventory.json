@@ -1,9 +1,9 @@
 {
-  "total": 310,
+  "total": 307,
   "specCount": 0,
   "advancedCandidate": 105,
   "byNamespace": {
-    "runtime": 100,
+    "runtime": 97,
     "list": 20,
     "project": 14,
     "save": 10,
@@ -1162,7 +1162,7 @@
       "ns": "optimisation",
       "hasSpec": false,
       "firstSentence": "Where this code could be faster, with a deterministic verdict on every suggestion.",
-      "desc": "Where this code could be faster, with a deterministic verdict on every suggestion. Each rule — a `jsr`+`rts` that could be a `jmp`, a load nothing needs, a `clc` where the carry is already what it would set, a `jmp` to a `jmp`, a table read that pays for crossing a page, a variable that belongs in zero page, a loop that could count down — is a heuristic that may be wrong about whether it applies, so nothing is shown without the answer beside it: both versions executed symbolically and compared over the registers, the flags that are still live there, every memory cell either writes and every access to $D000-$DFFF in order. A suggestion that comes back NOT EQUIVALENT has proposed nothing and is dropped and counted, so a rule that is often wrong is visible as such. Code whose purpose IS its timing is refused outright and listed with the reason — delay loops, raster waits, drive and fastloader handshakes, self-modified bytes, an indirect jump. With a trace the list is ranked by cycles saved per frame; without one by what each change saves once, and the report says which. Undocumented opcodes are a class of their own and are off until you ask for them. Nothing is applied: turning a candidate into a patch is runtime_candidate_variant, on purpose. Use it to find what is worth speeding up in a routine, a payload or a whole program. Not for pricing code you have already chosen (use code_cost) and not for what a change would break (use change_impact). Inputs: prg_path or payload, optional ref / address_start / address_end, trace_path, classes. Returns: where it looked, what it left alone, the ranked candidates with their verdicts and assumptions, and a counter per rule.",
+      "desc": "Where this code could be faster, with a deterministic verdict on every suggestion. Each rule — a `jsr`+`rts` that could be a `jmp`, a load nothing needs, a `clc` where the carry is already what it would set, a `jmp` to a `jmp`, a table read that pays for crossing a page, a variable that belongs in zero page, a loop that could count down — is a heuristic that may be wrong about whether it applies, so nothing is shown without the answer beside it: both versions executed symbolically and compared over the registers, the flags that are still live there, every memory cell either writes and every access to $D000-$DFFF in order. A suggestion that comes back NOT EQUIVALENT has proposed nothing and is dropped and counted, so a rule that is often wrong is visible as such. Code whose purpose IS its timing is refused outright and listed with the reason — delay loops, raster waits, drive and fastloader handshakes, self-modified bytes, an indirect jump. With a trace the list is ranked by cycles saved per frame; without one by what each change saves once, and the report says which. Undocumented opcodes are a class of their own and are off until you ask for them. Nothing is applied: turning a candidate into a patch is a variant line in a .feature file, run with runtime_feature_run, on purpose. Use it to find what is worth speeding up in a routine, a payload or a whole program. Not for pricing code you have already chosen (use code_cost) and not for what a change would break (use change_impact). Inputs: prg_path or payload, optional ref / address_start / address_end, trace_path, classes. Returns: where it looked, what it left alone, the ranked candidates with their verdicts and assumptions, and a counter per rule.",
       "tier": "default?"
     },
     {
@@ -1603,7 +1603,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual.",
-      "desc": "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual. Does not touch the machine. In an open project the recorded anchor stays, marked dropped, because candidates link to it. With a sandbox session_id it is that sandbox's anchor. Not for removing a checkpoint pin (use runtime_checkpoint_unpin). Inputs: name, session_id?, project_dir?. Returns: what was dropped, or the runtime's refusal.",
+      "desc": "Drop an anchor's name, freeing one of the 32 slots; the checkpoint itself ages out of the ring as usual. The anchor's file in the project (knowledge/anchors) is deleted too. Does not touch the machine. In an open project the recorded anchor stays, marked dropped, because candidates link to it. An anchor that is only a file (the ring no longer holds it) is dropped by deleting the file. With a sandbox session_id it is that sandbox's anchor. Not for removing a checkpoint pin (use runtime_checkpoint_unpin). Inputs: name, session_id?, project_dir?. Returns: what was dropped, or the runtime's refusal.",
       "tier": "default?"
     },
     {
@@ -1612,7 +1612,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump.",
-      "desc": "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump. On a sandbox session (session_id sb-…) it moves only that sandbox's own machine, which nobody else watches. Use to return to a named instant and inspect it or continue from it. Not for starting sandbox runs (a candidate or runtime_sandbox_run starts from an anchor without moving anything). An anchor the ring no longer holds is said to be gone, with the cycle recorded for it. Inputs: name, session_id?, project_dir?. Returns: the transport line after the jump, or the runtime's refusal.",
+      "desc": "Go to an anchor: this MOVES the shared machine — the one the human is watching and co-driving — it jumps back (or forward) to the anchor's checkpoint and pauses there, and the human at the UI sees the same jump. On a sandbox session (session_id sb-…) it moves only that sandbox's own machine, which nobody else watches. Use to return to a named instant and inspect it or continue from it. Not for starting private runs (a .feature file run with runtime_feature_run starts from the anchor's file, `Given the mark`, without moving anything). An anchor the ring no longer holds is said to be gone, with the cycle recorded for it. Inputs: name, session_id?, project_dir?. Returns: the transport line after the jump, or the runtime's refusal.",
       "tier": "default?"
     },
     {
@@ -1620,8 +1620,8 @@
       "file": "server-tools/anchor-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "List the named anchors of the shared machine (or, with a sandbox session_id, of that sandbox): name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them.",
-      "desc": "List the named anchors of the shared machine (or, with a sandbox session_id, of that sandbox): name, cycle, frame, how far back they are, and which are only remembered in the project because the ring no longer holds them. Reads only — nothing moves. Use to see what you can start a candidate or a goto from. Not the full checkpoint list (use runtime_checkpoint_list). Inputs: session_id?, project_dir?. Returns: the anchors, the 32-slot use, and the anchors recorded in the project but gone from the ring.",
+      "firstSentence": "List the named anchors of the shared machine (or, with a sandbox session_id, of that sandbox): name, cycle, frame, how far back they are, whether the project holds a file for them, and which are only in the project because the ring no longer holds them.",
+      "desc": "List the named anchors of the shared machine (or, with a sandbox session_id, of that sandbox): name, cycle, frame, how far back they are, whether the project holds a file for them, and which are only in the project because the ring no longer holds them. Reads only — nothing moves. Use to see what you can start a .feature file (`Given the mark`) or a goto from. Not the full checkpoint list (use runtime_checkpoint_list). Inputs: session_id?, project_dir?. Returns: the anchors, the 32-slot use, and the anchors recorded in the project but gone from the ring.",
       "tier": "default?"
     },
     {
@@ -1630,7 +1630,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Name the instant the shared machine is at NOW, so you can come back to it and start sandbox runs from it.",
-      "desc": "Name the instant the shared machine is at NOW, so you can come back to it and start sandbox runs from it. Captures a fresh checkpoint of the shared session and puts the name on it (so the anchor is the instant you saw, not an auto-capture up to 20 ms old). Does not move, pause or change the machine. Only at the head of the ring: after a goto (replay) it is refused until the transport is back at the head, because the runtime would name the older checkpoint under the cursor and replace its name. 32 anchors at most; a 33rd, or a name already taken, is refused with the runtime's own text. In an open project the anchor is also recorded in the graph (name, cycle, frame, why) and outlives the ring. With a sandbox session_id (runtime_sandbox_start) the anchor is on THAT sandbox's own machine and ring, recorded in the project the sandbox is bound to. Use before the interesting thing happens: just before a level loads, the frame before a sprite goes wrong. Not a trace label (use runtime_mark) and not a plain checkpoint (use runtime_checkpoint_capture). Inputs: name, why?, session_id?, project_dir?. Returns: the anchor with its cycle and frame, and how many of the 32 are used.",
+      "desc": "Name the instant the shared machine is at NOW, so you can come back to it and start sandbox runs from it. Captures a fresh checkpoint of the shared session and puts the name on it (so the anchor is the instant you saw, not an auto-capture up to 20 ms old). Does not move, pause or change the machine. Only at the head of the ring: after a goto (replay) it is refused until the transport is back at the head, because the runtime would name the older checkpoint under the cursor and replace its name. 32 anchors at most; a 33rd, or a name already taken, is refused with the runtime's own text. In an open project the anchor is also written to a file, knowledge/anchors/<name>.c64re (the machine as it stands, media embedded), and recorded in the graph (name, cycle, frame, why, file): it outlives the ring and the daemon, and a .feature file starts from it with `Given the mark \"<name>\"` on a private machine, with no shared session. A name that already has a file is refused (drop it first). With a sandbox session_id (runtime_sandbox_start) the anchor is on THAT sandbox's own machine and ring, recorded in the project the sandbox is bound to. Use before the interesting thing happens: just before a level loads, the frame before a sprite goes wrong. Not a trace label (use runtime_mark) and not a plain checkpoint (use runtime_checkpoint_capture). Inputs: name, why?, session_id?, project_dir?. Returns: the anchor with its cycle and frame, the file written, and how many of the 32 are used.",
       "tier": "default?"
     },
     {
@@ -1693,16 +1693,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks.",
-      "desc": "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks. The verdicts say what each variant changed; which change is right is your call. Use once a run shows the variant doing what you want. Not for running anything. Inputs: id, variant (or clear:true to un-choose), project_dir?. Returns: the choice.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_candidate_create",
-      "file": "server-tools/candidate-tools.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try.",
-      "desc": "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try. Saved in the project (knowledge/candidates), linked to the anchor in the graph, and still there after a daemon restart. Does not run anything and does not touch the machine. Use after runtime_anchor_set, when you have several fixes to try from the same instant. Not a single quick try (use runtime_overlay_run). Inputs: anchor (an anchor name, or a checkpoint id), cycle_budget, inputs? ([{atCycle, kind: keyboard|joystick1|joystick2|model, payload}], atCycle relative to the anchor), title?, id?, session_id?, project_dir?. Returns: the candidate id and what to do next.",
+      "desc": "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks. The Then lines decided PASS or FAIL per variant and the run listed what else each one changed; which fix is right is your call. Use once a run shows the variant doing what you want. Not for running anything (use runtime_feature_run). Inputs: id, variant (or clear:true to un-choose), project_dir?. Returns: the choice.",
       "tier": "default?"
     },
     {
@@ -1711,7 +1702,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Delete a candidate from the project: its file, its scratch folder and its graph node.",
-      "desc": "Delete a candidate from the project: its file, its scratch folder and its graph node. The delta files already written stay where they are. Use when the iteration is finished with. Not for dropping one variant (use runtime_candidate_variant with remove:true). Inputs: id, project_dir?. Returns: what was deleted.",
+      "desc": "Delete a candidate from the project: its file, its scratch folder and its graph node. The delta files already written stay where they are. Use when the iteration is finished with. Not for dropping one variant (take its line out of the .feature file and run it again). Inputs: id, project_dir?. Returns: what was deleted.",
       "tier": "default?"
     },
     {
@@ -1728,8 +1719,8 @@
       "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Retired name, kept for one release: now runtime_candidate_list — it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta.",
-      "desc": "Retired name, kept for one release: now runtime_candidate_list — it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta. Use runtime_candidate_list. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_list.",
+      "firstSentence": "Retired name, kept for one release: now runtime_candidate_list, which shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta.",
+      "desc": "Retired name, kept for one release: now runtime_candidate_list, which shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta. Use those. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_list.",
       "tier": "default?"
     },
     {
@@ -1737,44 +1728,8 @@
       "file": "server-tools/candidate-tools.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "List the project's candidates, or show one in full: anchor, inputs, budget, each variant's targets and last verdict, the chosen variant, the delta written and the last build check.",
-      "desc": "List the project's candidates, or show one in full: anchor, inputs, budget, each variant's targets and last verdict, the chosen variant, the delta written and the last build check. Reads the project's files, so it answers the same after a daemon restart. Use to see what has been tried and what it did. Not for running (use runtime_candidate_run). Inputs: id?, project_dir?. Returns: the candidate(s).",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_candidate_patch",
-      "file": "server-tools/candidate-tools.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Retired name, kept for one release: now runtime_candidate_variant — variants hold the patches now, per name.",
-      "desc": "Retired name, kept for one release: now runtime_candidate_variant — variants hold the patches now, per name. Use runtime_candidate_variant. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_variant.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_candidate_remove_patch",
-      "file": "server-tools/candidate-tools.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Retired name, kept for one release: now runtime_candidate_variant — remove a variant with remove:true, or set it again with the targets you want.",
-      "desc": "Retired name, kept for one release: now runtime_candidate_variant — remove a variant with remove:true, or set it again with the targets you want. Use runtime_candidate_variant. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_variant.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_candidate_run",
-      "file": "server-tools/candidate-tools.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked).",
-      "desc": "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked). The shared machine the human watches is not moved, paused or changed; only a snapshot of the anchor is taken. Verdicts are saved in the candidate. With a sandbox session_id the anchor and the clones are that sandbox's own. Use after adding or changing variants. Not for stepping a patch on the shared machine (use runtime_overlay_run, which moves it). Inputs: id, session_id?, project_dir?. Returns: a table — variant, cycles, final PC, verdict, what changed.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_candidate_variant",
-      "file": "server-tools/candidate-tools.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Add, replace or remove one variant of a candidate: a name and, per target, the code it puts in the machine — source (a file or inline text, assembled here with the project's assembler, its own org equal to the target) or bytes.",
-      "desc": "Add, replace or remove one variant of a candidate: a name and, per target, the code it puts in the machine — source (a file or inline text, assembled here with the project's assembler, its own org equal to the target) or bytes. Setting a variant replaces its whole target set and clears its last verdict; the bytes are kept in the candidate. Use to try another fix from the same anchor. Not for running (use runtime_candidate_run) and not for bytes from a file (runtime_inject_range). Inputs: id, name, targets? ([{addr, space?, bank?, source_path?|source?|bytes?}]), remove? (true removes the variant), project_dir?. Returns: the variant as stored.",
+      "firstSentence": "List the project's candidates, or show one in full: the feature file and scenario it records, the anchor, each variant's targets and its last verdict with the places it changed besides what it was meant to, the history of runs, the chosen variant, the delta written and the last build check.",
+      "desc": "List the project's candidates, or show one in full: the feature file and scenario it records, the anchor, each variant's targets and its last verdict with the places it changed besides what it was meant to, the history of runs, the chosen variant, the delta written and the last build check. Reads the project's files, so it answers the same after a daemon restart. Use to see what has been tried and what it did. Not for running (use runtime_feature_run). Inputs: id?, project_dir?. Returns: the candidate(s).",
       "tier": "default?"
     },
     {
@@ -1859,12 +1814,21 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_feature_run",
+      "file": "server-tools/candidate-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Run a .feature file and judge it, with no stepping and no waiting on your side: the same function `c64re scenario run` calls, so a script and you get the same answer.",
+      "desc": "Run a .feature file and judge it, with no stepping and no waiting on your side: the same function `c64re scenario run` calls, so a script and you get the same answer. A scenario starts from a mark (`Given the mark \"name\"` — the file runtime_anchor_set wrote into knowledge/anchors), a medium or a bare machine, plays its steps (joystick, keys, `I wait until … within N frames`) and decides its `Then` lines. Fixes to try are variant lines: `And variant \"fix1\" assembles \"fixes/fix1.tas\" at $0A20` (RAM) or `… at roml bank 3 $9100` (a cartridge bank); say the name again for a second place. The run without a fix (baseline) always runs beside the variants, each on a private machine of its own, up to 4 at once; the shared machine is not touched. The Then lines alone decide PASS/FAIL per run; the memory a variant changed besides is listed as a side effect and decides nothing. The run is kept as the project's candidate (runtime_candidate_list, then runtime_candidate_choose, runtime_candidate_derive_delta, runtime_candidate_verify_build). `And I set the anchor \"name\"` writes the machine as it stands to knowledge/anchors/name.c64re (an existing anchor is replaced only with replace_anchors). Use to try a fix: set the anchor, write the file with the fixes, run it, read the verdicts, write the next fix. Never build your own stepper or boot loop for this. Not a capture (use runtime_scene_reel) and not a one-off command (use runtime_sandbox_run). Inputs: feature_path (a .feature file or a folder of them; relative to the project) or feature (the file's text), scenario? (only those whose name contains it), jobs? (machines at once, default min(4, CPUs)), replace_anchors?, json? (the document the command line prints with --json), project_dir?. Returns: one block per scenario — a PASS/FAIL/ERROR line per run, the side effects, the candidate id.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_find_cheat",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first.",
-      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a candidate variant with that addr as a target holding its original value, runtime_candidate_variant) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a variant whose source puts the original value back at that addr, tried in a .feature file with runtime_feature_run) to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
       "tier": "default?"
     },
     {
@@ -1881,8 +1845,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything.",
-      "desc": "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are an OVERLAY, applied in sandbox runs (runtime_candidate_run) on clones and never written to the medium or the shared machine: every run starts fresh, so a reset drops the layer rather than the change becoming permanent. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
+      "firstSentence": "Turn a .bin file's bytes into a fix a .feature file can try: writes a source file (`* = $addr` and the bytes) and returns the variant line that assembles it — swap a logo, a charset, a sprite, without rebuilding anything.",
+      "desc": "Turn a .bin file's bytes into a fix a .feature file can try: writes a source file (`* = $addr` and the bytes) and returns the variant line that assembles it — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are an OVERLAY, applied when the feature runs (runtime_feature_run) on machines of its own and never written to the medium or the shared machine: every run starts fresh. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code you wrote (name that file in the variant line yourself) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: addr, bin_path, variant? (default \"inject\"), out_path? (default fixes/<variant>-<addr>.tas), optional space and bank, project_dir?. Returns: the file written and the line to add to the scenario.",
       "tier": "default?"
     },
     {
@@ -2080,7 +2044,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable.",
-      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. This MOVES the shared machine the human watches (it restores into it and runs there); for several variants side by side on clones that leave it where it is, use runtime_candidate_run. anchor_id may be an anchor's name. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. This MOVES the shared machine the human watches (it restores into it and runs there); for several fixes side by side on machines of their own that leave it where it is, write them as variants in a .feature file and use runtime_feature_run. anchor_id may be an anchor's name. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
       "tier": "default?"
     },
     {
@@ -2351,6 +2315,15 @@
       "hasSpec": false,
       "firstSentence": "Use to see the full branch tree of a rewind session — which checkpoints branch where.",
       "desc": "Use to see the full branch tree of a rewind session — which checkpoints branch where. Not for capturing a checkpoint (use runtime_checkpoint_capture) or seeking/restoring one (use runtime_rewind). Requires a session with an active RewindManager.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_state_map",
+      "file": "server-tools/state-map-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Map a game by its moves, with no stepping and no per-move calls on your side: from an anchor, try every move in every state it finds, on a private machine of its own (the shared machine is not touched, and the machine is gone before the answer is read).",
+      "desc": "Map a game by its moves, with no stepping and no per-move calls on your side: from an anchor, try every move in every state it finds, on a private machine of its own (the shared machine is not touched, and the machine is gone before the answer is read). You say what a state is (`key`: the bytes the game's own code indexes rooms, screens or levels with, e.g. [\"$02\",\"$03\"], \"$0400:2\", \"$D020@io\" - read from the code, never a timer, a frame counter or a sprite position), which moves exist (`actions`: L R U D F N, combinations such as \"UF\", keys as key:SPACE), and what counts as dead or as the goal (`goal`: \"$03 == 1\", also != < > <= >= and a mask \"$03 & $80 == $80\"). Each state is reached by restoring its checkpoint, never by replay from boot. A JAM is a crash state with its PC. Answers: complete / stopped at a cap (and which) / goal reached; the states with their key values and first path, the moves that change the state, the crashes and, with a goal, the shortest path to it with its frame count (a goal stops the search at the first, shortest path; continue_after_goal maps on). The map is saved in the project's graph (a state_map node, a game_state node per state, a MOVES_TO edge per move, STARTS_FROM the anchor) and found again by project_search and graph_find; the same call again answers from the graph and starts no machine. The goal state is written as an anchor `<name>.goal` (save_states: every state, as `<name>.s<N>`), so a .feature file (runtime_feature_run) or the next map can start there: solve a game in segments. Use for structure questions (which rooms exist, how to reach the last one, what crashes and how to get there). Never drive a game by hand with one runtime call per move, and never write your own explorer. Not for a search over timing, analogue paddles or random seeds, and not for trying a fix (use runtime_feature_run). Inputs: anchor (a name from runtime_anchor_set, set at the loop where the game waits for input), key[], actions[], port? (default 2), frames? (held, default 6), release_frames? (default 4), dead[]?, goal?, continue_after_goal?, max_states? (400), max_runs? (3000), max_depth? (64), budget_minutes? (10), save_states?, name? (default: the anchor's name), edges? (\"all\" lists every move tried), json?, project_dir?. Returns: the outcome first, then states, moves, crashes, the goal path and what was saved.",
       "tier": "default?"
     },
     {

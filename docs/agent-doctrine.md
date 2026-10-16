@@ -261,16 +261,66 @@ steer at once, so:
   a sandbox is never in their UI; you need neither their permission nor
   their help. **`docs/runtime-sandbox.md`** has the whole picture.
 
-- **Several fixes to try from one instant?** Name the instant and run the
-  variants side by side, none of them on the shared machine:
-  `runtime_anchor_set` → `runtime_candidate_create` / `_variant` → `runtime_candidate_run`
-  (the baseline without a patch plus every variant at once, each on a clone, with the
-  same inputs) → `runtime_candidate_choose` → `runtime_candidate_derive_delta` →
-  `runtime_candidate_verify_build`, which proves the project's build really holds the
-  chosen bytes. The candidate is kept in the project (`knowledge/candidates/`) and the
-  anchor's meaning in the graph; only `runtime_anchor_goto` and `runtime_overlay_run`
-  move the shared machine, and both say so. The loop end to end is in
+- **A fix to try? A feature file runs it; you do not drive it.** The loop is split: *you*
+  decide, *the script* runs. You find the instant before the problem (the graph, the listing,
+  a read-only scrub of the ring), set the anchor (`runtime_anchor_set` — a file in the
+  project, `knowledge/anchors/<name>.c64re`, so it outlives the ring and the daemon), write
+  the fixes as source files, and write one scenario that tries them. The script —
+  `c64re scenario run` or `runtime_feature_run`, the same code — plays it: the baseline and
+  every variant on a machine of its own, from the anchor, in parallel, the shared machine
+  untouched; it stops on a condition (`I wait until the CPU reaches $0B00 within 500
+  frames`), not a cycle count; the `Then` lines alone decide PASS/FAIL per run, and the
+  places a variant changed besides are listed next to the verdict. You read the verdicts,
+  choose a variant or write the next one, and run the file again. The run is kept as the
+  project's candidate (`knowledge/candidates/`), so what was tried and what it did survive
+  the session. The winner goes `runtime_candidate_choose` → `runtime_candidate_derive_delta`
+  → `runtime_candidate_verify_build`, which proves the project's build really holds the
+  chosen bytes.
+
+  ```gherkin
+  Scenario: the lift at level 3
+    Given the mark "before_lift"
+    And variant "fix1" assembles "fixes/lift-fix1.tas" at $0A20
+    And variant "fix2" assembles "fixes/lift-fix2.tas" at $0A20
+    And variant "fix2" assembles "fixes/lift-fix2-table.tas" at roml bank 3 $9100
+    When I hold joystick 2 down for 10 frames
+    And I wait until the CPU reaches $0B00 within 500 frames
+    Then $0310 is $2A throughout the next 50 frames
+  ```
+
+  A fix is a source file assembled at an address in RAM or in a cartridge bank (its own
+  origin must equal that address). A scenario with no instant at hand makes one from a
+  boot: `… And I set the anchor "before_lift"`. **Never write your own stepper, boot loop
+  or trace parser for this** — that is what the feature file is. Only `runtime_anchor_goto`
+  and `runtime_overlay_run` move the shared machine, and both say so. The whole loop is in
   `docs/runtime-sandbox.md`.
+
+- **The game's structure? Map it; you do not walk it.** Which rooms, screens or levels exist, how
+  they connect, how to get to the last one, what crashes and by which moves: that is one call,
+  `runtime_state_map` (or `c64re state map <file.json>`, the same code). *You* read; *the tool* walks.
+  Read the room/level code first: the **key** is the bytes that code indexes with (the room number, the
+  level, a "have key" flag), as addresses (`"$02"`, `"$0400:2"`, `"$D020@io"`). Set an **anchor** at
+  the loop where the game waits for input (`runtime_anchor_set`, or `And I set the anchor` in a feature
+  file). Then call the tool with the key, the moves (`L R U D F N`, combinations such as `"UF"`,
+  `key:SPACE`) and, if there is one, the goal (`"$03 == 1"`):
+
+  ```
+  runtime_state_map  anchor="maze_loop"  key=["$02","$03"]  actions=["L","R","U","D","F","N"]
+                     goal="$03 == 1"
+  ```
+
+  It restores each state's checkpoint on a machine of its own, tries every move, and answers
+  *complete* / *stopped at a cap, and which* / *goal reached*, with the states, the moves between them,
+  the crashes (a JAM is a state, with its PC) and the shortest path to the goal. The map is saved in the
+  graph (`graph_find`, `project_search` find it) and the goal state is written as the anchor
+  `<name>.goal`: the next segment of the game starts from there (`Given the mark "<name>.goal"`, or the
+  next map). The same call again reads the graph and starts no machine. A crash on the map is where a fix
+  starts: set an anchor on the way to it and try the fix with a feature file. **Never call one runtime
+  tool per move, and never write an explorer of your own.** The traps, one line each: a **timer**,
+  frame counter or sprite position in the key (every run is a new state; the tool refuses a key that
+  does that); a **debounce longer than `frames`** (the game never sees the press: raise `frames`);
+  a goal or a wait on `the screen shows "…"` that the BASIC banner already satisfies (the text of the
+  banner stays in screen RAM until the game overwrites it, so it holds before the game has done anything). An answer that begins *complete — but the key follows time, not the moves* means every move from every state led to the one same successor: the key is a counter, not the room; the map is flagged and unusable, so read the code again for the right bytes. The wiki page *Mapping a Game* has the walk-through.
 
 The persistent state lives in:
 

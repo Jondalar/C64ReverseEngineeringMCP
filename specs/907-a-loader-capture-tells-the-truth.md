@@ -216,6 +216,10 @@ tests `e2e-loader-lens.mjs`, `e2e-loader-lens-file.mjs`, `e2e-validate-extractio
 - **Passed vs taken.** A `0x37` visit with `data_bytes == 0` is *passed*: `taken: false`. It is not in
   the matched set, not an unclaimed read, and not a landing source; the span it names reads as absent.
   A legacy `0x35` record cannot tell and is always `taken`.
+  **#77 (2026-10-16):** a visit of a sector with a header is taken only with `data_bytes >= 163`
+  (`TAKEN_MIN_DATA_BYTES`, more than half of the 325-byte GCR data block). The producer counts every
+  byte latched after the data sync, so a sync hunt that reads the block id and rejects the block leaves
+  `data_bytes` 1-2 (IM II: 905 of 1282 records, all others 324/326). Sector `0xff` keeps `data_bytes > 0`.
 - **Read past fails only on `0x37`.** `ValidationResult.readPastFails` is true when the capture holds
   at least one `0x37` record. Without one, read-past spans are listed (marked "reported only") and the
   verdict ignores them; a landing mismatch still fails. A mixed capture counts as `0x37`.

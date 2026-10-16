@@ -50,11 +50,11 @@ Owner: literal VIC / v3 UI / knowledge
 > be promoted as **durable/replayable only if the medium is 714-complete**. As of
 > Spec 713 + 714.5 (LANDED 2026-05-24) this now covers the DISK (`driveDiskImage`)
 > AND every supported writable cartridge family — EasyFlash, GMOD2 (+m93c86
-> EEPROM), GMOD3 (+spi-flash), MegaByter (+flash800), C64MegaCart — via `cartFlash`
+> EEPROM), MegaByter (+flash800), C64MegaCart — via `cartFlash`
 > + device command-state snapshot (`probe-714-5-persist` 33/33). Dirty carts are
 > now ACCEPTED at checkpoint; the old reject-on-dirty barrier is retired. Remaining
 > honest gaps (verified by header-inferred runtime gates, not durable real-sample
-> evidence): GMOD3 / C64MegaCart have no commercial sample, and EasyFlash's `$DF00`
+> evidence): C64MegaCart has no commercial sample, and EasyFlash's `$DF00`
 > 256-byte cart-RAM is not yet modelled. Clean-media / no-writable-dependence
 > inspect is unaffected. Never label evidence durable when its medium state is
 > genuinely incomplete.

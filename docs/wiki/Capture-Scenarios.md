@@ -36,8 +36,13 @@ runtime_scene_reel
 
 ```gherkin
   Given the disk "side1.g64"        # also: cart / cartridge / image / medium / snapshot
+  Given the mark "before_lift"      # an anchor: the file runtime_anchor_set wrote into the project
   Given a bare machine
 ```
+
+To try several fixes from one instant, see [Trying a Fix](Trying-a-Fix): a scenario can
+also say `And variant "fix1" assembles "fixes/fix1.tas" at $0A20` and `And I set the
+anchor "before_lift"`.
 
 `When` / `And` — the steps, in written order:
 

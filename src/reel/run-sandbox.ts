@@ -31,6 +31,7 @@
 // `assertNotShared` makes the one remaining coincidence, a free port that happens
 // to BE the shared one, a refusal rather than a surprise.
 
+import { existsSync } from "node:fs";
 import type { Step, Predicate, Check, SeriesRead } from "../project-knowledge/scenario-gherkin.js";
 import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
 import {
@@ -96,6 +97,24 @@ export interface SandboxRunOptions extends SandboxOptions, InputOffsetOptions {
   steps: readonly Step[];
   /** Memory to dump once the steps are done. */
   reads?: readonly MemoryRead[];
+  /**
+   * Code to write into the machine after the origin is loaded and before the first step: RAM, or a
+   * window of one cartridge bank. Given (even empty) the run takes the same capture-and-patch
+   * round trip, so a run without a fix and a run with one start from the same kind of machine.
+   */
+  patches?: readonly SandboxPatch[];
+  /**
+   * Where `I set the anchor "<name>"` writes. Absent: the step is an error — a run with no project
+   * has nowhere to keep it. `replace`: an anchor of that name already there is overwritten.
+   */
+  anchors?: { readonly pathFor: (name: string) => string; readonly replace: boolean };
+  /**
+   * The medium is a state dump (an anchor) and the run starts AT it: the machine is left exactly where the
+   * dump had it, not advanced to the next frame boundary to find out whether the VIC is sweeping.
+   */
+  startExactly?: boolean;
+  /** A `wait until` that does not happen ends the run as a FAILURE of that wait (`failedWait`), not as an error. */
+  waitTimeoutIsFailure?: boolean;
   /** Read the text screen at the end (default true). */
   screen?: boolean;
   /** Encode the final frame as a single-frame GIF. */
@@ -123,6 +142,22 @@ export interface SandboxRunOptions extends SandboxOptions, InputOffsetOptions {
      */
     afterSteps?: number;
   };
+}
+
+/** Bytes to put into the machine: RAM, or a window ("roml" $8000-$9FFF, "romh" $A000-$BFFF) of one cartridge bank. */
+export interface SandboxPatch {
+  readonly space: "ram" | "roml" | "romh";
+  readonly bank?: number;
+  readonly addr: number;
+  readonly bytes: readonly number[];
+}
+
+/** A `wait until` that ran out of frames. */
+export class WaitNotReached extends Error {
+  constructor(readonly what: string, readonly frames: number, message: string) {
+    super(message);
+    this.name = "WaitNotReached";
+  }
 }
 
 /** Spec 900 — a check to decide during the run, and where in it. */
@@ -199,6 +234,10 @@ export interface SandboxRunResult {
   readonly inputs: readonly InputRecord[];
   /** Spec 899 D4 — every series read. */
   readonly series: readonly SeriesResult[];
+  /** `I set the anchor` steps, as they were written. */
+  readonly anchorsSet: readonly { name: string; path: string; cycle: number; pc: number; step: number }[];
+  /** The `wait until` that did not happen, when the run was asked to report that as a failure. The steps after it did not run. */
+  readonly failedWait?: { step: number; what: string; frames: number; detail: string };
   /** Set when the sandbox ended ITSELF — the budget, or the daemon dying. */
   readonly endedBecause: string | null;
   readonly elapsedMs: number;
@@ -274,6 +313,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   const checks: SandboxCheckResult[] = [];
   const inputs: InputRecord[] = [];
   const series: SeriesResult[] = [];
+  const anchorsSet: { name: string; path: string; cycle: number; pc: number; step: number }[] = [];
+  let failedWait: SandboxRunResult["failedWait"];
   /** Set when the runtime dropped this machine onto its isolated CPU core. */
   let coreOnly: string | undefined;
 
@@ -472,9 +513,11 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       // reason, not a mystery. `advance_to_frame` IS the runtime's own answer to
       // "is the VIC sweeping", so it is the probe.
       try {
-        await box.call("session/advance_to_frame");
-        await readMachine();
-        resync();
+        if (!opts.startExactly) {
+          await box.call("session/advance_to_frame");
+          await readMachine();
+          resync();
+        }
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         if (/not sweeping|raster/i.test(m)) {
@@ -513,6 +556,26 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       }
     }
 
+    if (opts.patches) {
+      // The runtime writes into a running machine through its overlay door, which restores a
+      // checkpoint first. The checkpoint is taken here, a moment before, so the restore puts
+      // the machine back exactly where it stands and only the patch differs.
+      const cp = await box.call<{ ref?: { id?: string } }>("checkpoint/capture");
+      const anchorId = cp?.ref?.id;
+      if (!anchorId) throw new Error("the runtime took no checkpoint to write the code in against");
+      const wire = opts.patches.map((p) => ({
+        space: p.space, addr: p.addr & 0xffff, bytes: [...p.bytes],
+        ...(p.space === "ram" ? {} : { bank: p.bank ?? 0 }),
+      }));
+      const wrote = await box.call<{ applied?: unknown[] }>("runtime/overlay_run", { anchor_id: anchorId, patches: wire, run_cycles: 0 });
+      await box.call("debug/pause", { source: "sandbox" });
+      await readMachine();
+      resync();
+      log.push(opts.patches.length === 0
+        ? "no code written (the run without a fix)"
+        : `code written: ${opts.patches.map((p) => `${p.space === "ram" ? "ram" : `${p.space} bank ${p.bank ?? 0}`} ${hex4(p.addr)} (${p.bytes.length} bytes)`).join(", ")}${Array.isArray(wrote?.applied) && wrote.applied.length === opts.patches.length ? "" : " — the runtime did not confirm every write"}`);
+    }
+
     // Spec 861 §4.5 — the capture. It opens HERE: the machine is warmed and the
     // medium is in, so the window is the schedule and nothing else. The frame
     // boundary is taken first and marked, because every raster position in the
@@ -544,7 +607,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     if (startRecordingBefore === 0) await startRecording();
 
     await decideChecksAfter(0);
-    for (const [i, step] of opts.steps.entries()) {
+    steps: for (const [i, step] of opts.steps.entries()) {
       if (i === startRecordingBefore && i > 0) await startRecording();
       switch (step.kind) {
         case "wait":
@@ -636,7 +699,15 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         }
 
         case "waitUntil": {
-          const frames = await waitUntil(step.predicate, step.timeoutFrames);
+          let frames: number;
+          try {
+            frames = await waitUntil(step.predicate, step.timeoutFrames);
+          } catch (e) {
+            if (!(opts.waitTimeoutIsFailure && e instanceof WaitNotReached)) throw e;
+            failedWait = { step: i, what: e.what, frames: e.frames, detail: e.message };
+            log.push(`${i}: ${step.text} — not within ${e.frames} frames; the steps after it did not run`);
+            break steps;
+          }
           const at = (await state()).c64Cycles;
           waits.push({ text: step.text, frames, budget: step.timeoutFrames, cycle: at });
           log.push(`${i}: ${step.text} — after ${frames} frames (cycle ${at})`);
@@ -664,6 +735,21 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           await readMachine();
           resync();
           log.push(`${i}: ${step.text} — ${from} → ${machine!.model} at cycle ${r?.switchedAt?.c64Cycles ?? "?"}`);
+          break;
+        }
+
+        case "anchor": {
+          if (!opts.anchors) {
+            throw new Error(`"${step.text}": this run has no project to keep an anchor in — run it from inside a project (or give --project)`);
+          }
+          const path = opts.anchors.pathFor(step.name);
+          if (existsSync(path) && !opts.anchors.replace) {
+            throw new Error(`"${step.text}": the anchor "${step.name}" already exists (${path}). Run with --replace-anchors to replace it, or give this one another name`);
+          }
+          const dumped = await box.call<{ cycle?: number; pc?: number }>("snapshot/dump", { path });
+          const where = await state();
+          anchorsSet.push({ name: step.name, path, cycle: dumped?.cycle ?? where.c64Cycles, pc: dumped?.pc ?? where.cpu.pc, step: i });
+          log.push(`${i}: ${step.text} -> ${path} (cycle ${dumped?.cycle ?? where.c64Cycles}, PC ${hex4(dumped?.pc ?? where.cpu.pc)})`);
           break;
         }
 
@@ -727,7 +813,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return {
       port: box.port,
       machine: machineIdentity(end),
-      log, waits, reads, frame, screenRows, screenUnreadable, trace, checks, inputs, series,
+      log, waits, reads, frame, screenRows, screenUnreadable, trace, checks, inputs, series, anchorsSet, failedWait,
       endCycle: end.c64Cycles,
       pc: end.cpu.pc,
       cpu: {
@@ -839,7 +925,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       }
       resync();
       const st = await state();
-      throw new Error(
+      throw new WaitNotReached(
+        describe({ kind: "pc", address }), timeoutFrames,
         `"${describe({ kind: "pc", address })}" did not happen within ${timeoutFrames} frames ` +
           `(PC now $${st.cpu.pc.toString(16).padStart(4, "0").toUpperCase()}) — no instruction ` +
           `was fetched from that address in the whole window`,
@@ -928,7 +1015,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         "; the drive never became busy at all, so there was no load to wait for — the " +
         "command may not have been accepted, or the keys arrived before the editor was reading";
     }
-    throw new Error(
+    throw new WaitNotReached(
+      describe(pred), timeoutFrames,
       `"${describe(pred)}" did not happen within ${timeoutFrames} frames ` +
         `(PC now $${st.cpu.pc.toString(16).padStart(4, "0").toUpperCase()})${extra}`,
     );

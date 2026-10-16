@@ -19,6 +19,10 @@ export interface AnchorFacts {
   why?: string;
   setAt?: string;
   droppedAt?: string;
+  /** The anchor's file, relative to the project (knowledge/anchors/<name>.c64re), when it has one. */
+  file?: string;
+  /** The state map that wrote this anchor (its name), when one did. */
+  fromMap?: string;
 }
 
 /** `<slug>:sub:anchor.<name>` — the name made to fit the id grammar, with a hash when it had to change. */
@@ -57,6 +61,8 @@ export function recordAnchor(projectDir: string, a: AnchorFacts): string {
       frame: a.frame ?? before.frame,
       why: a.why ?? before.why,
       set_at: a.setAt ?? before.set_at,
+      file: a.file === "" ? undefined : (a.file ?? before.file),
+      from_map: a.fromMap ?? before.from_map,
     };
     if (a.setAt) delete attrs.dropped_at; // set again after a drop
     if (a.droppedAt) attrs.dropped_at = a.droppedAt;
@@ -105,24 +111,47 @@ function factsFromAttrs(attrs: Record<string, unknown>, fallbackName: string): A
     frame: typeof attrs.frame === "number" ? attrs.frame : undefined,
     why: typeof attrs.why === "string" ? attrs.why : undefined,
     setAt: typeof attrs.set_at === "string" ? attrs.set_at : undefined,
+    file: typeof attrs.file === "string" ? attrs.file : undefined,
     droppedAt: typeof attrs.dropped_at === "string" ? attrs.dropped_at : undefined,
+    fromMap: typeof attrs.from_map === "string" ? attrs.from_map : undefined,
   };
 }
 
-/** The candidate node and its STARTS_FROM edge to the anchor (the anchor node is made from `facts` when absent). */
-export function recordCandidate(projectDir: string, c: { id: string; title?: string; anchor: string; chosen?: string; deltaArtifactIds?: string[]; variants: number }, facts?: AnchorFacts): string {
+/** `<slug>:sub:feature.<path>` — the feature file a candidate was run from. */
+export function featureNodeId(slug: string, path: string): string {
+  return deriveSubsystemId(slug, `feature.${fitName(path)}`);
+}
+
+/**
+ * The candidate node, its STARTS_FROM edge to the anchor (the anchor node is made from `facts` when absent) and,
+ * for a candidate that is the record of a feature run, the link to the feature file.
+ */
+export function recordCandidate(
+  projectDir: string,
+  c: { id: string; title?: string; anchor: string; chosen?: string; deltaArtifactIds?: string[]; variants: number; feature?: { path: string; scenario: string; line: number } },
+  facts?: AnchorFacts,
+): string {
   const slug = readProjectSlug(projectDir);
   const cid = candidateNodeId(slug, c.id);
-  const aid = anchorNodeId(slug, c.anchor);
+  const aid = c.anchor ? anchorNodeId(slug, c.anchor) : undefined;
+  const fid = c.feature ? featureNodeId(slug, c.feature.path) : undefined;
   withStore(projectDir, (st) => {
-    const have = st.db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'human'").get(aid);
-    if (!have) recordAnchor(projectDir, facts ?? { name: c.anchor });
-    const attrs: Record<string, unknown> = { candidate_id: c.id, anchor: c.anchor, variants: c.variants, file: `knowledge/candidates/${c.id}.json` };
+    if (aid) {
+      const have = st.db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'human'").get(aid);
+      if (!have) recordAnchor(projectDir, facts ?? { name: c.anchor });
+    }
+    if (fid && c.feature) {
+      st.upsertHuman({ id: fid, kind: "feature", name: c.feature.path, attrs: { path: c.feature.path }, origin: "runtime", confidence: "observed" }, DOOR_PRODUCER);
+    }
+    const attrs: Record<string, unknown> = { candidate_id: c.id, variants: c.variants, file: `knowledge/candidates/${c.id}.json` };
+    if (c.anchor) attrs.anchor = c.anchor;
+    if (c.feature) { attrs.feature = c.feature.path; attrs.scenario = c.feature.scenario; attrs.scenario_line = c.feature.line; }
     if (c.chosen) attrs.chosen = c.chosen;
     if (c.deltaArtifactIds?.length) attrs.delta_artifact_ids = c.deltaArtifactIds;
     st.upsertHuman({ id: cid, kind: "candidate", name: c.title ?? c.id, attrs, origin: "runtime", confidence: "observed" }, DOOR_PRODUCER);
   });
-  upsertLink(projectDir, { from: cid, type: "STARTS_FROM", to: aid, title: `${c.id} starts from anchor ${c.anchor}` });
+  if (aid) upsertLink(projectDir, { from: cid, type: "STARTS_FROM", to: aid, title: `${c.id} starts from anchor ${c.anchor}` });
+  if (fid && c.feature) upsertLink(projectDir, { from: cid, type: "FROM_FEATURE", to: fid, title: `${c.id} is the record of ${c.feature.path} (${c.feature.scenario})` });
   return cid;
 }
 

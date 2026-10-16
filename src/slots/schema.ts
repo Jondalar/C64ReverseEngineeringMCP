@@ -155,7 +155,7 @@ export const SLOTS: readonly SlotDef[] = [
     question: "Which RAM is actually free — and HOW was that established?",
     fills: "a memory-map finding tagged with its method: `method:run` (a canary run saw no write to the range; that is NOT proof it is unused, so the finding must also say what the listing was read for) or `method:read` (a hypothesis, and it stays one)",
     required: "always", teeth: "refuse",
-    doors: ["runtime_inject_range", "runtime_candidate_variant", "runtime_overlay_run"],
+    doors: ["runtime_inject_range", "runtime_feature_run", "runtime_overlay_run"],
     because: "The single most repeated failure in the corpus: four projects claimed free RAM without checking, and were corrected. A run shows only what was WRITTEN during that run: read-only data survives a canary untouched. Free needs the reading too: no reader and no writer anywhere in the listing. A claim not backed by a run stays a HYPOTHESIS.",
   },
   {

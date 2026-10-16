@@ -8,12 +8,12 @@ Owner: runtime intervention / monitor / knowledge / UI
 > writable medium is valid only when its before/after checkpoints include the
 > complete mutable-media state. As of Spec 713 + 714.5 (LANDED 2026-05-24) this
 > holds for the DISK (`driveDiskImage`) AND every supported writable cartridge
-> family — EasyFlash, GMOD2 (+m93c86 EEPROM), GMOD3 (+spi-flash), MegaByter
+> family — EasyFlash, GMOD2 (+m93c86 EEPROM), MegaByter
 > (+flash800), C64MegaCart — via `cartFlash` + device command-state snapshot
 > (`probe-714-5-persist` 33/33). Dirty carts are now ACCEPTED at checkpoint; the
 > old reject-on-dirty barrier is retired, so any of these can form a branch root
 > over a written medium. Remaining honest gaps (header-inferred gates, no durable
-> real-sample evidence): GMOD3 / C64MegaCart have no commercial sample, and
+> real-sample evidence): C64MegaCart has no commercial sample, and
 > EasyFlash's `$DF00` 256-byte cart-RAM is not yet modelled.
 
 ## 1. Purpose
