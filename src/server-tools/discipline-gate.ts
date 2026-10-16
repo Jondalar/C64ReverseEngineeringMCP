@@ -74,7 +74,7 @@ function isReadDerived(hypothesis: string | undefined): { ok: boolean; why: stri
  *  citation RESOLVES against the project, and the project is still accruing records. */
 export async function checkTraceDiscipline(
   hypothesis: string | undefined,
-  opts: { projectDir?: string } = {},
+  opts: { projectDir: string | undefined },
 ): Promise<TraceDisciplineResult> {
   const r = isReadDerived(hypothesis);
   if (!r.ok) return { allowed: false, refusal: traceRefusal(r.why) };
@@ -87,7 +87,7 @@ export async function checkTraceDiscipline(
  *  tailored to the tool's act so the redirect is concrete. */
 export async function checkRuntimeDiscipline(
   hypothesis: string | undefined,
-  opts: { tool: string; act: string; projectDir?: string },
+  opts: { tool: string; act: string; projectDir: string | undefined },
 ): Promise<TraceDisciplineResult> {
   const r = isReadDerived(hypothesis);
   if (!r.ok) return { allowed: false, refusal: runtimeRefusal(r.why, opts) };
@@ -98,8 +98,10 @@ export async function checkRuntimeDiscipline(
  *  the lesson of Cybernoid, where the reflex simply picked the door that had no gate. */
 async function substanceChecks(
   hypothesis: string,
-  opts: { tool: string; act: string; projectDir?: string },
+  opts: { tool: string; act: string; projectDir: string | undefined },
 ): Promise<TraceDisciplineResult> {
+  // projectDir is a required key: a door that names a project hands it in (the gate reads and writes THAT project);
+  // `undefined` is the explicit answer of a door that names none (a session-bound runtime door), which falls back to the server's own.
   const projectDir = opts.projectDir ?? currentProjectDir();
 
   const { resolveCitation } = await import("./citation-resolver.js");

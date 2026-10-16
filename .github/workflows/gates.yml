@@ -98,6 +98,10 @@ jobs:
       - name: Runtime discipline is enforced
         run: npm run e2e:discipline-gate
 
+      # The gate of a call that names project_dir checks THAT project: its citation, its ratchet file, its records (issue 124).
+      - name: The discipline gate checks the project the call names (issue 124)
+        run: npm run e2e:issue124-loader-lens-gate-project
+
       # Both measures a session can be pushed to game live here, and this gate
       # was in package.json and in no workflow.
       - name: The slot measures say what they count
