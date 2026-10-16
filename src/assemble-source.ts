@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type SupportedAssembler = "kickassembler" | "64tass";
@@ -199,9 +199,14 @@ function resolve64tassBinaryPath(): string {
   throw new Error("64tass not found. Set C64RE_64TASS_BIN or install 64tass (for example with Homebrew).");
 }
 
+/**
+ * `binaryName` in every PATH directory. PATH is split on the platform's separator (";" on
+ * Windows), and on Windows the program is `<name>.exe` — execFile runs no .cmd/.bat without a shell.
+ */
 function resolveFromPath(binaryName: string): string[] {
   const pathValue = process.env.PATH ?? "";
-  return pathValue.split(":").filter(Boolean).map((entry) => `${entry}/${binaryName}`);
+  const file = process.platform === "win32" ? `${binaryName}.exe` : binaryName;
+  return pathValue.split(delimiter).filter(Boolean).map((entry) => join(entry, file));
 }
 
 async function compareBinaryFiles(leftPath: string, rightPath: string): Promise<{

@@ -73,6 +73,7 @@
     "e2e:issue87-next-md-guard": "npm run build:mcp && node scripts/e2e-issue87-next-md-guard.mjs",
     "e2e:issue89-until-budget": "npm run build:mcp && node scripts/e2e-issue89-until-budget.mjs",
     "e2e:issue88-zp-human-label": "npm run build && node scripts/e2e-issue88-zp-human-label.mjs",
+    "e2e:issue113-path-list-delimiter": "npm run build:mcp && node scripts/e2e-issue113-path-list-delimiter.mjs",
     "smoke:issue72-sandbox-io-ram": "npm run build:mcp && node scripts/smoke-issue72-sandbox-io-ram.mjs",
     "smoke:pipeline-version": "npm run build:mcp && node scripts/smoke-pipeline-version.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
