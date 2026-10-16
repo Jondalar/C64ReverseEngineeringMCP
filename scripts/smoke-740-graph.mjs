@@ -305,12 +305,12 @@ try {
     const r = await find("init_engine");
     check(!r.rebuilt, "a search right after project_reindex_search does not rebuild (its own activity-log line is stamped)", r.rebuilt);
 
-    check(search.PROJECT_SEARCH_INDEX_VERSION === 2, "PROJECT_SEARCH_INDEX_VERSION is 2", String(search.PROJECT_SEARCH_INDEX_VERSION));
+    check(search.PROJECT_SEARCH_INDEX_VERSION === 3, "PROJECT_SEARCH_INDEX_VERSION is 3 (state maps are a kind of their own)", String(search.PROJECT_SEARCH_INDEX_VERSION));
     const cachePath = join(proj, search.CACHE_RELPATH);
     const cache = JSON.parse(readFileSync(cachePath, "utf8"));
     writeFileSync(cachePath, JSON.stringify({ ...cache, version: 1 }));
     const old = await find("init_engine");
-    check(/^index rebuilt: the cache was written by index version 1, this is version 2/.test(old.rebuilt ?? ""), "an old cache rebuilds on first use and says why", old.rebuilt);
+    check(/^index rebuilt: the cache was written by index version 1, this is version 3/.test(old.rebuilt ?? ""), "an old cache rebuilds on first use and says why", old.rebuilt);
     check(old.hits[0]?.kind === "routine", "…and answers from the rebuilt index");
   }
 } catch (e) {
