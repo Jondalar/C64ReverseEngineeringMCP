@@ -1,27 +1,20 @@
 name: gates
 
-# The hermetic subset: everything here runs on a bare runner with no C64 ROMs,
-# no media, no assembler and no runtime daemon. That is the whole design — a
-# gate that needs an asset the runner cannot have is a gate that goes red for
-# the wrong reason, gets ignored, and takes the rest of CI with it. That is
-# exactly what happened here before: four workflows referenced 36 scripts that
-# Spec 806 deleted with the TypeScript emulator, the nightly went red every day
-# from June, and by July nothing ran at all.
+# What a bare runner can run, and everything else this machine can. The core of this file is hermetic: no C64
+# ROMs, no media, no assembler, no runtime daemon needed. That was the whole design — a gate that needs an asset
+# the runner cannot have goes red for the wrong reason, gets ignored, and takes the rest of CI with it. That is
+# exactly what happened here before: four workflows referenced 36 scripts that Spec 806 deleted with the
+# TypeScript emulator, the nightly went red every day from June, and by July nothing ran at all.
 #
-# What is NOT here, and stays a local gate: anything needing resources/roms,
-# a KickAssembler/64tass binary, real disk images, or the TRX64 daemon —
-# smoke:741, check:platform-kb, most of the graph e2e set (e2e:818-e2e:822,
-# of which e2e:822 needs the Wasteland_EF fixture repository), measure:*.
-# e2e:823 IS here: it is hermetic, it was in no workflow, and it went red the
-# day the onboarding gate arrived and stayed red unobserved.
-# e2e:830 is here and DOES use KickAssembler when it is present: it skips that
-# one check loudly on a runner that has no jar, and still asserts the clamped
-# byte output either way.
+# The scripts that DO want a daemon, ROMs, an assembler or a local-only sample (gitignored game data) are steps
+# too, in the last block before the leak check. Each looks for what it needs the one standard way
+# (C64RE_RUNTIME_BIN / findDaemon / resources/roms) and, when it is absent, prints SKIPPED and says it is NOT
+# passed — it neither fails nor passes silently. scripts/gate.sh runs this file on a machine that has the
+# assets; a runner that has none reports those steps as skipped.
 #
-# Two gates are red on master as of 2026-09-06 and are therefore left out until
-# they are fixed, rather than being added and muted:
-#   test:lifecycle    D structural-enrichment: got "discovery" want "re"
-#   test:mcp-workflow custom-GCR lenient decode
+# What is NOT here is on the allow-list scripts/gate-coverage-allow.json, each entry with its reason, and
+# `check:gate-coverage` fails when a test script is in neither place. The measure:* scripts are not tests.
+# e2e:830 uses KickAssembler when it is present and skips that one check loudly on a runner that has no jar.
 
 on:
   pull_request:
@@ -77,6 +70,11 @@ jobs:
       # A tool that returns structuredContent hides its own text from the model.
       - name: Tools answer in text
         run: npm run check:text-only-tools
+
+      # Nothing may be in package.json as a gate and run nowhere: every e2e:/smoke:/test:/probe: script is a step of
+      # this workflow or carries a one-line reason in scripts/gate-coverage-allow.json.
+      - name: Every test script is in the gate or says why not
+        run: npm run check:gate-coverage
 
       # npm runs these scripts through cmd.exe on Windows, which has no /dev/null.
       - name: npm scripts run under cmd.exe too
@@ -882,6 +880,212 @@ jobs:
       # build_tools runs npm without a shell: npm-cli.js by this Node, never a batch file.
       - name: npm without a shell
         run: npm run smoke:npm-cli
+
+      # Every e2e:, smoke:, test: and probe: script in package.json is a step below or on the allow-list in
+      # scripts/gate-coverage-allow.json (check:gate-coverage, above). They were once in neither, went red
+      # unobserved, and 15 of them were red at once. The scripts that need a daemon, a ROM set or a local-only
+      # game image look for it the one standard way and print SKIPPED ... NOT passed when it is absent; the CI
+      # runner has none of those, this machine has all of them.
+
+      # Hermetic: synthetic temp projects and fixtures built by the test, MCP over stdio. No daemon, no media.
+      - name: A carved code-derived load registers as a first-class payload (e2e:024)
+        run: npm run e2e:024
+      - name: One call, many paths — the bulk door on disasm and analyze (e2e:060-bulk)
+        run: npm run e2e:060-bulk
+      - name: slot_record's title cap, in the tool's own voice (e2e:060-slot-title)
+        run: npm run e2e:060-slot-title
+      - name: Relocated-code disassembly through the MCP, end to end (e2e:741)
+        run: npm run e2e:741
+      - name: The cartridge layout overlays slot spans per cart image (e2e:750-cart)
+        run: npm run e2e:750-cart
+      - name: The server-side effective segments match the pipeline's (e2e:751)
+        run: npm run e2e:751
+      - name: Static code discovery finds what flow-only descent cannot (e2e:758)
+        run: npm run e2e:758
+      - name: The project address index resolves across artifacts (e2e:759)
+        run: npm run e2e:759
+      - name: Cartridge identity on the layout (e2e:785-identity)
+        run: npm run e2e:785-identity
+      - name: Scenario notation over the model that exists (e2e:810)
+        run: npm run e2e:810
+      - name: Address identity, the store, the query API (e2e:818)
+        run: npm run e2e:818
+      - name: The model layer — each case able to fail (e2e:845-model)
+        run: npm run e2e:845-model
+      - name: The best version of an artifact is the default source (e2e:artifact-best-version)
+        run: npm run e2e:artifact-best-version
+      - name: The disk layout overlays payload sector spans per disk image (e2e:bug031)
+        run: npm run e2e:bug031
+      - name: Artifact-version reconcile clears a stale flag when the file returns (e2e:bug033)
+        run: npm run e2e:bug033
+      - name: A payload shorter than its declared chain warns (e2e:chain-coverage)
+        run: npm run e2e:chain-coverage
+      - name: Cartridge chunk defaults (e2e:crt-chunk-default)
+        run: npm run e2e:crt-chunk-default
+      - name: extract_disk's manifest spans are the block chain (e2e:disk-chain-spans)
+        run: npm run e2e:disk-chain-spans
+      - name: Raw disk tools default to the raw door (e2e:disk-raw-default)
+        run: npm run e2e:disk-raw-default
+      - name: extract_disk emits a manifest for the stock-DOS layer (e2e:disk-spec784)
+        run: npm run e2e:disk-spec784
+      - name: The UI's firehose de-duplication helper (e2e:firehose-dedupe)
+        run: npm run e2e:firehose-dedupe
+      - name: Manifest to payload registration, full span chains (e2e:manifest-register)
+        run: npm run e2e:manifest-register
+      - name: Uniform block coverage over the medium substrate (e2e:medium-coverage)
+        run: npm run e2e:medium-coverage
+      - name: Manifest import fills medium spans and provenance (e2e:medium-span-import)
+        run: npm run e2e:medium-span-import
+      - name: No tool text recommends an internal door (e2e:no-internal-recommendations)
+        run: npm run e2e:no-internal-recommendations
+      - name: The pipeline writes POSIX-relative paths into its manifests (e2e:pipeline-posix-relative)
+        run: npm run e2e:pipeline-posix-relative
+      - name: A list of paths in an environment variable splits on the platform's separator (e2e:issue113-path-list-delimiter)
+        run: npm run e2e:issue113-path-list-delimiter
+      - name: 64tass is handed paths of 260+ characters it can open (e2e:issue118-64tass-long-path)
+        run: npm run e2e:issue118-64tass-long-path
+      - name: The default tool surface against the full inventory (probe:tool-surface)
+        run: npm run probe:tool-surface
+      - name: Keyboard mapping at the left edge (smoke:026)
+        run: npm run smoke:026
+      - name: D64 to GCR encode, scanned back byte-identical (smoke:413-d64-gcr)
+        run: npm run smoke:413-d64-gcr
+      - name: Project search and wiki (smoke:740)
+        run: npm run smoke:740
+      - name: Names are joined in C64RE — the resolver, residency, the generic monitor join (smoke:804)
+        run: npm run smoke:804
+      - name: No name over 20 characters in a project created since the rule (smoke:804-naming)
+        run: npm run smoke:804-naming
+      - name: The Graph tab at bundle and source level (smoke:824)
+        run: npm run smoke:824
+      - name: Jump into the source line — bundle, source and unit level (smoke:824-2)
+        run: npm run smoke:824-2
+      - name: The graph HTTP routes, on a temp project (smoke:824-routes)
+        run: npm run smoke:824-routes
+      - name: Disk tab — stable selection (smoke:bug008-009)
+        run: npm run smoke:bug008-009
+      - name: project_init sorts loose root media into typed folders (smoke:bug015)
+        run: npm run smoke:bug015
+      - name: Raw track/sector navigation in the disk geometry (smoke:bug017)
+        run: npm run smoke:bug017
+      - name: The product UI shows runtime connection and session status (smoke:bug018)
+        run: npm run smoke:bug018
+      - name: The disk file inspector defaults to the current best source version (smoke:bug019)
+        run: npm run smoke:bug019
+      - name: A file-space routine annotation renames the auto-label (smoke:bug033-label)
+        run: npm run smoke:bug033-label
+      - name: A trace is read as a stream, never one buffer (smoke:bug052)
+        run: npm run smoke:bug052
+      - name: The diff-trace library (smoke:diff-trace)
+        run: npm run smoke:diff-trace
+      - name: The fingerprint library (the ROM case skips loudly without resources/roms) (smoke:fingerprint)
+        run: npm run smoke:fingerprint
+      - name: The synthetic disk generator (smoke:gen)
+        run: npm run smoke:gen
+      - name: The keyboard and joystick input library (smoke:input)
+        run: npm run smoke:input
+      - name: The five-phase lifecycle crosswalk (test:lifecycle)
+        run: npm run test:lifecycle
+      - name: The MCP workflow harness (fixtures it cannot find skip loudly) (test:mcp-workflow)
+        run: npm run test:mcp-workflow
+
+      # Graph slices: ground-truth fixtures run through the real pipeline. Parts that need the local lnr_boot report
+      # (analysis/tmp, from measure:816) or a Wasteland_EF checkout skip loudly and say so.
+      - name: The control-flow producer (e2e:819)
+        run: npm run e2e:819
+      - name: The memory access graph (e2e:820)
+        run: npm run e2e:820
+      - name: The four private walks read the store — output parity (e2e:820-2)
+        run: npm run e2e:820-2
+      - name: The runtime producer on a synthetic capture (e2e:821)
+        run: npm run e2e:821
+      - name: Migration of the JSON store, on a temp copy of the Wasteland_EF checkout (e2e:822)
+        run: npm run e2e:822
+      - name: The cut-over leaves a project with structure, not just prose (e2e:822-cutover-seed)
+        run: npm run e2e:822-cutover-seed
+      - name: Routine signatures (e2e:826)
+        run: npm run e2e:826
+      - name: Human nodes without a generated twin, by kind (e2e:826-boundaries)
+        run: npm run e2e:826-boundaries
+      - name: The runtime half of routine signatures, synthetic capture (e2e:826-runtime-args)
+        run: npm run e2e:826-runtime-args
+      - name: A real image — skips loudly when none is configured (e2e:750-real)
+        run: npm run e2e:750-real
+      - name: A real trace — skips loudly when there is no capture (e2e:821-real)
+        run: npm run e2e:821-real
+      - name: Cartridge read-set decoded out of a trace (e2e:785-cart-readset)
+        run: npm run e2e:785-cart-readset
+      - name: Relocated code — .pseudopc and .logical, rebuilt byte-exact (smoke:741)
+        run: npm run smoke:741
+
+      # Runtime scripts: a trx64-daemon of the run's own on free ports (never :4312). Without a daemon binary each
+      # one prints SKIPPED and says it is NOT passed; C64RE_RUNTIME_BIN=<binary> runs them.
+      - name: Several triggers starting the daemon at once leave exactly one (e2e:744-4c-race)
+        run: npm run e2e:744-4c-race
+      - name: Debug, step and monitor tools drive the shared daemon session (e2e:744-4c-slice2a)
+        run: npm run e2e:744-4c-slice2a
+      - name: Media tools route to the one ingest operation (e2e:744-4c-slice2b)
+        run: npm run e2e:744-4c-slice2b
+      - name: The remaining session-attached tools route to the shared session (e2e:744-4c-slice2c)
+        run: npm run e2e:744-4c-slice2c
+      - name: Checkpoint ring tools on the shared daemon (e2e:746-checkpoint)
+        run: npm run e2e:746-checkpoint
+      - name: A warp trace plus a disk swap does not run the daemon out of memory (needs samples/POLARBEAR.d64; skips loudly without it) (e2e:746-trace-leak)
+        run: npm run e2e:746-trace-leak
+      - name: Sandbox bridge batches (needs trx64cli; skips loudly) (e2e:805-sandbox-batch)
+        run: npm run e2e:805-sandbox-batch
+      - name: An auto-started runtime ends itself when nobody uses it (e2e:886-idle-exit)
+        run: npm run e2e:886-idle-exit
+      - name: A green emulator run is recorded and the C64U gate reads it (e2e:889-pass)
+        run: npm run e2e:889-pass
+      - name: The C64U bridge against a software Ultimate (e2e:889-ue2emu)
+        run: npm run e2e:889-ue2emu
+      - name: Input and drive tools drive the shared session (e2e:bug028)
+        run: npm run e2e:bug028
+      - name: A wedged daemon is healed (e2e:stall-heal)
+        run: npm run e2e:stall-heal
+      - name: The monitor with names, against a sandbox runtime (smoke:804-monitor)
+        run: npm run smoke:804-monitor
+      - name: A written capture scenario, end to end (smoke:812)
+        run: npm run smoke:812
+      - name: Waiting on a state instead of a cycle, and checking one (smoke:813)
+        run: npm run smoke:813
+      - name: The scenario recorder — play it once, get the file (smoke:814)
+        run: npm run smoke:814
+      - name: The runtime serves the project you are looking at (smoke:858)
+        run: npm run smoke:858
+      - name: The raster line as the VIC saw it (smoke:859)
+        run: npm run smoke:859
+      - name: The frozen frame as a view (smoke:860)
+        run: npm run smoke:860
+      - name: The cycle table, the VIC, the interrupts and the drive on a real machine (smoke:861)
+        run: npm run smoke:861
+      - name: Frequency ranks and page crossings on a real machine (smoke:862)
+        run: npm run smoke:862
+      - name: NTSC — the switch, the project's model, the VIC view on an NTSC frame (smoke:863)
+        run: npm run smoke:863
+      - name: Residency against a real machine (smoke:867)
+        run: npm run smoke:867
+      - name: c64re scenario run, and Then in runtime_sandbox_run (smoke:900)
+        run: npm run smoke:900
+      - name: A .d81 runs on a private machine (smoke:d81-drive)
+        run: npm run smoke:d81-drive
+      - name: A joystick press held for a number of frames (smoke:issue6)
+        run: npm run smoke:issue6
+      - name: The product UI and its runtime routing (the runtime half skips loudly without a daemon) (smoke:product-ui)
+        run: npm run smoke:product-ui
+      - name: runtime_type key tokens and the still-booting guard (smoke:runtime-type-keys)
+        run: npm run smoke:runtime-type-keys
+      - name: A sandbox daemon does not outlive the process that started it (smoke:sandbox-orphan)
+        run: npm run smoke:sandbox-orphan
+      - name: A PRG in runtime_sandbox_run starts and the report says what happened (smoke:sandbox-prg-start)
+        run: npm run smoke:sandbox-prg-start
+      - name: Waiting for a PC is an execution breakpoint, not a sample (smoke:sandbox-wait-pc)
+        run: npm run smoke:sandbox-wait-pc
+      - name: A bounded session run advances with or without an A/V viewer (smoke:session-run-advance)
+        run: npm run smoke:session-run-advance
+      - name: npm run workspace brings up both backends for one project (smoke:workspace-runtime)
+        run: npm run smoke:workspace-runtime
 
       # Spec 902 D5 — LAST: after every smoke above, nothing a smoke started is still running. Names the
       # step that left something behind.
