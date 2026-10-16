@@ -25,7 +25,7 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -215,7 +215,7 @@ try {
   //    still not contain forbidden recommendations). --
   let auditHits = [];
   try {
-    const { auditProject, renderProjectAudit } = await import(join(ROOT, "dist/project-knowledge/audit.js"));
+    const { auditProject, renderProjectAudit } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/audit.js")).href);
     const auditResult = auditProject(projectDir, { includeFileScan: true });
     const auditText = renderProjectAudit(auditResult);
     auditHits = scanText(auditText, "project_audit output");
