@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { genericSandboxDepackMany } from "../sandbox/sandbox-depack-generic.js";
@@ -155,7 +155,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
         }
         okCount += 1;
         const result = outcome.result;
-        const stem = p.inputAbs.split("/").pop()!.replace(/\.[^.]+$/, "");
+        const stem = basename(p.inputAbs, extname(p.inputAbs));
         const outPath = p.outputPath
           ? resolve(projectRoot, p.outputPath)
           : resolve(projectRoot, "analysis", "depack", `${stem}-${p.offset.toString(16).padStart(4, "0")}.prg`);

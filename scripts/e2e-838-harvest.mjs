@@ -341,6 +341,22 @@ check(/never written by this depacker/.test(depText),
   "…and that the addresses between the runs are not payload");
 check(/\$5010-\$5013/.test(depText), "…naming the run it did not return");
 
+// Without output_path the PRG goes to analysis/depack/<input stem>-<offset>.prg. The stem
+// was cut at "/" only, so on Windows it was the whole native path, and resolve() then put
+// the file next to the input instead.
+const defaultOut = join(scratch, "analysis", "depack", "packed-0000.prg");
+const defaultText = await callTool("sandbox_depack", {
+  input_path: "packed.bin",
+  resident_loader_path: "resident.bin",
+  resident_load_address: "c000",
+  entry_pc: "c000",
+  max_steps: 100000,
+});
+check(existsSync(defaultOut) && defaultText.includes(defaultOut),
+  "without output_path the PRG lands in analysis/depack/, named after the input's stem",
+  defaultText.split("\n").find((l) => /→/.test(l))?.trim().slice(0, 160) ?? "no output line");
+check(!existsSync(join(scratch, "packed-0000.prg")), "…and not next to the input");
+
 // ── G. the escape hatch is still a refusal, not an invention ────────────────
 console.log("\nG. a write set too scattered to file is written as nothing");
 // 65 single-byte runs: $4000, $4002 … $4080. One file each is not an output, and
