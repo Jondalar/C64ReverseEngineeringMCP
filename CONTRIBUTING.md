@@ -44,6 +44,6 @@ with. If something new turns up during a retest, open a new issue for it.
 
 - One fix per PR, with a link to its issue.
 - Add or adapt a test that fails without the fix.
-- `./scripts/gate.sh` must stay green on macOS or Linux. Say so if you could not run it there.
+- `./scripts/gate.sh` must stay green on macOS or Linux. Say so if you could not run it there. It runs the steps of `.github/workflows/gates.yml` in a worker pool; a step is serial unless the line above it carries `# gate: parallel` (hermetic) or `# gate: runtime` (own daemon on a free port), which you may add only after checking that it writes nothing into the repository and holds no fixed port or `/tmp` path. A test script starts with `node scripts/ensure-built.mjs mcp` (or `pipeline`, `ui`, `all`), not with a build.
 - Never make a check weaker so that a test passes.
 - No third-party game or ROM bytes in the repository, and nothing made from them.
