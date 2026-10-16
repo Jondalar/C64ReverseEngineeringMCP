@@ -1,7 +1,15 @@
 # Contributing
 
 C64RE and its runtime TRX64 are maintained by a very small team. These rules keep issues something we
-can actually finish.
+can actually finish. They apply to both repositories.
+
+## How we work
+
+- **No issue without a proposed fix.** An issue comes with a pull request that fixes it (see below). An
+  issue with no PR is closed.
+- **We group issues by topic and plan them**: when we review and verify the PRs, and in which release
+  they ship. A fix waits for its topic's turn.
+- **There is no service level.** No response time, no fix time, no release date.
 
 ## Before you open an issue
 
@@ -9,9 +17,8 @@ can actually finish.
   open another one. Comment on the existing issue instead.
 - **One defect per issue.** Do not bundle findings, and do not add new findings to an issue that is
   closed after a fix. Open a new issue for each one.
-- **Windows-only failures come as a pull request, not an issue.** We develop and test on macOS and
-  Linux and cannot reproduce, fix or verify anything that happens only on Windows. If you can, send a
-  PR (see below). The same goes for portability fixes in test scripts.
+- **Windows-only failures:** we develop and test on macOS and Linux and cannot reproduce or verify
+  anything that happens only on Windows. Say so in the PR.
 
 ## What an issue must contain
 
