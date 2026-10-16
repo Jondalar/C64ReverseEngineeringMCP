@@ -6,12 +6,13 @@ Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE
 A new spec starts from [`_TEMPLATE.md`](_TEMPLATE.md): the problem first, then the scenarios that prove it solved, each with its test.
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/internal/`) — one range, one registry.
-**Next free: 913.** (807 = TRX64's binary checkpoint ring, closed and archived there; 808 = TRX64's rewind
+**Next free: 914.** (807 = TRX64's binary checkpoint ring, closed and archived there; 808 = TRX64's rewind
 transport, 809 = TRX64's marks and branches — both tracked on the TRX64 board. 808 has a C64RE-side
 ribbon on the existing scrub UI; 810 is C64RE's and is listed below.)
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
+| 913 | An Action Replay V5 or V6 boots, freezes a running program and returns to it (TRX64 `docs/internal/913-action-replay.md`) | BUILDING (2026-10-16) | CRT type 1 ported from VICE actionreplay.c; freeze machinery (cart NMI, ultimax 3 cycles after the press, at the press cycle — no random delay; PLA re-run on side-effect reads; real phi1 byte); `freeze` on cart/button; cart RAM + frozen state in checkpoints. MK1-MK4, RR, FC3 out. | 2026-10-16 |
 | 912 | A game is mapped by its moves: every state reachable from an anchor, and the shortest way to a goal, as knowledge in the graph (`912-a-game-mapped-by-its-moves.md`) | BUILDING (2026-10-16), after 911; ships only after a TRX64 release with the jam-after-restore fix | `runtime_state_map` + `c64re state map`: BFS on one sandbox from an anchor file over key bytes and moves, dead/goal predicates, JAM = crash state, caps; states and moves into the graph, goal state as an anchor file. | 2026-10-16 |
 | 911 | One feature file takes a fix from an anchor to a verdict (`911-one-feature-file-from-anchor-to-fix.md`) | BUILDING (2026-10-16) | Anchor = mark + `.c64re` file in the project, `set the anchor` step; variant lines (source at an address, RAM or cart bank) run beside the baseline on parallel private machines; `Then` decides, machine diff is side-effect info; `runtime_feature_run` = the CLI's code; candidate = record of a run; candidate_create/variant/run removed; agent docs + wiki page. | 2026-10-16 |
 | 910 | A sandbox is a daemon of its own: one way to start it, every runtime tool proven equal on it, and it never writes back (`910-a-sandbox-is-a-daemon-of-its-own.md`) | PROPOSED (2026-10-15), owner's call to build | One driver for every sandbox (one-shot run, reel, sweep, scenario runner, cost capture become scripts over the session lifecycle); parity proven per tool by a generated call on a sandbox and on a shared-style daemon; TRX64 daemon option that never writes a medium back (replaces C64RE's method-name list); one end path. The shared session is unchanged. | 2026-10-15 |
