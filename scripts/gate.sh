@@ -83,6 +83,11 @@ if [ "$TIER" = "docs" ]; then
   STEPS=$(printf '%s\n' "$STEPS" | grep -E "$DOCS_STEPS")
 fi
 
+# GATE_ONLY='regex' runs just the steps whose name matches — for proving a new step before it is tagged.
+if [ -n "${GATE_ONLY:-}" ]; then
+  STEPS=$(printf '%s\n' "$STEPS" | awk -F'\t' -v re="$GATE_ONLY" '$1 ~ re')
+fi
+
 TOTAL=$(printf '%s\n' "$STEPS" | sed '/^$/d' | wc -l | tr -d ' ')
 
 if [ "$TOTAL" = "0" ]; then

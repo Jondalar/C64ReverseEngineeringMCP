@@ -584,6 +584,7 @@ jobs:
       # command, the built PRG/CRT compared byte by byte: GREEN, and RED naming the first differing
       # address) run on any runner. The runtime half — set/list/drop/goto, the 32-anchor limit — starts
       # a trx64-daemon of its own on a free port and SKIPS LOUDLY on a runner that has none.
+      # gate: runtime
       - name: Anchors and the build (Spec 905)
         run: npm run e2e:905
 
@@ -597,12 +598,16 @@ jobs:
       #   door      — `c64re scenario run` and runtime_feature_run say the same; the exit codes
       #   candidate — the run is the candidate record; choose, derive the delta, verify the build; the old
       #               door is gone and an old record still works
+      # gate: runtime
       - name: An anchor is a file, and a feature makes one (Spec 911)
         run: npm run e2e:911-anchor
+      # gate: runtime
       - name: Fixes beside the baseline, judged by the Then lines (Spec 911)
         run: npm run e2e:911-variants
+      # gate: runtime
       - name: One door for the script and the LLM (Spec 911)
         run: npm run e2e:911-door
+      # gate: runtime
       - name: The run is the candidate, and the winner goes into the build (Spec 911)
         run: npm run e2e:911-candidate
 
@@ -610,6 +615,7 @@ jobs:
       # own removed on exit, a test game assembled by 64tass from source in the script); it SKIPS LOUDLY on a
       # runner with no trx64-daemon or no 64tass. Scenario S4 (a restore from a jammed machine runs again) also
       # SKIPS LOUDLY, naming the runtime version, on a runtime without the checkpoint-restore fix.
+      # gate: runtime
       - name: A game mapped by its moves (Spec 912)
         run: npm run e2e:912
 
