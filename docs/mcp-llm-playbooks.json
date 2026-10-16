@@ -1207,6 +1207,81 @@
       ]
     },
     {
+      "id": "map-a-game",
+      "title": "Map a Game by Its Moves",
+      "userIntentExamples": [
+        "Which rooms does this game have, and how do I get to the last one?",
+        "Does down in room 2 crash it?",
+        "Walk me through the levels of this game."
+      ],
+      "preconditions": [
+        "The code that picks the room, screen or level has been read: the key is the bytes it indexes with.",
+        "A machine you can bring to the loop where the game waits for input (the shared session, a sandbox you started), or a feature file that gets there from a medium."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "Read the room/level code and write down the key: the addresses it indexes with (\"$02\", \"$0400:2\", \"$D020@io\"). Never a timer, a frame counter or a sprite position.",
+          "tools": [
+            "graph_find",
+            "disasm",
+            "inspect_address_range",
+            "project_search"
+          ],
+          "persist": [
+            "the key and why"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Name the instant where the game waits for input as an anchor (a file in the project).",
+          "tools": [
+            "runtime_anchor_set",
+            "runtime_anchor_list"
+          ],
+          "persist": [
+            "anchor name"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Ask for the map: the key, the moves (L R U D F N, combinations, key:SPACE), the goal if there is one. One call; the tool restores each state and tries every move on a machine of its own, and says complete, stopped at a cap, or goal reached.",
+          "tools": [
+            "runtime_state_map"
+          ],
+          "persist": [
+            "map name",
+            "crashes",
+            "goal path"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Read the map back from the graph, and continue from the goal anchor for the next segment, or from a crash toward a fix.",
+          "tools": [
+            "graph_find",
+            "graph_edges",
+            "project_search",
+            "runtime_feature_run"
+          ],
+          "persist": [
+            "findings about the structure"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "The question about the game's structure is answered from the map: the rooms, the way to the last one, the moves that crash."
+      ],
+      "nextActions": [
+        "Iterate Your Own Code from the anchor on the way to a crash."
+      ],
+      "forbiddenShortcuts": [
+        "Do not call one runtime tool per move to walk a game, and do not write an explorer of your own: runtime_state_map is that loop.",
+        "Do not put a timer, frame counter or sprite position in the key.",
+        "Do not report a map that stopped at a cap as the whole game."
+      ]
+    },
+    {
       "id": "rewind-and-scrub",
       "title": "Rewind and Scrub",
       "userIntentExamples": [

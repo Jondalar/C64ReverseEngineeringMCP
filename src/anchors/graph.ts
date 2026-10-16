@@ -21,6 +21,8 @@ export interface AnchorFacts {
   droppedAt?: string;
   /** The anchor's file, relative to the project (knowledge/anchors/<name>.c64re), when it has one. */
   file?: string;
+  /** The state map that wrote this anchor (its name), when one did. */
+  fromMap?: string;
 }
 
 /** `<slug>:sub:anchor.<name>` — the name made to fit the id grammar, with a hash when it had to change. */
@@ -60,6 +62,7 @@ export function recordAnchor(projectDir: string, a: AnchorFacts): string {
       why: a.why ?? before.why,
       set_at: a.setAt ?? before.set_at,
       file: a.file === "" ? undefined : (a.file ?? before.file),
+      from_map: a.fromMap ?? before.from_map,
     };
     if (a.setAt) delete attrs.dropped_at; // set again after a drop
     if (a.droppedAt) attrs.dropped_at = a.droppedAt;
@@ -110,6 +113,7 @@ function factsFromAttrs(attrs: Record<string, unknown>, fallbackName: string): A
     setAt: typeof attrs.set_at === "string" ? attrs.set_at : undefined,
     file: typeof attrs.file === "string" ? attrs.file : undefined,
     droppedAt: typeof attrs.dropped_at === "string" ? attrs.dropped_at : undefined,
+    fromMap: typeof attrs.from_map === "string" ? attrs.from_map : undefined,
   };
 }
 

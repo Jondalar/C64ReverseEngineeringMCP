@@ -1,9 +1,9 @@
 {
-  "total": 306,
+  "total": 307,
   "specCount": 0,
   "advancedCandidate": 105,
   "byNamespace": {
-    "runtime": 96,
+    "runtime": 97,
     "list": 20,
     "project": 14,
     "save": 10,
@@ -2315,6 +2315,15 @@
       "hasSpec": false,
       "firstSentence": "Use to see the full branch tree of a rewind session — which checkpoints branch where.",
       "desc": "Use to see the full branch tree of a rewind session — which checkpoints branch where. Not for capturing a checkpoint (use runtime_checkpoint_capture) or seeking/restoring one (use runtime_rewind). Requires a session with an active RewindManager.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_state_map",
+      "file": "server-tools/state-map-tools.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Map a game by its moves, with no stepping and no per-move calls on your side: from an anchor, try every move in every state it finds, on a private machine of its own (the shared machine is not touched, and the machine is gone before the answer is read).",
+      "desc": "Map a game by its moves, with no stepping and no per-move calls on your side: from an anchor, try every move in every state it finds, on a private machine of its own (the shared machine is not touched, and the machine is gone before the answer is read). You say what a state is (`key`: the bytes the game's own code indexes rooms, screens or levels with, e.g. [\"$02\",\"$03\"], \"$0400:2\", \"$D020@io\" - read from the code, never a timer, a frame counter or a sprite position), which moves exist (`actions`: L R U D F N, combinations such as \"UF\", keys as key:SPACE), and what counts as dead or as the goal (`goal`: \"$03 == 1\", also != < > <= >= and a mask \"$03 & $80 == $80\"). Each state is reached by restoring its checkpoint, never by replay from boot. A JAM is a crash state with its PC. Answers: complete / stopped at a cap (and which) / goal reached; the states with their key values and first path, the moves that change the state, the crashes and, with a goal, the shortest path to it with its frame count (a goal stops the search at the first, shortest path; continue_after_goal maps on). The map is saved in the project's graph (a state_map node, a game_state node per state, a MOVES_TO edge per move, STARTS_FROM the anchor) and found again by project_search and graph_find; the same call again answers from the graph and starts no machine. The goal state is written as an anchor `<name>.goal` (save_states: every state, as `<name>.s<N>`), so a .feature file (runtime_feature_run) or the next map can start there: solve a game in segments. Use for structure questions (which rooms exist, how to reach the last one, what crashes and how to get there). Never drive a game by hand with one runtime call per move, and never write your own explorer. Not for a search over timing, analogue paddles or random seeds, and not for trying a fix (use runtime_feature_run). Inputs: anchor (a name from runtime_anchor_set, set at the loop where the game waits for input), key[], actions[], port? (default 2), frames? (held, default 6), release_frames? (default 4), dead[]?, goal?, continue_after_goal?, max_states? (400), max_runs? (3000), max_depth? (64), budget_minutes? (10), save_states?, name? (default: the anchor's name), edges? (\"all\" lists every move tried), json?, project_dir?. Returns: the outcome first, then states, moves, crashes, the goal path and what was saved.",
       "tier": "default?"
     },
     {

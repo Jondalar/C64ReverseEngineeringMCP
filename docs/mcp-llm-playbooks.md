@@ -490,6 +490,35 @@ inventory.
 
 **Do not:** Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it. Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
 
+## Map a Game by Its Moves
+
+**id:** `map-a-game`
+
+**Use when:** Which rooms does this game have, and how do I get to the last one? / Does down in room 2 crash it? / Walk me through the levels of this game.
+
+**Preconditions:** The code that picks the room, screen or level has been read: the key is the bytes it indexes with.; A machine you can bring to the loop where the game waits for input (the shared session, a sandbox you started), or a feature file that gets there from a medium.
+
+**Steps:**
+
+1. _(llm)_ Read the room/level code and write down the key: the addresses it indexes with ("$02", "$0400:2", "$D020@io"). Never a timer, a frame counter or a sprite position.
+   - tools: `graph_find`, `disasm`, `inspect_address_range`, `project_search`
+   - persist: the key and why
+2. _(llm)_ Name the instant where the game waits for input as an anchor (a file in the project).
+   - tools: `runtime_anchor_set`, `runtime_anchor_list`
+   - persist: anchor name
+3. _(llm)_ Ask for the map: the key, the moves (L R U D F N, combinations, key:SPACE), the goal if there is one. One call; the tool restores each state and tries every move on a machine of its own, and says complete, stopped at a cap, or goal reached.
+   - tools: `runtime_state_map`
+   - persist: map name, crashes, goal path
+4. _(llm)_ Read the map back from the graph, and continue from the goal anchor for the next segment, or from a crash toward a fix.
+   - tools: `graph_find`, `graph_edges`, `project_search`, `runtime_feature_run`
+   - persist: findings about the structure
+
+**Stop when:** The question about the game's structure is answered from the map: the rooms, the way to the last one, the moves that crash.
+
+**Next:** Iterate Your Own Code from the anchor on the way to a crash.
+
+**Do not:** Do not call one runtime tool per move to walk a game, and do not write an explorer of your own: runtime_state_map is that loop. Do not put a timer, frame counter or sprite position in the key. Do not report a map that stopped at a cap as the whole game.
+
 ## Rewind and Scrub
 
 **id:** `rewind-and-scrub`

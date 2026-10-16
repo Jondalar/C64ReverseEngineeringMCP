@@ -103,6 +103,7 @@ export const SANDBOX_PARITY: Readonly<Record<string, ParityVerdict>> = {
   runtime_anchor_drop: session,
   runtime_anchor_goto: session,
   runtime_feature_run: ownMachine,
+  runtime_state_map: ownMachine,
   runtime_candidate_list: files,
   runtime_candidate_choose: files,
   runtime_candidate_derive_delta: files,

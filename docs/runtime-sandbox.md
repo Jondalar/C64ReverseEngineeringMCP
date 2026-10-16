@@ -344,6 +344,29 @@ takes the id only — an anchor holds its own pin; `runtime_anchor_drop` release
 For a single quick try that you *want* on the shared machine (and the human knows), `runtime_overlay_run`
 restores an anchor into it, patches, runs and leaves it paused there.
 
+## From an anchor to a map — every state of a game, found by one call
+
+The other question asked of a game is not "does this fix work" but "what is in it": which rooms or
+levels, how they connect, which moves crash it, the shortest way to the last one. Answering it with
+one runtime call per move costs hundreds of calls; the tool that answers it is `runtime_state_map`
+(`c64re state map <file.json>` on the command line, the same code).
+
+```
+1  read the code that picks the room: the bytes it indexes with are the key ("$02", "$0400:2", "$D020@io")
+2  runtime_anchor_set { name: "maze_loop" }                 // at the loop where the game waits for input
+3  runtime_state_map  { anchor: "maze_loop", key: ["$02","$03"], actions: ["L","R","U","D","F","N"], goal: "$03 == 1" }
+```
+
+It starts one machine of its own from the anchor's file (the shared machine is not touched, and the machine
+is ended before the answer goes out), restores each state's checkpoint to try each move (hold `frames`,
+release, run `release_frames`, read the key), and answers *complete*, *goal reached* or *stopped: <cap>* with
+the states, the moves between them, the crashes (a JAM is a state, named by its PC) and the shortest path to
+the goal. Checkpoints live in the machine's ring, pinned; a state that does not fit goes to a file. The map is
+saved in the project graph (a `state_map` node, a `game_state` node per state, a `MOVES_TO` edge per move, a
+`STARTS_FROM` edge to the anchor); the same call again answers from the graph and starts no machine. The goal
+state is written as the anchor `<name>.goal` (`save_states`: every state, `<name>.s<N>`), so a feature file
+(`Given the mark "<name>.goal"`) or the next map starts there.
+
 ---
 
 ## The raw recipe — a daemon you drive over the wire yourself
@@ -499,6 +522,7 @@ a machine of their own.
 | Deterministic tool/logic test, no watching | **`runtime_sandbox_run`** with explicit `I wait N frames` steps |
 | A written scenario that should come back as a reel | `runtime_scene_reel` (same private daemon, `.feature` in front) |
 | Try several fixes from one instant at once, then put the winner into the build | **`runtime_anchor_set`** → a `.feature` file with variant lines → **`runtime_feature_run`** → `runtime_candidate_*` (this doc, "From an anchor to the build") |
+| Find every room/level of a game, how they connect, what crashes, the shortest way to a goal | **`runtime_state_map`** from an anchor (this doc, "From an anchor to a map") |
 | Run a 6502 routine with no VIC/CIA/drive around it | `sandbox_6502_run`, or `sandbox_depack` for a game's own depacker |
 | A wire method no tool exposes | raw WS daemon on your own port (this doc) |
 | Just boot something and look at one frame | `runtime_sandbox_run` with `frame_path`, or `trx64cli boot … --render` |

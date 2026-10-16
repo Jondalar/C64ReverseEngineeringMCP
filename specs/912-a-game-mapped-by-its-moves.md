@@ -1,6 +1,6 @@
 # Spec 912 — A game is mapped by its moves: every state reachable from an anchor, and the shortest way to a goal, as knowledge in the graph
 
-**Status:** BUILDING (2026-10-16), owner: "Ja Bau."
+**Status:** BUILT and merged (2026-10-16); checked on a copy of a real cartridge game (Yeti Mountain, EasyFlash): the map runs, a repeat answers from the graph, a time-driven key is flagged; S7 by hand open. Ships with a TRX64 release that carries the jam-after-restore fix; until then S4 skips loudly on the released runtime.
 **Repo:** C64RE. The search runs on a private sandbox with what TRX64 has: checkpoint
 capture/restore, joystick, run, memory read and snapshot dump. TRX64 #12 (a restore from a
 jammed machine kept reporting `jam`) is fixed on TRX64 main and must be released before this
@@ -202,4 +202,62 @@ Scenario: S7 a fresh agent maps instead of driving
 
 ## §5 Decisions taken while building
 
-(filled in at the end)
+- **Goal mode stops; the worked example does not.** D1 says goal mode is the same search with a stop, and §1's worked
+  example gives a goal and still finishes (`complete: 9 states, 48 runs`). Both are served: a `goal` stops the search at the
+  first, shortest way there (`goal reached`), and the added `continue_after_goal: true` maps on and still reports that path.
+- **A crash is one state per JAM address.** The state is named by its PC and not by the key (the key at the moment of the
+  JAM is kept as information): the 9 states of the maze are its 8 rooms plus the one JAM at `$085F`, which both
+  `down` in room 2 with `$03 = 0` and with `$03 = 1` reach. A crash is a leaf; its moves are not tried.
+- **State ids are `s0`, `s1`, … (lower case).** Upper-case `S<n>` is what the public-surface check treats as an internal id,
+  and the answer is quoted in the wiki. The anchors a map writes are `<name>.goal` (the first goal state found) and, with
+  `save_states`, `<name>.s<N>`; `name` defaults to the anchor's name (the spec used `<name>.<state>` and a `maze_loop.goal`
+  file in one place each). A map replaces an earlier one of its name, its own anchors with it; an anchor of that name that
+  is not the map's is refused by name, never overwritten.
+- **The machine is a `SandboxSession` of the call's own** (the class `runtime_sandbox_run` and the feature runs use), not a
+  `runtime_sandbox_start` session: one call, one machine, ended in a `finally` and by its keeper. The search opens a copy of
+  the anchor file (the runtime lays embedded media out beside the file it opens), and reaches the states through
+  `checkpoint/capture` + `checkpoint/pin`, `checkpoint/restore`. A capture the ring refuses goes to a snapshot file
+  (`snapshot/dump`, reopened with `media/open`); `ringStates` in the library call (not a tool field) lets a gate make the ring
+  small enough to prove it. A move is one `session/run` per phase (hold, release), the stick set and cleared through the
+  runtime's input calls.
+- **S4 is decided by what the runtime does, not by its version.** `ping` reports `0.13.3` on the released daemon and on TRX64
+  main with the fix (the crate version is bumped at release), so a version test cannot tell them apart. The gate asks the
+  daemon itself: checkpoint after reaching the JAM in room 2, restore a checkpoint taken before it, run one frame; a jam
+  reported there means the fix is missing, and S4 prints `SKIPPED` with the runtime's version and path (a skip is not a
+  pass). The tool is safe on such a runtime too: a jam report counts as a crash only when the byte at its PC is a JAM opcode;
+  the others are counted, left out, and named in the answer as a note (`reported a jam N times at a PC that holds no JAM opcode`).
+- **Gates.** The call's `project_dir` goes to the check, not `C64RE_PROJECT_DIR`. `runtime_state_map` allocates no memory in the
+  game, so no slot guards it. The read-before-runtime discipline applies to the one thing that comes from reading, the key: its
+  addresses must resolve against what the project has read (the citation check `runtime_loader_lens` and the trace doors use),
+  and it stays dormant in a project that has analysed nothing. The command line is not a door and is not gated.
+- **Caps and the budget.** `budget_minutes` (default 10, at most 240) is the sandbox's wall clock; the search stops before it
+  with `stopped: budget`. `max_states` stops when a new state would be the one over the cap; `max_depth` leaves states at
+  that depth unexpanded and says so only if some were. A key that gives a new state with each of the first 20 runs is refused
+  (`key — changes with every run`), and nothing is saved.
+- **Asking again.** The graph's `state_map` node keeps the description and a hash of it with the anchor file's bytes (not the
+  name, `edges` or `json`); a call whose hash matches answers from the graph, unless the earlier map stopped on the budget
+  or an anchor file it wrote is gone. The moves that left a state as it was are kept on the state, so `edges: "all"` is served
+  from the graph as well.
+- **The graph.** New node kinds `state_map` and `game_state` are withheld from the entity projection (like `anchor` and
+  `candidate`); `project_search` has a `state_map` record kind, one per map, and its index version is 3. Edges: `STARTS_FROM`
+  (map to anchor), `CONTAINS` (map to state), `MOVES_TO` (the move is the edge's key, so two moves between one pair are two
+  edges) and `SAVED_AS` (state to its anchor).
+- **The condition notation** is one byte against a number: `==` `=` `is` `!=` `is not` `<` `>` `<=` `>=`, a lens `@io`, and a
+  mask (`$03 & $80 == $80`; `$03 & $80` alone: any masked bit set). A condition's address outside the key is read in the same
+  breath as the key.
+- **The gate is `scripts/e2e-912-state-map.mjs` (`npm run e2e:912`).** The test game is four rooms in `$02` with a goal flag in
+  `$03` and a JAM at `$085F` (down in room 2), written as 64tass source in `scripts/lib/e2e-912-maze.mjs`, assembled in the
+  test, with a 16-bit hash of every frame's stick in `$0A/$0B` as the byte a key must not contain. The runtime binary of the
+  refusal sections is a tripwire script that records that it was started. S2 replays every edge as a feature from the anchor;
+  S6 runs the tool beside a stand-in for the shared session and compares its cycle before and after.
+- **What the "changes with every run" check catches.** The spec's test (the state count grows by one per run for the first 20
+  runs) fires on a key that differs for every move even from one state (a hash of the input, a random seed). A counter that
+  advances by the same amount whatever the move (a frame counter) makes one new state per state and is not caught by it; the
+  caps stop that search (`max_states`, `max_runs`).
+- **A key that follows time.** Found on a real EasyFlash game: the key held a counter, every move from every state led to the same
+  next state (a chain), and the 20-run check did not fire. After the search, when at least two states were expanded and each has
+  exactly one successor other than itself whatever the move, the answer begins `complete — but the key follows time, not the
+  moves…`, the `state_map` node carries `key_follows_time: true`, the JSON has `keyFollowsTime`, and the command line exits 1.
+  The map is saved. It is decided after the search, not earlier.
+- **Seen, not touched:** `check:wiki`'s comparison with the published wiki fails for the pages of both specs (nothing is
+  published from this branch); `probe-mcp-llm-playbooks` check 9 still names the three sandbox session tools.

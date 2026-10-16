@@ -520,6 +520,13 @@ jobs:
       - name: The run is the candidate, and the winner goes into the build (Spec 911)
         run: npm run e2e:911-candidate
 
+      # Spec 912 — a game mapped by its moves. One gate on a daemon of its own (free ports, a TMPDIR of the run's
+      # own removed on exit, a test game assembled by 64tass from source in the script); it SKIPS LOUDLY on a
+      # runner with no trx64-daemon or no 64tass. Scenario S4 (a restore from a jammed machine runs again) also
+      # SKIPS LOUDLY, naming the runtime version, on a runtime without the checkpoint-restore fix.
+      - name: A game mapped by its moves (Spec 912)
+        run: npm run e2e:912
+
       # Replay across FRESH starts (issue #67 retest). Spec 899's acceptance proved "the same seed, the
       # same run" inside one daemon; identical arguments pressed up to 15 frames apart because every
       # run was a new daemon that had been free-running until the pause. This starts a NEW daemon for

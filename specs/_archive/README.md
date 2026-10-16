@@ -12,10 +12,11 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 61 specs below carry the decision that closed them.
+The 62 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
+| 913 | **DONE** | Action Replay V5/V6 (TRX64 `docs/internal/_archive/913-action-replay.md`) | DONE 2026-10-16: CRT type 1 (AR V4.1-V6 board), freeze at the press cycle, ultimax switch when the CPU takes the NMI (deliberate deviation from VICE's +3 cycles, which broke ~3% of BASIC freezes), F3 returns; cart RAM + freeze state in checkpoints/.c64re; overlay bank write too. MK1-MK4/RR/FC3 out. |
 | 422 | **WON'T-DO** | [IEC Burst mode](422-iec-phase-g-burst-mode.md) | **dead** — JiffyDOS/burst; no game in scope needs it. Rebuild on demand or accept an external MR. |
 | 424 | **WON'T-DO** | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | Closed 2026-08-11, both axes obsolete. **A (LED/status):** targeted the TypeScript runtime's `session/drive_status` and the vice1541 probe — the deprecated oracle, not the product. TRX64 owns the runtime and surfaces the drive LED from VIA2 PB3 directly. The four approximations still in the TS handler (no PWM curve, `ledFlashing` hardcoded false, motor inferred from the LED, R/W fixed to read) are noted in the code and stay as oracle-only gaps. **B (Inspector UX):** described moving a media strip into a right inspector column of the v3 shell — a layout the workbench no longer has. |
 | 428 | **WON'T-DO** | [Split C64 + 1541 CPU contracts](428-split-c64-and-1541-cpu-contracts.md) | **dead** — TS CPU; settled by Spec 723 single-path. |

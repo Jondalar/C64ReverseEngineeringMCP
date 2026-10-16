@@ -294,6 +294,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // set is not callable at all.
   "runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_drop", "runtime_anchor_goto",
   "runtime_feature_run",
+  // A game mapped by its moves: every state reachable from an anchor, its crashes and the shortest way to a goal.
+  "runtime_state_map",
   "runtime_candidate_list", "runtime_candidate_choose", "runtime_candidate_derive_delta",
   "runtime_candidate_verify_build", "runtime_candidate_delete", "runtime_candidate_export",
   "runtime_find_cheat",
