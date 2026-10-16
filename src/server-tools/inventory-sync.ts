@@ -22,7 +22,7 @@ import { diagnoseEmptyPattern, howToDeclare, howToSilenceToolOutput, INVENTORY_P
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 import { writeFileSync, mkdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -132,11 +132,13 @@ export function refreshArtifactSizes(service: ProjectKnowledgeService, projectRo
  * Re-label a `manifest.json` that is registered as something other than a manifest.
  * The shape of the file decides: `header` + `chips[]` is an extract_crt manifest,
  * `diskName` + `files[]` an extract_disk one. A file that is neither is left alone.
+ * A crt manifest with no link to a cartridge image gets its image back (by bytes, see crtImageOfManifest).
  */
 export function repairMisregisteredManifests(service: ProjectKnowledgeService): number {
   let repaired = 0;
-  for (const artifact of service.listArtifacts()) {
-    if (artifact.kind === "manifest") continue;
+  const artifacts = service.listArtifacts();
+  const isImage = (a: { role?: string; kind?: string }) => a.role === "cartridge-image" || a.kind === "crt";
+  for (const artifact of artifacts) {
     if (!/(^|[\\/])manifest\.json$/i.test(artifact.relativePath)) continue;
     if (!existsSync(artifact.path)) continue;
     let parsed: { header?: unknown; chips?: unknown; diskName?: unknown; files?: unknown };
@@ -145,6 +147,14 @@ export function repairMisregisteredManifests(service: ProjectKnowledgeService): 
       : typeof parsed.diskName === "string" && Array.isArray(parsed.files) ? "disk-manifest"
         : undefined;
     if (!role) continue;
+    const relabel = artifact.kind !== "manifest";
+    // The same re-labelling dropped the record's link to the .crt it was extracted from, and that link is what makes
+    // the cartridge (Spec 909): without it the cartridge is never registered and its banks are filed under another one.
+    const linked = (artifact.sourceArtifactIds ?? []).some((id) => artifacts.some((a) => a.id === id && isImage(a)));
+    const image = role === "crt-manifest" && !linked
+      ? crtImageOfManifest(artifact.path, parsed as CrtManifestShape, artifacts.filter(isImage))
+      : undefined;
+    if (!relabel && !image) continue;
     service.saveArtifact({
       id: artifact.id,
       kind: "manifest",
@@ -153,10 +163,37 @@ export function repairMisregisteredManifests(service: ProjectKnowledgeService): 
       path: artifact.path,
       role,
       format: "json",
+      ...(image ? { sourceArtifactIds: [...(artifact.sourceArtifactIds ?? []), image.id] } : {}),
     });
     repaired += 1;
   }
   return repaired;
+}
+
+interface CrtManifestShape { chips?: Array<{ file?: unknown; offset?: unknown }> }
+
+/**
+ * The cartridge image a crt manifest was extracted from, by its bytes: every chip file the manifest names must equal
+ * the image's chip data at that chip's offset (CHIP packet header, 16 bytes, then the data). Two images with the same
+ * header name and size are told apart by their contents; none or more than one match -> no answer, never a guess.
+ */
+function crtImageOfManifest(manifestPath: string, manifest: CrtManifestShape, images: Array<{ id: string; path: string }>): { id: string } | undefined {
+  const chips = (manifest.chips ?? []).flatMap((c) => {
+    if (typeof c.file !== "string" || typeof c.offset !== "number") return [];
+    const file = resolve(dirname(manifestPath), c.file);
+    if (!existsSync(file)) return [];
+    try { return [{ offset: c.offset, data: readFileSync(file) }]; } catch { return []; }
+  });
+  if (chips.length === 0) return undefined;
+  const hits = images.filter((img) => {
+    let bytes: Buffer;
+    try { bytes = readFileSync(img.path); } catch { return false; }
+    return chips.every((c) => {
+      const start = c.offset + 0x10;
+      return start + c.data.length <= bytes.length && bytes.subarray(start, start + c.data.length).equals(c.data);
+    });
+  });
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 export async function runProjectInventorySync(
