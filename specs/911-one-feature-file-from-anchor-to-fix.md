@@ -1,6 +1,6 @@
 # Spec 911 — One feature file takes a fix from an anchor to a verdict: a script runs it, the LLM only finds, writes and judges
 
-**Status:** BUILT and merged (2026-10-16). Owner: "Ja Bau." Gates `e2e:911-anchor`, `e2e:911-variants`, `e2e:911-door`, `e2e:911-candidate` green; checked on copies of two real CRTs of one game (EasyFlash and GMod2): anchor made by a feature, variants in RAM and in a ROML bank beside the baseline, the CRTs unchanged. A bank patch on a mapper other than EasyFlash needs TRX64 main 0129fe4 (unreleased; the next C64RE release pins it). Open: S8 (a fresh agent finds the loop) by hand.
+**Status:** BUILT and merged (2026-10-16). Owner: "Ja Bau." Gates `e2e:911-anchor`, `e2e:911-variants`, `e2e:911-door`, `e2e:911-candidate` green; checked on copies of two real CRTs of one game (EasyFlash and GMod2): anchor made by a feature, variants in RAM and in a ROML bank beside the baseline, the CRTs unchanged. A bank patch on a mapper other than EasyFlash ships in TRX64 0.14.0; C64RE 0.9.4 pins it. Open: S8 (a fresh agent finds the loop) by hand.
 **Repo:** C64RE. The runs use what TRX64 already has (private daemons, snapshot dump/undump,
 memory writes, the scenario step program); no TRX64 change is planned. If a cartridge-ROM write
 into a running sandbox turns out to be missing, that one capability goes to TRX64 (§5).

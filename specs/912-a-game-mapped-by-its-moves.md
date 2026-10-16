@@ -1,6 +1,6 @@
 # Spec 912 — A game is mapped by its moves: every state reachable from an anchor, and the shortest way to a goal, as knowledge in the graph
 
-**Status:** BUILT and merged (2026-10-16); checked on a copy of a real cartridge game (Yeti Mountain, EasyFlash): the map runs, a repeat answers from the graph, a time-driven key is flagged; S7 by hand open. Ships with a TRX64 release that carries the jam-after-restore fix; until then S4 skips loudly on the released runtime.
+**Status:** BUILT and merged (2026-10-16); checked on a copy of a real cartridge game (Yeti Mountain, EasyFlash): the map runs, a repeat answers from the graph, a time-driven key is flagged; Ships in C64RE 0.9.4, pinned to TRX64 0.14.0 (the jam-after-restore fix; e2e:912 70/0 against it). S7 by hand open. Ships with a TRX64 release that carries the jam-after-restore fix; until then S4 skips loudly on the released runtime.
 **Repo:** C64RE. The search runs on a private sandbox with what TRX64 has: checkpoint
 capture/restore, joystick, run, memory read and snapshot dump. TRX64 #12 (a restore from a
 jammed machine kept reporting `jam`) is fixed on TRX64 main and must be released before this
