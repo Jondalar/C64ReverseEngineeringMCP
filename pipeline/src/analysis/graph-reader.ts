@@ -272,6 +272,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       const parts = id.split(":");
       if (parts.length !== 4) return undefined;
       const ctx = (parts[1] ?? "").split("/");
+      if (ctx[0] === "crt") return undefined; // crt/<cart>/<bank>: ctx[1] is the cartridge, not an owner
       return ctx.length > 1 ? ctx[1] : undefined;
     };
 

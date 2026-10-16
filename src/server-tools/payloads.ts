@@ -14,7 +14,6 @@ import { registerManifestPayloads } from "./manifest-register.js";
 import { sourceArtifactShape } from "../project-knowledge/artifact-header.js";
 import { findPayloadEntity, listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { derivePayloadWindow, formatWindow } from "../project-knowledge/payload-window.js";
-import { ownerOfEntityId } from "../symbols/window-residency.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -584,7 +583,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // between them where it can. No capture here: this door does not touch the
       // machine, so the bytes are never consulted and never pretended to be.
       let context: string[] = [];
-      let claimOwners: Set<string> | undefined;
+      let queried: number | undefined;
       if (args.address !== undefined) {
         const address = parseInt(args.address.replace(/^\$/u, ""), 16);
         if (!Number.isInteger(address) || address < 0 || address > 0xffff) throw new Error(`address "${args.address}" is not a 16-bit hex address`);
@@ -597,17 +596,19 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
             media: mediaFromEntities(service.listEntities().filter((e) => e.kind === "payload" || e.payloadLoadAddress !== undefined)),
           });
           context = formatWindowResidency(r);
-          claimOwners = new Set(r.claimants);
+          queried = address;
         } finally { graph.close(); }
       }
-      const byAddress = claimOwners
-        ? all.filter((p) => { const o = ownerOfEntityId(p.id); return o !== undefined && claimOwners!.has(o); })
+      // A payload answers an address exactly when the window the listing prints for it covers that address. The
+      // id names no window (a cartridge chip's id carries its cartridge and bank, not an owner), so the id is not read.
+      const byAddress = queried !== undefined
+        ? all.filter((p) => { const w = derivePayloadWindow(p); return w !== undefined && w.space !== "drv" && w.start <= queried! && queried! <= w.end; })
         : all;
       const filtered = args.format ? byAddress.filter((p) => p.payloadFormat === args.format) : byAddress;
       const slice = filtered.slice(0, args.limit ?? 100);
       const lines: string[] = [];
       if (context.length) { lines.push(...context); lines.push(``); }
-      lines.push(`Payloads: ${filtered.length}${filtered.length !== all.length ? ` (of ${all.length})` : ""}`);
+      lines.push(`Payloads: ${filtered.length}${filtered.length !== all.length || queried !== undefined || args.format ? ` (of ${all.length})` : ""}`);
       lines.push(``);
       for (const p of slice) {
         const load = p.payloadLoadAddress !== undefined ? `$${p.payloadLoadAddress.toString(16).padStart(4, "0")}` : "—";

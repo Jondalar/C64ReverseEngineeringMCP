@@ -90,8 +90,17 @@ jobs:
       # Read first, then cite: the runtime doors refuse a hypothesis that is not
       # read-derived. The gate for it ran nowhere, and went stale when the doors
       # became async — every "allowed" case silently read undefined.
+      # The extract-first grounding doctrine: steering text, the ungrounded-findings rung, the enforcement.
+      # In package.json since it was written; in no workflow, and a gate that is not here does not run.
+      - name: Extract-first grounding (e2e:752)
+        run: npm run e2e:752
+
       - name: Runtime discipline is enforced
         run: npm run e2e:discipline-gate
+
+      # The gate of a call that names project_dir checks THAT project: its citation, its ratchet file, its records (issue 124).
+      - name: The discipline gate checks the project the call names (issue 124)
+        run: npm run e2e:issue124-loader-lens-gate-project
 
       # Both measures a session can be pushed to game live here, and this gate
       # was in package.json and in no workflow.
@@ -593,6 +602,11 @@ jobs:
       # same question against a real machine is `smoke:867`, a local gate.
       - name: The window a payload owns (Spec 867)
         run: npm run e2e:867-window
+
+      # list_payloads {address} keeps a payload exactly when the window it prints for it covers the address;
+      # a cartridge chip's id names a cartridge and a bank, not an owner (issue 123).
+      - name: A payload answers the address its window covers (issue 123)
+        run: npm run e2e:issue123-payload-address-filter
 
       # Spec 866 — two doors, not four: the load address decides how bytes are read,
       # never the file name. Hermetic: it builds its own project through project_init /

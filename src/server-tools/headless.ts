@@ -327,7 +327,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Read-before-trace discipline gate: refuse a fished trace (no read-derived
       // hypothesis). Runtime confirms a hypothesis; it does not find one.
       const { checkTraceDiscipline } = await import("./discipline-gate.js");
-      const gate = await checkTraceDiscipline(hypothesis);
+      const gate = await checkTraceDiscipline(hypothesis, { projectDir: undefined });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const doms = domains ?? ["c64-cpu", "memory"];
       // Tier 2 substrate gate — the drive-mechanism lane arms a loader-lens capture
@@ -508,14 +508,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from capture_path to knowledge/phase-plan.json."),
     },
     safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len, project_dir }) => {
+      // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
+      // catch is gone; it mattered most here, because the substrate gate below is
+      // handed this root and with `undefined` it had no medium to check. The project
+      // is resolved BEFORE the discipline gate: the citation is read against, and the
+      // ratchet counts in, the project this call names — not the one the server started in.
+      const proj = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: capture_path });
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)", projectDir: proj });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { landingMapWithNoteFromCaptureFile } = await import("../trace/loader-lens.js");
-      // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
-      // catch is gone; it mattered most here, because the substrate gate two lines
-      // down is handed this root and with `undefined` it had no medium to check.
-      const proj = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: capture_path });
       // Tier 2 substrate gate — the landing map is payload-extraction-from-medium: if the
       // medium is standard-GCR the payload is a static depack, not a runtime job (the Cybernoid block).
       const { checkSubstrateDiscipline } = await import("./substrate-gate.js");

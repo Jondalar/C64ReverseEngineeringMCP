@@ -77,11 +77,12 @@ export interface WindowResidencyInput {
 
 const runtimeSpace = (s: WindowSpace): RuntimeSpace => (s === "drv" ? "drive8" : "c64");
 
-/** The ctx owner an entity id names — `wl:ram/eng:payload:1000` → `eng`. */
+/** The ctx owner an entity id names — `wl:ram/eng:payload:1000` → `eng`. A cartridge id (`crt/<cart>/<bank>`) names no owner. */
 export function ownerOfEntityId(id: string): string | undefined {
   const parts = id.split(":");
   if (parts.length !== 4) return undefined;
   const ctx = (parts[1] ?? "").split("/");
+  if (ctx[0] === "crt") return undefined;
   return ctx.length > 1 ? ctx[1] : undefined;
 }
 
