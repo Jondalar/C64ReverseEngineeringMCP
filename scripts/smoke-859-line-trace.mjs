@@ -18,10 +18,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
+import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DAEMON = process.env.TRX64_DAEMON_BIN || join(ROOT, "../TRX64/target/release/trx64-daemon");
-const PORT = Number(process.env.SMOKE_859_PORT || 4399);
+const DAEMON = await daemonOrSkip("smoke:859");
+const PORT = await freePortBlock(1);
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 
 let pass = 0, fail = 0;
@@ -29,11 +30,6 @@ const check = (cond, msg, detail = "") => {
   cond ? pass++ : fail++;
   console.log(`  ${cond ? "PASS" : "FAIL"}  ${msg}${detail ? `  (${detail})` : ""}`);
 };
-
-if (!existsSync(DAEMON)) {
-  console.log(`FAIL  no TRX64 daemon at ${DAEMON} — build it (cargo build -p trx64-daemon --release) or set TRX64_DAEMON_BIN`);
-  process.exit(1);
-}
 
 const base = mkdtempSync(join(tmpdir(), "c64re-859-"));
 

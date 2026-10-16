@@ -5,8 +5,8 @@
 // session's configuration): one with no A/V subscriber (the hub exists, its pump thread does
 // not — the case that returned "The machine did not advance" for a run the daemon had
 // accepted), one with a subscriber (the live capped run). Both must advance ~the budget, and
-// the first must say it does not run through a pump. Needs a TRX64 daemon (the sibling build,
-// or C64RE_TRX64_BIN).
+// the first must say it does not run through a pump. Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without
+// one the script SKIPS).
 //
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -14,12 +14,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
+import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
-const bin = process.env.C64RE_TRX64_BIN || join(ROOT, "..", "TRX64", "target", "release", "trx64-daemon");
-if (!existsSync(bin)) { console.error(`no daemon at ${bin} — set C64RE_TRX64_BIN`); process.exit(2); }
+const bin = await daemonOrSkip("smoke:session-run-advance");
 // Run it against the pinned release daemon AND a fixed build: both must advance (an older daemon
 // reports a pump it does not have; the client has to notice and run blocking).
 
@@ -83,8 +83,8 @@ async function scenario(port, withViewer) {
 
 try {
   console.log("C64RE #63 — a bounded runtime_session_run advances, with and without a UI client\n");
-  await scenario(47721, false);
-  await scenario(47722, true);
+  await scenario(await freePortBlock(1), false);
+  await scenario(await freePortBlock(1), true);
 } finally { /* daemons killed per scenario */ }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

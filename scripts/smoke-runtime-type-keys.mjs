@@ -8,7 +8,7 @@
 //       and 1 itself, no KERNAL) accumulates the PB bits it ever read low. F1 = col0/row4,
 //       F2 = SHIFT (col1/row7) + F1. An unknown token and an unclosed brace are refused and
 //       press nothing.
-// Needs a TRX64 daemon: the sibling release build, or C64RE_TRX64_BIN.
+// Needs a TRX64 daemon: C64RE_RUNTIME_BIN, or a LOUD skip.
 //
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync } from "node:fs";
@@ -16,12 +16,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
+import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
-const bin = process.env.C64RE_TRX64_BIN || join(ROOT, "..", "TRX64", "target", "release", "trx64-daemon");
-if (!existsSync(bin)) { console.error(`no daemon at ${bin} — set C64RE_TRX64_BIN`); process.exit(2); }
+const bin = await daemonOrSkip("smoke:runtime-type-keys");
 
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -86,13 +86,13 @@ const mem = async (call, addr, n) => {
 console.log("C64RE #62/#64 — runtime_type key tokens + still-booting guard\n");
 
 // (b1) no settle on a booting machine: queued, with a warning.
-await withDaemon(47741, async (call) => {
+await withDaemon(await freePortBlock(1), async (call) => {
   const r = await call("runtime_type", { session_id: "shared", text: "A" });
   check(!r.isError && /Queued/.test(r.text) && /WARNING: the machine is still booting/.test(r.text), "no settle on a booting machine: queued + warning", r.text.split("\n").slice(0, 3).join(" | ").slice(0, 160));
 });
 
 // (b2) settle immediately after the session start: the line lands.
-await withDaemon(47742, async (call) => {
+await withDaemon(await freePortBlock(1), async (call) => {
   const r = await call("runtime_type", { session_id: "shared", text: "PRINT 1+1\r", settle: true });
   check(!r.isError && /still booting: advanced \d+ cycles/.test(r.text), "settle waits for BASIC's input loop first", r.text.split("\n").slice(0, 3).join(" | ").slice(0, 200));
   const rows = await screenText(call);
@@ -102,7 +102,7 @@ await withDaemon(47742, async (call) => {
 });
 
 // (a) key tokens in the matrix.
-await withDaemon(47743, async (call) => {
+await withDaemon(await freePortBlock(1), async (call) => {
   const prog = "78 a9 ff 8d 00 c1 8d 01 c1 a9 fe 8d 00 dc ad 01 dc 2d 00 c1 8d 00 c1 a9 fd 8d 00 dc ad 01 dc 2d 01 c1 8d 01 c1 4c 09 c0";
   await call("runtime_monitor", { session_id: "shared", command: `wr c000 ${prog}` });
   await call("runtime_monitor", { session_id: "shared", command: "r pc=c000" });

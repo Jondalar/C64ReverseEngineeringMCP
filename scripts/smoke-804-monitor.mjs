@@ -6,19 +6,20 @@
 // sits a recording relay, so the smoke can assert the EXACT command string the runtime
 // received — the substitution rule's contract — rather than trusting C64RE's own report.
 //
-//   node scripts/smoke-804-monitor.mjs   (needs `npm run build` and a TRX64 release daemon
-//                                         with monitor spans: TRX64_DAEMON_BIN=…)
+//   node scripts/smoke-804-monitor.mjs   (needs `npm run build`; the daemon is found like every
+//                                         runtime gate does: C64RE_RUNTIME_BIN, else a LOUD skip)
 
 import { spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
+import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
 import { buildFixture804, startMcp } from "./lib/fixture-804.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const DAEMON = process.env.TRX64_DAEMON_BIN || join(ROOT, "../TRX64/target/release/trx64-daemon");
-const PORT = Number(process.env.SMOKE_804_PORT || 4398);
+const DAEMON = await daemonOrSkip("smoke:804-monitor");
+const PORT = await freePortBlock(3); // the daemon, the recording relay, the workbench API
 const RELAY = PORT + 1;
 
 let pass = 0, fail = 0;
@@ -26,11 +27,6 @@ const check = (cond, msg, detail = "") => {
   cond ? pass++ : fail++;
   console.log(`  ${cond ? "PASS" : "FAIL"}  ${msg}${detail ? `  (${detail})` : ""}`);
 };
-
-if (!existsSync(DAEMON)) {
-  console.log(`FAIL  no TRX64 daemon at ${DAEMON} — build it (cargo build -p trx64-daemon --release) or set TRX64_DAEMON_BIN`);
-  process.exit(1);
-}
 
 console.log("Spec 804 — the monitor with names, against a sandbox runtime\n");
 const { dir, paths } = await buildFixture804(ROOT);
