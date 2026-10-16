@@ -17,7 +17,11 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, posix, resolve, win32 } from "node:path";
+
+/** The path flavour of `platform`, not of the host: the platform is a parameter so all
+ *  three can be computed (and tested) anywhere. With `process.platform` it is the host's own. */
+const pathFor = (platform: NodeJS.Platform = process.platform) => (platform === "win32" ? win32 : posix);
 
 /** Directory names these clients create. Conservative on purpose: a false
  *  positive nags about a directory that is not synced at all (D5). */
@@ -40,13 +44,14 @@ export function traceRoot(env: NodeJS.ProcessEnv = process.env, platform: NodeJS
   const override = env.C64RE_TRACE_DIR?.trim();
   if (override) return resolve(override);
   const home = env.HOME || env.USERPROFILE || homedir();
+  const p = pathFor(platform);
   if (platform === "win32") {
-    const local = env.LOCALAPPDATA?.trim() || join(home, "AppData", "Local");
-    return join(local, "c64re", "traces");
+    const local = env.LOCALAPPDATA?.trim() || p.join(home, "AppData", "Local");
+    return p.join(local, "c64re", "traces");
   }
-  if (platform === "darwin") return join(home, "Library", "Application Support", "c64re", "traces");
+  if (platform === "darwin") return p.join(home, "Library", "Application Support", "c64re", "traces");
   const xdg = env.XDG_DATA_HOME?.trim();
-  return join(xdg || join(home, ".local", "share"), "c64re", "traces");
+  return p.join(xdg || p.join(home, ".local", "share"), "c64re", "traces");
 }
 
 /**
@@ -61,7 +66,7 @@ export function projectKey(projectDir: string): string {
 
 /** `<root>/<project key>` — created on demand by the caller that writes there. */
 export function traceDirForProject(projectDir: string, env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform): string {
-  return join(traceRoot(env, platform), projectKey(projectDir));
+  return pathFor(platform).join(traceRoot(env, platform), projectKey(projectDir));
 }
 
 /**
@@ -69,7 +74,7 @@ export function traceDirForProject(projectDir: string, env?: NodeJS.ProcessEnv, 
  * the daemon (which has its own idea of the project) writes exactly here.
  */
 export function defaultTraceOut(projectDir: string, label = `live_${Date.now().toString(36)}`, env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform): string {
-  return join(traceDirForProject(projectDir, env, platform), `${label}.duckdb`);
+  return pathFor(platform).join(traceDirForProject(projectDir, env, platform), `${label}.duckdb`);
 }
 
 /**
