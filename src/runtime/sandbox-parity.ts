@@ -97,21 +97,17 @@ export const SANDBOX_PARITY: Readonly<Record<string, ParityVerdict>> = {
   runtime_media_list_paths: files,
   runtime_media_browse: files,
 
-  // ── anchors and candidates: a sandbox has marks of its own and runs its clones inside itself
+  // ── anchors and candidates: a sandbox has marks of its own; a feature run starts machines of its own
   runtime_anchor_set: session,
   runtime_anchor_list: session,
   runtime_anchor_drop: session,
   runtime_anchor_goto: session,
-  runtime_candidate_create: session,
-  runtime_candidate_run: session,
-  runtime_candidate_variant: files,
+  runtime_feature_run: ownMachine,
   runtime_candidate_list: files,
   runtime_candidate_choose: files,
   runtime_candidate_derive_delta: files,
   runtime_candidate_verify_build: files,
   runtime_candidate_delete: files,
-  runtime_candidate_patch: files,
-  runtime_candidate_remove_patch: files,
   runtime_candidate_export: files,
   runtime_inject_range: files,
 

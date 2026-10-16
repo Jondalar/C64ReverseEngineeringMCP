@@ -288,14 +288,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_recorder_dump", "runtime_recorder_list", "runtime_recorder_status",
   "runtime_snapshot_tree", "runtime_promote_branch", "runtime_diff_snapshots",
   "runtime_component_diff",
-  // Anchors and candidates (Spec 905) — name an instant, try several variants from it at once,
-  // take the one that works into the build. The three retired names stay callable for a release:
-  // a name missing from this set is not callable at all.
+  // Anchors, feature runs and candidates (Specs 905, 911) — name an instant (a file in the project), write the
+  // fixes to try as variants in a .feature file, run it (runtime_feature_run), take the one that works into the
+  // build. The retired name that pointed at the list stays callable for a release: a name missing from this
+  // set is not callable at all.
   "runtime_anchor_set", "runtime_anchor_list", "runtime_anchor_drop", "runtime_anchor_goto",
-  "runtime_candidate_create", "runtime_candidate_variant", "runtime_candidate_run",
+  "runtime_feature_run",
   "runtime_candidate_list", "runtime_candidate_choose", "runtime_candidate_derive_delta",
-  "runtime_candidate_verify_build", "runtime_candidate_delete",
-  "runtime_candidate_patch", "runtime_candidate_remove_patch", "runtime_candidate_export",
+  "runtime_candidate_verify_build", "runtime_candidate_delete", "runtime_candidate_export",
   "runtime_find_cheat",
   // Runtime export + input-config: render the live session's audio; load/save the
   // c64re keyboard/joystick config. `runtime_input_load_vicerc` is deliberately

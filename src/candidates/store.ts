@@ -1,10 +1,11 @@
 // The candidate as project memory — one file per candidate under <project>/knowledge/candidates.
 //
-// A candidate is one iteration: an anchor to start from, an input script, a cycle budget and
-// the variants tried from there, each with the bytes it puts in the machine and what the last
-// run of it did. The daemon used to hold this in its own memory, so a restart lost which patches
-// were tried and what each did. By the Leitregel that record is meaning and memory — it lives
-// here, in the project, beside the graph that links it to its anchor.
+// A candidate is the record of a feature file's runs: the scenario it came from, the anchor it started
+// at, the variants tried from there (each with the bytes it puts in the machine and what the last run
+// of it did), the history of every run of that file and the choice. Records written before the feature
+// file existed hold an input script and a cycle budget instead and no feature; they stay readable and
+// can still be chosen, derived and verified. By the Leitregel the record is meaning and memory — it
+// lives here, in the project, beside the graph that links it to its anchor and to the feature.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -45,10 +46,58 @@ export interface Verdict {
   ranAt: string;
 }
 
+/** How one run of a scenario came out: the `Then` lines decide, nothing else does. */
+export type RunVerdict = "PASS" | "FAIL" | "ERROR" | "UNCHECKED";
+
+export interface RunCheck {
+  line?: number;
+  text: string;
+  pass: boolean;
+  actual: string;
+}
+
+/** A stretch of memory that differs from the run without a fix at the end of the run. */
+export interface SideEffect {
+  space: "ram" | "io";
+  from: number;
+  to: number;
+}
+
+export interface RunResult {
+  verdict: RunVerdict;
+  /** Why, for FAIL on a wait and for ERROR. */
+  reason?: string;
+  checks: RunCheck[];
+  /** Absent for the run without a fix, and when there was nothing to compare against. */
+  sideEffects?: SideEffect[];
+  cycles?: number;
+  pc?: number;
+  ranAt: string;
+}
+
 export interface Variant {
   name: string;
   targets: VariantTarget[];
+  /** An old record's verdict: a whole-machine difference against the baseline. */
   verdict?: Verdict;
+  /** The last run of the feature file this variant came from. */
+  result?: RunResult;
+}
+
+/** The scenario a candidate is the record of. */
+export interface FeatureRef {
+  /** Relative to the project when it lies inside it, else as given. "(inline)" for text passed to the tool. */
+  path: string;
+  scenario: string;
+  line: number;
+  /** The scenario's file text, kept only when it was passed inline. */
+  text?: string;
+}
+
+export interface HistoryEntry {
+  ranAt: string;
+  baseline: RunResult;
+  variants: Array<{ name: string } & RunResult>;
 }
 
 export interface DeltaRecord {
@@ -78,11 +127,19 @@ export interface Candidate {
   anchorId?: string;
   anchorCycle?: number;
   anchorFrame?: number;
-  /** the scenario input list, cycles relative to the anchor: [{atCycle, kind, payload}] */
-  inputs: unknown[];
-  cycleBudget: number;
+  /** An old record's input script, cycles relative to the anchor: [{atCycle, kind, payload}]. Absent in a feature run's. */
+  inputs?: unknown[];
+  /** An old record's cycle budget. Absent in a feature run's. */
+  cycleBudget?: number;
+  /** Set on the record of a feature file's runs. */
+  feature?: FeatureRef;
   variants: Variant[];
+  /** An old record's baseline run. */
   baseline?: Verdict;
+  /** The run without a fix, from the last run of the feature file. */
+  baselineResult?: RunResult;
+  /** One entry per run of the same file and scenario, oldest first. */
+  history?: HistoryEntry[];
   chosen?: string;
   delta?: DeltaRecord;
   build?: BuildCheck;

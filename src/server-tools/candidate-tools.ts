@@ -1,9 +1,10 @@
-// The candidate loop: from a named anchor, several variants at once, the one that works into the build.
+// The candidate: the project's record of a feature file's runs. `runtime_feature_run` (or `c64re scenario run`)
+// runs the file and keeps the record; the tools here read it and take the winner into the build.
 //
-// A candidate lives in the project (knowledge/candidates/<id>.json), not in the daemon. One run is ONE
-// sandbox/runMany — the baseline without a patch plus every variant, each on a clone of its own with the
-// same inputs and budget — so the shared machine the human watches is never moved. The chosen variant
+// A candidate lives in the project (knowledge/candidates/<id>.json), not in the daemon. The chosen variant
 // becomes a delta on disk, and runtime_candidate_verify_build checks the project's build really holds it.
+// Records written before the feature file existed (an input script and a cycle budget instead of a feature)
+// are read, chosen, derived and verified the same way.
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -12,18 +13,6 @@ import type { ServerToolContext } from "./types.js";
 import type { Candidate } from "../candidates/store.js";
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
-const PATCH_SPACE = z.enum(["ram", "roml", "romh"]);
-
-const TARGET = z.object({
-  addr: z.number().describe("CPU-space address; for roml/romh the window address ($8000-$9FFF / $A000-$BFFF)"),
-  space: PATCH_SPACE.optional().describe("ram (default) or a cartridge window"),
-  bank: z.number().optional().describe("cartridge bank, for roml/romh"),
-  source_path: z.string().optional().describe("an .asm/.tas file in the project; assembled here, and its own org must equal addr"),
-  source: z.string().optional().describe("source text (with its own `* = $addr`); assembled here"),
-  assembler: z.enum(["kickassembler", "64tass"]).optional(),
-  bytes: z.array(z.number()).optional().describe("bytes already assembled"),
-});
-
 const hx = (n: number | undefined) => (n === undefined ? "?" : `$${n.toString(16).padStart(4, "0")}`);
 
 async function daemon() {
@@ -44,130 +33,99 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
     try {
       const g = await import("../anchors/graph.js");
       if (!g.projectHoldsGraph(projectDir)) return "";
-      g.recordCandidate(projectDir, { id: c.id, title: c.title, anchor: c.anchor, chosen: c.chosen, deltaArtifactIds: c.delta?.artifactIds, variants: c.variants.length },
-        { name: c.anchor, anchorId: c.anchorId, cycle: c.anchorCycle, frame: c.anchorFrame });
+      g.recordCandidate(projectDir, {
+        id: c.id, title: c.title, anchor: c.anchor, chosen: c.chosen, deltaArtifactIds: c.delta?.artifactIds, variants: c.variants.length,
+        ...(c.feature ? { feature: { path: c.feature.path, scenario: c.feature.scenario, line: c.feature.line } } : {}),
+      }, c.anchor ? { name: c.anchor, anchorId: c.anchorId, cycle: c.anchorCycle, frame: c.anchorFrame } : undefined);
       return "";
     } catch (e) { return `\n(not linked in the project graph: ${e instanceof Error ? e.message : String(e)})`; }
   };
 
   server.tool(
-    "runtime_candidate_create",
-    "Start a candidate: one iteration from a named anchor — the input script to play, the cycle budget, and (next) the variants of code to try. Saved in the project (knowledge/candidates), linked to the anchor in the graph, and still there after a daemon restart. "
-    + "Does not run anything and does not touch the machine. Use after runtime_anchor_set, when you have several fixes to try from the same instant. "
-    + "Not a single quick try (use runtime_overlay_run). Inputs: anchor (an anchor name, or a checkpoint id), cycle_budget, inputs? ([{atCycle, kind: keyboard|joystick1|joystick2|model, payload}], atCycle relative to the anchor), title?, id?, session_id?, project_dir?. Returns: the candidate id and what to do next.",
+    "runtime_feature_run",
+    "Run a .feature file and judge it, with no stepping and no waiting on your side: the same function `c64re scenario run` calls, so a script and you get the same answer. "
+    + "A scenario starts from a mark (`Given the mark \"name\"` — the file runtime_anchor_set wrote into knowledge/anchors), a medium or a bare machine, plays its steps (joystick, keys, `I wait until … within N frames`) and decides its `Then` lines. "
+    + "Fixes to try are variant lines: `And variant \"fix1\" assembles \"fixes/fix1.tas\" at $0A20` (RAM) or `… at roml bank 3 $9100` (a cartridge bank); say the name again for a second place. The run without a fix (baseline) always runs beside the variants, each on a private machine of its own, up to 4 at once; the shared machine is not touched. "
+    + "The Then lines alone decide PASS/FAIL per run; the memory a variant changed besides is listed as a side effect and decides nothing. The run is kept as the project's candidate (runtime_candidate_list, then runtime_candidate_choose, runtime_candidate_derive_delta, runtime_candidate_verify_build). "
+    + "`And I set the anchor \"name\"` writes the machine as it stands to knowledge/anchors/name.c64re (an existing anchor is replaced only with replace_anchors). "
+    + "Use to try a fix: set the anchor, write the file with the fixes, run it, read the verdicts, write the next fix. Never build your own stepper or boot loop for this. Not a capture (use runtime_scene_reel) and not a one-off command (use runtime_sandbox_run). "
+    + "Inputs: feature_path (a .feature file or a folder of them; relative to the project) or feature (the file's text), scenario? (only those whose name contains it), jobs? (machines at once, default min(4, CPUs)), replace_anchors?, json? (the document the command line prints with --json), project_dir?. Returns: one block per scenario — a PASS/FAIL/ERROR line per run, the side effects, the candidate id.",
     {
-      anchor: z.string().min(1).describe("Anchor name (runtime_anchor_set) or a checkpoint id"),
-      cycle_budget: z.number().int().positive().describe("Cycles each run goes on for, counted from the anchor"),
-      inputs: z.array(z.record(z.string(), z.unknown())).optional().describe("Input script: [{atCycle, kind, payload}] — joystick payload {fire:true,…}, keyboard payload \"TEXT\\r\""),
-      title: z.string().optional(),
-      id: z.string().optional().describe("Default cand-N"),
-      session_id: z.string().optional().describe("A sandbox session (sb-…) whose own anchors and clones to use; omitted: the shared session's"),
+      feature_path: z.string().optional().describe("A .feature file or a folder, relative to the project or absolute"),
+      feature: z.string().optional().describe("The feature file's text, instead of a path"),
+      scenario: z.string().optional().describe("Only scenarios whose name contains this"),
+      jobs: z.number().int().min(1).max(16).optional().describe("Machines at once; default min(4, CPUs)"),
+      replace_anchors: z.boolean().optional().describe("Let `I set the anchor` overwrite an anchor that exists"),
+      json: z.boolean().optional().describe("Return the JSON document instead of the lines"),
       project_dir: z.string().optional(),
     },
-    safeHandler("runtime_candidate_create", async ({ anchor, cycle_budget, inputs, title, id, session_id, project_dir }) => {
+    safeHandler("runtime_feature_run", async ({ feature_path, feature, scenario, jobs, replace_anchors, json, project_dir }) => {
+      if ((feature_path === undefined) === (feature === undefined)) throw new Error("give feature_path or feature, one of the two");
       const projectDir = project(project_dir);
-      const s = await import("../candidates/store.js");
-      const cid = id ?? s.nextCandidateId(projectDir);
-      if (s.loadCandidate(projectDir, cid)) throw new Error(`candidate ${cid} already exists — pick another id or runtime_candidate_delete it`);
-      const d = await daemon();
-      const sp = session_id ? { session_id } : {};
-      const marks = (await d.call("mark/list", sp)) as { marks?: Array<{ name: string; anchorId: string; cycle: number; frame?: number }> };
-      const m = marks.marks?.find((x) => x.name === anchor);
-      let cand: Candidate = { id: cid, title, anchor, inputs: inputs ?? [], cycleBudget: cycle_budget, variants: [], createdAt: new Date().toISOString(), updatedAt: "" };
-      if (m) { cand.anchorId = m.anchorId; cand.anchorCycle = m.cycle; cand.anchorFrame = m.frame ?? undefined; }
-      else {
-        const { resolveFrom } = await import("../candidates/run.js");
-        await resolveFrom((method, params) => d.call(method, { ...params, ...sp }), cand); // throws, naming the missing anchor
-        const cps = (await d.call("checkpoint/list", sp)) as { checkpoints?: Array<{ id: string; cycles: number; frame: number }> };
-        const cp = cps.checkpoints?.find((x) => x.id === anchor);
-        if (cp) { cand.anchorId = cp.id; cand.anchorCycle = cp.cycles; cand.anchorFrame = cp.frame; }
+      const { resolve, isAbsolute } = await import("node:path");
+      const { existsSync, readFileSync, statSync } = await import("node:fs");
+      const path = feature_path === undefined ? undefined : isAbsolute(feature_path) ? feature_path : existsSync(resolve(projectDir, feature_path)) ? resolve(projectDir, feature_path) : resolve(feature_path);
+      // A fix ALLOCATES memory in the game: the slot gate that guards every door that does guards this one.
+      const { parseFeature } = await import("../project-knowledge/scenario-gherkin.js");
+      const texts: string[] = [];
+      if (feature !== undefined) texts.push(feature);
+      else if (path && existsSync(path) && statSync(path).isFile()) texts.push(readFileSync(path, "utf8"));
+      const withFixes = texts.some((t) => parseFeature(t).scenarios.some((sc) => sc.variants.length > 0 && (!scenario || sc.name.toLowerCase().includes(scenario.toLowerCase()))));
+      if (withFixes) {
+        const gate = await (await import("../slots/gate.js")).checkSlotGate("runtime_feature_run", projectDir);
+        if (!gate.allowed) return text(gate.refusal!);
       }
-      cand = s.saveCandidate(projectDir, cand);
-      const note = await sync(projectDir, cand);
-      return text(`Candidate ${cid} created from anchor "${anchor}"${cand.anchorCycle !== undefined ? ` (cycle ${cand.anchorCycle})` : ""}: ${cycle_budget} cycles per run, ${cand.inputs.length} input(s). Saved in knowledge/candidates/${cid}.json.\nNext: runtime_candidate_variant to add the variants, then runtime_candidate_run.${note}`);
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_variant",
-    "Add, replace or remove one variant of a candidate: a name and, per target, the code it puts in the machine — source (a file or inline text, assembled here with the project's assembler, its own org equal to the target) or bytes. "
-    + "Setting a variant replaces its whole target set and clears its last verdict; the bytes are kept in the candidate. "
-    + "Use to try another fix from the same anchor. Not for running (use runtime_candidate_run) and not for bytes from a file (runtime_inject_range). "
-    + "Inputs: id, name, targets? ([{addr, space?, bank?, source_path?|source?|bytes?}]), remove? (true removes the variant), project_dir?. Returns: the variant as stored.",
-    {
-      id: z.string(), name: z.string().min(1),
-      targets: z.array(TARGET).optional(),
-      remove: z.boolean().optional(),
-      project_dir: z.string().optional(),
-    },
-    safeHandler("runtime_candidate_variant", async ({ id, name, targets, remove, project_dir }) => {
-      const projectDir = project(project_dir);
-      const s = await import("../candidates/store.js");
-      const cand = await need(projectDir, id);
-      if (remove) {
-        if (!cand.variants.some((v) => v.name === name)) throw new Error(`candidate ${id} has no variant "${name}"`);
-        cand.variants = cand.variants.filter((v) => v.name !== name);
-        if (cand.chosen === name) cand.chosen = undefined;
-        s.saveCandidate(projectDir, cand);
-        return text(`Variant "${name}" removed from ${id}; ${cand.variants.length} left.${await sync(projectDir, cand)}`);
-      }
-      if (!targets || targets.length === 0) throw new Error("give the variant's targets (or remove:true)");
-      // A patch ALLOCATES: the slot gate that guarded runtime_candidate_patch guards this door.
-      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_candidate_variant", projectDir);
-      if (!slotGate.allowed) return text(slotGate.refusal!);
-      const { assembleTarget, setVariant } = await import("../candidates/variant.js");
-      const assembled = [];
-      for (let i = 0; i < targets.length; i++) assembled.push(await assembleTarget(projectDir, id, name, i, targets[i]!));
-      cand.variants = setVariant(cand.variants, name, assembled);
-      if (cand.chosen === name) cand.build = undefined;
-      s.saveCandidate(projectDir, cand);
-      const lines = assembled.map((t) => `  ${t.space === "ram" ? "ram" : `${t.space} bank ${t.bank ?? 0}`} ${hx(t.addr)}  ${t.bytes.length} byte(s)${t.sourcePath ? `  from ${t.sourcePath}` : t.source ? "  from inline source" : "  from bytes"}`);
-      return text(`Variant "${name}" of ${id} set (${cand.variants.length} variant(s)):\n${lines.join("\n")}${await sync(projectDir, cand)}`);
-    }),
-  );
-
-  server.tool(
-    "runtime_candidate_run",
-    "Run a candidate: ONE parallel batch — the baseline without a patch plus every variant, each on a clone of the anchor's machine with the same inputs and the same cycle budget — then judge each variant's end state against the baseline (whole-machine diff, volatile lanes masked). "
-    + "The shared machine the human watches is not moved, paused or changed; only a snapshot of the anchor is taken. Verdicts are saved in the candidate. With a sandbox session_id the anchor and the clones are that sandbox's own. "
-    + "Use after adding or changing variants. Not for stepping a patch on the shared machine (use runtime_overlay_run, which moves it). "
-    + "Inputs: id, session_id?, project_dir?. Returns: a table — variant, cycles, final PC, verdict, what changed.",
-    { id: z.string(), session_id: z.string().optional().describe("A sandbox session (sb-…) whose own anchors and clones to use; omitted: the shared session's"), project_dir: z.string().optional() },
-    safeHandler("runtime_candidate_run", async ({ id, session_id, project_dir }) => {
-      const projectDir = project(project_dir);
-      const s = await import("../candidates/store.js");
-      const cand = await need(projectDir, id);
-      const d = await daemon();
-      const { runCandidateOnce, renderRun } = await import("../candidates/run.js");
-      let r;
-      try { r = await runCandidateOnce((m, p) => d.call(m, session_id ? { ...p, session_id } : p), cand); } catch (e) { return text(`runtime_candidate_run: ${e instanceof Error ? e.message : String(e)}`); }
-      cand.baseline = r.baseline;
-      for (const v of r.variants) { const t = cand.variants.find((x) => x.name === v.name); if (t) t.verdict = v.verdict; }
-      s.saveCandidate(projectDir, cand);
-      return text(renderRun(cand, r));
+      const { runFeatures, renderFeatureRun, featureRunJson } = await import("../scenario/feature-run.js");
+      const run = await runFeatures({
+        ...(path !== undefined ? { paths: [path] } : { text: feature }),
+        scenario, jobs, replaceAnchors: replace_anchors === true,
+        project: project_dir ? projectDir : feature !== undefined ? projectDir : undefined,
+      });
+      return text(json ? JSON.stringify(featureRunJson(run), null, 2) : renderFeatureRun(run));
     }),
   );
 
   server.tool(
     "runtime_candidate_list",
-    "List the project's candidates, or show one in full: anchor, inputs, budget, each variant's targets and last verdict, the chosen variant, the delta written and the last build check. Reads the project's files, so it answers the same after a daemon restart. "
-    + "Use to see what has been tried and what it did. Not for running (use runtime_candidate_run). Inputs: id?, project_dir?. Returns: the candidate(s).",
+    "List the project's candidates, or show one in full: the feature file and scenario it records, the anchor, each variant's targets and its last verdict with the places it changed besides what it was meant to, the history of runs, the chosen variant, the delta written and the last build check. Reads the project's files, so it answers the same after a daemon restart. "
+    + "Use to see what has been tried and what it did. Not for running (use runtime_feature_run). Inputs: id?, project_dir?. Returns: the candidate(s).",
     { id: z.string().optional(), project_dir: z.string().optional() },
     safeHandler("runtime_candidate_list", async ({ id, project_dir }) => {
       const projectDir = project(project_dir);
       const s = await import("../candidates/store.js");
+      const { describeSideEffects } = await import("../scenario/feature-run.js");
+      const passed = (c: Candidate): string => {
+        const done = c.variants.filter((v) => v.result);
+        return done.length ? `${done.filter((v) => v.result!.verdict === "PASS").length}/${done.length} passed` : "not run yet";
+      };
       if (!id) {
         const all = s.listCandidates(projectDir);
-        if (all.length === 0) return text("No candidates in this project. runtime_candidate_create starts one from an anchor.");
-        return text(all.map((c) => `${c.id}  anchor "${c.anchor}"  ${c.variants.length} variant(s)  ${c.cycleBudget} cycles  chosen: ${c.chosen ?? "—"}${c.build ? `  build: ${c.build.ok ? "green" : "RED"}` : ""}`).join("\n"));
+        if (all.length === 0) return text("No candidates in this project. A candidate is the record of a .feature file with variant lines: run one with runtime_feature_run.");
+        return text(all.map((c) => c.feature
+          ? `${c.id}  ${c.feature.path}:${c.feature.line}  ${c.anchor ? `anchor "${c.anchor}"  ` : ""}${c.variants.length} variant(s), ${passed(c)}  ${(c.history ?? []).length} run(s)  chosen: ${c.chosen ?? "—"}${c.build ? `  build: ${c.build.ok ? "green" : "RED"}` : ""}`
+          : `${c.id}  anchor "${c.anchor}"  ${c.variants.length} variant(s)  ${c.cycleBudget ?? "?"} cycles  chosen: ${c.chosen ?? "—"}${c.build ? `  build: ${c.build.ok ? "green" : "RED"}` : ""}  (an older record: inputs and a cycle budget, no feature file)`).join("\n"));
       }
       const c = await need(projectDir, id);
-      const lines = [`Candidate ${c.id}${c.title ? ` — ${c.title}` : ""}`, `anchor "${c.anchor}"${c.anchorCycle !== undefined ? ` (cycle ${c.anchorCycle}, frame ${c.anchorFrame ?? "?"})` : ""}; ${c.cycleBudget} cycles; ${c.inputs.length} input(s): ${JSON.stringify(c.inputs)}`];
-      if (c.baseline) lines.push(`baseline: ${c.baseline.cycles} cycles, PC ${hx(c.baseline.registers?.pc)} (run ${c.baseline.ranAt})`);
+      const lines = [`Candidate ${c.id}${c.title ? ` — ${c.title}` : ""}`];
+      if (c.feature) lines.push(`records ${c.feature.path}:${c.feature.line} — "${c.feature.scenario}"; ${c.anchor ? `starts from anchor "${c.anchor}"` : "starts from a medium or a bare machine"}; ${(c.history ?? []).length} run(s)`);
+      else lines.push(`anchor "${c.anchor}"${c.anchorCycle !== undefined ? ` (cycle ${c.anchorCycle}, frame ${c.anchorFrame ?? "?"})` : ""}; ${c.cycleBudget ?? "?"} cycles; ${(c.inputs ?? []).length} input(s): ${JSON.stringify(c.inputs ?? [])}`);
+      if (c.baselineResult) lines.push(`baseline: ${c.baselineResult.verdict}${c.baselineResult.reason ? ` — ${c.baselineResult.reason}` : ""} (run ${c.baselineResult.ranAt})`);
+      else if (c.baseline) lines.push(`baseline: ${c.baseline.cycles} cycles, PC ${hx(c.baseline.registers?.pc)} (run ${c.baseline.ranAt})`);
       for (const v of c.variants) {
         const x = v.verdict;
-        lines.push(`variant "${v.name}"${c.chosen === v.name ? "  <- chosen" : ""}: ${v.targets.map((t) => `${t.space === "ram" ? "ram" : `${t.space}/${t.bank ?? 0}`} ${hx(t.addr)} ${t.bytes.length}B`).join(", ")}`);
-        lines.push(`  last verdict: ${!x ? "not run yet" : x.state === "failed" ? `FAILED ${x.message ?? ""}` : x.identical ? "same as baseline" : `DIFFERS — ${(x.changes ?? []).join("; ") || (x.differing ?? []).join(", ")}`}${x ? ` (${x.cycles} cycles, PC ${hx(x.registers?.pc)}, run ${x.ranAt})` : ""}`);
+        const r = v.result;
+        lines.push(`variant "${v.name}"${c.chosen === v.name ? "  <- chosen" : ""}: ${v.targets.map((t) => `${t.space === "ram" ? "ram" : `${t.space}/${t.bank ?? 0}`} ${hx(t.addr)} ${t.bytes.length}B${t.sourcePath ? ` from ${t.sourcePath}` : ""}`).join(", ")}`);
+        if (r) {
+          const bad = r.checks.filter((k) => !k.pass);
+          lines.push(`  last run: ${r.verdict}${r.reason ? ` — ${r.reason}` : ""}${bad.length ? ` — ${bad.map((k) => `${k.text}: got ${k.actual}`).join(" | ")}` : ""}${r.sideEffects?.length ? `  (also changed: ${describeSideEffects(r.sideEffects)})` : ""} (${r.checks.length} checked, run ${r.ranAt})`);
+        } else {
+          lines.push(`  last verdict: ${!x ? "not run yet" : x.state === "failed" ? `FAILED ${x.message ?? ""}` : x.identical ? "same as baseline" : `DIFFERS — ${(x.changes ?? []).join("; ") || (x.differing ?? []).join(", ")}`}${x ? ` (${x.cycles} cycles, PC ${hx(x.registers?.pc)}, run ${x.ranAt})` : ""}`);
+        }
+      }
+      const hist = (c.history ?? []).slice(-5);
+      if (hist.length > 1) {
+        lines.push("history (newest last):");
+        for (const h of hist) lines.push(`  ${h.ranAt}  baseline ${h.baseline.verdict}; ${h.variants.map((v) => `${v.name} ${v.verdict}`).join(", ")}`);
       }
       if (c.delta) lines.push(`delta: ${c.delta.outDir} (${c.delta.files.join(", ")})`);
       if (c.build) lines.push(`last build check: ${c.build.ok ? "GREEN" : `RED at ${hx(c.build.firstDiff?.addr)}`} on ${c.build.image} (${c.build.checkedAt})`);
@@ -177,8 +135,8 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
 
   server.tool(
     "runtime_candidate_choose",
-    "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks. The verdicts say what each variant changed; which change is right is your call. "
-    + "Use once a run shows the variant doing what you want. Not for running anything. Inputs: id, variant (or clear:true to un-choose), project_dir?. Returns: the choice.",
+    "Mark one variant of a candidate as the solution — the one runtime_candidate_derive_delta writes and runtime_candidate_verify_build checks. The Then lines decided PASS or FAIL per variant and the run listed what else each one changed; which fix is right is your call. "
+    + "Use once a run shows the variant doing what you want. Not for running anything (use runtime_feature_run). Inputs: id, variant (or clear:true to un-choose), project_dir?. Returns: the choice.",
     { id: z.string(), variant: z.string().optional(), clear: z.boolean().optional(), project_dir: z.string().optional() },
     safeHandler("runtime_candidate_choose", async ({ id, variant, clear, project_dir }) => {
       const projectDir = project(project_dir);
@@ -222,7 +180,7 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
           const a = svc.saveArtifact({
             kind, scope: "generated", title: `Delta ${id}/${cand.chosen}: ${f}`, path: relative(projectDir, join(outDir, f)),
             role: "candidate-delta", producedByTool: "runtime_candidate_derive_delta", tags: ["candidate-delta", `candidate:${id}`, `variant:${cand.chosen}`],
-            description: `Delta of variant "${cand.chosen}" of candidate ${id}, from anchor "${cand.anchor}".`,
+            description: `Delta of variant "${cand.chosen}" of candidate ${id}${cand.anchor ? `, from anchor "${cand.anchor}"` : ""}${cand.feature ? `, tried in ${cand.feature.path}` : ""}.`,
           });
           artifactIds.push(a.id);
         }
@@ -285,7 +243,7 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
   server.tool(
     "runtime_candidate_delete",
     "Delete a candidate from the project: its file, its scratch folder and its graph node. The delta files already written stay where they are. "
-    + "Use when the iteration is finished with. Not for dropping one variant (use runtime_candidate_variant with remove:true). Inputs: id, project_dir?. Returns: what was deleted.",
+    + "Use when the iteration is finished with. Not for dropping one variant (take its line out of the .feature file and run it again). Inputs: id, project_dir?. Returns: what was deleted.",
     { id: z.string(), project_dir: z.string().optional() },
     safeHandler("runtime_candidate_delete", async ({ id, project_dir }) => {
       const projectDir = project(project_dir);
@@ -296,16 +254,11 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
     }),
   );
 
-  // The three doors that folded into runtime_candidate_variant / _list. Each answers in one line and
-  // does nothing: their daemon half is gone, and a silent no-op would look like a result.
-  const alias = (name: string, successor: string, why: string) =>
-    server.tool(
-      name,
-      `Retired name, kept for one release: now ${successor} — ${why} Use ${successor}. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming ${successor}.`,
-      {},
-      safeHandler(name, async () => text(`${name} is now ${successor} — ${why} Nothing was done.`)),
-    );
-  alias("runtime_candidate_patch", "runtime_candidate_variant", "variants hold the patches now, per name.");
-  alias("runtime_candidate_remove_patch", "runtime_candidate_variant", "remove a variant with remove:true, or set it again with the targets you want.");
-  alias("runtime_candidate_export", "runtime_candidate_list", "it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta.");
+  // The retired name that pointed at the list: it does nothing but say where its answer went.
+  server.tool(
+    "runtime_candidate_export",
+    "Retired name, kept for one release: now runtime_candidate_list, which shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta. Use those. Not for new work; this name does nothing but point there. Inputs: any. Returns: one line naming runtime_candidate_list.",
+    {},
+    safeHandler("runtime_candidate_export", async () => text("runtime_candidate_export is now runtime_candidate_list — it shows each variant's targets and bytes; the build-ready files come from runtime_candidate_derive_delta. Nothing was done.")),
+  );
 }

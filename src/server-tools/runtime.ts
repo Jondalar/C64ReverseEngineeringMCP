@@ -537,45 +537,46 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "runtime_inject_range",
-    "Put a .bin file's bytes into a candidate's variant as a target — swap a logo, a charset, a sprite, without rebuilding anything. The bytes are an OVERLAY, applied in sandbox runs (runtime_candidate_run) on clones and never written to the medium or the shared machine: every run starts fresh, so a reset drops the layer rather than the change becoming permanent. Setting the same address in the same variant REPLACES that target. Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code (use runtime_candidate_variant) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: candidate_id, addr, bin_path, variant? (default \"inject\"), optional space and bank, project_dir?. Returns: the variant as stored.",
+    "Turn a .bin file's bytes into a fix a .feature file can try: writes a source file (`* = $addr` and the bytes) and returns the variant line that assembles it — swap a logo, a charset, a sprite, without rebuilding anything. "
+    + "The bytes are an OVERLAY, applied when the feature runs (runtime_feature_run) on machines of its own and never written to the medium or the shared machine: every run starts fresh. "
+    + "Use it with runtime_rip_range to close the loop: rip, edit, inject, run. Not for source code you wrote (name that file in the variant line yourself) and not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). "
+    + "Inputs: addr, bin_path, variant? (default \"inject\"), out_path? (default fixes/<variant>-<addr>.tas), optional space and bank, project_dir?. Returns: the file written and the line to add to the scenario.",
     {
       session_id: z.string().optional().describe("Unused; kept so earlier callers still work"),
-      candidate_id: z.string().describe("Candidate to put the bytes in — from runtime_candidate_create"),
-      variant: z.string().optional().describe("Variant to add the target to; default \"inject\""),
       addr: z.number().int().describe("CPU-space address the bytes go to — the same range the rip came from, unless you mean to move it"),
       bin_path: z.string().describe("The .bin to write, absolute or relative to the project"),
+      variant: z.string().optional().describe("The variant's name in the feature file; default \"inject\""),
+      out_path: z.string().optional().describe("Where to write the source, relative to the project; default fixes/<variant>-<addr>.tas"),
       space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the target is: ram, or a cartridge window (roml/romh)"),
       bank: z.number().int().optional().describe("Cartridge bank, when space is roml or romh"),
-      project_dir: z.string().optional().describe("Project root holding the candidate; default: the session's project"),
+      project_dir: z.string().optional().describe("Project root; default: the session's project"),
     },
-    safeHandler("runtime_inject_range", async ({ candidate_id, variant, addr, bin_path, space, bank, project_dir }) => {
-      const { readFileSync } = await import("node:fs");
-      const { isAbsolute, resolve: resolvePath } = await import("node:path");
+    safeHandler("runtime_inject_range", async ({ addr, bin_path, variant, out_path, space, bank, project_dir }) => {
+      const { readFileSync, writeFileSync, mkdirSync } = await import("node:fs");
+      const { dirname, isAbsolute, resolve: resolvePath } = await import("node:path");
       const projectDir = context.projectDir(project_dir ? { projectDir: project_dir } : undefined, true);
       const abs = isAbsolute(bin_path) ? bin_path : resolvePath(projectDir, bin_path);
       const buf = readFileSync(abs);
       if (buf.length === 0) throw new Error(`${abs} is empty`);
       if (buf.length > 0x10000) throw new Error(`${abs} is ${buf.length} bytes — larger than the address space`);
-      const s = await import("../candidates/store.js");
-      const cand = s.loadCandidate(projectDir, candidate_id);
-      if (!cand) throw new Error(`no candidate "${candidate_id}" in ${projectDir} — runtime_candidate_create makes one`);
       const name = variant ?? "inject";
       const sp = space ?? "ram";
-      const prev = cand.variants.find((v) => v.name === name)?.targets ?? [];
-      const target = { space: sp, ...(sp === "ram" ? {} : { bank: bank ?? 0 }), addr: addr & 0xffff, source: "", bytes: Array.from(buf) };
-      const kept = prev.filter((t) => !(t.space === target.space && (t.bank ?? 0) === (target.bank ?? 0) && t.addr === target.addr));
-      const { setVariant } = await import("../candidates/variant.js");
-      cand.variants = setVariant(cand.variants, name, [...kept, target]);
-      s.saveCandidate(projectDir, cand);
-      return { content: [{ type: "text" as const, text: JSON.stringify({
-        injected: { path: abs, bytes: buf.length, addr, space: sp, bank: bank ?? null }, candidate: candidate_id, variant: name, targets: cand.variants.find((v) => v.name === name)!.targets.length,
-      }, null, 2) }] };
+      const at = addr & 0xffff;
+      const hex4 = at.toString(16).padStart(4, "0");
+      const rel = out_path ?? `fixes/${name}-${hex4}.tas`;
+      const lines = [`* = $${hex4}`];
+      for (let i = 0; i < buf.length; i += 16) lines.push(`.byte ${[...buf.subarray(i, i + 16)].map((b) => `$${b.toString(16).padStart(2, "0")}`).join(",")}`);
+      const out = resolvePath(projectDir, rel);
+      mkdirSync(dirname(out), { recursive: true });
+      writeFileSync(out, `${lines.join("\n")}\n`);
+      const where = sp === "ram" ? "" : `${sp} bank ${bank ?? 0} `;
+      return { content: [{ type: "text" as const, text: `Wrote ${rel} (${buf.length} bytes at $${hex4}).\nAdd to the scenario:\n  And variant "${name}" assembles "${rel}" at ${where}$${hex4.toUpperCase()}\nthen run it with runtime_feature_run.` }] };
     }),
   );
 
   server.tool(
     "runtime_find_cheat",
-    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a candidate variant with that addr as a target holding its original value, runtime_candidate_variant) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (a variant whose source puts the original value back at that addr, tried in a .feature file with runtime_feature_run) to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
     { session_id: z.string(), before: z.string(), after: z.string(), max: z.number().optional() },
     safeHandler("runtime_find_cheat", async ({ session_id, before, after, max }) => {
       const { runtimeDaemon: d } = await import("../runtime/backend.js");
@@ -588,7 +589,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
         .map((c) => `  $${(c.addr & 0xffff).toString(16).padStart(4, "0")}: ${c.before} → ${c.after} (−${c.delta})`)
         .join("\n");
       const hint = r.count
-        ? `\n\nNext: freeze the likeliest counter — create a candidate, runtime_candidate_variant(id, name, targets:[{addr, bytes:[<original>]}]), then runtime_candidate_run to confirm it holds across the scenario.`
+        ? `\n\nNext: freeze the likeliest counter — write a variant whose source puts the original value back (a .tas file with an origin and a .byte line), add it to a .feature file, and run it with runtime_feature_run to confirm it holds across the scenario.`
         : `\n\nNo RAM decreased between the two anchors — check they bracket the life-loss.`;
       return { content: [{ type: "text" as const, text: `${r.count} cheat candidate(s):\n${top}${hint}\n\n${JSON.stringify(r, null, 2)}` }] };
     }),
