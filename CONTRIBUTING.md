@@ -17,8 +17,8 @@ can actually finish. They apply to both repositories.
   open another one. Comment on the existing issue instead.
 - **One defect per issue.** Do not bundle findings, and do not add new findings to an issue that is
   closed after a fix. Open a new issue for each one.
-- **Windows-only failures:** we develop and test on macOS and Linux and cannot reproduce or verify
-  anything that happens only on Windows. Say so in the PR.
+- **We develop and test on macOS only.** We cannot reproduce or verify anything that happens only on
+  Windows or only on Linux. Say so in the PR.
 
 ## What an issue must contain
 
@@ -26,7 +26,7 @@ We take an issue only if we can reproduce it **end to end, exactly as you saw it
 close it and ask for what is missing. We do not fix half of an issue on a guess.
 
 - **Versions:** the c64-re commit or version, and the TRX64 commit or version.
-- **Platform:** macOS or Linux. A Windows-only failure is a PR (see above).
+- **Platform:** the OS and its version. A failure that happens only on Windows or Linux: see above.
 - **The exact steps, so that we can rerun it:** every tool call with its arguments, in order. A run on
   the machine needs its inputs with their timing (a scenario, or the keys/joystick with their cycles),
   so that our run does what yours did.
@@ -52,6 +52,6 @@ up during a retest, open a new issue for it.
 
 - One fix per PR, with a link to its issue.
 - Add or adapt a test that fails without the fix.
-- Run the tests your change touches (`npm run e2e:…` / `smoke:…`) on macOS or Linux and say which, with their result. A test script starts with `node scripts/ensure-built.mjs mcp` (or `pipeline`, `ui`, `all`), not with a build.
+- Run the tests your change touches (`npm run e2e:…` / `smoke:…`) and say which, on which OS, with their result. A test script starts with `node scripts/ensure-built.mjs mcp` (or `pipeline`, `ui`, `all`), not with a build.
 - Never make a check weaker so that a test passes.
 - No third-party game or ROM bytes in the repository, and nothing made from them.
