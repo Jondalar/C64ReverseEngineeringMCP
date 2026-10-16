@@ -103,6 +103,7 @@
     "e2e:tooling-defects": "npm run build && node scripts/e2e-tooling-defects.mjs",
     "e2e:subject-identity": "npm run build && node scripts/e2e-subject-identity.mjs",
     "e2e:one-store-writer": "npm run build && node scripts/e2e-one-store-writer.mjs",
+    "e2e:pipeline-posix-relative": "npm run build && node scripts/e2e-pipeline-posix-relative.mjs",
     "e2e:store-concurrency": "npm run build && node scripts/e2e-store-concurrency.mjs",
     "check:address-rule": "npm run build && node scripts/check-address-rule.mjs",
     "e2e:disasm-family": "npm run build && node scripts/e2e-disasm-family.mjs",
