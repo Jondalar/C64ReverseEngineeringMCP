@@ -193,7 +193,7 @@ try {
     await tool("agent_onboard", { project_dir: P5 });
     const ob = await tool("agent_onboard", { project_dir: P5 });
     check(/WARNING[^\n]*not valid JSON[^\n]*line 3/.test(ob), "5h agent_onboard carries the warning", ob.split("\n").find((l) => l.startsWith("WARNING")));
-    writeFileSync(join(P5, ".mcp.json"), good({}).replace(d5, P5));
+    writeFileSync(join(P5, ".mcp.json"), good({ C64RE_PROJECT_DIR: P5 }));
     const st2 = await tool("project_status", { project_dir: P5 });
     check(!/WARNING/.test(st2), "5i a correct file: no warning", st2.split("\n").find((l) => l.startsWith("WARNING")) ?? "");
   });
