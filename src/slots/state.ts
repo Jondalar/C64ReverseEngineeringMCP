@@ -423,8 +423,11 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   // named image, issue #39. With or without a scope: the same bytes, the same answer.
   const classOwners = new Map<string, string[]>();
   for (const a of artifacts) {
-    const own = stemOf(a.relativePath ?? a.path ?? a.title);
-    if (!inScope(own)) continue;
+    // The graph keys its nodes under normStem (lower case): so must every lookup here, or a
+    // file whose name has capitals is measured against no ranges at all.
+    const stem = stemOf(a.relativePath ?? a.path ?? a.title);
+    if (!inScope(stem)) continue;
+    const own = normStem(stem);
     const id = identityOf(a);
     const list = classOwners.get(id) ?? [];
     if (!list.includes(own)) list.push(own);
@@ -457,8 +460,9 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const unmeasured: string[] = [];
   const missing: string[] = [];
   for (const a of artifacts) {
-    const own = stemOf(a.relativePath ?? a.path ?? a.title);
-    const aside = !inScope(own);
+    const stem = stemOf(a.relativePath ?? a.path ?? a.title);
+    const own = normStem(stem);
+    const aside = !inScope(stem);
     // The bytes are the file's as it sits on disk NOW; the stored fileSize is only what it
     // was at registration. A file that is gone has no bytes to count.
     const live = sizeOnDisk(projectDir, a);
@@ -471,7 +475,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     const size = payloadBodySize({ ...a, fileSize: live });
     if (aside) {
       if (size <= 0) continue;
-      const o = asideOf(normStem(own), a.title);
+      const o = asideOf(own, a.title);
       const clipAside = (list: Array<{ start: number; end: number }> | undefined) =>
         list ? Math.min(unionSize(list), size) : 0;
       o.bytes += size;

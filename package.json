@@ -83,6 +83,7 @@
     "e2e:907-validate": "node scripts/e2e-validate-extraction.mjs",
     "e2e:zp-pointer-halves": "node scripts/e2e-zp-pointer-halves.mjs",
     "e2e:payload-body-size": "node scripts/e2e-payload-body-size.mjs",
+    "e2e:coverage-owner-case": "node scripts/ensure-built.mjs mcp && node scripts/e2e-coverage-owner-case.mjs",
     "e2e:877-teeth": "node scripts/e2e-877-teeth.mjs",
     "check:esm-require": "node scripts/check-esm-require.mjs",
     "dev": "tsx watch src/cli.ts",
