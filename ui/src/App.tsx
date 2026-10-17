@@ -1051,7 +1051,7 @@ function PhaseHomePanel({
 }
 
 // Files we want to open in the (mon) hex viewer. Anything else (.json,
-// .md, .asm, .tass, .sym, etc.) is text the listing/docs panes already
+// .md, .asm, .tas, .tass, .sym, etc.) is text the listing/docs panes already
 // handle, so we hide the icon to avoid noise.
 const C64_BINARY_EXTENSIONS = new Set([".prg", ".bin", ".crt", ".d64", ".g64", ".sid", ".raw"]);
 
@@ -1064,9 +1064,24 @@ function isC64BinaryArtifact(relativePath: string): boolean {
 
 function asmDialectForPath(relativePath: string): AsmViewSource["dialect"] {
   const lower = relativePath.toLowerCase();
-  if (lower.endsWith(".tass")) return "64tass";
+  // `.tas` is what the renderer writes; `.tass` is what a project from before the rename holds
+  if (lower.endsWith(".tas") || lower.endsWith(".tass")) return "64tass";
   if (lower.endsWith(".asm")) return "kickass";
   return "plain";
+}
+
+// Spec 914 D3 — which dialect comes first follows the project's choice. Set from the loaded
+// snapshot (App), read wherever sources are ordered, so no call site has to be told.
+let preferredAsmDialect: "kickass" | "64tass" | undefined;
+function setPreferredAsmDialect(dialect: "kickass" | "64tass" | undefined): void {
+  preferredAsmDialect = dialect;
+}
+
+/** The extension(s) a set of listing sources is written in: `.asm`, `.tas`, or both when a project holds both. */
+function sourceKindLabel(sources: Array<{ dialect: AsmViewSource["dialect"] }>): string {
+  const kick = sources.some((source) => source.dialect === "kickass");
+  const tass = sources.some((source) => source.dialect === "64tass");
+  return kick && tass ? ".asm/.tas" : tass ? ".tas" : ".asm";
 }
 
 // BUG-019 — rank ASM/source artifacts so the UI defaults to the CURRENT BEST
@@ -1163,7 +1178,9 @@ function bestAsmSourcesForArtifacts(
     if (!currentId) currentId = group.currentArtifactId;
   }
 
-  const dialectOrder: Record<AsmViewSource["dialect"], number> = { kickass: 0, "64tass": 1, plain: 2 };
+  const dialectOrder: Record<AsmViewSource["dialect"], number> = preferredAsmDialect === "64tass"
+    ? { "64tass": 0, kickass: 1, plain: 2 }
+    : { kickass: 0, "64tass": 1, plain: 2 };
   const ordered = deduped.sort((left, right) => {
     // The version-group current always sorts first.
     if (currentId) {
@@ -1199,7 +1216,7 @@ function ArtifactVersionsSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Only source files (.asm/.tass/.sym) participate as versions.
+  // Only source files (.asm/.tas/.tass/.sym) participate as versions.
   const sourceCandidates = candidates.filter((a) => /\.(asm|tass|tas|sym)$/i.test(a.relativePath));
   if (sourceCandidates.length === 0) return null;
 
@@ -3163,7 +3180,7 @@ function ScrubPanel({
     ? bestAsmSourcesForArtifacts(
         artifacts.filter((artifact) => {
           const lower = artifact.relativePath.toLowerCase();
-          if (!lower.endsWith(".asm") && !lower.endsWith(".tass")) return false;
+          if (!lower.endsWith(".asm") && !lower.endsWith(".tas") && !lower.endsWith(".tass")) return false;
           return lower.includes(stem.toLowerCase());
         }),
       )
@@ -3957,7 +3974,7 @@ function PayloadFileInspector({
   }
   if (asmSources.length > 0) {
     secondaryActions.push({
-      label: `asm${asmSources.some((s) => s.dialect === "64tass") ? "/.tass" : ""}`,
+      label: sourceKindLabel(asmSources).slice(1),
       title: `Open disassembly (${asmSources.map((s) => s.label).join(" / ")})`,
       enabled: true,
       onClick: () => onOpenAsm(payload.name, asmSources),
@@ -4686,7 +4703,7 @@ function DiskFileInspector({
   const secondaryActions: FileInspectorActionButton[] = [];
   if (asmSources.length > 0) {
     secondaryActions.push({
-      label: `.asm${asmSources.some((source) => source.dialect === "64tass") ? "/.tass" : ""}`,
+      label: sourceKindLabel(asmSources),
       title: `Open best available source (${asmSources.map((source) => source.label).join(" / ")})`,
       enabled: true,
       onClick: () => onOpenAsm(`${file.title}`, asmSources),
@@ -5025,7 +5042,7 @@ function CartChunkInspector({
   const chunkSecondaryActions: FileInspectorActionButton[] = [];
   if (cartAsmSources.length > 0) {
     chunkSecondaryActions.push({
-      label: `.asm${cartAsmSources.length > 1 ? "/.tass" : ""}`,
+      label: sourceKindLabel(cartAsmSources),
       title: `Open linked disassembly (${cartAsmSources.map((source) => source.label).join(" / ")})`,
       enabled: true,
       onClick: () => onOpenAsm(`${chunk.lut}.${String(chunk.index).padStart(2, "0")}`, cartAsmSources),
@@ -5097,6 +5114,8 @@ export function App() {
     }
   }
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
+  // Spec 914 D3 — the project's dialect orders the listing tabs
+  useEffect(() => { setPreferredAsmDialect(snapshot?.project.preferredAssembler); }, [snapshot]);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
   const [graphicsItems, setGraphicsItems] = useState<GraphicsItem[]>([]);
   const [selectedGraphicsId, setSelectedGraphicsId] = useState<string | null>(null);
@@ -5221,7 +5240,7 @@ export function App() {
 
   // Spec 824.2 — the ASM sources for a graph node's owner. The owner is the
   // analysis stem (`<stem>_analysis.json` → `<stem>`, lower-cased), so the
-  // graph's own rendering is `<stem>_disasm.asm`; it goes first, the curated
+  // graph's own rendering is `<stem>_disasm.asm` / `.tas`; it goes first, the curated
   // versions the §7 resolver prefers follow as tabs. No match is said, not hidden.
   function asmSourcesForOwner(owner: string | null): { title: string; sources: AsmViewSource[] } | { reason: string } {
     if (!snapshot) return { reason: "no workspace loaded" };
@@ -5232,7 +5251,7 @@ export function App() {
     const candidates = pool.filter((a) => subjectStemForArtifactPath(a.relativePath).toLowerCase() === stem);
     if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm on ${owner}` };
     const best = bestAsmSourcesForArtifacts(candidates, snapshot.artifactVersionGroups ?? []);
-    const generated = candidates.filter((a) => /_disasm\.asm$/i.test(a.relativePath)).map(asmSourceForArtifact);
+    const generated = candidates.filter((a) => /_disasm\.(asm|tas|tass)$/i.test(a.relativePath)).map(asmSourceForArtifact);
     const seen = new Set<string>();
     const sources = [...generated, ...best].filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
     return { title: `${owner} · source`, sources };
