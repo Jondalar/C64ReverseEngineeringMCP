@@ -76,13 +76,10 @@ Typical entry is `0827` (`SYS 2087`). Wait for completion.
 ### Step 1.2: Disassemble
 
 ```text
-disasm(path="<path>.prg", output_asm="<path>_disasm.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
+disasm(path="<path>.prg", entry_points=["0827"], analysis_json="<path>_analysis.json")
 ```
 
-This produces:
-
-- `<path>_disasm.asm`
-- `<path>_disasm.tas`
+This produces ONE listing, in the project's assembler dialect (the human chose it at onboarding): `<path>_disasm.asm` for KickAssembler, `<path>_disasm.tas` for 64tass. The answer names it (`Output:`) and the rebuild verdict. To write one file in the other dialect, pass `assembler="64tass"` or `"kickass"`; that choice is remembered on the file.
 
 ### Step 1.3: Generate reports
 
@@ -96,8 +93,7 @@ pointer_report(analysis_json="<path>_analysis.json", output_md="<path>_pointer_f
 You should now have:
 
 - `<path>_analysis.json`
-- `<path>_disasm.asm`
-- `<path>_disasm.tas`
+- the listing (`<path>_disasm.asm` or `<path>_disasm.tas`)
 - `<path>_ram_facts.md`
 - `<path>_pointer_facts.md`
 
@@ -117,7 +113,7 @@ When Phase 1 is complete, explicitly say:
 Read all three:
 
 ```text
-read_artifact(path="<path>_disasm.asm")
+read_artifact(path="<the listing the disasm answer named>")
 read_artifact(path="<path>_ram_facts.md")
 read_artifact(path="<path>_pointer_facts.md")
 ```
@@ -208,18 +204,15 @@ You should now have:
 ### Step 3.1: Re-render with annotations
 
 ```text
-disasm(path="<path>.prg", output_asm="<path>_final.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
+disasm(path="<path>.prg", entry_points=["0827"], analysis_json="<path>_analysis.json")
 ```
 
-This should produce:
-
-- `<path>_final.asm`
-- `<path>_final.tas`
+The same call again: the renderer loads the annotations and rewrites the listing (one file, same dialect), with its rebuild proof.
 
 ### Step 3.2: Verify byte-identical rebuild
 
 ```text
-assemble_source(source_path="<path>_final.asm", assembler="kickassembler", output_path="<path>_rebuilt.prg", compare_to="<path>.prg")
+assemble_source(source_path="<the listing path>", output_path="<path>_rebuilt.prg", compare_to="<path>.prg")
 ```
 
 Annotations must never alter bytes.
@@ -228,8 +221,7 @@ Annotations must never alter bytes.
 
 Final deliverables:
 
-- `<path>_final.asm`
-- `<path>_final.tas`
+- the annotated listing (`.asm` or `.tas`)
 - `<path>_rebuilt.prg`
 
 ## Important Rules

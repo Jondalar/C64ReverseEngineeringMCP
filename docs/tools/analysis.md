@@ -8,11 +8,11 @@ TRXDis pipeline.
 | Tool | Description |
 |---|---|
 | `analyze` | Heuristic analysis of bytes → JSON with segments, cross-references, RAM facts, pointer tables. Headed or headerless: the load address decides (below). |
-| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied, and imports those names into the knowledge graph under the file's stem. `import_graph: false` renders a **preview** instead: the listing and its rebuild proof, and the graph left exactly as it was — for scratch and draft renders. A stem imported by mistake is dropped with `graph_remove_owner`. `platform` picks the symbol tables (`c64` default, `c1541` for drive code); `platform: "none"` is for code of any other machine — the listing then carries no ROM / zero-page / I/O names or comments and no hardware inference, only the names and comments of the project's annotations and graph, and nothing is recorded as the file's machine. A preview never records a machine on the file either (the `none` switch is not a machine and still sticks). The choice sticks to the file: later renders that name no platform keep it, an explicit `c64` / `c1541` clears it. |
+| `disasm` | Disassemble bytes → ONE listing in the project's assembler dialect (KickAssembler `.asm` or 64tass `.tas`; `assembler` names the file's own, and is remembered on it), with a rebuild proof by the assembler that listing is written for. Re-running after annotations re-renders with labels and segment kinds applied, and imports those names into the knowledge graph under the file's stem. `import_graph: false` renders a **preview** instead: the listing and its rebuild proof, and the graph left exactly as it was — for scratch and draft renders. A stem imported by mistake is dropped with `graph_remove_owner`. `platform` picks the symbol tables (`c64` default, `c1541` for drive code); `platform: "none"` is for code of any other machine — the listing then carries no ROM / zero-page / I/O names or comments and no hardware inference, only the names and comments of the project's annotations and graph, and nothing is recorded as the file's machine. A preview never records a machine on the file either (the `none` switch is not a machine and still sticks). The choice sticks to the file: later renders that name no platform keep it, an explicit `c64` / `c1541` clears it. |
 | `disasm_prg` · `disasm_raw` · `analyze_prg` | The old names. Aliases of the two above for one release — the same body, and each says so once in its answer, naming its successor. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
-| `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
+| `assemble_source` | Assemble a `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. `units` builds several sources of different dialects together: each by its own assembler, in dependency order, the symbols a unit exports handed to the units that use it as equates (see Mixing dialects). |
 | `basic_list` | List a tokenized BASIC program (V2; BASIC 3.5 on `plus4`) from a PRG and extract its SYS / USR / LOAD facts. |
 | `basic_tokenize` | Tokenize BASIC source text (V2; BASIC 3.5 on `plus4`) back into a `.prg` — the inverse of `basic_list`. Starts at the machine's BASIC start (`$0801`; `$1001` for `vic20` / `plus4`) unless `load_address` is given. |
 
@@ -189,8 +189,8 @@ at the window's addresses and a rebuild that cannot match.
 ## Output filenames
 
 - `<name>_analysis.json` — Phase 1 heuristic output
-- `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass)
-- `analysis/raw-disasm/<name>[_<window>]_<address>_disasm.asm` — a raw reading's listing
+- `<name>_disasm.asm` **or** `<name>_disasm.tas` — the disassembly, one file in the dialect the project (or the file) writes: KickAssembler or 64tass
+- `analysis/raw-disasm/<name>[_<window>]_<address>_disasm.<asm|tas>` — a raw reading's listing
 - `analysis/raw-analysis/<name>[_<window>]_<address>_analysis.json` — a raw reading's analysis
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Reports
@@ -257,14 +257,16 @@ is not knowable from the bytes, so an address the image holds keeps its image me
 
 ## Output formats
 
-Every `disasm` call produces two assembler dialects:
+Every `disasm` call writes ONE listing, in one of two assembler dialects:
 
 | File | Format | Assembler |
 |---|---|---|
 | `<name>.asm` | KickAssembler | <http://theweb.dk/KickAssembler/> |
 | `<name>.tas` | 64tass | <https://sourceforge.net/projects/tass64/> |
 
-Key syntax differences handled by the converter:
+Which one is decided in one place: the call's `assembler`, else the one remembered on the file, else the project's choice (`project_init` / `agent_onboard` ask the human — there is no default, and a render with nothing to go by is refused, naming how to set it). `assembler` on a call is remembered on the file, so a payload can be 64tass in a KickAssembler project. An output named `.tas` is 64tass, one named `.asm` KickAssembler.
+
+Key syntax differences the dialect emitters handle:
 
 | | KickAssembler | 64tass |
 |---|---|---|
@@ -274,4 +276,8 @@ Key syntax differences handled by the converter:
 | Data/labels | `.byte`, `label:` | `.byte`, `label:` (identical) |
 
 Both formats carry the same annotations. Byte-identical rebuilds work with
-either KickAssembler on `<name>.asm` or 64tass on `<name>.tas`.
+either KickAssembler on `<name>.asm` or 64tass on `<name>.tas`; the rebuild proof always uses the assembler the listing is written for, and says by name when that assembler is not installed. Its verdict is kept on the listing's record and stamped, in the listing's own comment syntax, into its head.
+
+### Mixing dialects
+
+Sources you did not render — a loader someone sent in 64tass, template code, your own work in the other assembler — stay in their dialect and are never translated or edited. `assemble_source` with `units` builds them together: each unit with its own assembler, in dependency order (`uses` names the units whose symbols a unit calls into); the global labels and equates a unit defines are read back from its label table and handed to its consumers as equates in the consumer's dialect, through a wrapper source that includes them before the consumer's own file. A unit marked `foreign` is registered with its dialect and checked unchanged (sha256 before and after) after the build. A label a unit uses that none of its `uses` exports is refused, by name.

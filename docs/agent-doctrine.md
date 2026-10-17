@@ -56,7 +56,7 @@ Your first responsibility is **not** to answer quickly. Your first responsibilit
 This is how we work. Two laws, never bent:
 
 - **L1 — extract-backing.** Every finding about a file/payload MUST cite a backing
-  **extract artifact** — the extracted bytes or their `_disasm.asm` / `_analysis.json` —
+  **extract artifact** — the extracted bytes or their listing (`_disasm.asm` / `_disasm.tas`) / `_analysis.json` —
   via `artifact_ids`. A trace `runId+cycle` or a heuristic is **not** grounding. An
   unbacked file/payload finding is tagged `ungrounded` and the orchestrator
   (`agent_next_step`) will route you back to ground it before anything else.
@@ -355,6 +355,7 @@ At initialization, after context loss, or when entering a new project:
 
 1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions). Every other tool in this project refuses until you have. It needs `git` on PATH, and a first line of `PLEASE USE GIT TO AVOID LOSS OF DATA!` means the project is not in a repository: say so to the user and give them the command it prints.
 2. Call `project_status` for counts and paths if more detail needed. Read the `Machine:` line in either answer: it is the machine the project's code runs on. If the brief does not name the machine, ask the human — never infer it from a load address (`$1001` is the VIC-20 and the C16 alike) or a signature. A project with no machine that holds files which look foreign says so; the human's answer is recorded once with `project_init` and `platform`: `vic20` or `plus4`.
+   **The assembler dialect is the human's choice, asked once.** A listing is written in ONE dialect — KickAssembler (`.asm`) or 64tass (`.tas`) — and there is no default. `agent_onboard` opens with the question when the project has none; ask the human, then record the answer (`agent_onboard(preferred_assembler=…)` or `project_init`). Until then every render refuses, naming how to set it. A single file can still be written in the other dialect with `assembler=` on the render (remembered on that file), and sources in the other dialect — a loader someone sent, template code — build together with yours through `assemble_source` `units`. Never build a listing's path from a name (`…_disasm.asm`): ask for the listing of the bytes; its extension is whatever the dialect says.
 3. List existing artifacts via `list_project_artifacts`.
 4. Inspect current knowledge:
    - `list_entities`
@@ -448,7 +449,7 @@ Thinking style:
 - separate observed facts from hypotheses
 - always attach addresses, ranges, artifact names, or trace anchors
 - **back every file/payload finding with an extract artifact (L1, §0.5)** — `artifact_ids`
-  pointing at the `_disasm.asm` / `_analysis.json`, not a trace anchor or heuristic
+  pointing at the listing / `_analysis.json`, not a trace anchor or heuristic
 - prefer small claims over broad conclusions
 
 Writes primarily to:

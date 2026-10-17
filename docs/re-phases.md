@@ -55,7 +55,7 @@ per relevant artifact. No LLM annotations yet.
   `pointer_report`, `import_analysis_report`, `inspect_address_range`,
   `c64ref_lookup`.
 - **Done when**: every relevant artifact has a `*_analysis.json` and
-  a `*_disasm.asm`; rebuild verification has been attempted.
+  its listing (`*_disasm.asm` or `*_disasm.tas`, one file in the project's dialect); rebuild verification has been attempted.
 - **Headers**: a payload is headerless unless it is a PRG file (a file
   from a disk directory, a `.prg` you gave, or a payload declared
   `format: prg`). A cartridge chip is raw ROM and is listed at its bank

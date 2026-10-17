@@ -27,10 +27,10 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).
+1. _(llm)_ Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then). The HUMAN chooses the assembler dialect (kickass .asm or 64tass .tas) — ask; there is no default, and project_init / agent_onboard take the answer.
    - tools: `agent_onboard`, `project_init`, `project_status`, `get_project_profile`, `project_steering_set`
    - persist: project state
-   - ask human when: it is unclear whether to create a new project here
+   - ask human when: it is unclear whether to create a new project here, or the project has no assembler dialect yet
 2. _(llm)_ If the human wants to click to start the UI (or the folder goes to someone on another system), write the starters for that system: .desktop on Linux, .command on macOS, .cmd on Windows.
    - tools: `project_launchers`
    - persist: starter files in the project folder
