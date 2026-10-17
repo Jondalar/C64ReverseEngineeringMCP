@@ -140,7 +140,7 @@ try {
   // A session onboards before it works in a project; the server refuses every project
   // tool until it has (the onboarding gate came after this smoke was written).
   // A bare knowledge/ dir is not a project to onboard into: init it first.
-  await rpc("tools/call", { name: "project_init", arguments: { project_dir: base, name: "smoke-859" } });
+  await rpc("tools/call", { name: "project_init", arguments: { preferred_assembler: "kickass", project_dir: base, name: "smoke-859" } });
   await rpc("tools/call", { name: "agent_onboard", arguments: { project_dir: base } });
   const r = await rpc("tools/call", { name: "runtime_vic_line_trace", arguments: { session_id: S, line: 51, checkpoint_id: cp } });
   const text = (r.result?.content ?? []).map((c) => c.text).join("");

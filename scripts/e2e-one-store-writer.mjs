@@ -328,7 +328,7 @@ function writeCartBanks(proj, analysisRel) {
 
   try {
     head(2, "every MCP door that spawns the pipeline registers from the parent");
-    await call("project_init", { project_dir: proj, name: "One Writer" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "One Writer" });
     await call("agent_onboard", { project_dir: proj });
 
     write(proj, "input/prg/main.prg", prgBytes());

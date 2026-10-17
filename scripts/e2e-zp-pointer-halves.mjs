@@ -163,7 +163,7 @@ const prg = Buffer.concat([Buffer.from([0x00, 0xc0]), BODY]);
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-zp-pointer-halves", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "zp-halves" });
+  await call("project_init", { preferred_assembler: "kickass", name: "zp-halves" });
   await call("agent_onboard", {});
   mkdirSync(join(proj, "artifacts"), { recursive: true });
   writeFileSync(join(proj, "artifacts", "halves.prg"), prg);

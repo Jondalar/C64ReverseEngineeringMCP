@@ -73,7 +73,7 @@ let relocAnswer = "";
 const mcp = startMcp(ROOT, { C64RE_PROJECT_DIR: dir, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_AUTOSTART: "0" });
 try {
   await mcp.init();
-  await mcp.tool("project_init", { project_dir: dir, name: "Spec 877 D5 fixture" });
+  await mcp.tool("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "Spec 877 D5 fixture" });
   await mcp.tool("agent_onboard", { project_dir: dir });
   mkdirSync(pay, { recursive: true });
   writeFileSync(join(pay, "engine.prg"), prgBytes(ENGINE));
@@ -109,6 +109,12 @@ try {
     if (name === "main") disasmAnswer = d.text;
     if (name === "reloc") relocAnswer = d.text;
   }
+  // Spec 914 — one render, one listing: the 64tass spelling of the same bytes is its own render (a preview, so it imports nothing).
+  const second = await mcp.tool("disasm_prg", {
+    project_dir: dir, prg_path: join(pay, "main.prg"), analysis_json: join(pay, "main_analysis.json"),
+    output_asm: join(pay, "main_disasm.tas"), import_graph: false,
+  });
+  if (second.isError) throw new Error(`disasm_prg main (64tass): ${second.text.slice(0, 600)}`);
 } finally {
   mcp.close();
 }
@@ -168,10 +174,10 @@ db.prepare("UPDATE nodes SET name = ? WHERE name = 'game_state'").run(LONG);
 db.prepare("UPDATE nodes SET name = ? WHERE name = 'engine_clear_bg'").run("lda");
 db.close();
 
-const { disassemblePrgToKickAsm } = require(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
+const { disassemblePrg } = require(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
 process.env.C64RE_PROJECT_DIR = dir;
 const out2 = join(pay, "main_probe.asm");
-disassemblePrgToKickAsm(join(pay, "main.prg"), out2, {
+disassemblePrg(join(pay, "main.prg"), out2, {
   analysisPath: join(pay, "main_analysis.json"),
   annotationsPath: join(pay, "main_annotations.json"),
 });

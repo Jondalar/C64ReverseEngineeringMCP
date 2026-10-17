@@ -52,8 +52,8 @@ try {
     env: { ...process.env, C64RE_PROJECT_DIR: A, C64RE_RUNTIME_AUTOSTART: "0" }, stderr: "ignore",
   }));
   const call = async (name, args) => (await client.callTool({ name, arguments: args })).content.map((c) => c.text).join("\n");
-  await call("project_init", { name: "proj-a", project_dir: A });
-  await call("project_init", { name: "proj-b", project_dir: B });
+  await call("project_init", { preferred_assembler: "kickass", name: "proj-a", project_dir: A });
+  await call("project_init", { preferred_assembler: "kickass", name: "proj-b", project_dir: B });
   await call("agent_onboard", { project_dir: B });
   await call("save_finding", { project_dir: B, kind: "classification", title: "synthetic routine at $1000", address_range: { start: 4096, end: 4111 } });
   await call("save_finding", { project_dir: A, kind: "classification", title: "synthetic routine at $2000 in A only", address_range: { start: 8192, end: 8207 } });

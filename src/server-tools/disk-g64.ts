@@ -8,6 +8,7 @@ import { describeDataStatus } from "../disk/gcr.js";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { deviceSafeName } from "../lib/id-path.js";
+import { listingExtension, listingFormat, resolveDialect } from "../lib/dialect.js";
 import type { ServerToolContext } from "./types.js";
 
 function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number, projectDir?: string): string {
@@ -842,24 +843,27 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "disasm_menu",
-    "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm). Inputs: manifest / project dir. Returns: generated .asm paths.",
+    "Disassemble every payload in an extracted menu/multi-file container to assembler sources at once, in ONE dialect (KickAssembler .asm or 64tass .tas: the call's assembler, else the project's — a project that has chosen none is refused). Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm). Inputs: manifest / project dir, optional assembler. Returns: generated listing paths.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
-      output_dir: z.string().optional().describe("Output directory for ASM sources"),
+      output_dir: z.string().optional().describe("Output directory for the sources (default: <analysis>/kickasm_sources, or tass_sources for 64tass)"),
+      assembler: z.enum(["kickass", "kickassembler", "64tass"]).optional().describe("The dialect the sources are written in. Absent: the project's preferredAssembler; a project with none is refused."),
     },
-    async ({ analysis_dir, output_dir }) => {
+    async ({ analysis_dir, output_dir, assembler }) => {
       const pd = context.projectDir({ fileHint: analysis_dir ?? output_dir }, true);
+      const choice = resolveDialect({ projectDir: pd, explicit: assembler, subject: "the menu sources" });
+      if (!choice.ok) return { content: [{ type: "text" as const, text: `# disasm_menu refused\n\n${choice.refusal}` }] };
+      const dialect = choice.dialect;
+      const extension = listingExtension(dialect);
       const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
-      const outputAbs = output_dir ? resolve(pd, output_dir) : join(analysisAbs, "kickasm_sources");
-      const args: string[] = [];
-      if (analysis_dir) args.push(analysisAbs);
-      if (output_dir) args.push(outputAbs);
-      const result = await runCli("disasm-menu", args, { projectDir: pd });
+      const outputAbs = output_dir ? resolve(pd, output_dir) : join(analysisAbs, dialect === "64tass" ? "tass_sources" : "kickasm_sources");
+      // Both positions are always given: output_dir alone used to land in the analysis slot.
+      const result = await runCli("disasm-menu", ["--dialect", dialect, analysisAbs, outputAbs], { projectDir: pd });
       if (result.exitCode === 0) {
         registerManifestAndWhatItNames(context, pd, result, {
           toolName: "disasm_menu",
           title: `Disassemble menu payloads: ${basename(analysisAbs)}`,
-          parameters: { analysis_dir: analysisAbs, output_dir: outputAbs },
+          parameters: { analysis_dir: analysisAbs, output_dir: outputAbs, assembler: dialect },
           manifestPath: join(outputAbs, "manifest.json"),
           manifestRole: "menu-disasm-manifest",
           // Every listing this verb wrote, plus the include index that ties them
@@ -868,8 +872,8 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           // cannot join a version group and cannot be annotated.
           named: (manifest, base) => [
             ...readNamedFiles(manifest, "files", "output_asm", base)
-              .map((path) => ({ path, kind: "generated-source" as const, scope: "generated" as const, role: "kickassembler-source", format: "asm" })),
-            { path: join(outputAbs, "menu_payloads_index.asm"), kind: "generated-source" as const, scope: "generated" as const, role: "kickassembler-include-index", format: "asm" },
+              .map((path) => ({ path, kind: "generated-source" as const, scope: "generated" as const, role: dialect === "64tass" ? "64tass-source" : "kickassembler-source", format: listingFormat(dialect) })),
+            { path: join(outputAbs, `menu_payloads_index${extension}`), kind: "generated-source" as const, scope: "generated" as const, role: dialect === "64tass" ? "64tass-include-index" : "kickassembler-include-index", format: listingFormat(dialect) },
           ],
         });
       }

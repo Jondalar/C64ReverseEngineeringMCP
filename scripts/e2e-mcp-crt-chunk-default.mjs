@@ -219,7 +219,7 @@ try {
   ok(vice.length === 0, "2b no vice_* on the default surface", vice.join(",") || "none");
 
   // 3. Initialize the external project.
-  const initRes = await callTool("project_init", { project_dir: projectDir, name: "E2E CRT Chunk" });
+  const initRes = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "E2E CRT Chunk" });
   toolsUsed.push("project_init");
   // A session onboards before it works in a project; the server refuses otherwise.
   await callTool("agent_onboard", { project_dir: projectDir });

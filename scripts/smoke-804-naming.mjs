@@ -51,11 +51,11 @@ try {
   const a = startMcp(ROOT, { C64RE_PROJECT_DIR: fresh, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_AUTOSTART: "0" });
   mcps.push(a);
   await a.init();
-  await a.tool("project_init", { project_dir: fresh, name: "naming fixture" });
+  await a.tool("project_init", { preferred_assembler: "kickass", project_dir: fresh, name: "naming fixture" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await a.tool("agent_onboard", { project_dir: fresh });
   check(projectJson(fresh).naming?.maxLabelLength === 20, "project_init stamps the limit into a project it creates", JSON.stringify(projectJson(fresh).naming));
-  await a.tool("project_init", { project_dir: fresh, name: "naming fixture" });
+  await a.tool("project_init", { preferred_assembler: "kickass", project_dir: fresh, name: "naming fixture" });
   check(projectJson(fresh).naming?.maxLabelLength === 20, "re-running project_init keeps it");
 
   const records = new KnowledgeRecords(fresh);
@@ -82,13 +82,13 @@ try {
   const b = startMcp(ROOT, { C64RE_PROJECT_DIR: legacy, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_AUTOSTART: "0" });
   mcps.push(b);
   await b.init();
-  await b.tool("project_init", { project_dir: legacy, name: "legacy fixture" });
+  await b.tool("project_init", { preferred_assembler: "kickass", project_dir: legacy, name: "legacy fixture" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await b.tool("agent_onboard", { project_dir: legacy });
   const pj = projectJson(legacy);
   delete pj.naming; // as every project created before 2026-09-19 is
   writeFileSync(join(legacy, "knowledge", "project.json"), JSON.stringify(pj, null, 2));
-  await b.tool("project_init", { project_dir: legacy, name: "legacy fixture" });
+  await b.tool("project_init", { preferred_assembler: "kickass", project_dir: legacy, name: "legacy fixture" });
   check(projectJson(legacy).naming === undefined, "re-running project_init does not add the rule to an existing project");
   ok = true;
   try { new KnowledgeRecords(legacy).saveUserLabel({ label: LONG, address: 0x1004 }); } catch { ok = false; }

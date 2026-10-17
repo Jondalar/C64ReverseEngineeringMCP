@@ -371,7 +371,7 @@ const call = async (name, args) => {
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-tooling-defects", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "toolingdefects" });
+  await call("project_init", { preferred_assembler: "kickass", name: "toolingdefects" });
   await call("agent_onboard", {});
 
   // A tiny PRG at $C000 that is real code, so analyze/disasm have something to chew.

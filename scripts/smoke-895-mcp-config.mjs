@@ -77,7 +77,7 @@ try {
   const P = join(base, "P1");
   const env1 = cleanEnv({ C64RE_PROJECT_DIR: scratch("elsewhere"), C64RE_TOOLS_DIR: tools, C64RE_64TASS_BIN: tass, C64RE_FULL_TOOLS: "1" });
   await session(env1, async (tool) => {
-    const out = await tool("project_init", { project_dir: P, name: "smoke895" });
+    const out = await tool("project_init", { preferred_assembler: "kickass", project_dir: P, name: "smoke895" });
     const cfg = join(P, ".mcp.json");
     check(existsSync(cfg) && out.includes("Host config:") && out.includes(cfg) && /written/.test(out), "1a project_init says it wrote .mcp.json", out.split("\n").find((l) => l.startsWith("Host config:")));
     let parsed; try { parsed = readJson(cfg); } catch (e) { parsed = undefined; }
@@ -97,7 +97,7 @@ try {
     // an existing file is left alone and checked
     const mine = `{\n  "mcpServers": { "other": { "command": "x" } },\n  "keep": 1\n}\n`;
     writeFileSync(cfg, mine);
-    const again = await tool("project_init", { project_dir: P, name: "smoke895" });
+    const again = await tool("project_init", { preferred_assembler: "kickass", project_dir: P, name: "smoke895" });
     check(readFileSync(cfg, "utf8") === mine && /left alone/.test(again), "1j project_init with an existing .mcp.json leaves it byte-identical and says so", again.split("\n").filter((l) => l.startsWith("Host config") || l.startsWith("WARNING")).join(" | "));
     check(/WARNING[^\n]*no "c64-re" server/.test(again), "1k ... and checks it (no c64-re entry is reported)");
   });
@@ -186,7 +186,7 @@ try {
   // through the tools: a project whose .mcp.json is broken
   const P5 = join(base, "P5");
   await session(cleanEnv({ C64RE_PROJECT_DIR: P5 }), async (tool) => {
-    await tool("project_init", { project_dir: P5, name: "smoke895-check" });
+    await tool("project_init", { preferred_assembler: "kickass", project_dir: P5, name: "smoke895-check" });
     writeFileSync(join(P5, ".mcp.json"), bad);
     const st = await tool("project_status", { project_dir: P5 });
     check(/WARNING[^\n]*not valid JSON[^\n]*line 3/.test(st), "5g project_status carries the warning", st.split("\n").find((l) => l.startsWith("WARNING")));

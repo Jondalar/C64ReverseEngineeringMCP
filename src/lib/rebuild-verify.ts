@@ -11,40 +11,50 @@
 // compares whole. A RAW blob has no 2-byte load header, while KickAssembler's output
 // always does, so its rebuild is compared from byte 2 — otherwise every raw payload
 // would report a divergence at offset 0, which is a false alarm and worse than silence.
+//
+// Spec 914 D4: the assembler is fixed by the file. A listing written in 64tass is built by
+// 64tass and nothing else; if that assembler is not here the verdict says so by name. The old
+// silent fallback to the other assembler read a file the renderer had never written. The verdict
+// is stored on the listing's record, and the stamp in the listing's head — in its dialect's
+// comment syntax — is information for the person reading the file.
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { assembleSource, find64tassBinary, findKickAssemblerJar, type SupportedAssembler } from "../assemble-source.js";
+import { basename } from "node:path";
+import { assembleSource, find64tassBinary, findKickAssemblerJar } from "../assemble-source.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { assemblerOf, dialectLabel, dialectOfPath, rebuildCheckPath, type Dialect } from "./dialect.js";
+import { listingHash, stampListing } from "./rebuild-stamp.js";
 
 export interface RebuildVerdict {
-  /** The `//`-prefixed line written into the listing head and returned to the caller. */
+  /** The line written into the listing head and returned to the caller, without its comment marker. */
   line: string;
   /** true only when the rebuild matched byte for byte. */
   verified: boolean;
-  /** true when the assembler itself could not be run at all (absent jar / no java). */
+  /** true when the assembler itself could not be run at all (absent jar / no java / no 64tass). */
   assemblerUnavailable: boolean;
+  /** The dialect (and so the assembler) the listing was built as. */
+  dialect: Dialect;
 }
 
-/**
- * Which assembler checks the listing: the project's `preferredAssembler` first, when it
- * can run here; otherwise whichever is installed, KickAssembler before 64tass.
- * Undefined when neither can run.
- */
-export function chooseRebuildAssembler(projectDir: string): SupportedAssembler | undefined {
-  let preferred: SupportedAssembler | undefined;
-  try {
-    const meta = JSON.parse(readFileSync(join(projectDir, "knowledge", "project.json"), "utf8")) as { preferredAssembler?: string };
-    if (meta.preferredAssembler === "64tass") preferred = "64tass";
-    else if (meta.preferredAssembler === "kickass") preferred = "kickassembler";
-  } catch { /* no project record: no preference */ }
-  const order: SupportedAssembler[] = preferred === "64tass" ? ["64tass", "kickassembler"] : ["kickassembler", "64tass"];
-  return order.find((a) => (a === "kickassembler" ? findKickAssemblerJar() : find64tassBinary()) !== undefined);
+/** Is the assembler of this dialect installed here? */
+export function assemblerInstalled(dialect: Dialect): boolean {
+  return dialect === "64tass" ? find64tassBinary() !== undefined : findKickAssemblerJar() !== undefined;
+}
+
+/** Why a dialect cannot be built here, said by name; undefined when it can. */
+export function assemblerMissingReason(dialect: Dialect): string | undefined {
+  if (assemblerInstalled(dialect)) return undefined;
+  return dialect === "64tass"
+    ? "64tass is not installed (set C64RE_64TASS_BIN or put 64tass on PATH), and this listing is written in 64tass — only 64tass builds it"
+    : "KickAssembler is not installed (jar not found: set C64RE_KICKASS_JAR, or install it in /Applications/KickAssembler), and this listing is written in KickAssembler — only KickAssembler builds it";
 }
 
 export async function rebuildVerification(args: {
   projectDir: string;
+  /** The listing. */
   asmPath: string;
+  /** The dialect it is written in. Absent: the one its file name says. */
+  dialect?: Dialect;
   prgPath: string;
   sourceArtifactId?: string;
   /** The compared file has no 2-byte PRG header (an extracted raw blob). */
@@ -67,26 +77,31 @@ export async function rebuildVerification(args: {
    */
   discardCheckOnSuccess?: boolean;
 }): Promise<RebuildVerdict> {
+  const dialect = args.dialect ?? dialectOfPath(args.asmPath);
+  if (dialect === undefined) {
+    return {
+      line: `WARNING: rebuild verification failed to run: cannot tell which assembler dialect ${basename(args.asmPath)} is written in (name it .asm for KickAssembler or .tas for 64tass)`,
+      verified: false,
+      assemblerUnavailable: true,
+      dialect: "kickass",
+    };
+  }
   const compared = args.compareLabel ?? basename(args.prgPath);
   const headerless = args.rawBlob === true || args.compareRange !== undefined;
-  const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
+  const tempPrg = rebuildCheckPath(args.asmPath);
   let summaryLine: string;
   let assemblyOk = false;
   let verified = false;
   let assemblerUnavailable = false;
-  let assemblerUsed = "";
+  const assemblerUsed = dialectLabel(dialect);
   try {
-    const assembler = chooseRebuildAssembler(args.projectDir);
-    assemblerUsed = assembler === "64tass" ? "64tass" : "KickAssembler";
-    if (!assembler) {
-      throw new Error("no assembler available: KickAssembler jar not found (set C64RE_KICKASS_JAR) and 64tass not found (set C64RE_64TASS_BIN or put 64tass on PATH)");
-    }
-    const sourcePath = assembler === "64tass" ? args.asmPath.replace(/\.asm$/i, ".tas") : args.asmPath;
-    if (!existsSync(sourcePath)) throw new Error(`${assembler} is the assembler to use but ${sourcePath} does not exist`);
+    const missing = assemblerMissingReason(dialect);
+    if (missing) throw new Error(missing);
+    if (!existsSync(args.asmPath)) throw new Error(`${assemblerUsed} is the assembler to use but ${args.asmPath} does not exist`);
     const result = await assembleSource({
       projectDir: args.projectDir,
-      sourcePath,
-      assembler,
+      sourcePath: args.asmPath,
+      assembler: assemblerOf(dialect),
       outputPath: tempPrg,
       // A raw blob is compared here instead, past the load header the assembler adds.
       ...(headerless ? {} : { compareToPath: args.prgPath }),
@@ -110,24 +125,24 @@ export async function rebuildVerification(args: {
       // Say WHY. A listing the assembler refuses is the commonest way a round trip
       // fails — an undefined symbol, a branch whose target wrapped out of the block —
       // and an exit code alone sends the caller back to run the assembler by hand.
-      summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${compared}`;
+      summaryLine = `WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${compared}`;
       const reason = firstAssemblerError(result.stdout, result.stderr);
       if (reason) summaryLine += ` — ${reason}`;
     } else if (result.compareMatches === false) {
       assemblyOk = true;
       const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
-      summaryLine = `// WARNING: rebuild diverges from ${compared} at body offset ${offset}; disassembly is not byte-identical`;
+      summaryLine = `WARNING: rebuild diverges from ${compared} at body offset ${offset}; disassembly is not byte-identical`;
     } else if (result.compareMatches) {
       assemblyOk = true;
       verified = true;
-      summaryLine = `// rebuild verified byte-identical against ${compared} (${result.comparedBytes ?? "?"} bytes) with ${assemblerUsed}`;
+      summaryLine = `rebuild verified byte-identical against ${compared} (${result.comparedBytes ?? "?"} bytes) with ${assemblerUsed}`;
     } else {
-      summaryLine = `// rebuild verification skipped (no compare result)`;
+      summaryLine = `rebuild verification skipped (no compare result)`;
     }
   } catch (error) {
     // The assembler is absent or would not start: not a verdict about the listing.
     assemblerUnavailable = true;
-    summaryLine = `// WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
+    summaryLine = `WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
   }
 
   // Bug 14: classify the rebuild-check PRG as a verification report rather
@@ -164,30 +179,38 @@ export async function rebuildVerification(args: {
     try { rmSync(tempPrg, { force: true }); } catch { /* best effort */ }
   }
 
-  // Bake the verdict into the head of the ASM so a human reading the file
-  // sees it immediately without having to consult the tool stdout.
+  // The stamp in the head of the listing, in the listing's own comment syntax, so a human
+  // reading the file sees the verdict without consulting the tool stdout.
   try {
-    const asm = readFileSync(args.asmPath, "utf8");
-    // Keep the file's own line endings: a CRLF listing must not come back with one LF line in it.
-    const eol = asm.includes("\r\n") ? "\r\n" : "\n";
-    const lines = asm.split(/\r?\n/);
-    const header = lines.findIndex((line) => line.startsWith("//****************"));
-    if (header >= 0) {
-      // insert before the closing banner
-      const closing = lines.findIndex((line, index) => index > header && line.startsWith("//****************"));
-      const insertAt = closing >= 0 ? closing : Math.min(lines.length, header + 1);
-      // Drop any prior verification line so re-runs don't accumulate.
-      const filtered = lines.filter((line) => !line.startsWith("// rebuild verified") && !line.startsWith("// WARNING: rebuild "));
-      filtered.splice(insertAt, 0, summaryLine);
-      writeFileSync(args.asmPath, filtered.join(eol), "utf8");
-    } else {
-      writeFileSync(args.asmPath, `${summaryLine}${eol}${asm}`, "utf8");
-    }
+    writeFileSync(args.asmPath, stampListing(readFileSync(args.asmPath, "utf8"), dialect, summaryLine), "utf8");
   } catch {
     // best-effort header injection; don't fail the disasm flow over it
   }
 
-  return { line: summaryLine, verified, assemblerUnavailable };
+  // The verdict itself lives on the listing's record (D4), measured against the file as it is
+  // now — stamp included — so that any later edit reads as "not proven".
+  if (!assemblerUnavailable) {
+    try {
+      const service = new ProjectKnowledgeService(args.projectDir);
+      const row = service.listArtifacts().find((a) => a.path === args.asmPath);
+      const hash = listingHash(args.asmPath);
+      if (row) {
+        service.setArtifactDialectFields(row.id, {
+          rebuild: {
+            verified,
+            assembler: dialect,
+            line: summaryLine,
+            ...(hash ? { listingHash: hash } : {}),
+            checkedAt: new Date().toISOString(),
+          },
+        });
+      }
+    } catch {
+      // the stamp stands even when the record could not be written
+    }
+  }
+
+  return { line: summaryLine, verified, assemblerUnavailable, dialect };
 }
 
 /** The assembler's first complaint, on one line, or nothing when it did not say. */

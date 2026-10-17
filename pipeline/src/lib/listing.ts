@@ -156,17 +156,21 @@ export function emitListing(lines: readonly ListingLine[], dialect: Dialect): st
           } else {
             for (const row of line.rows) push(semicolonRow(row).trimEnd());
           }
-        } else if (line.style === "plain") {
-          push("/*");
-          for (const row of line.rows) push(row);
-          push("*/");
         } else {
-          line.rows.forEach((row, index) => {
-            if (line.rows.length === 1) push(`/* ${row} */`);
-            else if (index === 0) push(`/* ${row}`);
-            else if (index === line.rows.length - 1) push(` * ${row} */`);
-            else push(` * ${row}`);
-          });
+          // a row that carries `*/` would end the comment early and leave the rest as code
+          const safe = line.rows.map((row) => row.replaceAll("*/", "* /"));
+          if (line.style === "plain") {
+            push("/*");
+            for (const row of safe) push(row);
+            push("*/");
+          } else {
+            safe.forEach((row, index) => {
+              if (safe.length === 1) push(`/* ${row} */`);
+              else if (index === 0) push(`/* ${row}`);
+              else if (index === safe.length - 1) push(` * ${row} */`);
+              else push(` * ${row}`);
+            });
+          }
         }
         break;
       case "label":

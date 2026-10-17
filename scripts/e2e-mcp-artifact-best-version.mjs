@@ -97,7 +97,7 @@ try {
   ok(missing.length === 0, "2 version-op tools are on the default surface", missing.join(",") || "none");
 
   // init project.
-  const initRes = await callTool("project_init", { project_dir: projectDir, name: "Best Version" });
+  const initRes = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "Best Version" });
   ok(okText(initRes) && /initialized/i.test(textOf(initRes)), "3 project_init initializes external project", "");
   // A session onboards before it works in a project; the server refuses otherwise.
   await callTool("agent_onboard", { project_dir: projectDir });

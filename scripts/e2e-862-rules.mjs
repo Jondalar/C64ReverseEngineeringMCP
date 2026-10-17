@@ -316,7 +316,7 @@ try {
   const tools = new Set(((await rpc("tools/list", {})).result?.tools || []).map((t) => t.name));
   check(tools.has("optimisation_candidates"), "optimisation_candidates is on the default surface — a tool not in DEFAULT_TOOLS is hidden");
 
-  await call("project_init", { name: "opt862" });
+  await call("project_init", { preferred_assembler: "kickass", name: "opt862" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await call("agent_onboard", {});
 

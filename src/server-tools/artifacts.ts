@@ -32,7 +32,7 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "list_artifacts",
-    "List analysis artifacts (PRG, ASM, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
+    "List analysis artifacts (PRG, ASM/TAS listings, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
     {
       subdir: z.string().optional().describe("Subdirectory to list (default: analysis)"),
     },
@@ -42,7 +42,7 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
       if (!existsSync(dir)) {
         return { content: [{ type: "text" as const, text: `[directory not found: ${dir}]` }] };
       }
-      const extensions = new Set([".prg", ".asm", ".json", ".sym", ".md", ".bin"]);
+      const extensions = new Set([".prg", ".asm", ".tas", ".tass", ".json", ".sym", ".md", ".bin"]);
       const results: string[] = [];
 
       function walk(d: string, prefix: string) {

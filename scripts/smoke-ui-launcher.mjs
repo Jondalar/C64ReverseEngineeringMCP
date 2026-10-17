@@ -341,7 +341,7 @@ else {
   const dir = join(project, "init-test");
   mkdirSync(dir, { recursive: true });
   const text = (r) => r.content.map((c) => c.text).join("\n");
-  const init = text(await handlers.get("project_init")({ project_dir: dir, name: "smoke" }));
+  const init = text(await handlers.get("project_init")({ preferred_assembler: "kickass", project_dir: dir, name: "smoke" }));
   const starters = readdirSync(dir).filter((n) => /^ui[.-]/.test(n));
   check(!init.includes("Tool Error") && starters.length === 0, `project_init writes no starter (${starters.join(", ") || "none"})`);
   check(init.includes("project_launchers"), "project_init names project_launchers in its answer");

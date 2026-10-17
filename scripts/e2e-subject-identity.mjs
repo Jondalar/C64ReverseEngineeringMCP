@@ -305,7 +305,7 @@ try {
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-subject-identity", version: "1" } });
     proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: proj, name: "Basic" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "Basic" });
     await call("agent_onboard", { project_dir: proj });
 
     const out = "artifacts/generated-src/boot.prg";

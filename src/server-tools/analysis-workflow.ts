@@ -9,6 +9,8 @@ import type { Space } from "../knowledge-graph/ids.js";
 import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { rebuildVerification } from "../lib/rebuild-verify.js";
+import { ANY_COMMENT_MARKER, defaultListingName, dialectLabel, dialectOfPath, listingExtension, listingFormat, resolveDialect, type Dialect } from "../lib/dialect.js";
+import { annotationsPathFor } from "../project-knowledge/listing-for.js";
 import { formatObligationBlock, splitObligationsFromFiles } from "../project-knowledge/split-obligations.js";
 import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import { suggestDepackers } from "../compression-tools.js";
@@ -40,6 +42,9 @@ import type { ServerToolContext } from "./types.js";
 const ANALYZE_JOB_GRACE_MS = Number(process.env["C64RE_ANALYZE_GRACE_MS"]) > 0
   ? Number(process.env["C64RE_ANALYZE_GRACE_MS"])
   : 100_000;
+
+/** Spec 914 D2 — the `assembler` every render door takes. */
+const ASSEMBLER_INPUT = z.enum(["kickass", "kickassembler", "64tass"]).optional().describe("The assembler dialect the ONE listing is written in: kickass (.asm) or 64tass (.tas). Named here it is REMEMBERED on this file, so the next render of the same bytes writes the same dialect without being told; it beats the project's preferredAssembler, which is what a file with nothing remembered follows. A project that has chosen neither refuses the render and says how to choose.");
 
 const PACKER_DETECTION_THRESHOLD = 0.7;
 
@@ -123,12 +128,13 @@ function summarizePackerHints(hints: PackerHintRecord[]): string[] {
  */
 function listingAnnotationStatus(asmPath: string): string {
   try {
-    // the header is the first ~10 lines; a listing can be megabytes
+    // the header is the first ~10 lines; a listing can be megabytes. Its comment marker is the
+    // dialect's: `//` in KickAssembler, `;` in 64tass.
     const line = readFileSync(asmPath, "utf8")
       .slice(0, 4096)
       .split(/\r?\n/)
-      .find((l) => /^\/\/\s+(?:No s|S)emantic annotations/.test(l));
-    if (line) return line.replace(/^\/\/\s+/, "");
+      .find((l) => ANY_COMMENT_MARKER.test(l) && /^(?:\/\/|;)\s+(?:No s|S)emantic annotations/.test(l));
+    if (line) return line.replace(/^(?:\/\/|;)\s+/, "");
   } catch {
     // fall through — an unreadable listing is reported as unknown, never as applied
   }
@@ -446,7 +452,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   /** The annotations files a render may pick up, in the order the renderer searches. */
   function annotationCandidatesFor(sourceAbs: string, outAbs: string, analysisAbs?: string): string[] {
     return [
-      outAbs.replace(/\.asm$/i, "_annotations.json"),
+      annotationsPathFor(outAbs),
       sourceAbs.replace(/\.[^./]+$/, "_annotations.json"),
       join(dirname(outAbs), basename(sourceAbs).replace(/\.[^./]+$/, "") + "_annotations.json"),
       ...(analysisAbs ? [analysisAbs.replace(/\.[^./]+$/, "_annotations.json")] : []),
@@ -478,13 +484,14 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     } catch { return undefined; }
   }
 
-  /** Where a listing goes when the caller names no output. */
-  function defaultListingPath(pd: string, sourceAbs: string, reading: ByteReading, cart?: string): string {
+  /** Where a listing goes when the caller names no output; the extension is the dialect's. */
+  function defaultListingPath(pd: string, sourceAbs: string, reading: ByteReading, dialect: Dialect, cart?: string): string {
+    const ext = listingExtension(dialect);
     if (reading.kind === "headed") {
       const out = /\.prg$/i.test(sourceAbs)
-        ? sourceAbs.replace(/\.prg$/i, "_disasm.asm")
-        : `${sourceAbs.replace(/\.[^./]+$/, "")}_disasm.asm`;
-      return out === sourceAbs ? `${sourceAbs}_disasm.asm` : out;
+        ? sourceAbs.replace(/\.prg$/i, `_disasm${ext}`)
+        : `${sourceAbs.replace(/\.[^./]+$/, "")}_disasm${ext}`;
+      return out === sourceAbs ? `${sourceAbs}_disasm${ext}` : out;
     }
     const stem = basename(sourceAbs).replace(/\.[^./]+$/, "");
     const size = statSync(sourceAbs).size;
@@ -492,7 +499,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ? ""
       : `_${reading.byteOffset.toString(16).toUpperCase().padStart(4, "0")}-${(reading.byteOffset + reading.byteLength - 1).toString(16).toUpperCase().padStart(4, "0")}`;
     const addr = reading.loadAddress.toString(16).toUpperCase().padStart(4, "0");
-    return join(pd, "analysis", "raw-disasm", ...(cart ? [cart] : []), `${stem}${window}_${addr}_disasm.asm`);
+    return join(pd, "analysis", "raw-disasm", ...(cart ? [cart] : []), defaultListingName(`${stem}${window}_${addr}`, dialect));
   }
 
   // ── D1 — `disasm` ─────────────────────────────────────────────────────────
@@ -502,7 +509,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     offset?: string | number; length?: string | number;
     entry_points?: Array<string | number>;
     analysis_json?: string; no_analysis?: boolean; annotations_path?: string; import_graph?: boolean;
-    output_asm?: string; platform?: PlatformTag | "none"; cpu?: "c64" | "drive";
+    output_asm?: string; assembler?: string; platform?: PlatformTag | "none"; cpu?: "c64" | "drive";
     bank?: number; space?: string; cart?: string;
     relocations?: Array<Record<string, unknown>>;
     paths?: string[];
@@ -533,6 +540,27 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const machine = resolvePlatform({ projectDir: pd, explicit: namedPlatform, artifactPlatform: machineRow?.platform });
     const resolvedPlatform: PlatformTag = machine.platform;
     const noPlatformNames = askedNone || (!namedPlatform && machineRow?.symbolTables === "none");
+
+    // ── which assembler dialect the listing is written in (Spec 914 D2) ──────────
+    // The call's `assembler`, then the dialect an explicit output name says, then the file's own
+    // record, then the project's. Nothing else: no default, and a render that resolves to nothing
+    // is refused before a byte is written.
+    const nameDialect = a.output_asm ? dialectOfPath(a.output_asm) : undefined;
+    const argDialect = a.assembler ? resolveDialect({ projectDir: pd, explicit: a.assembler }) : undefined;
+    if (argDialect && !argDialect.ok) return refuse(argDialect.refusal);
+    if (argDialect?.ok && nameDialect && argDialect.dialect !== nameDialect) {
+      return refuse(`assembler=${a.assembler} writes ${dialectLabel(argDialect.dialect)}, but output_asm ${JSON.stringify(a.output_asm)} is named for ${dialectLabel(nameDialect)}. Name the output ${listingExtension(argDialect.dialect)} or change the assembler.`);
+    }
+    const dialectChoice = resolveDialect({
+      projectDir: pd,
+      artifact: machineRow,
+      explicit: argDialect?.ok ? a.assembler : nameDialect,
+      subject: basename(sourceAbs),
+    });
+    if (!dialectChoice.ok) return refuse(dialectChoice.refusal);
+    const dialect: Dialect = dialectChoice.dialect;
+    // Only a dialect the caller NAMED is remembered on the file; one the project decided stays the project's.
+    const dialectToRemember: Dialect | undefined = argDialect?.ok ? argDialect.dialect : undefined;
 
     // ── §1 the load address decides ─────────────────────────────────────────
     const read = resolveByteReading({
@@ -608,9 +636,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     }
 
     // ── where the listing goes ──────────────────────────────────────────────
-    const outAbs = a.output_asm ? resolve(pd, a.output_asm) : defaultListingPath(pd, sourceAbs, reading, spaceAsked.value?.cart ?? lineageCart?.cart);
+    const outAbs = a.output_asm ? resolve(pd, a.output_asm) : defaultListingPath(pd, sourceAbs, reading, dialect, spaceAsked.value?.cart ?? lineageCart?.cart);
     mkdirSync(dirname(outAbs), { recursive: true });
-    const tassPath = outAbs.replace(/\.asm$/i, ".tas");
 
     // ── §2 which analysis ───────────────────────────────────────────────────
     const choice = resolveAnalysis({
@@ -667,6 +694,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       if (reading.byteOffset !== 0) cliArgs.push("--offset", asHex(reading.byteOffset));
       cliArgs.push("--length", asHex(reading.byteLength));
     }
+    cliArgs.push("--dialect", dialect);
     if (noPlatformNames) cliArgs.push("--platform", "none");
     else if (resolvedPlatform !== "c64") cliArgs.push("--platform", resolvedPlatform);
     // $DE00-$DFFF is the cartridge's, and which cartridge decides what the registers there are called
@@ -748,6 +776,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         analysis_json: choice.path ?? null,
         annotations_path: annotationsAbs ?? null,
         output_asm: outAbs,
+        assembler: dialect,
       },
       notes: [provenance],
       inputs: [
@@ -767,18 +796,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           producedByTool: invokedAs,
         }] : []),
       ],
+      // ONE listing, in the one dialect (Spec 914 D1): the project is told about the file that exists.
       outputs: reading.kind === "headed"
         ? [
-          { path: outAbs, kind: "generated-source" as const, scope: "generated" as const, role: "kickassembler-source", format: "asm", producedByTool: invokedAs },
-          { path: tassPath, kind: "generated-source" as const, scope: "generated" as const, role: "64tass-source", format: "tass", producedByTool: invokedAs },
+          { path: outAbs, kind: "generated-source" as const, scope: "generated" as const, role: dialect === "64tass" ? "64tass-source" : "kickassembler-source", format: listingFormat(dialect), producedByTool: invokedAs },
         ]
         : [
-          { path: outAbs, kind: "listing" as const, scope: "analysis" as const, role: "disasm", format: "asm", producedByTool: invokedAs },
-          { path: tassPath, kind: "generated-source" as const, scope: "generated" as const, role: "disasm-tass", format: "tass", producedByTool: invokedAs },
+          { path: outAbs, kind: "listing" as const, scope: "analysis" as const, role: dialect === "64tass" ? "disasm-tass" : "disasm", format: listingFormat(dialect), producedByTool: invokedAs },
         ],
     });
     if (!sourceArtifactId) {
       try { sourceArtifactId = service.listArtifacts().find((x) => x.path === sourceAbs)?.id; } catch { /* best effort */ }
+    }
+    // The dialect the caller NAMED sticks to the file (a preview records nothing, like the machine).
+    if (dialectToRemember && importGraph && sourceArtifactId) {
+      try { service.setArtifactDialectFields(sourceArtifactId, { assembler: dialectToRemember }); } catch { /* the listing stands without the stamp */ }
     }
 
     // The provenance belongs ON the listing's own row, not only in the run log: a
@@ -794,8 +826,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           title: listing.title,
           path: outAbs,
           description: provenance,
-          format: "asm",
-          role: listing.role ?? "disasm",
+          format: listingFormat(dialect),
+          role: listing.role ?? (dialect === "64tass" ? "disasm-tass" : "disasm"),
           producedByTool: invokedAs,
           ...(noPlatformNames ? {} : { platform: resolvedPlatform }),
           sourceArtifactIds: listing.sourceArtifactIds,
@@ -832,6 +864,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const verdict = await rebuildVerification({
       projectDir: pd,
       asmPath: outAbs,
+      dialect,
       prgPath: sourceAbs,
       ...(sourceArtifactId ? { sourceArtifactId } : {}),
       ...(reading.kind === "raw"
@@ -915,8 +948,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const seededText = seeds.length > 0
       ? seeds.map(hex).join(", ")
       : `${hex(reading.loadAddress)} (the first byte — no entry point was given)`;
-    const verdictLine = verdict.line.replace(/^\/\/\s*/, "");
-    const annotationsPath = outAbs.replace(/\.asm$/i, "_annotations.json");
+    const verdictLine = verdict.line;
+    const annotationsPath = annotationsPathFor(outAbs);
     const nextStep = annotationsApplied
       ? `Annotations file: ${usedAnnotations}`
       : `\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run ${invokedAs} again to produce the final annotated version.`;
@@ -947,6 +980,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         ? `Cartridge: ${cartridgeTypeName(cartridge.hardwareType)} (CRT hardware type ${cartridge.hardwareType}, from ${cartridge.via}) — the cartridge I/O window $DE00-$DFFF is named for it.`
         : "",
       `Seeded: ${seededText}`,
+      `Dialect: ${dialectLabel(dialect)} (${dialectChoice.via === "argument" ? "named on this call" : dialectChoice.via === "file" ? "set on this file" : "the project's"}) — one listing: ${outAbs}`,
       `${verdictLine}${rebuildRemedy(verdictLine, reading.kind === "raw" ? "raw" : "prg")}`,
       `Listing: ${listingAnnotationStatus(outAbs)}`,
       nextStep,
@@ -1136,7 +1170,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     {
       const block = splitTableBlock(
         outAbs,
-        annotationCandidatesFor(sourceAbs, sourceAbs.replace(/\.[^./]+$/, "_disasm.asm"), outAbs).find((c) => existsSync(c)),
+        annotationCandidatesFor(sourceAbs, `${sourceAbs.replace(/\.[^./]+$/, "")}_disasm.asm`, outAbs).find((c) => existsSync(c)),
       );
       if (block) result.stdout += `\n${block}`;
     }
@@ -1164,7 +1198,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         artifactIds: [knowledgeRegistration.outputArtifacts?.[0] ?? basename(sourceAbs)],
         title: `Run disasm on ${basename(sourceAbs)}`,
         description: `Disassemble using ${basename(outAbs)} and verify rebuild.`,
-        autoCloseHint: { kind: "file-exists", path: outAbs.replace(/_analysis\.json$/i, "_disasm.asm") },
+        // Spec 914 D3 — the task names the BYTES, not a file: it closes on whichever listing the project writes.
+        autoCloseHint: { kind: "listing-exists", source: sourceAbs },
         priority: "medium",
       });
     } catch { /* best effort */ }
@@ -1315,14 +1350,15 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm",
-    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof (assembled by the project's preferredAssembler when it is installed, else KickAssembler, else 64tass; the verdict names which). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. The one exception is a raw cartridge image: on a vic20 / plus4 render a file whose bytes carry the KERNAL's autostart signature (VIC-20 A0CBM at offset 4, TED CBM at offset 7) is placed at $A000 / $8000 and the answer names the signature; an explicit load_address wins. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/split/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). `space` / `bank` say which address space the names go into the graph under: crt + a bank files them under that cartridge bank (so a model_assert boundary in space crt at that bank holds them), ram or drv files them under the owner; one stated earlier sticks until another is stated. On a C64 the cartridge I/O window $DE00-$DFFF is named for the cartridge type recorded for the bytes — the CRT header's hardware type, found through the artifact's lineage, the directory extract_crt wrote them to, or the project's only cartridge (the answer's `Cartridge:` line says which) — and is commented as plain \"cartridge I/O\" where no type is known. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/platform (c64, c1541, vic20, plus4, none — resolved: argument, the file's artifact record, the project default, c64)/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, the rebuild verdict, and the split low/high tables found in confirmed code that no splitTables[] entry has declared or rejected yet (listed, never a refusal here — agent_advance_phase refuses past phase 5 until they are decided) — or, for `paths`, one line per path and the failures named.",
+    "Disassemble bytes to ONE listing in the project's assembler dialect (KickAssembler .asm or 64tass .tas — the file's own choice, else the project's), segment-aware when an analysis describes them, with a rebuild proof (assembled by the assembler the listing is written for; the verdict names it, and a missing assembler is said by name). Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. The one exception is a raw cartridge image: on a vic20 / plus4 render a file whose bytes carry the KERNAL's autostart signature (VIC-20 A0CBM at offset 4, TED CBM at offset 7) is placed at $A000 / $8000 and the answer names the signature; an explicit load_address wins. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/split/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph — unless import_graph=false, which renders a PREVIEW and leaves the graph exactly as it was (use it for scratch and draft renders; an owner imported by mistake is dropped with graph_remove_owner). `space` / `bank` say which address space the names go into the graph under: crt + a bank files them under that cartridge bank (so a model_assert boundary in space crt at that bank holds them), ram or drv files them under the owner; one stated earlier sticks until another is stated. On a C64 the cartridge I/O window $DE00-$DFFF is named for the cartridge type recorded for the bytes — the CRT header's hardware type, found through the artifact's lineage, the directory extract_crt wrote them to, or the project's only cartridge (the answer's `Cartridge:` line says which) — and is commented as plain \"cartridge I/O\" where no type is known. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/import_graph/assembler/platform (c64, c1541, vic20, plus4, none — resolved: argument, the file's artifact record, the project default, c64)/bank/space/relocations/output_asm. Returns: the reading it took, the listing path and its dialect, the analysis it used and why, the provenance, what was seeded, the rebuild verdict, and the split low/high tables found in confirmed code that no splitTables[] entry has declared or rejected yet (listed, never a refusal here — agent_advance_phase refuses past phase 5 until they are decided) — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Named and present, it is the analysis rendered and is never swapped. Named and absent, or omitted, the project store is asked which analysis is registered for these bytes; only then the file beside them."),
       no_analysis: z.boolean().optional().describe("Refuse an analysis outright for this render. Nothing is read, nothing is inherited, and the answer says the listing is linear. Use when an analysis exists for these bytes and you know it does not apply."),
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it a <stem>_annotations.json beside the bytes, the output or the analysis is picked up. Whatever is applied is imported into the knowledge graph."),
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration, no machine recorded on the file) — the graph is left exactly as it was and so is the file's machine. Use for scratch or draft renders you do not mean to keep. Default true."),
-      output_asm: z.string().optional().describe("Output path for the .asm, with the .tas beside it. Default for a headed file: <stem>_disasm.asm next to it; for raw bytes: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.asm (the cartridge folder when the bytes came out of a cartridge)."),
+      output_asm: z.string().optional().describe("Output path for the listing. Its extension must agree with the dialect (.asm KickAssembler, .tas 64tass); an extension that says one dialect is read as asking for it. Default for a headed file: <stem>_disasm.<ext> next to it; for raw bytes: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.<ext> (the cartridge folder when the bytes came out of a cartridge)."),
+      assembler: ASSEMBLER_INPUT,
       platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the bytes run on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's own artifact record, the project's default (project_init platform), c64. c1541 is drive-side code; vic20 the VIC-20 (VIC-I, VIA1/VIA2, its KERNAL); plus4 the TED machines (C16, C116, Plus/4). Naming a machine RECORDS it for this file, so every later render and analysis of the file knows it (a preview, import_graph=false, records nothing: the machine is for that render only); its graph nodes are indexed under that machine (a 1541 file in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share, e.g. $0300-$07FF, actually contains them; a VIC-20 file's hardware accesses point at vic20:io:... nodes). The store names only what it has rows for: a machine with no row for an address leaves that address unnamed, it never borrows a C64 name. Use none for code of any other machine (a foreign original listed before porting): the listing then carries NO ROM / zero-page / I/O names or comments from the platform tables and no hardware inference, while names and comments from the project's annotations and graph still apply; the bytes and the rebuild are unchanged, and nothing is recorded as the file's machine. none sticks to the file: every later render that names no platform keeps it, and an explicit machine clears it."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
       space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
@@ -1457,11 +1493,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   server.tool(
     // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze to get readable assembly, and again to render the final annotated version once you have an annotations file. Now the same door as `disasm`, which reads headerless bytes too: this name keeps working for one release and says so in its answer. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm, passing load_address). An analysis_json named here that EXISTS is the analysis rendered and is never swapped; when it does not exist the project store is asked which analysis is registered for these bytes, and the answer names what it used and why. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Whatever is applied is imported into the knowledge graph; import_graph=false renders a PREVIEW that leaves the graph untouched. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, annotations_path, import_graph, platform, relocations. Returns: .asm/.tas artifact paths.",
+    "Disassemble a PRG to ONE listing in the project's assembler dialect (KickAssembler .asm or 64tass .tas), segment-aware when given an analysis JSON. Use after analyze to get readable assembly, and again to render the final annotated version once you have an annotations file. Now the same door as `disasm`, which reads headerless bytes too: this name keeps working for one release and says so in its answer. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm, passing load_address). An analysis_json named here that EXISTS is the analysis rendered and is never swapped; when it does not exist the project store is asked which analysis is registered for these bytes, and the answer names what it used and why. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/splitTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild (a splitTables entry that cannot be taken is the exception: the file is refused, naming the entry). In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Whatever is applied is imported into the knowledge graph; import_graph=false renders a PREVIEW that leaves the graph untouched. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, annotations_path, import_graph, platform, relocations. Returns: the listing artifact path and its dialect.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
-      output_asm: z.string().optional().describe("Output path for the .asm file"),
+      output_asm: z.string().optional().describe("Output path for the listing (.asm KickAssembler, .tas 64tass)"),
+      assembler: ASSEMBLER_INPUT,
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
       annotations_path: z.string().optional().describe("Path to an annotations file, instead of the <stem>_annotations.json found beside the PRG, the output or the analysis."),
@@ -1488,7 +1525,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   server.tool(
     // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     "disasm_raw",
-    "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Now the same door as `disasm`, which also reads a file that carries a header: this name keeps working for one release and says so in its answer. Not for a file that already carries a 2-byte load address (use disasm without load_address) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as the PRG reading: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, and no_analysis refuses one outright. When none is named, the project store is asked which analysis is registered for these bytes and the answer names what it found. Annotations it applies are imported into the knowledge graph, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
+    "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Now the same door as `disasm`, which also reads a file that carries a header: this name keeps working for one release and says so in its answer. Not for a file that already carries a 2-byte load address (use disasm without load_address) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as the PRG reading: it writes one listing in the file's/project's dialect, reassembles it and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, and no_analysis refuses one outright. When none is named, the project store is asked which analysis is registered for these bytes and the answer names what it found. Annotations it applies are imported into the knowledge graph, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the listing path and dialect, the address span, the instruction count, what was seeded, and the rebuild verdict.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
       path: z.string().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id.").optional(),
@@ -1500,7 +1537,8 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering, produced by analyze over THIS window. Named and present it is used unchanged; named and absent, or omitted, the project store is asked which analysis is registered for these bytes."),
       no_analysis: z.boolean().optional().describe("Refuse an analysis outright for this render. Nothing is read, nothing is inherited, and the answer says the listing is linear."),
       annotations_path: z.string().optional().describe("Path to an annotations file (labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual. Whatever is applied is imported into the knowledge graph."),
-      output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
+      output_asm: z.string().optional().describe("Output path for the listing (.asm KickAssembler, .tas 64tass). Default: analysis/raw-disasm/[<cartridge>/]<stem>[_<window>]_<address>_disasm.<ext>."),
+      assembler: ASSEMBLER_INPUT,
       cpu: z.enum(["c64", "drive"]).optional().describe("Which 6502 these bytes run on. Default c64. `drive` renders 1541 zero page, VIA registers and drive ROM entry points instead of the C64's."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes live in. The names go into the graph under that bank (space crt), so a boundary asserted with model_assert space=crt and this bank holds them; it is also recorded with the listing's provenance. Alone it means space crt."),
       space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
@@ -1621,7 +1659,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       project_dir: z.string().optional(),
       analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),
       output_path: z.string().optional().describe("Optional draft output path; defaults to <stem>_annotations.draft.json next to the analysis."),
-      listing_path: z.string().optional().describe("Optional *_disasm.asm path for label naming heuristics."),
+      listing_path: z.string().optional().describe("Optional listing path (.asm or .tas) for label naming heuristics."),
       persist_questions: z.boolean().optional().describe("If true, also save openQuestions[] entries via save_open_question with source=static-analysis."),
     },
     safeHandler("propose_annotations", async ({ project_dir, analysis_json, output_path, listing_path, persist_questions }) => {
@@ -1650,7 +1688,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
           inputs: [
             { path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json", producedByTool: "propose_annotations" },
             ...(listingAbs && existsSync(listingAbs)
-              ? [{ path: listingAbs, kind: "generated-source" as const, scope: "analysis" as const, role: "disasm", format: "asm", producedByTool: "propose_annotations" }]
+              ? [{ path: listingAbs, kind: "generated-source" as const, scope: "analysis" as const, role: dialectOfPath(listingAbs) === "64tass" ? "disasm-tass" : "disasm", format: listingFormat(dialectOfPath(listingAbs) ?? "kickass"), producedByTool: "propose_annotations" }]
               : []),
           ],
           outputs: [{
@@ -1694,7 +1732,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
 
   server.tool(
     "run_prg_reverse_workflow",
-    "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze / disasm directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
+    "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call; the listing is written in ONE dialect (assembler, else the file's, else the project's — a project that has chosen none is refused). Not for a single step (call analyze / disasm directly). Inputs: prg_path, optional assembler. Returns: done/incomplete/blocked + the next required semantic action.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project_dir)."),
@@ -1702,8 +1740,9 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       output_dir: z.string().optional().describe("Override output directory. Default places outputs next to the PRG."),
       rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
       entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides (e.g. [\"0827\"])."),
+      assembler: ASSEMBLER_INPUT,
     },
-    safeHandler("run_prg_reverse_workflow", async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
+    safeHandler("run_prg_reverse_workflow", async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points, assembler }) => {
       const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, true);
       const result = await runPrgReverseWorkflow({
         projectRoot: pd,
@@ -1712,6 +1751,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
         outputDir: output_dir,
         rebuildViews: rebuild_views,
         entryPoints: entry_points,
+        ...(assembler ? { assembler } : {}),
       });
       return context.cliResultToContent({
         stdout: renderPrgReverseWorkflowResult(result),
@@ -1731,8 +1771,9 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       output_dir: z.string().optional().describe("Override output directory. Default artifacts/generated/payloads/<payload_id>."),
       rebuild_views: z.boolean().optional().describe("Run build_all_views after the workflow. Default true."),
       entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides."),
+      assembler: ASSEMBLER_INPUT,
     },
-    safeHandler("run_payload_reverse_workflow", async ({ project_dir, payload_id, mode, output_dir, rebuild_views, entry_points }) => {
+    safeHandler("run_payload_reverse_workflow", async ({ project_dir, payload_id, mode, output_dir, rebuild_views, entry_points, assembler }) => {
       const pd = context.projectDir({ projectDir: project_dir }, false);
       const result = await runPayloadReverseWorkflow({
         projectRoot: pd,
@@ -1741,6 +1782,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
         outputDir: output_dir,
         rebuildViews: rebuild_views,
         entryPoints: entry_points,
+        ...(assembler ? { assembler } : {}),
       });
       return context.cliResultToContent({
         stdout: renderPrgReverseWorkflowResult(result),

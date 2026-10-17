@@ -108,7 +108,7 @@ try {
     "every door this gate uses is on the default surface");
 
   // ── the project, through the doors ────────────────────────────────────────
-  await call("project_init", { name: "smoke740graph" });
+  await call("project_init", { preferred_assembler: "kickass", name: "smoke740graph" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await call("agent_onboard", {});
   mkdirSync(join(proj, "artifacts", "prg"), { recursive: true });
@@ -134,6 +134,8 @@ try {
   }, null, 2));
   await call("analyze_prg", { prg_path: "artifacts/prg/engine.prg", entry_points: ["C000"] });
   const disasm = await call("disasm_prg", { prg_path: "artifacts/prg/engine.prg", analysis_json: "artifacts/prg/engine_analysis.json" });
+  // Spec 914 — a render writes ONE listing; the .asm + .tas pair a pre-914 project holds is two renders of the same bytes (the second a preview, so it imports nothing).
+  await call("disasm_prg", { prg_path: "artifacts/prg/engine.prg", analysis_json: "artifacts/prg/engine_analysis.json", output_asm: "artifacts/prg/engine_disasm.tas", import_graph: false });
   check(/Graph: imported 2 routines, 1 labels/.test(disasm), "disasm_prg imports the annotation file's routines and labels into the graph",
     disasm.split("\n").find((l) => l.startsWith("Graph:")));
   const asserted = await call("model_assert", {
@@ -270,7 +272,7 @@ try {
   // ── D5: one listing per disassembly ─────────────────────────────────────────
   {
     const cur = join(proj, "artifacts", "prg", "engine_disasm");
-    check(existsSync(`${cur}.asm`) && existsSync(`${cur}.tas`), "the renderer wrote the current pair (.asm + .tas)");
+    check(existsSync(`${cur}.asm`) && existsSync(`${cur}.tas`), "both dialects of the same bytes exist (.asm and .tas, each its own render)");
     // A project rendered before 2026-09-06: the same disassembly as .asm + .tass.
     mkdirSync(join(proj, "artifacts", "legacy"), { recursive: true });
     copyFileSync(`${cur}.asm`, join(proj, "artifacts", "legacy", "old_disasm.asm"));

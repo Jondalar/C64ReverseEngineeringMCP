@@ -102,7 +102,7 @@ const ownerRows = (owner, file) => JSON.stringify([
 
 // ── the project ─────────────────────────────────────────────────────────────
 await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "remove-owner", version: "1" } });
-await call("project_init", { project_dir: proj, name: "remove-owner" });
+await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "remove-owner" });
 await call("agent_onboard", { project_dir: proj });
 
 const dir = join(proj, "artifacts", "prg");

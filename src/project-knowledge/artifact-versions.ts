@@ -220,12 +220,13 @@ export function topRankIsTied(ordered: RankedCandidate[]): boolean {
 // with another hand-authored source. That one is asked, because guessing it would
 // overwrite somebody's work.
 //
-//   3. THE SAME RENDERING IN TWO DIALECTS. The renderer writes `_disasm.asm`
-//      and converts it to `_disasm.tas` beside it: one run, two files. Once
+//   3. THE SAME RENDERING IN TWO DIALECTS. Until Spec 914 the renderer wrote
+//      `_disasm.asm` and converted it to `_disasm.tas` beside it: one run, two
+//      files, and every project rendered before that still holds both. Once
 //      `.tas` joined the model these two started tying on every generated
-//      subject in every project, and "newest wins" would have quietly moved
-//      each one's current listing onto the converted copy. The project's
-//      `preferredAssembler` breaks that tie; without a preference the
+//      subject, and "newest wins" would have quietly moved each one's current
+//      listing onto the converted copy. The dialect the FILE says breaks that
+//      tie, then the project's `preferredAssembler`; without either, the
 //      KickAssembler file (the one the conversion was made from) wins. The
 //      answer names the rule that decided.
 //
@@ -243,6 +244,8 @@ export interface TieContext {
   onDisk?: (c: RankedCandidate) => boolean;
   /** The project's `preferredAssembler`, when it states one. */
   preferredAssembler?: "kickass" | "64tass";
+  /** Spec 914 D2: the dialect the candidate's OWN file says (the `assembler` on the bytes it was rendered from); it beats the project's. */
+  preferredFor?: (candidate: RankedCandidate) => "kickass" | "64tass" | undefined;
 }
 
 export type TopRankTieVerdict =
@@ -299,14 +302,15 @@ export function classifyTopRankTie(ordered: RankedCandidate[], ctx: TieContext =
   if (!tied.some((c) => HUMAN_AUTHORED_ROLES.has(c.role))) {
     const kick = tied.filter((c) => c.format === "kickass");
     const tass = tied.filter((c) => c.format === "64tass");
-    if (kick.length === 1 && tass.length >= 1 && ctx.preferredAssembler) {
-      const winner = shortestPathFirst(ctx.preferredAssembler === "64tass" ? tass : kick);
+    const preferred = tied.map((c) => ctx.preferredFor?.(c)).find((d) => d !== undefined) ?? ctx.preferredAssembler;
+    if (kick.length === 1 && tass.length >= 1 && preferred) {
+      const winner = shortestPathFirst(preferred === "64tass" ? tass : kick);
       return {
         kind: "resolved",
         rule: "preferred-assembler",
         winner,
         tied,
-        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (the project's preferred assembler is ${ctx.preferredAssembler}).`,
+        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (the preferred assembler is ${preferred}).`,
       };
     }
     if (kick.length === 1 && tass.length >= 1) {

@@ -49,10 +49,10 @@ const projects = [];
 async function openProject(name, env = {}) {
   const proj = mkdtempSync(join(tmpdir(), `c64re-908-${name}-`));
   projects.push(proj);
-  const mcp = startMcp({ root: ROOT, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1", ...env } });
+  const mcp = startMcp({ root: ROOT, pairDialects: true, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1", ...env } });
   await mcp.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-908", version: "1" } });
   mcp.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await mcp.call("project_init", { name });
+  await mcp.call("project_init", { preferred_assembler: "kickass", name });
   await mcp.call("agent_onboard", {});
   mkdirSync(join(proj, "artifacts", "prg"), { recursive: true });
   return { proj, mcp, call: mcp.call };

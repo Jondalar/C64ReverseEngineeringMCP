@@ -198,7 +198,7 @@ try {
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
 
   // Initialise the project so agent_onboard has something to report on.
-  const initRes = await callTool("project_init", { project_dir: projectDir, name: "Gate730.5" });
+  const initRes = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "Gate730.5" });
   ok(okText(initRes), "init project_init runs", textOf(initRes).split("\n")[0]);
 
   // -- C. agent_onboard output --

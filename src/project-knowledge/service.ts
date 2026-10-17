@@ -1,4 +1,6 @@
 import { DEFAULT_MAX_LABEL_LENGTH } from "./naming.js";
+import { listingFor } from "./listing-for.js";
+import { rebuildVerdictOf } from "../lib/rebuild-stamp.js";
 import { openObligationsFor, formatPhaseRefusal } from "./split-obligations.js";
 import type { PlatformTag } from "../platform-kb/schema.js";
 import { DEFAULT_PROJECT_MODEL, isModelName } from "./machine-model.js";
@@ -309,7 +311,7 @@ function defaultWorkflowPhases(): WorkflowPhase[] {
       goals: [
         "Produce machine-generated manifests and analysis JSON.",
         "Generate baseline source, RAM, and pointer reports.",
-        "Prefer the project-selected assembler dialect when multiple deterministic source outputs are possible.",
+        "Every listing is written in ONE dialect: the file's own choice, else the project's (chosen by the human at onboarding).",
       ],
       prerequisitePhaseIds: ["input-registration"],
       requiredArtifactRoles: [],
@@ -326,7 +328,7 @@ function defaultWorkflowPhases(): WorkflowPhase[] {
       guidance: [
         "This phase should not require semantic interpretation.",
         "Manifests and analysis JSON become the stable contract for later enrichment.",
-        "Use the project's preferred assembler to decide which source form to generate or present first when both KickAss and 64tass are available.",
+        "A listing is found with the project's one lookup, never by building a file name; a project that has not chosen a dialect renders nothing.",
       ],
     },
     {
@@ -545,6 +547,10 @@ export interface SaveArtifactInput {
   platform?: ArtifactRecord["platform"];
   // "none" sets, "default" clears, absent keeps what the row holds.
   symbolTables?: "none" | "default";
+  // Spec 914 D2: the dialect this file's listing is written in. Absent keeps what the row holds.
+  assembler?: ArtifactRecord["assembler"];
+  // Spec 914 D4: the rebuild proof of a listing. Absent keeps what the row holds; null clears it.
+  rebuild?: ArtifactRecord["rebuild"] | null;
   // Bug 26 / Spec 058: explicit override for the auto-classified
   // internal flag. Auto-classification kicks in when this is undefined.
   internal?: boolean;
@@ -973,6 +979,25 @@ export class ProjectKnowledgeService {
     return project;
   }
 
+  /**
+   * Spec 914 D6 — record the project's assembler dialect. The human chooses it at onboarding; there is
+   * no default, so a project that has not been asked has none. Returns undefined when there is no project yet.
+   */
+  setPreferredAssembler(dialect: NonNullable<ProjectMetadata["preferredAssembler"]>): ProjectMetadata | undefined {
+    const existing = this.storage.loadProject();
+    if (!existing) return undefined;
+    if (existing.preferredAssembler === dialect) return existing;
+    const project: ProjectMetadata = { ...existing, preferredAssembler: dialect, updatedAt: nowIso() };
+    this.storage.saveProject(project);
+    this.appendTimelineEvent({
+      kind: "project.initialized",
+      title: "Assembler dialect chosen",
+      summary: `${project.name} works in ${dialect}`,
+      payload: { projectId: project.id, projectName: project.name, preferredAssembler: dialect },
+    });
+    return project;
+  }
+
   // BUG-015 — canonical input layout. After init (or on demand), sweep loose
   // media sitting in the project root into the typed input/ subfolders and
   // register each as an artifact pointing at the canonical path. The file is
@@ -1237,6 +1262,8 @@ export class ProjectKnowledgeService {
       versions,
       platform: input.platform ?? existing?.platform,
       symbolTables: input.symbolTables === "default" ? undefined : (input.symbolTables ?? existing?.symbolTables),
+      assembler: input.assembler ?? existing?.assembler,
+      rebuild: input.rebuild === null ? undefined : (input.rebuild ?? existing?.rebuild),
       internal: internal ? true : undefined,
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
@@ -1799,11 +1826,12 @@ export class ProjectKnowledgeService {
         findingsByArtifact.set(aid, (findingsByArtifact.get(aid) ?? 0) + 1);
       }
     }
-    const listingsBySubject = new Map<string, ArtifactRecord>();
-    for (const a of artifacts) {
-      if (a.kind !== "listing") continue;
-      for (const sid of a.sourceArtifactIds ?? []) listingsBySubject.set(sid, a);
-    }
+    // Spec 914 D3 — the listing of a subject is asked for, not looked up by one kind or built from a name.
+    const projectDialect = this.storage.loadProject()?.preferredAssembler;
+    const listingOf = (subjectId: string): ArtifactRecord | undefined => {
+      const ref = listingFor(this.storage.paths.root, { artifactId: subjectId }, artifacts, projectDialect);
+      return ref?.artifact;
+    };
     const analysisRunsBySubject = new Map<string, ArtifactRecord>();
     for (const a of artifacts) {
       if (a.kind !== "analysis-run") continue;
@@ -1811,7 +1839,7 @@ export class ProjectKnowledgeService {
     }
     return subjects.map((subject) => {
       const analysisRun = analysisRunsBySubject.get(subject.id);
-      const listing = listingsBySubject.get(subject.id);
+      const listing = listingOf(subject.id);
       const annotationsPath = subject.relativePath.replace(/\.[^./]+$/, "_annotations.json");
       const annotationsExist = existsSync(resolve(this.storage.paths.root, annotationsPath));
       const rebuildOk = listing
@@ -1845,16 +1873,39 @@ export class ProjectKnowledgeService {
     });
   }
 
+  /**
+   * Spec 914 D4 — the verdict belongs to the listing's record, written by the proof that measured it.
+   * It counts only for the listing as it was measured: an edit since then reads as "not proven".
+   * A listing no proof ever recorded on (a project from before the record existed) is read by the
+   * stamp the proof left in its head, in whichever comment syntax its dialect uses.
+   */
   private checkListingRebuildVerified(listing: ArtifactRecord): boolean {
-    try {
-      const text = readFileSync(listing.path, "utf8");
-      // disasm_prg writes a header line containing either
-      // "// rebuild verified byte-identical" or
-      // "// WARNING: rebuild diverges". We only count the verified one.
-      return text.includes("rebuild verified byte-identical");
-    } catch {
-      return false;
-    }
+    return rebuildVerdictOf(listing).verified;
+  }
+
+  /**
+   * Spec 914 D2/D4 — set the dialect of a file or the rebuild proof of a listing on its
+   * record, and nothing else: `saveArtifact` takes the whole description each time, and these
+   * two are stamped by tools that hold only the verdict.
+   */
+  setArtifactDialectFields(artifactId: string, fields: { assembler?: ArtifactRecord["assembler"]; rebuild?: ArtifactRecord["rebuild"] | null }): ArtifactRecord | undefined {
+    return withJsonStoreLock(this.storage.paths.knowledgeArtifacts, () => {
+      const store = this.storage.loadArtifacts();
+      const artifact = store.items.find((item) => item.id === artifactId);
+      if (!artifact) return undefined;
+      const next: ArtifactRecord = { ...artifact };
+      if (fields.assembler !== undefined) next.assembler = fields.assembler;
+      if (fields.rebuild === null) delete next.rebuild;
+      else if (fields.rebuild !== undefined) next.rebuild = fields.rebuild;
+      if (JSON.stringify(next) === JSON.stringify(artifact)) return artifact;
+      next.updatedAt = nowIso();
+      this.storage.saveArtifacts({
+        ...store,
+        updatedAt: nowIso(),
+        items: store.items.map((item) => (item.id === artifactId ? next : item)),
+      });
+      return next;
+    });
   }
 
   // Spec 023: register a runtime / after-decompression load context on
@@ -3443,7 +3494,7 @@ export class ProjectKnowledgeService {
   }
 
   // Spec 040: per-artifact quality metrics computed from
-  // *_analysis.json (segment kinds + confidence) and *_disasm.asm
+  // *_analysis.json (segment kinds + confidence) and the listing
   // (label naming ratio).
   computeQualityMetrics(analysisJsonPath: string, listingPath?: string): {
     bytesByKind: Record<string, number>;
@@ -3629,6 +3680,18 @@ export class ProjectKnowledgeService {
         case "file-exists": {
           const fullPath = resolve(this.storage.paths.root, hint.path);
           satisfied = existsSync(fullPath);
+          // Spec 914 P6 — a hint stored before the listing lookup names `<stem>_disasm.asm`. Whatever
+          // dialect the project writes, that task is about the stem's LISTING, not about one spelling.
+          if (!satisfied && /_disasm\.(asm|tas|tass)$/i.test(fullPath)) {
+            const stem = fullPath.replace(/\.(asm|tas|tass)$/i, "");
+            satisfied = ["asm", "tas", "tass"].some((ext) => existsSync(`${stem}.${ext}`));
+          }
+          break;
+        }
+        case "listing-exists": {
+          // Spec 914 D3 — the task names the bytes, not a file: a project that writes 64tass
+          // closes it on the .tas, one that writes KickAssembler on the .asm.
+          satisfied = listingFor(this.storage.paths.root, { path: hint.source }, allArtifacts, this.storage.loadProject()?.preferredAssembler) !== undefined;
           break;
         }
         case "artifact-registered": {
@@ -4005,9 +4068,19 @@ export class ProjectKnowledgeService {
   // the preferred assembler the project states.
   private tieContext(): TieContext {
     const root = this.storage.paths.root;
+    let byId: Map<string, ArtifactRecord> | undefined;
     return {
       onDisk: (c) => existsSync(resolve(root, c.artifact.path)),
       preferredAssembler: this.storage.loadProject()?.preferredAssembler,
+      // Spec 914 D2 — per file beats per project: the dialect set on the bytes a listing came from.
+      preferredFor: (c) => {
+        byId ??= new Map(this.listArtifacts().map((a) => [a.id, a]));
+        for (const sid of c.artifact.sourceArtifactIds ?? []) {
+          const dialect = byId.get(sid)?.assembler;
+          if (dialect) return dialect;
+        }
+        return undefined;
+      },
     };
   }
 
@@ -4323,7 +4396,7 @@ export class ProjectKnowledgeService {
     };
     let tags = uniqueStrings(input.tags ?? existing?.tags);
     // Spec 752 L1 — extract-backing. A finding about a file/payload MUST cite a
-    // backing extract artifact (the extracted bytes / its _disasm.asm /
+    // backing extract artifact (the extracted bytes / its listing /
     // _analysis.json). Soft: tag `ungrounded` + a timeline event; NEVER throw —
     // auto-producers (importAnalysisKnowledge) already cite the analysis artifact
     // so they pass. A trace runId+cycle or a heuristic does not count.
@@ -4350,7 +4423,7 @@ export class ProjectKnowledgeService {
         kind: "note",
         title: `Ungrounded finding (L1): ${finding.title}`,
         findingId: finding.id,
-        summary: "No backing extract artifact — cite the _disasm.asm / _analysis.json via artifact_ids. A trace anchor or heuristic is not grounding.",
+        summary: "No backing extract artifact — cite the listing / _analysis.json via artifact_ids. A trace anchor or heuristic is not grounding.",
       });
     }
     // Spec 052: in-band auto-resolution. Walk auto-resolvable

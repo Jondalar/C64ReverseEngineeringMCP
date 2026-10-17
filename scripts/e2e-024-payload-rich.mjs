@@ -79,7 +79,7 @@ try {
     tools.has("register_payload") ? "present" : "MISSING");
 
   // Bring up a project.
-  ok(!isErr(await callTool("project_init", { project_dir: projectDir, name: "BUG-024" })), "3 project_init", "");
+  ok(!isErr(await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "BUG-024" })), "3 project_init", "");
   // A session onboards before it works in a project; the server refuses otherwise.
   await callTool("agent_onboard", { project_dir: projectDir });
 

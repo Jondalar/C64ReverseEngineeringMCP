@@ -60,7 +60,7 @@ await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clien
 const beforeInit = await call("c64ref_lookup", { query: "$D018" });
 ok(!/has not onboarded/.test(beforeInit) && beforeInit.length > 0, "1 platform reference answers without a project at all", beforeInit.split("\n")[0].slice(0, 60));
 
-await call("project_init", { project_dir: projectDir, name: "onboarding gate" });
+await call("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "onboarding gate" });
 
 // 2. now it IS a project, and a work door refuses.
 const refused = await call("save_finding", {

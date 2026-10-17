@@ -162,7 +162,7 @@ try {
   check(tools.some((x) => x.name === "runtime_vic_frame_map"), "runtime_vic_frame_map is in the default tool surface");
   // A session onboards before it works in a project; the server refuses every project
   // tool until it has (the onboarding gate came after this smoke was written).
-  await rpc("tools/call", { name: "project_init", arguments: { project_dir: base, name: "smoke-860" } });
+  await rpc("tools/call", { name: "project_init", arguments: { preferred_assembler: "kickass", project_dir: base, name: "smoke-860" } });
   await rpc("tools/call", { name: "agent_onboard", arguments: { project_dir: base } });
   const r = await rpc("tools/call", { name: "runtime_vic_frame_map", arguments: { session_id: S, checkpoint_id: cp } });
   const text = (r.result?.content ?? []).map((c) => c.text).join("");

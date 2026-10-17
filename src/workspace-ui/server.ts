@@ -1488,6 +1488,7 @@ const server = createServer((req, res) => {
           outputDir?: string;
           rebuildViews?: boolean;
           entryPoints?: string[];
+          assembler?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
@@ -1503,6 +1504,7 @@ const server = createServer((req, res) => {
           outputDir: payload.outputDir,
           rebuildViews: payload.rebuildViews,
           entryPoints: payload.entryPoints,
+          ...(payload.assembler ? { assembler: payload.assembler } : {}),
         });
         send(res, jsonResponse(200, result));
       } catch (error) {
@@ -1524,6 +1526,7 @@ const server = createServer((req, res) => {
           outputDir?: string;
           rebuildViews?: boolean;
           entryPoints?: string[];
+          assembler?: string;
         };
         const projectDir = payload.projectDir?.trim()
           ? resolve(process.cwd(), payload.projectDir)
@@ -1539,6 +1542,7 @@ const server = createServer((req, res) => {
           outputDir: payload.outputDir,
           rebuildViews: payload.rebuildViews,
           entryPoints: payload.entryPoints,
+          ...(payload.assembler ? { assembler: payload.assembler } : {}),
         });
         send(res, jsonResponse(200, result));
       } catch (error) {

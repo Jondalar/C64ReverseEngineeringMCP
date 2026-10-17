@@ -96,7 +96,7 @@ for (const [u, name] of [[{ kind: "raster", line: 100 }, "raster"], [{ kind: "ie
 {
   const proj = scratch("proj10");
   const boot = startMcp(proj);
-  await boot.tool("project_init", { project_dir: proj, name: "896-10" });
+  await boot.tool("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "896-10" });
   const fresh = await boot.tool("save_finding", { project_dir: proj, kind: "observation", title: "t", summary: "s" });
   check(/has not onboarded/.test(fresh) && !/\(re\)started/.test(fresh), "10a a project nobody onboarded: plain refusal, no restart claim", fresh.split("\n").slice(0, 3).join(" | "));
   const onb = await boot.tool("agent_onboard", { project_dir: proj });

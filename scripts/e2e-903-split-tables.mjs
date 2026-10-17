@@ -48,7 +48,7 @@ if (!existsSync(join(ROOT, "dist/cli.js")) || !existsSync(join(ROOT, "dist/pipel
 console.log("Spec 903 — split low/high tables are declared, and a found one must be decided\n");
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-903-"));
-const mcp = startMcp({ root: ROOT, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1" } });
+const mcp = startMcp({ root: ROOT, pairDialects: true, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1" } });
 const call = mcp.call;
 
 const { prg, labels } = splitTablePrg();
@@ -98,7 +98,7 @@ const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
 try {
   await mcp.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-903", version: "1" } });
   mcp.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "903" });
+  await call("project_init", { preferred_assembler: "kickass", name: "903" });
   await call("agent_onboard", {});
   // a contract that owes no slot, so the verdict can be READY and what flips it is the critic alone
   await call("contract_set", { goal: "synthetic split-table fixture — nothing is owed but the tables", slots: [], coverage_ratio: 0 });

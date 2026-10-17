@@ -200,9 +200,9 @@ WAIT for it to complete. Verify the output file exists.
 ### Step 1.2: Disassemble PRG
 Run this tool call (requires step 1.1 output):
 \`\`\`
-disasm(path="${prg_path}", output_asm="${base}_disasm.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+disasm(path="${prg_path}", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
 \`\`\`
-WAIT for it to complete. Verify the output file exists.
+WAIT for it to complete. The answer names the listing it wrote (\`Output:\`) — ONE file, in the project's assembler dialect (.asm KickAssembler or .tas 64tass). Verify it exists. A project that has not chosen a dialect is refused: ask the human, then record it with agent_onboard(preferred_assembler=...).
 
 ### Step 1.3: Generate reports
 Run BOTH:
@@ -213,7 +213,7 @@ pointer_report(analysis_json="${base}_analysis.json", output_md="${base}_pointer
 
 PHASE 1 CHECKPOINT: You should now have exactly these files:
 - \`${base}_analysis.json\`
-- \`${base}_disasm.asm\`
+- the listing (\`${base}_disasm.asm\` or \`${base}_disasm.tas\`, whichever the project writes)
 - \`${base}_ram_facts.md\`
 - \`${base}_pointer_facts.md\`
 
@@ -222,7 +222,7 @@ PHASE 1 CHECKPOINT: You should now have exactly these files:
 ## PHASE 2: Semantic Analysis (LLM interpretation)
 
 ### Step 2.1: Read the full disassembly
-Use \`read_artifact\` to read \`${base}_disasm.asm\` in its entirety.
+Use \`read_artifact\` to read the listing from Step 1.2 in its entirety.
 C64 code is ≤64 KB — the entire file fits in context. Read ALL of it.
 Also read the RAM and pointer reports.
 
@@ -265,19 +265,19 @@ PHASE 2 CHECKPOINT: You should now have:
 ## PHASE 3: Final Render + Verification
 
 ### Step 3.1: Re-render with annotations
-Run disasm AGAIN — the renderer loads the annotations automatically:
+Run disasm AGAIN with the same arguments — the renderer loads the annotations automatically and rewrites the listing, with its rebuild proof:
 \`\`\`
-disasm(path="${prg_path}", output_asm="${base}_final.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+disasm(path="${prg_path}", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
 \`\`\`
 
 ### Step 3.2: Verify byte-identical rebuild
 \`\`\`
-assemble_source(source_path="${base}_final.asm", assembler="kickassembler", output_path="${base}_rebuilt.prg", compare_to="${prg_path}")
+assemble_source(source_path="<the listing path the disasm answer gave>", output_path="${base}_rebuilt.prg", compare_to="${prg_path}")
 \`\`\`
 If the compare result is not a byte-identical match, something went wrong — annotations must NEVER alter bytes.
 
 PHASE 3 CHECKPOINT: Final files:
-- \`${base}_final.asm\` — fully annotated KickAssembler source
+- the listing — fully annotated source in the project's dialect
 - \`${base}_rebuilt.prg\` — byte-identical rebuild proof
 
 ---
@@ -524,14 +524,15 @@ ${analysisNote}
 Read the full disassembly at \`${asm_path}\`.
 
 ## Task:
-Add semantic comments directly into the ASM file using KickAssembler comment syntax:
-- \`//\` for single-line comments
-- \`/* ... */\` for multi-line block comments
+Add semantic comments directly into the listing, in the comment syntax of the dialect it is written in
+(.asm is KickAssembler, .tas is 64tass):
+- KickAssembler: \`//\` for single-line comments, \`/* ... */\` for multi-line block comments
+- 64tass: \`;\` for a comment — there is no block comment, put \`;\` in front of every line
 
 ## What to annotate:
 
 ### Segment headers
-Before each \`// SEGMENT $XXXX-$YYYY\` line, add a block comment:
+Before each \`SEGMENT $XXXX-$YYYY\` comment line, add a block comment (KickAssembler form shown):
 \`\`\`
 /* ═══════════════════════════════════════════════════════════════
  * DESCRIPTIVE NAME
@@ -655,7 +656,7 @@ For every code segment or major subroutine, provide a descriptive name and a 1-3
 
 ## Rules
 - Classify every \`unknown\` segment you can ESTABLISH. \`unknown\` is the right answer for bytes you have not established — it is honest, it is kept, and it counts for nothing in the coverage number, so a blanket classification buys you nothing
-- Labels must be valid KickAssembler identifiers (letters, digits, underscores)
+- Labels must be valid identifiers in both assemblers (letters, digits, underscores)
 - The \`start\` and \`end\` fields are hex addresses WITHOUT the $ prefix
 - Segment annotations can split a single heuristic segment into multiple sub-segments
 - Write the JSON file using the Write tool when done
@@ -663,12 +664,12 @@ For every code segment or major subroutine, provide a descriptive name and a 1-3
 ## Verification
 After writing the JSON, the user will run:
 \`\`\`
-node dist/cli.js disasm-prg <prg> <output.asm> --analysis <analysis.json>
+node dist/cli.js disasm-prg <prg> <output.asm | output.tas> --analysis <analysis.json>
 \`\`\`
 (The analysis goes in by NAME. The positional tail still works, but with no
 entry points it shifts the JSON into the entry-point slot — which is the one
 way this call goes wrong.)
-The renderer will read the annotations automatically (by filename convention \`<name>_annotations.json\`). The resulting ASM must still compile byte-identically with KickAssembler.`,
+The renderer will read the annotations automatically (by filename convention \`<name>_annotations.json\`). The resulting listing must still compile byte-identically with the assembler it is written for.`,
         },
       }],
     }),

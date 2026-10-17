@@ -286,7 +286,7 @@ const readStore = (dir) => {
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-store-concurrency", version: "1" } });
     proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
-    await call("project_init", { name: "storeconcurrency" });
+    await call("project_init", { preferred_assembler: "kickass", name: "storeconcurrency" });
     await call("agent_onboard", {});
 
     // Same forced failure, on the other writer of the same file.

@@ -83,7 +83,7 @@ const section = (text, heading) => {
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-861-impact", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "cost861impact" });
+  await call("project_init", { preferred_assembler: "kickass", name: "cost861impact" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await call("agent_onboard", {});
 

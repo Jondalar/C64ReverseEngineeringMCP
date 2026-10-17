@@ -140,7 +140,7 @@ try {
   {
     const fresh = scratch("fresh-no-git");
     await session(noGitEnv, async (tool) => {
-      const out = await tool("project_init", { project_dir: fresh, name: "NoGit" });
+      const out = await tool("project_init", { preferred_assembler: "kickass", project_dir: fresh, name: "NoGit" });
       check(out.split("\n")[0] === LINE, "6a project_init without git: the first line is exactly the warning", out.split("\n")[0]);
       check(/winget install Git\.Git/.test(out) && /xcode-select --install/.test(out) && /apt install git/.test(out) && /project_init|again/.test(out),
         "6b … and carries install hints for Windows, macOS and Linux", "");
@@ -152,7 +152,7 @@ try {
   {
     const fresh = join(base, "fresh-init");
     await session(envA, async (tool) => {
-      const out = await tool("project_init", { project_dir: fresh, name: "Fresh" });
+      const out = await tool("project_init", { preferred_assembler: "kickass", project_dir: fresh, name: "Fresh" });
       check(out.split("\n").slice(0, 3).some((l) => /^Git: repository created/.test(l) && /committed/.test(l)), "7a a fresh directory: the answer says so on its first lines", out.split("\n").slice(0, 3).join(" | "));
       check(existsSync(join(fresh, ".git")) && commitCount(fresh) === 1, "7b … a repository with exactly one commit", `commits=${commitCount(fresh)}`);
       const log = git(fresh, ["log", "-1", "--format=%s"]).stdout.trim();
@@ -163,7 +163,7 @@ try {
       const tracked = git(fresh, ["ls-files"]).stdout;
       check(tracked.includes("knowledge/phase-plan.json") && tracked.includes(".gitignore"), "7e … knowledge/ and .gitignore are tracked", "");
       check(git(fresh, ["status", "--porcelain"]).stdout.trim() === "", "7f … and the tree is clean after the commit", git(fresh, ["status", "--porcelain"]).stdout);
-      const again = await tool("project_init", { project_dir: fresh, name: "Fresh" });
+      const again = await tool("project_init", { preferred_assembler: "kickass", project_dir: fresh, name: "Fresh" });
       check(commitCount(fresh) === 1 && /inside the repository/.test(again), "7g running it again leaves git alone (still one commit)", again.split("\n").slice(0, 2).join(" | "));
     });
 
@@ -173,7 +173,7 @@ try {
     gitCommitAll(outer);
     const inner = join(outer, "game");
     await session(envA, async (tool) => {
-      const out = await tool("project_init", { project_dir: inner, name: "Inner" });
+      const out = await tool("project_init", { preferred_assembler: "kickass", project_dir: inner, name: "Inner" });
       check(existsSync(join(inner, "knowledge", "phase-plan.json")) && !existsSync(join(inner, ".git")), "7h inside an existing repository: the project is created and no nested repository", "");
       check(commitCount(outer) === 1 && out.includes(outer), "7i … the outer repository gets no commit and is named in the answer", out.split("\n").slice(0, 3).join(" | "));
     });
@@ -187,7 +187,7 @@ try {
     for (const k of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"]) delete envNoId[k];
     const noIdDir = join(base, "no-identity");
     await session(envNoId, async (tool) => {
-      const out = await tool("project_init", { project_dir: noIdDir, name: "NoId" });
+      const out = await tool("project_init", { preferred_assembler: "kickass", project_dir: noIdDir, name: "NoId" });
       check(existsSync(join(noIdDir, ".git")) && existsSync(join(noIdDir, "knowledge", "phase-plan.json")) && commitCount(noIdDir) === 0,
         "7j no git identity: the project and the repository exist, nothing is committed", `commits=${commitCount(noIdDir)}`);
       check(/NOT committed/.test(out) && /git config --global user\.name/.test(out) && /git config --global user\.email/.test(out) && /commit -m/.test(out),
@@ -216,7 +216,7 @@ try {
 
     const repoProject = join(base, "repo-project");
     await session(envA, async (tool) => {
-      await tool("project_init", { project_dir: repoProject, name: "Repo" });
+      await tool("project_init", { preferred_assembler: "kickass", project_dir: repoProject, name: "Repo" });
     });
     await session(cleanEnv({ C64RE_PROJECT_DIR: repoProject }), async (tool) => {
       const clean = await tool("agent_onboard", {});

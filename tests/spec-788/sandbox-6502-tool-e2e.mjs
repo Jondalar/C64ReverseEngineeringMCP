@@ -86,7 +86,7 @@ try {
   const toolSet = new Set((listed.result?.tools || []).map((t) => t.name));
   ok(toolSet.has("sandbox_6502_run"), "2 sandbox_6502_run on the default MCP surface");
 
-  await callTool("project_init", { project_dir: projectDir, name: "E2E Sandbox 6502" });
+  await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "E2E Sandbox 6502" });
 
   // ── Case A: RAM routine fills $0400..$0403 with $ab; harvest + write span + PRG.
   // c000: LDX #$00 / LDA #$ab / STA $0400,X / INX / CPX #$04 / BNE / RTS

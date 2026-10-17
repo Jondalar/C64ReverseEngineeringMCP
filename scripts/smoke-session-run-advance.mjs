@@ -63,7 +63,7 @@ async function scenario(port, withViewer) {
     };
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-session-run-advance", version: "1" } });
     server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: proj, name: "session-run-advance" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "session-run-advance" });
     await call("agent_onboard", { project_dir: proj });
     const started = await call("runtime_session_start", { project_dir: proj });
     const sid = /session[^\n]*?([A-Za-z0-9_-]{4,})/i.exec(started)?.[1];

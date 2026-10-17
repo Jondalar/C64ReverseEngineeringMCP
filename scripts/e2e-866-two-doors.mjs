@@ -181,7 +181,7 @@ const DRIVE_TABLE = [0x11, 0x00, 0x11, 0x01, 0x12, 0x00, 0x12, 0x01, 0x13, 0x00,
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-866", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "spec866" });
+  await call("project_init", { preferred_assembler: "kickass", name: "spec866" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await call("agent_onboard", {});
 

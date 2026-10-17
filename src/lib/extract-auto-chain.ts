@@ -299,7 +299,7 @@ export function summarizeAutoChain(results: AutoChainItemResult[]): string {
       }${diverged > 5 ? `, +${diverged - 5} more` : ""}.`,
     );
   } else if (unverified === done) {
-    lines.push("No listing was verified — no assembler could be run (KickAssembler jar / java and 64tass all absent).");
+    lines.push("No listing was verified — the assembler the listings are written for could not be run (KickAssembler jar / java for .asm, 64tass for .tas).");
   }
   return lines.join("\n");
 }
