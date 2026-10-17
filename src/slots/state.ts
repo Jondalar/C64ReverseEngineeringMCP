@@ -366,7 +366,10 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
                 MAX(kind)        AS kind,
                 MIN(address)     AS address,
                 MAX(end_address) AS end_address,
-                MAX(json_extract(attrs, '$.segment_kind')) AS segment_kind
+                -- The human layer shadows the generated one (as for the name): MAX() over both
+                -- would let a generated 'unknown' outrank a human 'code' by spelling alone.
+                COALESCE(MAX(CASE WHEN layer = 'human' THEN json_extract(attrs, '$.segment_kind') END),
+                         MAX(json_extract(attrs, '$.segment_kind'))) AS segment_kind
          FROM nodes
          WHERE kind IN ('routine','segment','payload','data_block','entry','lookup_table','pointer_table')
          GROUP BY id
