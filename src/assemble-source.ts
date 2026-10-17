@@ -76,7 +76,46 @@ export async function assembleSource(options: AssembleSourceOptions): Promise<As
   };
 }
 
-function resolveAssemblerSelection(selection: AssemblerSelection, sourcePath: string): SupportedAssembler {
+/**
+ * Spec 914 D5 — assemble one source and write the build's label table where the caller says.
+ *
+ * KickAssembler's `-symbolfile` names the file after the SOURCE and puts it beside the OUTPUT,
+ * with no flag to choose either, so it is moved to `labelsPath` afterwards; 64tass is told the
+ * path (`-l`, native format: `name = $addr`). The source is never written to.
+ */
+export async function assembleWithLabels(options: {
+  projectDir: string;
+  sourcePath: string;
+  assembler: SupportedAssembler;
+  outputPath: string;
+  labelsPath: string;
+}): Promise<{ stdout: string; stderr: string; exitCode: number; labelsWritten: boolean }> {
+  mkdirSync(dirname(options.outputPath), { recursive: true });
+  mkdirSync(dirname(options.labelsPath), { recursive: true });
+  if (options.assembler === "64tass") {
+    const run = await execTool(
+      resolve64tassBinaryPath(),
+      ["-a", "-B", "-o", longPathArg(options.outputPath), "-l", longPathArg(options.labelsPath), "--normal-labels", longPathArg(options.sourcePath)],
+      options.projectDir,
+    );
+    return { ...run, labelsWritten: run.exitCode === 0 && existsSync(options.labelsPath) };
+  }
+  const run = await execTool(
+    "/usr/bin/java",
+    ["-jar", resolveKickAssemblerJarPath(), options.sourcePath, "-o", options.outputPath, "-symbolfile"],
+    options.projectDir,
+  );
+  const sourceStem = basename(options.sourcePath).replace(/\.[^.]+$/u, "");
+  const written = [join(dirname(options.outputPath), `${sourceStem}.sym`), join(dirname(options.sourcePath), `${sourceStem}.sym`)]
+    .find((candidate) => existsSync(candidate));
+  if (run.exitCode === 0 && written) {
+    if (written !== options.labelsPath) renameSync(written, options.labelsPath);
+    return { ...run, labelsWritten: true };
+  }
+  return { ...run, labelsWritten: false };
+}
+
+export function resolveAssemblerSelection(selection: AssemblerSelection, sourcePath: string): SupportedAssembler {
   if (selection !== "auto") {
     return selection;
   }
@@ -172,10 +211,14 @@ export function find64tassBinary(): string | undefined {
 }
 
 function resolveKickAssemblerJarPath(): string {
-  const candidates = [
-    process.env.C64RE_KICKASS_JAR,
-    "/Applications/KickAssembler/KickAss.jar",
-  ].filter((value): value is string => Boolean(value));
+  // An explicit C64RE_KICKASS_JAR is a pin: that jar or none — a typo in it must not quietly build with another one.
+  const pinned = process.env.C64RE_KICKASS_JAR;
+  const candidates = pinned
+    ? [pinned]
+    : ["/Applications/KickAssembler/KickAss.jar"];
+  if (pinned && !existsSync(resolve(pinned))) {
+    throw new Error(`KickAssembler jar not found at ${resolve(pinned)} (C64RE_KICKASS_JAR is set to it). Fix the path or unset the variable.`);
+  }
 
   for (const candidate of candidates) {
     const resolved = resolve(candidate);
@@ -190,13 +233,17 @@ function resolveKickAssemblerJarPath(): string {
 function resolve64tassBinaryPath(): string {
   const thisDir = dirname(fileURLToPath(import.meta.url));
   const projectRoot = resolve(thisDir, "..");
-  const candidates = [
-    process.env.C64RE_64TASS_BIN,
+  // An explicit C64RE_64TASS_BIN is a pin: that binary or none.
+  const pinned = process.env.C64RE_64TASS_BIN;
+  if (pinned && !existsSync(resolve(pinned))) {
+    throw new Error(`64tass not found at ${resolve(pinned)} (C64RE_64TASS_BIN is set to it). Fix the path or unset the variable.`);
+  }
+  const candidates = (pinned ? [pinned] : [
     "/opt/homebrew/bin/64tass",
     "/usr/local/bin/64tass",
     ...resolveFromPath("64tass"),
     resolve(projectRoot, "node_modules", ".bin", "64tass"),
-  ].filter((value): value is string => Boolean(value));
+  ]).filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {
     const resolved = resolve(candidate);
