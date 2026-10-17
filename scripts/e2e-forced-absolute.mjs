@@ -8,8 +8,8 @@ import { writeFileSync, readFileSync, rmSync, mkdtempSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const require = createRequire(import.meta.url);
-const { disassemblePrgToKickAsm } = require("../dist/pipeline/lib/prg-disasm.cjs");
-const { convertKickAsmToTass } = require("../dist/pipeline/lib/tass-converter.cjs");
+const { disassemblePrg } = require("../dist/pipeline/lib/prg-disasm.cjs");
+const { L, emitListing } = require("../dist/pipeline/lib/listing.cjs");
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -22,26 +22,28 @@ try {
   const prg = Uint8Array.from([0x00, 0xc0, 0x8d, 0x74, 0x00, 0x60]);
   const prgPath = join(dir, "t.prg");
   const asmPath = join(dir, "t.asm");
+  const tassPath = join(dir, "t.tas");
   writeFileSync(prgPath, prg);
 
   // Real pipeline disasm, no analysis → renderLegacy (the path the segment override hit).
-  disassemblePrgToKickAsm(prgPath, asmPath, { entryPoints: ["c000"] });
+  // One render writes one listing (Spec 914): the same bytes are rendered once per dialect.
+  disassemblePrg(prgPath, asmPath, { entryPoints: ["c000"], dialect: "kickass" });
+  disassemblePrg(prgPath, tassPath, { entryPoints: ["c000"], dialect: "64tass" });
   const asm = readFileSync(asmPath, "utf8");
 
   ok(/\bsta\.abs\s+\$0074\b/.test(asm), "KickAss: renders `sta.abs $0074` (forced absolute)", (asm.match(/.*sta.*/i) ?? [""])[0].trim());
   ok(!/\bsta\s+\$0074\b/.test(asm.replace(/sta\.abs/g, "")), "KickAss: does NOT emit the shrinkable plain `sta $0074`");
   ok(!/\.byte\s+\$8[dD],\s*\$74/.test(asm), "KickAss: no `.byte $8D,$74,..` blob (readable, not raw)");
 
-  const tass = convertKickAsmToTass(asm);
-  ok(/\bsta\s+@w\s+\$0074\b/.test(tass), "64tass: `.abs` → `sta @w $0074`", (tass.match(/.*sta.*/i) ?? [""])[0].trim());
-  // A comment mentioning .abs must NOT be converted (anchored regex).
-  ok(convertKickAsmToTass("; note about sta.abs trick").includes("sta.abs"), "converter leaves `.abs` inside a comment alone");
+  const tass = readFileSync(tassPath, "utf8");
+  ok(/\bsta\s+@w\s+\$0074\b/.test(tass), "64tass: the forced-absolute line is written `sta @w $0074`", (tass.match(/.*sta.*/i) ?? [""])[0].trim());
+  ok(!/\.abs\b/.test(tass.replace(/;.*$/gm, "")), "64tass: no KickAssembler `.abs` suffix survives in the code");
+  // A comment mentioning .abs is a comment, never rewritten: it is data of a line, not text to pattern-match.
+  ok(emitListing([L.comment("note about sta.abs trick")], "64tass").includes("sta.abs"), "an emitted comment keeps `.abs` as written");
 
   // Real 64tass round-trip: assemble the tass, the STA must rebuild to 8D 74 00.
   if (existsSync("/opt/homebrew/bin/64tass")) {
-    const tassPath = join(dir, "t.tass");
     const binPath = join(dir, "t.bin");
-    writeFileSync(tassPath, tass);
     execFileSync("/opt/homebrew/bin/64tass", ["--nostart", "-o", binPath, tassPath], { stdio: "pipe" });
     const rebuilt = readFileSync(binPath);
     // Original payload (after the 2-byte load header) = 8D 74 00 60.

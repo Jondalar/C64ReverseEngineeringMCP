@@ -32,9 +32,11 @@ try {
   const env = { ...process.env, C64RE_PROJECT_DIR: dir };
   const cli = (args) => execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), ...args], { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   cli(["analyze-prg", prgPath, analysis, "0801"]);
-  cli(["disasm-prg", prgPath, asm, "0801", "--analysis", analysis, "--annotations", ann, "--platform", "c64"]);
-  if (process.env.E2E_DUMP) console.log(readFileSync(asm, "utf8"));
   const tas = asm.replace(/\.asm$/, ".tas");
+  // Spec 914 — one render, one listing: the two dialects are two renders of the same bytes.
+  cli(["disasm-prg", prgPath, asm, "0801", "--analysis", analysis, "--annotations", ann, "--platform", "c64", "--dialect", "kickass"]);
+  cli(["disasm-prg", prgPath, tas, "0801", "--analysis", analysis, "--annotations", ann, "--platform", "c64", "--dialect", "64tass"]);
+  if (process.env.E2E_DUMP) console.log(readFileSync(asm, "utf8"));
   const dialects = [["KickAssembler", asm, "//"], ["64tass", tas, ";"]];
 
   for (const [name, path, cm] of dialects) {

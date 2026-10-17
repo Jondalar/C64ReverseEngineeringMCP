@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { ensureDir, writeJson } from "./fs-utils";
 import { hex16, hex8 } from "./format";
 import { decodeInstruction, DecodedInstruction } from "./mos6502";
+import { L, type Dialect, type ListingLine, dialectName, emitListing, listingExtension } from "./listing";
 
 interface ChunkInfo {
   menuDir: string;
@@ -79,19 +80,30 @@ function bytesComment(bytes: number[]): string {
   return bytes.map((byte) => `$${hex8(byte)}`).join(", ");
 }
 
-function emitByteBlock(lines: string[], startAddress: number, bytes: number[]): void {
+function emitByteBlock(lines: ListingLine[], startAddress: number, bytes: number[]): void {
   if (bytes.length === 0) {
     return;
   }
 
-  lines.push(`    // undecoded bytes at $${hex16(startAddress)}`);
+  lines.push(L.comment(`undecoded bytes at $${hex16(startAddress)}`, 4));
   for (let offset = 0; offset < bytes.length; offset += 16) {
     const row = bytes.slice(offset, offset + 16);
-    lines.push(`    .byte ${row.map((byte) => `$${hex8(byte)}`).join(", ")}`);
+    lines.push(L.byte(row.map((byte) => `$${hex8(byte)}`).join(", ")));
   }
 }
 
-function disassembleCodeChunk(data: Buffer, startAddress: number, endAddress: number, title: string): string {
+function sourceHeader(dialect: Dialect, notes: string[], title: string, address: number): ListingLine[] {
+  return [
+    L.comment(`Auto-generated ${dialectName(dialect)} source`),
+    ...notes.map((note) => L.comment(note)),
+    L.blank(),
+    L.cpu(),
+    L.origin(address, title),
+    L.blank(),
+  ];
+}
+
+function disassembleCodeChunk(data: Buffer, startAddress: number, endAddress: number, title: string, dialect: Dialect): string {
   const instructions: DecodedInstruction[] = [];
   let offset = 0;
 
@@ -102,15 +114,12 @@ function disassembleCodeChunk(data: Buffer, startAddress: number, endAddress: nu
   }
 
   const labels = collectInternalLabels(instructions, startAddress, endAddress);
-  const lines: string[] = [
-    "// Auto-generated KickAssembler source",
-    `// ${title}`,
-    "// Linear 6502 disassembly. Review tables/data manually inside code-classified regions.",
-    "",
-    ".cpu _6502",
-    `* = $${hex16(startAddress)} "${title}"`,
-    "",
-  ];
+  const lines: ListingLine[] = sourceHeader(
+    dialect,
+    [title, "Linear 6502 disassembly. Review tables/data manually inside code-classified regions."],
+    title,
+    startAddress,
+  );
   let pendingUnknownStart: number | null = null;
   let pendingUnknownBytes: number[] = [];
 
@@ -128,7 +137,7 @@ function disassembleCodeChunk(data: Buffer, startAddress: number, endAddress: nu
         pendingUnknownStart = null;
         pendingUnknownBytes = [];
       }
-      lines.push(`${label}:`);
+      lines.push(L.label(label));
     }
 
     if (instruction.isUnknown) {
@@ -139,30 +148,28 @@ function disassembleCodeChunk(data: Buffer, startAddress: number, endAddress: nu
       continue;
     }
 
-    const operandText = formatOperand(instruction, labels);
-    const asmText = operandText ? `${instruction.mnemonic} ${operandText}` : instruction.mnemonic;
-    lines.push(`    ${asmText.padEnd(24)} // ${bytesComment(instruction.bytes)}`);
+    lines.push(L.insn(instruction.mnemonic, formatOperand(instruction, labels) || undefined, false, bytesComment(instruction.bytes)));
   }
 
   if (pendingUnknownStart !== null) {
     emitByteBlock(lines, pendingUnknownStart, pendingUnknownBytes);
   }
 
-  lines.push("");
-  return lines.join("\n");
+  lines.push(L.blank());
+  return emitListing(lines, dialect);
 }
 
-function emitDataRows(data: Buffer): string[] {
-  const lines: string[] = [];
+function dataRows(data: Buffer): ListingLine[] {
+  const lines: ListingLine[] = [];
   for (let offset = 0; offset < data.length; offset += 16) {
     const row = Array.from(data.subarray(offset, Math.min(offset + 16, data.length)));
-    lines.push(`    .byte ${row.map((byte) => `$${hex8(byte)}`).join(", ")}`);
+    lines.push(L.byte(row.map((byte) => `$${hex8(byte)}`).join(", ")));
   }
   return lines;
 }
 
-function emitTextRows(data: Buffer): string[] {
-  const rows: string[] = [];
+function textRows(data: Buffer): ListingLine[] {
+  const rows: ListingLine[] = [];
   let offset = 0;
 
   while (offset < data.length) {
@@ -178,10 +185,10 @@ function emitTextRows(data: Buffer): string[] {
         .replaceAll("\"", "\\\"");
 
       if (text.length > 0) {
-        rows.push(`    .text "${text}"`);
+        rows.push(L.text(text));
       }
     } else {
-      rows.push(...emitDataRows(Buffer.from(chunk)));
+      rows.push(...dataRows(Buffer.from(chunk)));
     }
     offset += chunk.length;
   }
@@ -189,33 +196,27 @@ function emitTextRows(data: Buffer): string[] {
   return rows;
 }
 
-function dumpDataChunk(data: Buffer, startAddress: number, title: string, classification: string): string {
-  const body =
-    classification === "text"
-      ? emitTextRows(data)
-      : emitDataRows(data);
-
-  return [
-    "// Auto-generated KickAssembler source",
-    `// ${title}`,
-    `// Stored as data because classification is '${classification}'.`,
-    "",
-    ".cpu _6502",
-    `* = $${hex16(startAddress)} "${title}"`,
-    "",
+function dumpDataChunk(data: Buffer, startAddress: number, title: string, classification: string, dialect: Dialect): string {
+  const body = classification === "text" ? textRows(data) : dataRows(data);
+  const lines: ListingLine[] = [
+    ...sourceHeader(dialect, [title, `Stored as data because classification is '${classification}'.`], title, startAddress),
+    ...(body.some((line) => line.k === "text") ? [L.encoding()] : []),
     ...body,
-    "",
-  ].join("\n");
+    L.blank(),
+  ];
+  return emitListing(lines, dialect);
 }
 
-export function emitKickAssemblerSources(analysisDir: string, outputDir: string): void {
+/** Writes one source per menu payload chunk, in one dialect, and an index beside them. */
+export function emitMenuSources(analysisDir: string, outputDir: string, dialect: Dialect): void {
+  const extension = listingExtension(dialect);
   const menuRoot = join(analysisDir, "menu_payload_exports");
   const workspaceRoot = dirname(analysisDir);
   ensureDir(outputDir);
-  const manifest: { files: SourceManifestItem[] } = { files: [] };
-  const includeLines: string[] = [
-    "// Auto-generated include list for Sublime/KickAssembler browsing",
-    "",
+  const manifest: { dialect: Dialect; files: SourceManifestItem[] } = { dialect, files: [] };
+  const includeLines: ListingLine[] = [
+    L.comment("Auto-generated include list for Sublime/editor browsing"),
+    L.blank(),
   ];
   const menuExportManifest = JSON.parse(readFileSync(join(menuRoot, "manifest.json"), "utf8")) as {
     menu_items: Array<{
@@ -236,7 +237,7 @@ export function emitKickAssemblerSources(analysisDir: string, outputDir: string)
     const outMenuDir = join(outputDir, menuDirName);
     ensureDir(outMenuDir);
 
-    includeLines.push(`// ${menuDirName}`);
+    includeLines.push(L.comment(menuDirName));
 
     const menuEntry = menuExportManifest.menu_items.find((item) => item.files.some((file) => file.file.includes(`/${menuDirName}/`)));
     const chunkFiles = (menuEntry?.files ?? [])
@@ -254,15 +255,15 @@ export function emitKickAssemblerSources(analysisDir: string, outputDir: string)
         continue;
       }
       const inputPath = join(workspaceRoot, file.file);
-      const outputName = fileName.replace(/\.bin$/i, ".asm");
+      const outputName = fileName.replace(/\.bin$/i, extension);
       const outputPath = join(outMenuDir, outputName);
       const title = `${menuDirName}/${outputName}`;
       const data = readFileSync(inputPath);
 
       const source =
         classification === "code"
-          ? disassembleCodeChunk(data, startAddress, endAddress, title)
-          : dumpDataChunk(data, startAddress, title, classification);
+          ? disassembleCodeChunk(data, startAddress, endAddress, title, dialect)
+          : dumpDataChunk(data, startAddress, title, classification, dialect);
 
       writeFileSync(outputPath, source, "utf8");
 
@@ -273,12 +274,12 @@ export function emitKickAssemblerSources(analysisDir: string, outputDir: string)
         start_address: startAddress,
         end_address: endAddress,
       });
-      includeLines.push(`// .import source "${menuDirName}/${outputName}"`);
+      includeLines.push(L.comment(dialect === "64tass" ? `.include "${menuDirName}/${outputName}"` : `.import source "${menuDirName}/${outputName}"`));
     }
 
-    includeLines.push("");
+    includeLines.push(L.blank());
   }
 
-  writeFileSync(join(outputDir, "menu_payloads_index.asm"), `${includeLines.join("\n")}\n`, "utf8");
+  writeFileSync(join(outputDir, `menu_payloads_index${extension}`), emitListing(includeLines, dialect), "utf8");
   writeJson(join(outputDir, "manifest.json"), manifest);
 }

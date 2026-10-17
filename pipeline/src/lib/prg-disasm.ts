@@ -19,14 +19,14 @@ import {
 import { AnnotationsFile, AnnotationsFileRefusal, AnnotationsIndex, assertNoDuplicateSegmentStarts, assertSplitTablesValid, buildAnnotationsIndex, loadAnnotations, parseHex, type SplitTableIndexEntry } from "./annotations";
 import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
-import { convertKickAsmToTass } from "./tass-converter";
+import { L, type Dialect, type ListingLine, countListingLines, dialectOfPath, emitListing, scanListing } from "./listing";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
 import { listingEquates } from "./graph-equates";
 import { IoScope, ioRegisterFor, registerExpression, type ByteSource, type IoRegisterName } from "./io-names";
 import { platformNode, type PlatformTag } from "./platform-kb";
 
 // Spec 048: per-render platform override. Set at the top of
-// disassemblePrgToKickAsm; consulted by the comment generators. "none" is the
+// disassemblePrg; consulted by the comment generators. "none" is the
 // off switch: the listing carries no name or comment derived from the platform
 // knowledge base (KERNAL / zero-page / I/O tables, C64 hardware inference);
 // names from annotations and the graph still apply.
@@ -106,10 +106,10 @@ export interface DisasmListingStats {
   dataLineCount: number;
   /** Which of the three renderers ran. */
   renderMode: AnnotationRenderMode;
-  /** The KickAssembler listing. */
-  asmPath: string;
-  /** The 64tass listing beside it. */
-  tassPath: string;
+  /** The listing that was written — one file, in `dialect`. */
+  listingPath: string;
+  /** The dialect it is written in. */
+  dialect: Dialect;
   /** The analysis JSON the render actually read, absolute — or undefined for none. */
   analysisPath?: string;
   /** The annotations file the render actually read, absolute — or undefined for none. */
@@ -117,6 +117,11 @@ export interface DisasmListingStats {
 }
 
 interface PrgDisasmOptions {
+  /**
+   * The dialect to write the one listing in (Spec 914). Absent → the one the output file name
+   * says (`.tas`/`.tass` is 64tass, `.asm` is KickAssembler); a name that says neither is refused.
+   */
+  dialect?: Dialect;
   entryPoints?: number[];
   title?: string;
   analysisPath?: string;
@@ -481,7 +486,7 @@ function ioEquateName(register: IoRegisterName): string | undefined {
     return alreadyHere ? register.name : undefined;
   }
   const heading = register.base >= 0xde00 ? undefined : platformNode("c64", register.base)?.name;
-  activeIoNames.set(register.base, { name: equate.name, comment: heading && heading !== equate.name ? `  // ${heading}` : "" });
+  activeIoNames.set(register.base, { name: equate.name, comment: heading && heading !== equate.name ? heading : "" });
   return equate.name;
 }
 
@@ -506,22 +511,22 @@ function ioOperandExpression(address: number, instruction: number | undefined): 
 }
 
 /** The block that defines every register name the body used. */
-function renderIoRegisterEquates(registry: EquateRegistry): string[] {
+function renderIoRegisterEquates(registry: EquateRegistry): ListingLine[] {
   const accepted = [...activeIoNames.entries()].filter((e): e is [number, { name: string; comment: string }] => e[1] !== null).sort((a, b) => a[0] - b[0]);
   if (accepted.length === 0 && activeIoNotes.length === 0 && activeIoReason === undefined) return [];
-  const lines = ["// I/O registers this listing names"];
+  const lines: ListingLine[] = [L.comment("I/O registers this listing names")];
   for (const [base, { name, comment }] of accepted) lines.push(...registry.equate(name, formatAddress(base), comment));
-  if (activeIoReason !== undefined) lines.push(`//  no register names: ${activeIoReason}`);
-  for (const note of activeIoNotes.slice(0, 20)) lines.push(`//  ${note}`);
-  lines.push("");
+  if (activeIoReason !== undefined) lines.push(L.commentRaw(`  no register names: ${activeIoReason}`));
+  for (const note of activeIoNotes.slice(0, 20)) lines.push(L.commentRaw(`  ${note}`));
+  lines.push(L.blank());
   return lines.length > 2 || activeIoReason !== undefined || activeIoNotes.length > 0 ? lines : [];
 }
 
 /** The same block for the renderers that have no equate registry: written under the `.pc` line. */
-function insertIoRegisterEquates(lines: string[]): void {
+function insertIoRegisterEquates(lines: ListingLine[]): void {
   const block = renderIoRegisterEquates(new EquateRegistry());
   if (block.length === 0) return;
-  const at = lines.findIndex((line) => /^\s+\.pc = \$/u.test(line));
+  const at = lines.findIndex((line) => line.k === "origin");
   lines.splice(at < 0 ? lines.length : at + 2, 0, ...block);
 }
 
@@ -849,7 +854,7 @@ function commentTextFromTarget(targetAddress: number | undefined, instruction?: 
     return "";
   }
 
-  return `// ${metadata.comment}`;
+  return `${metadata.comment}`;
 }
 
 /* ── Contextual per-instruction comment generator ─────────────────────── */
@@ -910,7 +915,7 @@ function generateInstructionComment(
       } else {
         parts.push(ioMeta.comment);
       }
-      return `// ${parts.join(" | ")}`;
+      return `${parts.join(" | ")}`;
     }
   }
 
@@ -918,15 +923,15 @@ function generateInstructionComment(
   if ((mnem === "jsr" || mnem === "jmp") && target !== undefined) {
     const rom = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, target);
     if (rom && rom.kind === "rom") {
-      return `// ${rom.label}`;
+      return `${rom.label}`;
     }
     // Spec 759 P2 — a call/jump that leaves THIS file resolves to the owning
     // artifact's label via the cross-artifact index (shift-left): `jsr $022a`
-    // gets `// → block2_engine_0200: api_table`. The operand bytes are
+    // gets a `→ block2_engine_0200: api_table` comment. The operand bytes are
     // unchanged (rebuild-safe); this is a resolution comment, not a relabel.
     const ext = resolveExternal(target);
     if (ext) {
-      let line = `// → ${ext.owner}${ext.label ? `: ${ext.label}` : ` (${ext.kind})`}`;
+      let line = `→ ${ext.owner}${ext.label ? `: ${ext.label}` : ` (${ext.kind})`}`;
       // Spec 759 P3 — if the call hits an ABI jumptable entry, follow its JMP to
       // the routine body so the caller sees both (api_print_string → print_string).
       const body = activeExternalAbi?.get(target);
@@ -945,7 +950,7 @@ function generateInstructionComment(
     const zp = platformOff() ? undefined : platformNode(activePlatform as PlatformTag, operand);
     if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-      return `// ${desc} ${zp.label}`;
+      return `${desc} ${zp.label}`;
     }
   }
 
@@ -954,7 +959,7 @@ function generateInstructionComment(
     const ownerAddr = context.instructionOwnerByAddress.get(target);
     if (ownerAddr !== undefined && ownerAddr !== target) {
       const offset = target - ownerAddr;
-      return `// self-mod: patch operand at ${makeLabel(ownerAddr)}+${offset}`;
+      return `self-mod: patch operand at ${makeLabel(ownerAddr)}+${offset}`;
     }
   }
 
@@ -962,67 +967,67 @@ function generateInstructionComment(
   if (isBranchInstruction({ mnemonic: mnem } as DecodedInstruction) && target !== undefined) {
     const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
     const dir = target < instruction.address ? "(back/loop)" : "(forward)";
-    return `// ${desc} → ${makeLabel(target)} ${dir}`;
+    return `${desc} → ${makeLabel(target)} ${dir}`;
   }
 
   // 6. JSR to local subroutine
   if (mnem === "jsr" && target !== undefined && context.labelSet.has(target)) {
-    return `// call ${makeLabel(target)}`;
+    return `call ${makeLabel(target)}`;
   }
 
   // 7. JMP
   if (mnem === "jmp" && target !== undefined) {
     if (target === instruction.address) {
-      return "// infinite loop (halts here, IRQ-driven from now)";
+      return "infinite loop (halts here, IRQ-driven from now)";
     }
-    return `// jump → ${makeLabel(target)}`;
+    return `jump → ${makeLabel(target)}`;
   }
 
   // 8. Immediate loads: show decimal + context
   if (mode === "imm" && operand !== undefined && mnem.startsWith("ld")) {
     const reg = mnem === "lda" ? "A" : mnem === "ldx" ? "X" : "Y";
     if (operand >= 0x20 && operand <= 0x7E) {
-      return `// ${reg} = $${hex8(operand)} (${operand}, '${String.fromCharCode(operand)}')`;
+      return `${reg} = $${hex8(operand)} (${operand}, '${String.fromCharCode(operand)}')`;
     }
-    return `// ${reg} = $${hex8(operand)} (${operand})`;
+    return `${reg} = $${hex8(operand)} (${operand})`;
   }
 
   // 9. Compare immediate: show what we're comparing against
   if (mode === "imm" && operand !== undefined && (mnem === "cmp" || mnem === "cpx" || mnem === "cpy")) {
     const reg = mnem === "cmp" ? "A" : mnem === "cpx" ? "X" : "Y";
-    return `// ${reg} == $${hex8(operand)} (${operand})?`;
+    return `${reg} == $${hex8(operand)} (${operand})?`;
   }
 
   // 10. RTS/RTI
-  if (mnem === "rts") return "// return";
-  if (mnem === "rti") return "// return from interrupt";
+  if (mnem === "rts") return "return";
+  if (mnem === "rti") return "return from interrupt";
 
   // 11. Stack ops
-  if (mnem === "sei") return "// disable interrupts";
-  if (mnem === "cli") return "// enable interrupts";
-  if (mnem === "pha") return "// push A to stack";
-  if (mnem === "pla") return "// pull A from stack";
-  if (mnem === "php") return "// push flags to stack";
-  if (mnem === "plp") return "// pull flags from stack";
+  if (mnem === "sei") return "disable interrupts";
+  if (mnem === "cli") return "enable interrupts";
+  if (mnem === "pha") return "push A to stack";
+  if (mnem === "pla") return "pull A from stack";
+  if (mnem === "php") return "push flags to stack";
+  if (mnem === "plp") return "pull flags from stack";
 
   // 12. Transfer instructions
   if (MNEMONIC_DESCRIPTIONS[mnem] && !target && (mode === "impl" || mode === "acc")) {
-    return `// ${MNEMONIC_DESCRIPTIONS[mnem]}`;
+    return `${MNEMONIC_DESCRIPTIONS[mnem]}`;
   }
 
   // 13. Indexed access to non-IO addresses (table access)
   if ((mode === "abs,x" || mode === "abs,y") && target !== undefined && (platformOff() || !isC64IoAddress(target, activePlatform as PlatformTag))) {
     const reg = mode === "abs,x" ? "X" : "Y";
     const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-    return `// ${desc} ${makeLabel(target)}[${reg}]`;
+    return `${desc} ${makeLabel(target)}[${reg}]`;
   }
 
   // 14. Indirect addressing
   if (mode === "(zp),y" && operand !== undefined) {
-    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`}),Y (indirect indexed)`;
+    return `${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`}),Y (indirect indexed)`;
   }
   if (mode === "(zp,x)" && operand !== undefined) {
-    return `// ${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`},X) (indexed indirect)`;
+    return `${MNEMONIC_DESCRIPTIONS[mnem] ?? mnem} (${annotatedOperandName(operand) ?? `$${hex8(operand)}`},X) (indexed indirect)`;
   }
 
   // No comment for truly trivial instructions
@@ -1051,21 +1056,20 @@ function requiresExactWidthRendering(
 // Render an instruction's asm, forcing the ABSOLUTE (3-byte) form when the original
 // encoding was absolute but the operand is in zeropage range ($00-$FF) — e.g.
 // `STA $0074` (8D 74 00), which a naive reassembly would shrink to the 2-byte ZP form
-// (85 74) and break byte-identity + shift every following label. KickAss forces it with
-// the `.abs` mnemonic suffix (`sta.abs $0074`); the tass-converter maps `.abs` → 64tass
-// `@w`. This keeps the line READABLE code instead of the old `.byte $8D,$74,$00` blob —
+// (85 74) and break byte-identity + shift every following label. The line carries `wide`
+// and each dialect's emitter spells it (KickAss `sta.abs $0074`, 64tass `sta @w $0074`).
+// This keeps the line READABLE code instead of the old `.byte $8D,$74,$00` blob —
 // a big chunk of what read as `.byte` noise before. `exactWidth` =
 // requiresExactWidthRendering for the instruction.
-function renderMnemonicAsm(mnemonic: string, operand: string | undefined, exactWidth: boolean): string {
-  if (!operand) return mnemonic;
-  return exactWidth ? `${mnemonic}.abs ${operand}` : `${mnemonic.padEnd(5)}${operand}`;
+function instructionLine(mnemonic: string, operand: string | undefined, exactWidth: boolean, comment: string): ListingLine {
+  return L.insn(mnemonic, operand, exactWidth, comment);
 }
 
-function renderUndocumentedInstructionBytes(instruction: Pick<InstructionFact, "bytes" | "mnemonic" | "opcode">): { asm: string; comment: string } {
+function renderUndocumentedInstructionBytes(instruction: Pick<InstructionFact, "bytes" | "mnemonic" | "opcode">): { args: string; comment: string } {
   const bytes = instruction.bytes.map((value) => `$${formatHex8(value)}`).join(", ");
   return {
-    asm: `.byte ${bytes}`,
-    comment: `// undocumented ${instruction.mnemonic} (opcode $${formatHex8(instruction.opcode)})`,
+    args: bytes,
+    comment: `undocumented ${instruction.mnemonic} (opcode $${formatHex8(instruction.opcode)})`,
   };
 }
 
@@ -1078,7 +1082,7 @@ function labelCommentText(address: number, xrefs: CrossReferenceMap): string {
   const uniqueRefs = Array.from(new Set(refs));
   const rendered = uniqueRefs.slice(0, 4).map((ref) => makeLabel(ref)).join(", ");
   const suffix = uniqueRefs.length > 4 ? ", ..." : "";
-  return ` // referenced from ${rendered}${suffix}`;
+  return `referenced from ${rendered}${suffix}`;
 }
 
 function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnalysisContext {
@@ -2177,7 +2181,7 @@ function labelCommentTextFromAnalysis(
     ).values(),
   );
 
-  return ` // referenced from ${rendered.slice(0, 4).join(", ")}${rendered.length > 4 ? ", ..." : ""}`;
+  return `referenced from ${rendered.slice(0, 4).join(", ")}${rendered.length > 4 ? ", ..." : ""}`;
 }
 
 function inferVicTargetsFromHardware(context: RenderAnalysisContext): InferredVicTargets {
@@ -2761,7 +2765,7 @@ function inferSegmentPurpose(segment: Segment, context: RenderAnalysisContext): 
   return notes.slice(0, 3);
 }
 
-function renderSegmentContext(segment: Segment, context: RenderAnalysisContext): string[] {
+function renderSegmentContext(segment: Segment, context: RenderAnalysisContext): ListingLine[] {
   if (!(segment.kind === "code" || segment.kind === "basic_stub")) {
     return [];
   }
@@ -2770,7 +2774,7 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
   // empty; key RAM, split tables and data movement come from the bytes and stay.
   const off = c64InferenceOff();
 
-  const lines: string[] = [];
+  const lines: ListingLine[] = [];
   const purpose = inferSegmentPurpose(segment, context);
   const ram = summarizeRamTouches(segment, context);
   const splitFacts = factInRange(segment, context.splitPointerFacts);
@@ -2798,21 +2802,21 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
     return lines;
   }
 
-  lines.push("// ROUTINE CONTEXT");
+  lines.push(L.comment("ROUTINE CONTEXT"));
   for (const note of purpose) {
-    lines.push(`// likely: ${note}`);
+    lines.push(L.comment(`likely: ${note}`));
   }
   if (ram.length > 0) {
-    lines.push(`// key RAM: ${ram.join(", ")}`);
+    lines.push(L.comment(`key RAM: ${ram.join(", ")}`));
   }
   if (splitFacts.length > 0) {
     const tables = splitFacts
       .slice(0, 4)
       .map((fact) => `${formatAddress(fact.lowTableBase)}/${formatAddress(fact.highTableBase)} -> ${classifySplitPointerFact(fact)}`);
-    lines.push(`// split tables: ${tables.join("; ")}`);
+    lines.push(L.comment(`split tables: ${tables.join("; ")}`));
   }
   if (displayState) {
-    lines.push(`// display state: ${formatDisplayState(displayState)}`);
+    lines.push(L.comment(`display state: ${formatDisplayState(displayState)}`));
   }
   const assetTargets = pointerTargets
     .map((target) => {
@@ -2833,7 +2837,7 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
     .filter((target): target is string => target !== undefined)
     .filter((target, index, items) => items.indexOf(target) === index);
   if (assetTargets.length > 0) {
-    lines.push(`// asset targets: ${assetTargets.join(", ")}`);
+    lines.push(L.comment(`asset targets: ${assetTargets.join(", ")}`));
   }
   if (copyFacts.length > 0) {
     const copies = copyFacts
@@ -2841,35 +2845,38 @@ function renderSegmentContext(segment: Segment, context: RenderAnalysisContext):
       .map((fact) =>
         `${fact.mode} ${fact.destinationBases.slice(0, 2).map(formatAddress).join(", ")} via ${fact.indexRegister.toUpperCase()}`,
       );
-    lines.push(`// data movement: ${copies.join("; ")}`);
+    lines.push(L.comment(`data movement: ${copies.join("; ")}`));
   }
   if (displayTransfers.length > 0) {
-    lines.push(`// display transfers: ${displayTransfers.slice(0, 4).map(formatDisplayTransfer).join("; ")}`);
+    lines.push(L.comment(`display transfers: ${displayTransfers.slice(0, 4).map(formatDisplayTransfer).join("; ")}`));
   }
   if (spritePointerSeeds.length > 0) {
-    lines.push(`// sprite pointers: ${spritePointerSeeds.join("; ")}`);
+    lines.push(L.comment(`sprite pointers: ${spritePointerSeeds.join("; ")}`));
   }
   if (spriteStateTables.length > 0) {
-    lines.push(`// sprite tables: ${spriteStateTables.join("; ")}`);
+    lines.push(L.comment(`sprite tables: ${spriteStateTables.join("; ")}`));
   }
   if (spritePageSelection) {
-    lines.push(`// sprite pointer page: ${spritePageSelection}`);
+    lines.push(L.comment(`sprite pointer page: ${spritePageSelection}`));
   }
   if (hardware.length > 0) {
-    lines.push(`// hardware touched: ${hardware.join(", ")}`);
+    lines.push(L.comment(`hardware touched: ${hardware.join(", ")}`));
   }
   if (kernalLoader) {
-    lines.push(
-      `// kernal loader path: SETNAM @ ${formatAddress(kernalLoader.setnamAddress)}, SETLFS @ ${formatAddress(kernalLoader.setlfsAddress)}, LOAD @ ${formatAddress(kernalLoader.loadAddress)}`,
-    );
+    lines.push(L.comment(
+      `kernal loader path: SETNAM @ ${formatAddress(kernalLoader.setnamAddress)}, SETLFS @ ${formatAddress(kernalLoader.setlfsAddress)}, LOAD @ ${formatAddress(kernalLoader.loadAddress)}`,
+    ));
     if (loaderFilenames.length > 0) {
-      lines.push(`// loader file names: ${loaderFilenames.map((name) => `"${name}"`).join(", ")}`);
+      lines.push(L.comment(`loader file names: ${loaderFilenames.map((name) => `"${name}"`).join(", ")}`));
     }
   }
   return lines;
 }
 
-function segmentHeader(segment: Segment, context?: RenderAnalysisContext): string[] {
+/** The rule that opens and closes the banner above a documented routine or segment. */
+const BANNER_RULE = "═══════════════════════════════════════════════════════════════";
+
+function segmentHeader(segment: Segment, context?: RenderAnalysisContext): ListingLine[] {
   // Check for annotation override
   const annotation = context?.annotations?.segmentsByStart.get(segment.start);
   const displayKind = annotation?.kind ?? segment.kind;
@@ -2877,17 +2884,17 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
   const analyzers = annotation
     ? [...segment.analyzerIds, "llm-annotation"].join(",")
     : segment.analyzerIds.join(",");
-  const lines: string[] = [];
+  const lines: ListingLine[] = [];
 
   // Add annotation block comment if present
   if (annotation?.comment) {
     const label = annotation.label ?? displayKind;
-    lines.push(`/* ═══════════════════════════════════════════════════════════════`);
-    lines.push(` * ${label.toUpperCase()} (${formatAddress(segment.start)}-${formatAddress(segment.end)})`);
-    for (const commentLine of annotation.comment.split("\n")) {
-      lines.push(` * ${commentLine}`);
-    }
-    lines.push(` * ═══════════════════════════════════════════════════════════════ */`);
+    lines.push(L.block([
+      BANNER_RULE,
+      `${label.toUpperCase()} (${formatAddress(segment.start)}-${formatAddress(segment.end)})`,
+      ...annotation.comment.split("\n"),
+      BANNER_RULE,
+    ], "banner"));
   }
 
   // Add routine annotation if this address has one
@@ -2898,28 +2905,27 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
   // had just reported as "applied 81, skipped 0".
   const routineAnnotation = context?.annotations?.routinesByAddress.get(segment.start);
   if (routineAnnotation && !annotation?.comment) {
-    lines.push(`/* ═══════════════════════════════════════════════════════════════`);
-    lines.push(` * ${routineAnnotation.name.toUpperCase()}`);
-    for (const commentLine of (routineAnnotation.comment ?? "").split("\n")) {
-      if (commentLine.length === 0 && (routineAnnotation.comment ?? "") === "") continue;
-      lines.push(` * ${commentLine}`);
-    }
-    lines.push(` * ═══════════════════════════════════════════════════════════════ */`);
+    lines.push(L.block([
+      BANNER_RULE,
+      routineAnnotation.name.toUpperCase(),
+      ...(routineAnnotation.comment ?? "").split("\n").filter((commentLine) => !(commentLine.length === 0 && (routineAnnotation.comment ?? "") === "")),
+      BANNER_RULE,
+    ], "banner"));
   }
 
-  lines.push(
-    `// SEGMENT ${formatAddress(segment.start)}-${formatAddress(segment.end)}  ${displayKind}  confidence=${confidence}  analyzers=${analyzers}`,
-  );
+  lines.push(L.comment(
+    `SEGMENT ${formatAddress(segment.start)}-${formatAddress(segment.end)}  ${displayKind}  confidence=${confidence}  analyzers=${analyzers}`,
+  ));
 
   const reclassified = annotation !== undefined && displayKind !== segment.kind;
 
   if (reclassified) {
-    lines.push(`// Reclassified from ${segment.kind} by semantic analysis.`);
+    lines.push(L.comment(`Reclassified from ${segment.kind} by semantic analysis.`));
   }
 
   // When reclassified, suppress the old analyzer's reasons and preview — they describe the wrong type
   if (!reclassified && segment.score.reasons.length > 0) {
-    lines.push(`// ${segment.score.reasons[0]}`);
+    lines.push(L.comment(`${segment.score.reasons[0]}`));
   }
 
   // Spec 838 D3c — a region promoted out of `unknown` because the GRAPH named a
@@ -2929,19 +2935,19 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
   if (!reclassified) {
     for (const reason of segment.score.reasons) {
       if (isSeedReason(reason) && reason !== segment.score.reasons[0]) {
-        lines.push(`// ${reason}`);
+        lines.push(L.comment(`${reason}`));
       }
     }
   }
 
   if (!reclassified && segment.kind === "code" && segment.analyzerIds.includes("probable-code") && !segment.analyzerIds.includes("code")) {
-    lines.push("// probable code island: structured routine, but not yet reached from trusted entry points");
+    lines.push(L.comment("probable code island: structured routine, but not yet reached from trusted entry points"));
   }
 
   if (!reclassified) {
     const previewLines = segment.preview?.[0]?.lines?.slice(0, 2) ?? [];
     for (const preview of previewLines) {
-      lines.push(`// ${preview}`);
+      lines.push(L.comment(`${preview}`));
     }
   }
 
@@ -2952,23 +2958,23 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
   return lines;
 }
 
-function renderCopyFact(fact: CopyRoutineFact): string {
+function renderCopyFact(fact: CopyRoutineFact): ListingLine {
   const dest = fact.destinationBases.slice(0, 4).map(formatAddress).join(", ");
   const moreDest = fact.destinationBases.length > 4 ? ", ..." : "";
   if (fact.mode === "fill") {
     const value = fact.fillValue === undefined ? "dynamic" : `#$${formatHex8(fact.fillValue)}`;
-    return `// SEMANTICS fill-loop -> ${dest}${moreDest} value=${value} via ${fact.indexRegister.toUpperCase()}`;
+    return L.comment(`SEMANTICS fill-loop -> ${dest}${moreDest} value=${value} via ${fact.indexRegister.toUpperCase()}`);
   }
   const src = fact.sourceBases.slice(0, 4).map(formatAddress).join(", ");
   const moreSrc = fact.sourceBases.length > 4 ? ", ..." : "";
-  return `// SEMANTICS copy-loop ${src || "dynamic source"}${moreSrc ? moreSrc : ""} -> ${dest}${moreDest} via ${fact.indexRegister.toUpperCase()}`;
+  return L.comment(`SEMANTICS copy-loop ${src || "dynamic source"}${moreSrc ? moreSrc : ""} -> ${dest}${moreDest} via ${fact.indexRegister.toUpperCase()}`);
 }
 
 // The analyzer reports every lda/sta/lda/sta pair into adjacent zero-page cells; whether the pair
 // is a POINTER is decided here, by the same flow walk that decides the `#<label` halves. A pair
 // no path dereferences is two bytes (a rectangle's corner, a width and a height), and the
 // listing says so instead of calling it a pointer.
-function renderPointerFact(fact: IndirectPointerConstructionFact, context: RenderAnalysisContext): string {
+function renderPointerFact(fact: IndirectPointerConstructionFact, context: RenderAnalysisContext): ListingLine {
   const zpLow = `$${formatHex8(fact.zeroPageBase)}`;
   const zpHigh = `$${formatHex8((fact.zeroPageBase + 1) & 0xff)}`;
   let lastStore: InstructionFact | undefined;
@@ -2983,21 +2989,21 @@ function renderPointerFact(fact: IndirectPointerConstructionFact, context: Rende
   const kind = dereferenced ? "zp-pointer" : "zp-pair";
   const note = dereferenced ? "" : ` (${(use as PointerUseResult).ambiguous ?? "no pointer use reached"})`;
   if (fact.constantTarget !== undefined) {
-    return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}${note}`;
+    return L.comment(`SEMANTICS ${kind} ${zpLow}/${zpHigh} := ${formatAddress(fact.constantTarget)}${note}`);
   }
-  return `// SEMANTICS ${kind} ${zpLow}/${zpHigh} built dynamically${note}`;
+  return L.comment(`SEMANTICS ${kind} ${zpLow}/${zpHigh} built dynamically${note}`);
 }
 
-function renderTableFact(fact: TableUsageFact): string {
+function renderTableFact(fact: TableUsageFact): ListingLine {
   const bases = fact.tableBases.slice(0, 4).map(formatAddress).join(", ");
   const suffix = fact.tableBases.length > 4 ? ", ..." : "";
-  return `// SEMANTICS table-${fact.operation} ${bases}${suffix} indexed by ${fact.indexRegister.toUpperCase()}`;
+  return L.comment(`SEMANTICS table-${fact.operation} ${bases}${suffix} indexed by ${fact.indexRegister.toUpperCase()}`);
 }
 
-function renderDisplayTransferFact(fact: DisplayTransferFact): string {
+function renderDisplayTransferFact(fact: DisplayTransferFact): ListingLine {
   const helper = fact.helperRoutine !== undefined ? ` via ${formatAddress(fact.helperRoutine)}` : "";
   const role = fact.role === "unknown" ? "display-data" : fact.role;
-  return `// DISPLAY TRANSFER ${formatAddress(fact.sourceAddress)} -> ${formatAddress(fact.destinationAddress)} (${role}${helper})`;
+  return L.comment(`DISPLAY TRANSFER ${formatAddress(fact.sourceAddress)} -> ${formatAddress(fact.destinationAddress)} (${role}${helper})`);
 }
 
 function emitByteRange(
@@ -3005,14 +3011,14 @@ function emitByteRange(
   loadAddress: number,
   start: number,
   end: number,
-  lines: string[],
+  lines: ListingLine[],
   analysis?: Pick<RenderAnalysisContext, "labelSet" | "xrefsByTarget">,
   suppressStartLabel = false,
 ): void {
   let address = start;
   while (address <= end) {
     if (analysis && analysis.labelSet.has(address) && !(suppressStartLabel && address === start)) {
-      lines.push(`${makeLabel(address)}:${labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)}`);
+      lines.push(L.label(makeLabel(address), labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)));
     }
 
     let chunkEnd = Math.min(end, address + 15);
@@ -3028,7 +3034,7 @@ function emitByteRange(
     const offset = address - loadAddress;
     const chunkLength = chunkEnd - address + 1;
     const bytes = Array.from(data.subarray(offset, offset + chunkLength)).map((value) => `$${formatHex8(value)}`);
-    lines.push(`      .byte ${bytes.join(", ")}`);
+    lines.push(L.byte(bytes.join(", ")));
     address += chunkLength;
   }
 }
@@ -3036,13 +3042,13 @@ function emitByteRange(
 function emitPointerTableSegment(
   prg: PrgImage,
   segment: Segment,
-  lines: string[],
+  lines: ListingLine[],
   analysis: RenderAnalysisContext,
 ): void {
   let address = segment.start;
   while (address + 1 <= segment.end) {
     if (analysis.labelSet.has(address) && address !== segment.start) {
-      lines.push(`${makeLabel(address)}:${labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)}`);
+      lines.push(L.label(makeLabel(address), labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)));
     }
     const offset = address - prg.loadAddress;
     const lo = prg.data[offset];
@@ -3051,7 +3057,7 @@ function emitPointerTableSegment(
     const target = (hi << 8) | lo;
     const expr = findOperandExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress, analysis.segmentOwnerByAddress)
       ?? `$${formatHex16(target)}`;
-    lines.push(`      .word ${expr}`);
+    lines.push(L.word(expr));
     address += 2;
   }
   if (address <= segment.end) {
@@ -3090,13 +3096,13 @@ function emitSplitTableSegment(
   prg: PrgImage,
   segment: Segment,
   range: RenderAnalysisContext["splitRanges"][number],
-  lines: string[],
+  lines: ListingLine[],
   analysis: RenderAnalysisContext,
 ): void {
   let address = segment.start;
   while (address <= segment.end) {
     if (analysis.labelSet.has(address) && address !== segment.start) {
-      lines.push(`${makeLabel(address)}:${labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)}`);
+      lines.push(L.label(makeLabel(address), labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)));
     }
     const items: string[] = [];
     for (; address <= segment.end && items.length < 8; address += 1) {
@@ -3106,7 +3112,7 @@ function emitSplitTableSegment(
       const expr = splitTableExpression(resolved.target, range.entry, analysis);
       items.push(`${range.part === "lo" ? "<" : ">"}${expr}`);
     }
-    if (items.length > 0) lines.push(`      .byte ${items.join(", ")}`);
+    if (items.length > 0) lines.push(L.byte(items.join(", ")));
   }
 }
 
@@ -3126,13 +3132,18 @@ function escapeKickAsmText(text: string): string {
 // readability. Annotation-driven `.text` rendering can be reintroduced
 // later via an explicit override that also emits a KickAss `.encoding`
 // directive.
-function emitPetsciiTextSegment(prg: PrgImage, segment: Segment, lines: string[]): void {
+function emitPetsciiTextSegment(prg: PrgImage, segment: Segment, lines: ListingLine[]): void {
   const offset = segment.start - prg.loadAddress;
   const bytes = Array.from(prg.data.subarray(offset, offset + segment.length));
   emitBytesWithAsciiComment(bytes, lines);
 }
 
-function emitBytesWithAsciiComment(bytes: number[], lines: string[]): void {
+/** Where the comment starts on a PETSCII row (`.byte ` + 16 padded values), a sprite row and a sprite's pad byte. */
+const ASCII_ROW_COLUMN = ".byte ".length + 16 * 5;
+const SPRITE_ROW_COLUMN = 21;
+const SPRITE_PAD_COLUMN = 22;
+
+function emitBytesWithAsciiComment(bytes: number[], lines: ListingLine[]): void {
   const chunkSize = 16;
   for (let index = 0; index < bytes.length; index += chunkSize) {
     const chunk = bytes.slice(index, index + chunkSize);
@@ -3140,7 +3151,7 @@ function emitBytesWithAsciiComment(bytes: number[], lines: string[]): void {
     const ascii = chunk
       .map((value) => (value >= 0x20 && value <= 0x7e ? String.fromCharCode(value) : "."))
       .join("");
-    lines.push(`      .byte ${hex.padEnd(16 * 5)} // "${ascii.replace(/"/g, '\\"')}"`);
+    lines.push(L.byte(hex, `"${ascii.replace(/"/g, '\\"')}"`, ASCII_ROW_COLUMN));
   }
 }
 
@@ -3156,29 +3167,29 @@ function spriteRowComment(bytes: number[]): string {
     .join("");
 }
 
-function emitSpriteSegment(prg: PrgImage, segment: Segment, lines: string[]): void {
+function emitSpriteSegment(prg: PrgImage, segment: Segment, lines: ListingLine[]): void {
   const totalLength = segment.end - segment.start + 1;
   const fullBlocks = Math.floor(totalLength / 64);
   let address = segment.start;
 
   for (let blockIndex = 0; blockIndex < fullBlocks; blockIndex += 1) {
     const blockAddress = address;
-    lines.push(`// SPRITE ${blockIndex} @ ${formatAddress(blockAddress)}`);
+    lines.push(L.comment(`SPRITE ${blockIndex} @ ${formatAddress(blockAddress)}`));
     for (let row = 0; row < 21; row += 1) {
       const offset = blockAddress - prg.loadAddress + row * 3;
       const rowBytes = Array.from(prg.data.subarray(offset, offset + 3));
       const rendered = rowBytes.map((value) => `$${formatHex8(value)}`).join(", ");
-      lines.push(`      .byte ${rendered.padEnd(14)} // row ${row.toString().padStart(2, "0")}  ${spriteRowComment(rowBytes)}`);
+      lines.push(L.byte(rendered, `row ${row.toString().padStart(2, "0")}  ${spriteRowComment(rowBytes)}`, SPRITE_ROW_COLUMN));
     }
     const paddingOffset = blockAddress - prg.loadAddress + 63;
     const padding = prg.data[paddingOffset] ?? 0;
-    lines.push(`      .byte $${formatHex8(padding)}             // pad`);
-    lines.push("");
+    lines.push(L.byte(`$${formatHex8(padding)}`, "pad", SPRITE_PAD_COLUMN));
+    lines.push(L.blank());
     address += 64;
   }
 
   if (address <= segment.end) {
-    lines.push(`// sprite remainder ${formatAddress(address)}-${formatAddress(segment.end)}`);
+    lines.push(L.comment(`sprite remainder ${formatAddress(address)}-${formatAddress(segment.end)}`));
     emitByteRange(prg.data, prg.loadAddress, address, segment.end, lines);
   }
 }
@@ -3282,7 +3293,7 @@ function renderSeedLedger(report: AnalysisReport): string[] {
   return lines;
 }
 
-function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
+function renderAnalysisPreface(context: RenderAnalysisContext): ListingLine[] {
   const lines: string[] = [];
   const earlySegments = context.segments.slice(0, 20);
   const importantAssets = context.segments.filter((segment) =>
@@ -3304,7 +3315,6 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
   if (graphSeedCount > 0) entryPoints.push(`+ ${graphSeedCount} graph seed(s), listed below`);
   const remainingCount = Math.max(0, context.segments.length - earlySegments.length);
 
-  lines.push("/*");
   lines.push("Working map");
   lines.push("");
   if (entryPoints.length > 0) {
@@ -3334,42 +3344,7 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
   lines.push("Companion reports");
   lines.push("  analysis/.../RAM_STATE_FACTS.md");
   lines.push("  analysis/.../POINTER_TABLE_FACTS.md");
-  lines.push("*/");
-  lines.push("");
-  return lines;
-}
-
-/**
- * The rendered lines with every comment and string literal taken out, so what is
- * left is code. The banner `//*******` is why `//` is tested BEFORE `/*`: its
- * second and third characters are `/*`, and reading that as an unclosed block
- * comment swallows the rest of the listing.
- */
-function* strippedCodeLines(rendered: string[]): Generator<string> {
-  let inBlockComment = false;
-  for (const line of rendered) {
-    let code = line;
-    if (inBlockComment) {
-      const close = code.indexOf("*/");
-      if (close < 0) continue;
-      code = code.slice(close + 2);
-      inBlockComment = false;
-    }
-    const lineFirst = code.indexOf("//");
-    const blockFirst = code.indexOf("/*");
-    if (lineFirst >= 0 && (blockFirst < 0 || lineFirst < blockFirst)) {
-      code = code.slice(0, lineFirst);
-    } else if (blockFirst >= 0) {
-      const close = code.indexOf("*/", blockFirst + 2);
-      if (close < 0) { inBlockComment = true; code = code.slice(0, blockFirst); }
-      else code = code.slice(0, blockFirst) + code.slice(close + 2);
-      const trailing = code.indexOf("//");
-      if (trailing >= 0) code = code.slice(0, trailing);
-    }
-    code = code.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/'(?:[^'\\]|\\.)*'/g, "");
-    if (code.trim().length === 0) continue;
-    yield code;
-  }
+  return [L.block(lines, "plain"), L.blank()];
 }
 
 /**
@@ -3392,7 +3367,7 @@ function* strippedCodeLines(rendered: string[]): Generator<string> {
  * and a name that would collide with one this listing already uses is refused
  * out loud rather than allowed to shadow it.
  */
-function renderGraphNameEquates(context: RenderAnalysisContext, body: string[], registry: EquateRegistry): string[] {
+function renderGraphNameEquates(context: RenderAnalysisContext, body: ListingLine[], registry: EquateRegistry): ListingLine[] {
   const projectDir = process.env.C64RE_PROJECT_DIR;
   if (!projectDir) return [];
 
@@ -3421,28 +3396,27 @@ function renderGraphNameEquates(context: RenderAnalysisContext, body: string[], 
   });
   if (result.equates.length === 0 && result.notes.length === 0 && !result.reason) return [];
 
-  const lines = ["// Names the project knows for addresses this listing references but does not hold"];
+  const lines: ListingLine[] = [L.comment("Names the project knows for addresses this listing references but does not hold")];
   for (const e of result.equates) {
-    const where = e.payload ? `  // ${e.kind} in ${e.payload}` : `  // ${e.kind}`;
+    const where = e.payload ? `${e.kind} in ${e.payload}` : e.kind;
     lines.push(...registry.equate(e.name, formatAddress(e.address), where));
   }
-  if (result.reason) lines.push(`//  no names read: ${result.reason}`);
-  for (const note of result.notes.slice(0, 20)) lines.push(`//  ${note}`);
-  if (result.notes.length > 20) lines.push(`//  ... and ${result.notes.length - 20} more the graph names but this listing cannot`);
-  lines.push("");
+  if (result.reason) lines.push(L.comment(` no names read: ${result.reason}`));
+  for (const note of result.notes.slice(0, 20)) lines.push(L.comment(` ${note}`));
+  if (result.notes.length > 20) lines.push(L.comment(` ... and ${result.notes.length - 20} more the graph names but this listing cannot`));
+  lines.push(L.blank());
   return lines;
 }
 
 /** Every address the rendered lines print as an operand or a 16-bit table entry. */
-function referencedAddresses(body: string[]): number[] {
+function referencedAddresses(body: ListingLine[]): number[] {
   const out = new Set<number>();
-  for (const code of strippedCodeLines(body)) {
-    // an instruction line (`      lda $F2A3,x`, `      sta.abs $0074`) or a `.word`
-    // table entry — never `.byte`, whose `$EA` is a value and not an address.
-    const head = /^\s+(?:[A-Za-z]{3}(?:\.[A-Za-z]+)?|\.word)\s+(\S.*)$/.exec(code);
-    if (!head) continue;
+  for (const { kind, text } of scanListing(body).operands) {
+    // an instruction operand (`lda $F2A3,x`, `sta $0074`) or a `.word` table entry —
+    // never `.byte`, whose `$EA` is a value and not an address.
+    if (kind === "byte") continue;
     // `lda #$01` touches no address at all; the `$01` is the byte itself.
-    const operand = head[1]!.replace(/#[<>]?\$[0-9A-Fa-f]+/g, "");
+    const operand = text.replace(/#[<>]?\$[0-9A-Fa-f]+/g, "");
     for (const m of operand.matchAll(/\$([0-9A-Fa-f]{1,4})\b/g)) out.add(parseInt(m[1]!, 16) & 0xffff);
   }
   return [...out];
@@ -3454,17 +3428,8 @@ function referencedAddresses(body: string[]): number[] {
  * runs at an address this side never sees), which is exactly why the name alone is
  * what a second definition has to be kept away from.
  */
-function namesDefinedIn(body: string[]): string[] {
-  const out = new Set<string>();
-  for (const code of strippedCodeLines(body)) {
-    // indented on purpose: inside a `.pseudopc` block the renderer indents its labels,
-    // and that block is precisely where the address cannot be read back off the text.
-    const label = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
-    if (label) out.add(label[1]!);
-    const equate = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(code);
-    if (equate) out.add(equate[1]!);
-  }
-  return [...out];
+function namesDefinedIn(body: ListingLine[]): string[] {
+  return [...new Set(scanListing(body).defined)];
 }
 
 /**
@@ -3484,7 +3449,7 @@ function namesDefinedIn(body: string[]): string[] {
  * equate emits no bytes, so adding one can never change the rebuild; leaving a
  * symbol undefined always breaks it.
  */
-function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: string[], registry: EquateRegistry): string[] {
+function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: ListingLine[], registry: EquateRegistry): ListingLine[] {
   // name -> address, the inverse of makeLabel over everything that can be named
   const addressOf = new Map<string, number>();
   const remember = (address: number): void => {
@@ -3497,21 +3462,15 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
 
   const defined = new Set<string>(registry.names());
   const used = new Set<string>();
-  for (const stripped of strippedCodeLines(rendered)) {
-    let code = stripped;
-
-    // Leading whitespace allowed: inside a `.pseudopc` block the renderer indents its
-    // labels, and an anchored match read `reloc_entry:` as undefined and equated it a
-    // second time — "The symbol 'reloc_entry' is already defined", which is the one
-    // thing this backstop exists to prevent.
-    const label = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
-    if (label) { defined.add(label[1]!); code = code.slice(label[0].length); }
-    const equate = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(code);
-    if (equate) { defined.add(equate[1]!); continue; }
-
-    // drop the leading mnemonic or directive; what is left is the operand, with
+  const scan = scanListing(rendered);
+  // A label inside a `.pseudopc` block is a definition like any other: scanning the lines, not
+  // their indentation, is what stops `reloc_entry:` being read as undefined and equated a
+  // second time — "The symbol 'reloc_entry' is already defined", the one thing this backstop
+  // exists to prevent.
+  for (const name of scan.defined) defined.add(name);
+  for (const { text } of scan.operands) {
     // the hex literals removed first ($2C would otherwise read as the name "C")
-    const operand = code.replace(/^\s*(\.?[A-Za-z_][A-Za-z0-9_]*)/, "").replace(/\$[0-9A-Fa-f]+/g, "");
+    const operand = text.replace(/\$[0-9A-Fa-f]+/g, "");
     for (const match of operand.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
       const name = match[0]!;
       if (name === "x" || name === "y" || name === "a") continue;
@@ -3523,12 +3482,12 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
   if (missing.length === 0) return [];
   missing.sort((left, right) => addressOf.get(left)! - addressOf.get(right)!);
 
-  const lines = ["// Equates for named addresses this listing references but does not define"];
+  const lines: ListingLine[] = [L.comment("Equates for named addresses this listing references but does not define")];
   // a zero-page name is defined as the one-byte value it names (`$FB`), the width the operand has
   const valueOf = (address: number): string => (address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address));
   for (const name of missing) lines.push(...registry.equate(name, valueOf(addressOf.get(name)!)));
   if (lines.length === 1) return [];
-  lines.push("");
+  lines.push(L.blank());
   return lines;
 }
 
@@ -3545,7 +3504,7 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
  * `.label`, not a code label: the address is not in this file and must not
  * look as though it were.
  */
-function renderExternalLabelEquates(context: RenderAnalysisContext, registry: EquateRegistry): string[] {
+function renderExternalLabelEquates(context: RenderAnalysisContext, registry: EquateRegistry): ListingLine[] {
   const { startAddress, endAddress } = context.report.mapping;
   const foreign = Array.from(context.labelSet)
     .filter((address) => address < startAddress || address > endAddress)
@@ -3554,11 +3513,11 @@ function renderExternalLabelEquates(context: RenderAnalysisContext, registry: Eq
 
   const equates = foreign.flatMap((address) => registry.equate(makeLabel(address), formatAddress(address)));
   if (equates.length === 0) return [];
-  return ["// Addresses referenced from this file but defined in another payload", ...equates, ""];
+  return [L.comment("Addresses referenced from this file but defined in another payload"), ...equates, L.blank()];
 }
 
-function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage, registry: EquateRegistry): string[] {
-  const lines: string[] = [];
+function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage, registry: EquateRegistry): ListingLine[] {
+  const lines: ListingLine[] = [];
   const codeLikeSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations)
     .filter((segment) => segment.kind === "code" || segment.kind === "basic_stub");
   const instructionStarts = new Set<number>();
@@ -3590,27 +3549,27 @@ function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage,
 
   const aliases = aliasAddresses.flatMap((address) => registry.equate(makeLabel(address), formatAddress(address)));
   if (aliases.length === 0) return lines;
-  lines.push("// Address aliases for labels that point into operand/data bytes inside decoded code segments");
+  lines.push(L.comment("Address aliases for labels that point into operand/data bytes inside decoded code segments"));
   lines.push(...aliases);
-  lines.push("");
+  lines.push(L.blank());
   return lines;
 }
 
 /** Issue #70 — the equates for annotated runtime addresses that fall inside an instruction of a relocated block. */
-function renderRelocAliasEquates(registry: EquateRegistry): string[] {
+function renderRelocAliasEquates(registry: EquateRegistry): ListingLine[] {
   if (pendingRelocAliases.size === 0) return [];
   const equates = [...pendingRelocAliases]
     .sort((left, right) => left - right)
     .flatMap((address) => registry.equate(makeLabel(address), address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address)));
   if (equates.length === 0) return [];
-  return ["// Address aliases for annotated runtime addresses that fall inside an instruction of a relocated block", ...equates, ""];
+  return [L.comment("Address aliases for annotated runtime addresses that fall inside an instruction of a relocated block"), ...equates, L.blank()];
 }
 
 function renderCodeSegment(
   segment: Segment,
   prg: PrgImage,
   context: RenderAnalysisContext,
-  lines: string[],
+  lines: ListingLine[],
 ): void {
   // The last address this segment may write. A segment end past the last byte
   // of the image is not a licence to read bytes that are not there.
@@ -3629,7 +3588,7 @@ function renderCodeSegment(
     }
 
     if (context.labelSet.has(instruction.address)) {
-      lines.push(`${makeLabel(instruction.address)}:${labelCommentTextFromAnalysis(instruction.address, context.xrefsByTarget)}`);
+      lines.push(L.label(makeLabel(instruction.address), labelCommentTextFromAnalysis(instruction.address, context.xrefsByTarget)));
     }
 
     // Spec 830.1 — an instruction may not cross the end of its segment. The
@@ -3691,11 +3650,11 @@ function renderCodeSegment(
       lines.push(renderDisplayTransferFact(fact));
     }
 
-    let asm: string;
+    let asm: { mnemonic: string; operand: string | undefined; wide: boolean } | { bytes: string };
     let targetComment: string;
     if (requiresUndocumentedByteRendering(instruction)) {
       const rendered = renderUndocumentedInstructionBytes(instruction);
-      asm = rendered.asm;
+      asm = { bytes: rendered.args };
       targetComment = rendered.comment;
     } else {
       const operand = operandTextFromFact(
@@ -3705,9 +3664,9 @@ function renderCodeSegment(
         context.segmentOwnerByAddress,
         context.operandOverrides.get(instruction.address),
       );
-      // Exact-width (abs form with a zeropage operand) forces `.abs` so the rebuild
+      // Exact-width (abs form with a zeropage operand) is written `wide` so the rebuild
       // stays byte-identical while remaining readable code, not a .byte blob.
-      asm = renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(instruction));
+      asm = { mnemonic: instruction.mnemonic, operand, wide: requiresExactWidthRendering(instruction) };
       targetComment = generateInstructionComment(instruction, prevInstruction, context);
       // Fall back to simple IO comment if generator returned empty
       if (!targetComment) {
@@ -3715,11 +3674,13 @@ function renderCodeSegment(
       }
     }
     const probableComment =
-      instruction.provenance === "probable_code" && !targetComment ? "// probable code" : instruction.provenance === "probable_code" ? `${targetComment} | probable code` : targetComment;
-    lines.push(`      ${asm.padEnd(34)}${probableComment}`.trimEnd());
+      instruction.provenance === "probable_code" && !targetComment ? "probable code" : instruction.provenance === "probable_code" ? `${targetComment} | probable code` : targetComment;
+    lines.push("bytes" in asm
+      ? L.byte(asm.bytes, probableComment)
+      : instructionLine(asm.mnemonic, asm.operand, asm.wide, probableComment));
 
     if (instruction.mnemonic === "jmp" || instruction.mnemonic === "rts" || instruction.mnemonic === "rti") {
-      lines.push("");
+      lines.push(L.blank());
     }
 
     prevInstruction = instruction;
@@ -3746,26 +3707,26 @@ function codeEndsNote(
   bound: number,
   lastComplete: number | undefined,
   truncated: boolean,
-): string {
+): ListingLine {
   const count = bound - from + 1;
   const bytes = `$${formatHex16(from)}${count > 1 ? `-$${formatHex16(bound)}` : ""} (${count} byte${count === 1 ? "" : "s"})`;
   const why = truncated
     ? "opens an instruction whose operand bytes are past the end of these bytes"
     : `opens an instruction that would cross the segment end $${formatHex16(segment.end)}`;
   const ended = lastComplete !== undefined
-    ? `// CODE ENDS at $${formatHex16(lastComplete)}, the last instruction that fits`
-    : "// NO COMPLETE INSTRUCTION in this segment";
-  return `${ended}: ${bytes} ${why}, and renders as data.`;
+    ? `CODE ENDS at $${formatHex16(lastComplete)}, the last instruction that fits`
+    : "NO COMPLETE INSTRUCTION in this segment";
+  return L.comment(`${ended}: ${bytes} ${why}, and renders as data.`);
 }
 
 // Render a single analysis-driven segment (header + label + body). Extracted
 // so the relocation-aware path (Spec 741) can interleave gap segments with
 // .pseudopc blocks while reusing identical per-segment rendering.
-function renderOneAnalysisSegment(segment: Segment, prg: PrgImage, analysis: RenderAnalysisContext, lines: string[]): void {
+function renderOneAnalysisSegment(segment: Segment, prg: PrgImage, analysis: RenderAnalysisContext, lines: ListingLine[]): void {
   lines.push(...segmentHeader(segment, analysis));
 
   if (!(segment.kind === "code" || segment.kind === "basic_stub") && analysis.labelSet.has(segment.start)) {
-    lines.push(`${makeLabel(segment.start)}:${labelCommentTextFromAnalysis(segment.start, analysis.xrefsByTarget)}`);
+    lines.push(L.label(makeLabel(segment.start), labelCommentTextFromAnalysis(segment.start, analysis.xrefsByTarget)));
   }
 
   // A declared split table wins over whatever kind the segment carries: the same bytes are
@@ -3798,10 +3759,10 @@ function renderOneAnalysisSegment(segment: Segment, prg: PrgImage, analysis: Ren
     emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
   }
 
-  lines.push("");
+  lines.push(L.blank());
 }
 
-function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[]): void {
+function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, lines: ListingLine[]): void {
   lines.push(...renderAnalysisPreface(analysis));
   for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {
     renderOneAnalysisSegment(segment, prg, analysis, lines);
@@ -3842,7 +3803,7 @@ function declareAnnotatedLegacyLabels(
   prg: PrgImage,
   index: InstructionIndex,
   labels: Set<number>,
-): string[] {
+): ListingLine[] {
   if (!annotations) return [];
   const first = prg.loadAddress;
   const last = prg.loadAddress + prg.data.length - 1;
@@ -3861,16 +3822,16 @@ function declareAnnotatedLegacyLabels(
   }
   if (aliases.length === 0) return [];
 
-  const lines = ["// Address aliases for annotated addresses that fall inside an instruction"];
-  for (const address of aliases) lines.push(`      .label ${makeLabel(address)} = ${formatAddress(address)}`);
-  lines.push("");
+  const lines: ListingLine[] = [L.comment("Address aliases for annotated addresses that fall inside an instruction")];
+  for (const address of aliases) lines.push(L.equate(makeLabel(address), formatAddress(address)));
+  lines.push(L.blank());
   return lines;
 }
 
 function renderLegacy(
   prg: PrgImage,
   entryPoints: number[],
-  lines: string[],
+  lines: ListingLine[],
   annotations?: AnnotationsIndex,
 ): void {
   const instructions = decodeLinear(prg.loadAddress, prg.data, entryPoints);
@@ -3893,40 +3854,34 @@ function renderLegacy(
 
   for (const instruction of instructions) {
     if (labels.has(instruction.address)) {
-      lines.push(`${makeLabel(instruction.address)}:${labelCommentText(instruction.address, xrefs)}`);
+      lines.push(L.label(makeLabel(instruction.address), labelCommentText(instruction.address, xrefs)));
     }
 
-    const asm = instruction.isUnknown
-      ? `.byte $${formatHex8(instruction.bytes[0])}`
-      : (() => {
-          if (requiresUndocumentedByteRendering(instruction)) {
-            return renderUndocumentedInstructionBytes(instruction).asm;
-          }
-          const factShape = {
-            address: instruction.address,
-            addressingMode: instruction.mode,
-            operandValue: instruction.operand,
-            targetAddress: instruction.targetAddress,
-          };
-          const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
-          const namedOperand = instruction.mode === "ind" ? instruction.operand : instruction.mode.startsWith("abs") ? instruction.targetAddress : instruction.operand;
-          const namedLabel = annotatedOperandName(namedOperand);
-          if (namedLabel !== undefined && namedOperand !== undefined && operand.includes(namedLabel)) {
-            usedNamed.add(namedOperand);
-          }
-          // Force `.abs` for the abs-with-zeropage-operand case — otherwise KickAss/64tass
-          // shrink it to the 2-byte ZP form and byte-identity breaks (the segment-override bug).
-          return renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(factShape));
-        })();
-    const comment = instruction.isUnknown
-      ? ""
-      : requiresUndocumentedByteRendering(instruction)
-        ? renderUndocumentedInstructionBytes(instruction).comment
-        : commentTextFromTarget(instruction.targetAddress, instruction.address);
-    lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
+    if (instruction.isUnknown) {
+      lines.push(L.byte(`$${formatHex8(instruction.bytes[0])}`));
+    } else if (requiresUndocumentedByteRendering(instruction)) {
+      const undocumented = renderUndocumentedInstructionBytes(instruction);
+      lines.push(L.byte(undocumented.args, undocumented.comment));
+    } else {
+      const factShape = {
+        address: instruction.address,
+        addressingMode: instruction.mode,
+        operandValue: instruction.operand,
+        targetAddress: instruction.targetAddress,
+      };
+      const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
+      const namedOperand = instruction.mode === "ind" ? instruction.operand : instruction.mode.startsWith("abs") ? instruction.targetAddress : instruction.operand;
+      const namedLabel = annotatedOperandName(namedOperand);
+      if (namedLabel !== undefined && namedOperand !== undefined && operand.includes(namedLabel)) {
+        usedNamed.add(namedOperand);
+      }
+      // `wide` for the abs-with-zeropage-operand case — otherwise either assembler shrinks
+      // it to the 2-byte ZP form and byte-identity breaks (the segment-override bug).
+      lines.push(instructionLine(instruction.mnemonic, operand, requiresExactWidthRendering(factShape), commentTextFromTarget(instruction.targetAddress, instruction.address)));
+    }
 
     if (!instruction.isUnknown && (instruction.mnemonic === "jmp" || instruction.mnemonic === "rts" || instruction.mnemonic === "rti")) {
-      lines.push("");
+      lines.push(L.blank());
     }
   }
 
@@ -3937,12 +3892,12 @@ function renderLegacy(
     lines.splice(
       namedEquateAt,
       0,
-      "// Addresses outside this listing named by the annotations",
+      L.comment("Addresses outside this listing named by the annotations"),
       // a zero-page name is defined as the one-byte value it names, the width the operand has
       ...foreignNamed.map(
-        (address) => `      .label ${makeLabel(address)} = ${address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address)}`,
+        (address) => L.equate(makeLabel(address), address <= 0xff ? `$${formatHex8(address)}` : formatAddress(address)),
       ),
-      "",
+      L.blank(),
     );
   }
 }
@@ -4041,7 +3996,7 @@ function overlayRelocLabels(base: AnnotationsIndex | undefined, subSegments: Rel
 // tables, text) stay .byte — the same mixed code/data model as a normal
 // disasm, evaluated at the runtime pc. Labels resolve across the whole
 // block so internal branches/refs reassemble byte-exact.
-function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[] | undefined, lines: string[]): void {
+function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[] | undefined, lines: ListingLine[]): void {
   const runtimeStart = sub.loadAddress;
   const runtimeEnd = sub.loadAddress + sub.data.length - 1;
 
@@ -4097,12 +4052,12 @@ function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[]
         // Uncovered span between sub-segments → data (defensive, byte-exact).
         emitRelocDataRange(sub, cursor, s.start - 1, labels, lines, true);
       }
-      if (s.comment) lines.push(`      // ${s.comment}`);
+      if (s.comment) lines.push(L.comment(s.comment, 6));
       if (isRelocCodeKind(s.kind)) {
         emitRelocCodeRange(sub, Math.max(s.start, runtimeStart), Math.min(s.end, runtimeEnd), index, labels, xrefs, ownerByAddress, lines);
       } else {
         if (s.label || labels.has(s.start & 0xffff)) {
-          lines.push(`${makeLabel(s.start & 0xffff)}:${labelCommentText(s.start & 0xffff, xrefs)}`);
+          lines.push(L.label(makeLabel(s.start & 0xffff), labelCommentText(s.start & 0xffff, xrefs)));
         }
         emitRelocDataRange(sub, Math.max(s.start, runtimeStart), Math.min(s.end, runtimeEnd), labels, lines);
       }
@@ -4124,54 +4079,53 @@ function emitRelocCodeRange(
   labels: Set<number>,
   xrefs: CrossReferenceMap,
   ownerByAddress: Map<number, number>,
-  lines: string[],
+  lines: ListingLine[],
 ): void {
   let address = startAddr;
   while (address <= endAddr) {
     const instruction = index.byAddress.get(address);
     if (!instruction) {
       // Misalignment / stray byte → keep byte-exact as data.
-      lines.push(`      .byte $${formatHex8(sub.data[address - sub.loadAddress])}`);
+      lines.push(L.byte(`$${formatHex8(sub.data[address - sub.loadAddress])}`));
       address += 1;
       continue;
     }
     if (labels.has(instruction.address)) {
-      lines.push(`${makeLabel(instruction.address)}:${labelCommentText(instruction.address, xrefs)}`);
+      lines.push(L.label(makeLabel(instruction.address), labelCommentText(instruction.address, xrefs)));
     }
-    const asm = instruction.isUnknown
-      ? `.byte $${formatHex8(instruction.bytes[0])}`
-      : requiresUndocumentedByteRendering(instruction)
-        ? renderUndocumentedInstructionBytes(instruction).asm
-        : (() => {
-            const factShape = { address: instruction.address, addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress };
-            const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
-            // Force `.abs` for abs-with-zeropage-operand so the relocated rebuild stays byte-identical.
-            return renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(factShape));
-          })();
     let comment = instruction.isUnknown
       ? ""
       : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).comment
         : commentTextFromTarget(instruction.targetAddress, instruction.address);
     const selfMod = instruction.isUnknown ? undefined : relocSelfModNote(instruction);
-    if (selfMod) comment = comment ? `${comment} | ${selfMod}` : `// ${selfMod}`;
-    lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
+    if (selfMod) comment = comment ? `${comment} | ${selfMod}` : selfMod;
+    if (instruction.isUnknown) {
+      lines.push(L.byte(`$${formatHex8(instruction.bytes[0])}`));
+    } else if (requiresUndocumentedByteRendering(instruction)) {
+      lines.push(L.byte(renderUndocumentedInstructionBytes(instruction).args, comment));
+    } else {
+      const factShape = { address: instruction.address, addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress };
+      const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
+      // `wide` for abs-with-zeropage so the relocated rebuild stays byte-identical.
+      lines.push(instructionLine(instruction.mnemonic, operand, requiresExactWidthRendering(factShape), comment));
+    }
     if (!instruction.isUnknown && (instruction.mnemonic === "jmp" || instruction.mnemonic === "rts" || instruction.mnemonic === "rti")) {
-      lines.push("");
+      lines.push(L.blank());
     }
     address += instruction.size;
   }
 }
 
 // Emit a runtime-addressed data span as .byte (LUTs, tables, text, pads).
-function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, labels: Set<number>, lines: string[], labelStart = false): void {
+function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, labels: Set<number>, lines: ListingLine[], labelStart = false): void {
   if (endAddr < startAddr) return;
   let address = startAddr;
   while (address <= endAddr) {
     // Break .byte chunks at interior label anchors so refs stay addressable.
     // `labelStart`: the span has no sub-segment line of its own, so its first byte is labelled here.
     if ((address !== startAddr || labelStart) && labels.has(address)) {
-      lines.push(`${makeLabel(address)}:`);
+      lines.push(L.label(makeLabel(address)));
     }
     let chunkEnd = Math.min(endAddr, address + 15);
     for (let probe = address + 1; probe <= chunkEnd; probe += 1) {
@@ -4179,40 +4133,35 @@ function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, l
     }
     const offset = address - sub.loadAddress;
     const bytes = Array.from(sub.data.subarray(offset, offset + (chunkEnd - address + 1))).map((v) => `$${formatHex8(v)}`);
-    lines.push(`      .byte ${bytes.join(", ")}`);
+    lines.push(L.byte(bytes.join(", ")));
     address = chunkEnd + 1;
   }
 }
 
 // Spec 741: render the bytes stored at [fileStart..fileEnd] at their RUNTIME
-// pc, wrapped in a KickAssembler .pseudopc block. Stored bytes are unchanged
+// pc, wrapped in a relocation block (.pseudopc / .logical). Stored bytes are unchanged
 // (byte-exact rebuild); only the interpretation pc differs.
-function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: string[]): void {
+function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: ListingLine[]): void {
   const startOffset = reloc.fileStart - prg.loadAddress;
   const length = reloc.fileEnd - reloc.fileStart + 1;
   const slice = prg.data.subarray(startOffset, startOffset + length);
   const sub: PrgImage = { loadAddress: reloc.runtimeAddr & 0xffff, data: slice };
 
   const labelSuffix = reloc.label ? ` (${reloc.label})` : "";
-  lines.push(
-    `      // relocated: stored $${formatHex16(reloc.fileStart)}-$${formatHex16(reloc.fileEnd)}` +
+  lines.push(L.comment(
+    `relocated: stored $${formatHex16(reloc.fileStart)}-$${formatHex16(reloc.fileEnd)}` +
       ` runs at $${formatHex16(reloc.runtimeAddr)}${labelSuffix}`,
-  );
-  lines.push(`      .pseudopc $${formatHex16(reloc.runtimeAddr)} {`);
-
-  const body: string[] = [];
-  renderRelocationBody(sub, reloc.subSegments, body);
-  for (const line of body) {
-    lines.push(line.length > 0 ? `        ${line}` : line);
-  }
-
-  lines.push("      }");
-  lines.push("");
+    6,
+  ));
+  lines.push(L.relocBegin(reloc.runtimeAddr));
+  renderRelocationBody(sub, reloc.subSegments, lines);
+  lines.push(L.relocEnd());
+  lines.push(L.blank());
 }
 
 // Spec 741 (Slice A): render a non-relocated stretch [startAddr..endAddr]
 // (file = runtime) via the existing linear renderer over a sub-image.
-function renderGapLegacy(prg: PrgImage, startAddr: number, endAddr: number, lines: string[]): void {
+function renderGapLegacy(prg: PrgImage, startAddr: number, endAddr: number, lines: ListingLine[]): void {
   const sub: PrgImage = {
     loadAddress: startAddr,
     data: prg.data.subarray(startAddr - prg.loadAddress, endAddr - prg.loadAddress + 1),
@@ -4394,7 +4343,7 @@ function projectAnnotationSegments(
 // Partitions the file address space into ordered gap / relocation chunks
 // so each byte is emitted exactly once. Relocation regions are authoritative
 // and excluded from the normal file-offset walk (no double emission).
-function renderWithRelocations(prg: PrgImage, entryPoints: number[], lines: string[], relocations: RelocationEntry[]): void {
+function renderWithRelocations(prg: PrgImage, entryPoints: number[], lines: ListingLine[], relocations: RelocationEntry[]): void {
   const fileLast = prg.loadAddress + prg.data.length - 1;
   let cursor = prg.loadAddress;
   for (const reloc of relocations) {
@@ -4458,12 +4407,12 @@ export class EquateRegistry {
   }
 
   /** The equate line, or nothing when this exact definition was already made. */
-  equate(name: string, value: string, comment = ""): string[] {
+  equate(name: string, value: string, comment = ""): ListingLine[] {
     const key = EquateRegistry.normalise(value);
     const known = this.values.get(name);
     if (known?.has(key)) return [];
     if (known) known.add(key); else this.values.set(name, new Set([key]));
-    return [`      .label ${name} = ${value}${comment}`];
+    return [L.equate(name, value, comment)];
   }
 }
 
@@ -4471,7 +4420,7 @@ export class EquateRegistry {
 // via the full analysis path (clipped to non-relocated sub-intervals);
 // relocation regions render as .pseudopc blocks. Items are emitted in file
 // address order so the byte stream stays a single, gap-free emission.
-function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[], registry: EquateRegistry): void {
+function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: ListingLine[], relocations: RelocationEntry[], registry: EquateRegistry): void {
   lines.push(...renderAnalysisPreface(analysis));
 
   // Spec 842 — hand each relocation the annotation segments that fall inside it, in
@@ -4485,8 +4434,8 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
     const projected = projection.subSegmentsByRelocStart.get(r.fileStart);
     return r.subSegments && r.subSegments.length > 0 ? r : (projected ? { ...r, subSegments: projected } : r);
   });
-  for (const note of projection.notes) lines.push(`      // [relocation] ${note}`);
-  if (projection.notes.length > 0) lines.push("");
+  for (const note of projection.notes) lines.push(L.comment(`[relocation] ${note}`, 6));
+  if (projection.notes.length > 0) lines.push(L.blank());
 
   // Spec 741: a reference from OUTSIDE a relocated region to an address INSIDE
   // its file range (e.g. the copy loop's `lda src,x`) targets the STORED bytes
@@ -4522,7 +4471,7 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
   for (const addr of aliasAddrs) {
     lines.push(...registry.equate(makeLabel(addr), `$${formatHex16(addr)}`));
   }
-  if (lines.length > aliasStart) lines.push("");
+  if (lines.length > aliasStart) lines.push(L.blank());
 
   type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
   const items: Item[] = [];
@@ -4574,18 +4523,23 @@ function countAnnotations(index: AnnotationsIndex): { names: number; structural:
   };
 }
 
-function annotationHeaderLine(index: AnnotationsIndex | undefined, mode: AnnotationRenderMode): string {
-  if (!index) return "//  No semantic annotations found";
+function annotationHeaderLine(index: AnnotationsIndex | undefined, mode: AnnotationRenderMode): ListingLine {
+  return L.commentRaw(annotationHeaderText(index, mode));
+}
+
+/** The text of the header line after its comment marker — the one reader of it is `listingAnnotationStatus`. */
+function annotationHeaderText(index: AnnotationsIndex | undefined, mode: AnnotationRenderMode): string {
+  if (!index) return "  No semantic annotations found";
   const { names, structural } = countAnnotations(index);
   const skipped = index.skipped.length > 0 ? `, ${index.skipped.length} skipped` : "";
-  const notApplied = (reason: string): string => `//  Semantic annotations found but NOT applied: ${reason}${skipped}`;
+  const notApplied = (reason: string): string => `  Semantic annotations found but NOT applied: ${reason}${skipped}`;
 
   if (mode === "relocation") {
     return notApplied("relocation rendering without an analysis JSON — pass analysis_json to apply them");
   }
   if (mode === "analysis") {
     if (names === 0 && structural === 0) return notApplied("the file declares no names and no segment/table annotations");
-    return `//  Semantic annotations applied: ${names} names, ${structural} segment/table annotations${skipped}`;
+    return `  Semantic annotations applied: ${names} names, ${structural} segment/table annotations${skipped}`;
   }
   // legacy: names apply (D1b), the structural half needs the analyser's segments
   if (names === 0) {
@@ -4598,7 +4552,7 @@ function annotationHeaderLine(index: AnnotationsIndex | undefined, mode: Annotat
   const rest = structural > 0
     ? ` — the file's ${structural} segment/table annotations need an analysis JSON and were NOT applied`
     : "";
-  return `//  Semantic annotations applied: ${names} names${skipped}${rest}`;
+  return `  Semantic annotations applied: ${names} names${skipped}${rest}`;
 }
 
 /**
@@ -4626,7 +4580,11 @@ function reportAnnotationApplication(index: AnnotationsIndex, mode: AnnotationRe
   }
 }
 
-export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): DisasmListingStats {
+export function disassemblePrg(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): DisasmListingStats {
+  const dialect = options.dialect ?? dialectOfPath(outputPath);
+  if (dialect === undefined) {
+    throw new Error(`cannot tell which assembler dialect to write ${outputPath} in: name the output .asm (KickAssembler) or .tas (64tass), or pass the dialect.`);
+  }
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
   activeCartridgeType = options.cartridgeType;
@@ -4733,17 +4691,17 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   if (annotationsIndex) reportAnnotationApplication(annotationsIndex, renderMode);
 
   const packerHints = analysisReport?.packerHints ?? [];
-  const lines: string[] = [
-    "//****************************",
-    "//  TRXDis ASM",
-    "//  ",
-    "//  Source in KickAssembler format",
+  const lines: ListingLine[] = [
+    L.commentRaw("****************************"),
+    L.commentRaw("  TRXDis ASM"),
+    L.commentRaw("  "),
+    L.commentRaw(`  Source in ${dialect === "64tass" ? "64tass" : "KickAssembler"} format`),
     // Which analysis, by name. The listing outlives the call that made it, and
     // "Analysis-driven rendering enabled" does not say WHICH analysis drove it — the
     // question a caller who passed one file and got another file's segments has.
-    analysisContext
-      ? `//  Analysis-driven rendering enabled (${usedAnalysisPath ?? "analysis"})`
-      : "//  Legacy linear rendering",
+    L.commentRaw(analysisContext
+      ? `  Analysis-driven rendering enabled (${usedAnalysisPath ?? "analysis"})`
+      : "  Legacy linear rendering"),
     annotationHeaderLine(annotationsIndex, renderMode),
   ];
   // A headerless block says what it is, where its bytes came from and what seeded it,
@@ -4753,24 +4711,24 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     lines.push(...rawProvenanceHeader(resolvedPrgPath, options.raw, prg, options.entryPoints ?? [], analysisContext !== undefined));
   }
   if (packerHints.length > 0) {
-    lines.push("//  ");
-    lines.push("//  WARNING: input looks compressed — disassembly is of the packed payload, not real code");
+    lines.push(L.commentRaw("  "));
+    lines.push(L.comment(" WARNING: input looks compressed — disassembly is of the packed payload, not real code"));
     for (const hint of packerHints) {
-      lines.push(`//    PACKER: ${hint.format} (conf=${hint.confidence.toFixed(2)})${hint.unpackedSize !== undefined ? `, unpacked ≈ ${hint.unpackedSize} bytes` : ""}`);
+      lines.push(L.comment(`   PACKER: ${hint.format} (conf=${hint.confidence.toFixed(2)})${hint.unpackedSize !== undefined ? `, unpacked ≈ ${hint.unpackedSize} bytes` : ""}`));
     }
-    lines.push("//  Run the matching depacker tool (e.g. depack_exomizer_sfx) and re-analyze the unpacked output.");
+    lines.push(L.comment(" Run the matching depacker tool (e.g. depack_exomizer_sfx) and re-analyze the unpacked output."));
   }
-  lines.push("//****************************");
-  lines.push("");
-  lines.push("      .cpu _6502");
-  lines.push("");
-  lines.push("");
-  lines.push(`      .pc = $${formatHex16(prg.loadAddress)} "code"`);
-  lines.push("");
+  lines.push(L.commentRaw("****************************"));
+  lines.push(L.blank());
+  lines.push(L.cpu());
+  lines.push(L.blank());
+  lines.push(L.blank());
+  lines.push(L.origin(prg.loadAddress));
+  lines.push(L.blank());
 
   if (relocations && analysisContext) {
     const registry = new EquateRegistry();
-    const body: string[] = [];
+    const body: ListingLine[] = [];
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations, registry);
     lines.push(...renderIoRegisterEquates(registry));
     lines.push(...renderGraphNameEquates(analysisContext, body, registry));
@@ -4784,7 +4742,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     insertIoRegisterEquates(lines);
   } else if (analysisContext) {
     const registry = new EquateRegistry();
-    const body: string[] = [];
+    const body: ListingLine[] = [];
     renderWithAnalysis(prg, analysisContext, body);
     lines.push(...renderIoRegisterEquates(registry));
     lines.push(...renderGraphNameEquates(analysisContext, body, registry));
@@ -4808,22 +4766,16 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   pendingRelocAliases = new Set();
   activeExternalEntries = undefined;
   activeExternalAbi = undefined;
-  const kickAsmOutput = `${lines.join("\n")}\n`;
-  writeFileSync(outputPath, kickAsmOutput, "utf8");
-
-  // Also emit 64tass version alongside the KickAssembler output
-  const tassPath = outputPath.replace(/\.asm$/i, ".tas");
-  if (tassPath !== outputPath) {
-    writeFileSync(tassPath, convertKickAsmToTass(kickAsmOutput), "utf8");
-  }
+  // ONE file, in the dialect the caller resolved (Spec 914 D1): the lines are written down once.
+  writeFileSync(outputPath, emitListing(lines, dialect), "utf8");
 
   return {
     loadAddress: prg.loadAddress,
     byteLength: prg.data.length,
-    ...countBodyLines(lines),
+    ...countListingLines(lines),
     renderMode,
-    asmPath: outputPath,
-    tassPath,
+    listingPath: outputPath,
+    dialect,
     analysisPath: usedAnalysisPath,
     annotationsPath: usedAnnotationsPath,
   };
@@ -4842,7 +4794,7 @@ function rawProvenanceHeader(
   prg: PrgImage,
   entryPoints: readonly number[],
   hasAnalysis: boolean,
-): string[] {
+): ListingLine[] {
   const offset = window.offset ?? 0;
   const length = prg.data.length;
   const last = (prg.loadAddress + length - 1) & 0xffff;
@@ -4851,36 +4803,12 @@ function rawProvenanceHeader(
     ? `$${formatHex16(prg.loadAddress)} (the first byte — no entry point was given)`
     : inside.map((address) => `$${formatHex16(address)}`).join(", ");
   return [
-    "//  ",
-    "//  Raw block — the bytes carry no PRG load header and none was invented.",
-    `//  Source: ${basename(sourcePath)} bytes ${offset}..${offset + length - 1} `
+    "  ",
+    "  Raw block — the bytes carry no PRG load header and none was invented.",
+    `  Source: ${basename(sourcePath)} bytes ${offset}..${offset + length - 1} `
       + `(offset ${offset} = $${formatHex16(offset)}, length ${length} = $${formatHex16(length)})`,
-    `//  Runs at: $${formatHex16(prg.loadAddress)}-$${formatHex16(last)}`,
-    `//  Seeded: ${seeded}`,
-    `//  Analysis: ${hasAnalysis ? "supplied — segment-aware rendering" : "none — linear rendering, every byte read as code"}`,
-  ];
-}
-
-/**
- * Instructions and data lines in a rendered body.
- *
- * A body line is six-space indented; one that begins with a `.` is a directive or a
- * data row, anything else carries a mnemonic. Counted off the emitted lines rather
- * than off a second walk of the bytes, so the number describes the listing the caller
- * is actually handed.
- */
-function countBodyLines(lines: readonly string[]): { instructionCount: number; dataLineCount: number } {
-  let instructionCount = 0;
-  let dataLineCount = 0;
-  for (const line of lines) {
-    const match = /^ {6}(\S+)/.exec(line);
-    if (!match) continue;
-    const token = match[1]!;
-    if (token.startsWith(".")) {
-      if (/^\.(byte|text|word|dword|fill|encoding)\b/i.test(token)) dataLineCount += 1;
-      continue;
-    }
-    instructionCount += 1;
-  }
-  return { instructionCount, dataLineCount };
+    `  Runs at: $${formatHex16(prg.loadAddress)}-$${formatHex16(last)}`,
+    `  Seeded: ${seeded}`,
+    `  Analysis: ${hasAnalysis ? "supplied — segment-aware rendering" : "none — linear rendering, every byte read as code"}`,
+  ].map((raw) => L.commentRaw(raw));
 }

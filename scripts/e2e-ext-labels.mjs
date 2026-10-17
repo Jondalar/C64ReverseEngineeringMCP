@@ -92,10 +92,13 @@ try {
     for (const mode of ["analysis", "legacy"]) {
       const tag = `${platform}/${mode}`;
       const asmPath = join(dir, `${platform}_${mode}.asm`);
-      node("disasm-prg", prg, asmPath, ...(mode === "analysis" ? ["--analysis", analysis] : ["--no-analysis", "1001"]),
-        "--platform", platform, "--annotations", annPath);
-      const asm = readFileSync(asmPath, "utf8");
       const tasPath = asmPath.replace(/\.asm$/, ".tas");
+      const renderArgs = [...(mode === "analysis" ? ["--analysis", analysis] : ["--no-analysis", "1001"]),
+        "--platform", platform, "--annotations", annPath];
+      // Spec 914 — a render writes ONE listing in ONE dialect; the other dialect is its own render of the same bytes.
+      node("disasm-prg", prg, asmPath, ...renderArgs, "--dialect", "kickass");
+      node("disasm-prg", prg, tasPath, ...renderArgs, "--dialect", "64tass");
+      const asm = readFileSync(asmPath, "utf8");
       const tas = readFileSync(tasPath, "utf8");
       console.log(`\n── ${tag}`);
 
@@ -147,7 +150,10 @@ try {
   const ranalysis = join(dir, "ran.json");
   node("analyze-prg", rprg, ranalysis, "1001");
   const rasmPath = join(dir, "reloc.asm");
-  node("disasm-prg", rprg, rasmPath, "--analysis", ranalysis, "--platform", "none", "--relocations", rmap, "--annotations", rann);
+  const rrenderArgs = ["--analysis", ranalysis, "--platform", "none", "--relocations", rmap, "--annotations", rann];
+  // Spec 914 — a render writes ONE listing in ONE dialect; the other dialect is its own render of the same bytes.
+  node("disasm-prg", rprg, rasmPath, ...rrenderArgs, "--dialect", "kickass");
+  node("disasm-prg", rprg, rasmPath.replace(/\.asm$/, ".tas"), ...rrenderArgs, "--dialect", "64tass");
   const rasm = readFileSync(rasmPath, "utf8");
   const rtas = readFileSync(rasmPath.replace(/\.asm$/, ".tas"), "utf8");
   for (const [text, kind] of [[rasm, ".asm"], [rtas, ".tas"]]) {
