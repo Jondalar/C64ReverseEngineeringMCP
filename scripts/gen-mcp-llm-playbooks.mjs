@@ -287,6 +287,7 @@ const PLAYBOOKS = [
     preconditions: ["The shared session must not be disturbed.", "The work is bounded — a test run, a depack, a set of screenshots."],
     steps: [
       { actor: "llm", action: "Run the medium on a private daemon that ends itself on its budget, or load and start a .prg in one shot when a session is already yours.", tools: ["runtime_sandbox_run", "runtime_run_prg"], persist: ["run result", "screens"] },
+      { actor: "llm", action: "For an interactive loop of your own — stepping, breakpoints, traces, rewind — start a sandbox session with a stated purpose and a budget, pass its session_id to the runtime_* tools, list what is running, and end it when the answer is in hand.", tools: ["runtime_sandbox_start", "runtime_sandbox_list", "runtime_sandbox_end"], persist: ["session id", "findings from the loop"] },
       { actor: "llm", action: "For documentation screens, play a written scenario and assemble the reel — the same .feature notation the recorder writes.", tools: ["runtime_scene_reel"], persist: ["reel path", "capture cycles"] },
       { actor: "llm", action: "For bytes rather than a machine: run the game's own depacker over the packed payload, or one routine in a flat 64K sandbox.", tools: ["sandbox_depack", "sandbox_6502_run", "agent_record_step"], persist: ["plaintext payload", "routine output"] },
     ],

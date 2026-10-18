@@ -27,7 +27,7 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:store-concurrency
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -293,7 +293,12 @@ const readStore = (dir) => {
     rmSync(join(proj, "knowledge", "artifacts.json"), { force: true });
     mkdirSync(join(proj, "knowledge", "artifacts.json"), { recursive: true });
 
-    const answer = await call("extract_disk", { image_path: join(ROOT, "samples/fixtures/load-fidelity/lf-002-5block.d64") });
+    // The image is copied out of the checkout: a checkout nested in another project (a worktree) would have its
+    // samples refused as that project's file, and the case under test is the registration failure, not that guard.
+    const image = join(tmpdir(), `c64re-conc-img-${process.pid}.d64`);
+    copyFileSync(join(ROOT, "samples/fixtures/load-fidelity/lf-002-5block.d64"), image);
+    const answer = await call("extract_disk", { image_path: image });
+    rmSync(image, { force: true });
     const firstLine = answer.split("\n")[0];
     check(/NOT REGISTERED/.test(firstLine), "the banner is the FIRST thing the door says", firstLine.slice(0, 110));
     check(!/registration skipped/i.test(answer), "the old 'registration skipped' wording is gone");

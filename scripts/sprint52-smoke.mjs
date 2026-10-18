@@ -1,6 +1,6 @@
 // Spec 060 / Bug 30 — saveArtifact path-first dedup + dedupeArtifactRegistry smoke.
 
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, renameSync } from "node:fs";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,8 +37,10 @@ try {
   assert.equal(b.id, a.id, "path-dedup must reuse existing id even when caller passes input.id");
 
   // Caller C passes neither id nor matching path but a hash that matches.
+  // Two files with the same bytes are not one file: the hash matcher only follows a file that MOVED, i.e. the
+  // matched row's own file is gone. So the original goes away first (rename), as it does in a real move.
   const movedPath = join(root, "moved.prg");
-  writeFileSync(movedPath, Buffer.from([0x00, 0x08, 0xa9, 0x00, 0x60])); // same bytes
+  renameSync(prgPath, movedPath);
   const c = service.saveArtifact({
     kind: "prg",
     scope: "input",
@@ -56,6 +58,21 @@ try {
   // Latest record should carry the latest role write (disasm-target overwrote, then moved-target).
   // We don't assert the exact role since saveArtifact does input.role ?? existing.role
   // semantics — only that we have a single record.
+
+  // Negative half of the hash matcher: a COPY (original still on disk) is a second artifact, not a move.
+  const root2 = mkdtempSync(join(tmpdir(), "c64re-sprint52-copy-"));
+  try {
+    const svc2 = new ProjectKnowledgeService(root2);
+    svc2.initProject({ name: "Bug 30 copy", description: "" });
+    writeFileSync(join(root2, "one.prg"), Buffer.from([0x00, 0x08, 0xa9, 0x00, 0x60]));
+    writeFileSync(join(root2, "two.prg"), Buffer.from([0x00, 0x08, 0xa9, 0x00, 0x60]));
+    const one = svc2.saveArtifact({ kind: "prg", scope: "input", title: "one", path: join(root2, "one.prg") });
+    const two = svc2.saveArtifact({ kind: "prg", scope: "input", title: "two", path: join(root2, "two.prg") });
+    assert.notEqual(two.id, one.id, "same bytes at a second path with the first still present are two artifacts");
+    assert.equal(svc2.listArtifacts().length, 2);
+  } finally {
+    rmSync(root2, { recursive: true, force: true });
+  }
 
   // ---- Test 2: derivedFrom bypasses path-dedup (real lineage bump) ----
   const derivative = service.saveArtifact({

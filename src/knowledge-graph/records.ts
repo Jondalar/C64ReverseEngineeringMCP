@@ -371,6 +371,9 @@ export class KnowledgeRecords {
       updatedAt: a.updated_at,
     };
     if (a.body) record.summary = a.body;
+    // entityAttrs stores the range under address_range; a prose-folded entity (a range no address node can
+    // carry, e.g. a cartridge address above $ffff) has no node to read it from, so it comes back from here.
+    const proseRange = range(attrs.address_range); if (proseRange) record.addressRange = proseRange;
     const fmt = str(payload.format); if (fmt) record.payloadFormat = fmt as EntityRecord["payloadFormat"];
     const packer = str(payload.packer); if (packer) record.payloadPacker = packer;
     const src = str(payload.source_artifact_id); if (src) record.payloadSourceArtifactId = src;

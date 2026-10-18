@@ -92,41 +92,27 @@ try {
   const directArt = service.saveArtifact({
     kind: "prg", scope: "input", title: "direct", path: prgDirect, role: "analysis-target",
   });
-  // Force-create entity with NO hash (bypass dedup by using new id).
-  const fs = await import("node:fs");
-  const entitiesPath = join(root, "knowledge", "entities.json");
-  const eStore = JSON.parse(fs.readFileSync(entitiesPath, "utf8"));
-  eStore.items.push({
-    id: "entity-direct-test",
+  // An entity with NO hash: saveEntity only hashes what it is told to. (The test used to plant the row in
+  // knowledge/entities.json; since a323cf96 (Spec 822.2) the graph is the store and that file is gone.)
+  const direct = service.saveEntity({
     kind: "payload",
     name: "direct",
-    summary: "",
-    status: "active",
-    confidence: 1,
-    evidence: [],
     artifactIds: [directArt.id],
-    relatedEntityIds: [],
     payloadLoadAddress: 0x0801,
     payloadFormat: "prg",
     payloadSourceArtifactId: directArt.id,
-    payloadAsmArtifactIds: [],
-    aliases: [],
-    mediumSpans: [],
-    tags: [],
-    createdAt: "2099-01-01T00:00:00.000Z",
-    updatedAt: "2099-01-01T00:00:00.000Z",
   });
-  fs.writeFileSync(entitiesPath, JSON.stringify(eStore, null, 2));
+  assert.equal(direct.payloadContentHash, undefined, "the legacy-state entity starts without a hash");
 
   const dry = service.backfillPayloadContentHashes({ dryRun: true });
   assert.equal(dry.updated, 1, `dry: 1 backfilled; got ${dry.updated}`);
   // dry-run must not touch state
-  const beforeApply = service.listEntities({ kind: "payload" }).find((e) => e.id === "entity-direct-test");
+  const beforeApply = service.listEntities({ kind: "payload" }).find((e) => e.id === direct.id);
   assert.equal(beforeApply.payloadContentHash, undefined);
 
   const applied = service.backfillPayloadContentHashes({ dryRun: false });
   assert.equal(applied.updated, 1);
-  const afterApply = service.listEntities({ kind: "payload" }).find((e) => e.id === "entity-direct-test");
+  const afterApply = service.listEntities({ kind: "payload" }).find((e) => e.id === direct.id);
   assert.ok(afterApply.payloadContentHash, "hash backfilled on entity");
   assert.equal(afterApply.payloadContentHash.length, 64);
 
@@ -136,34 +122,21 @@ try {
 
   // ---- Test (d): backfill_manifest_payload_hashes (manifest re-parse) ----
   // First, simulate legacy state: clear hashes from real-manifest entities.
-  const eStore2 = JSON.parse(fs.readFileSync(entitiesPath, "utf8"));
-  // Add the entities that real_manifest WOULD have created if importManifestArtifact were called.
-  // Use stableId pattern matching manifest-import.
+  // Add the entities that real_manifest WOULD have created if importManifestArtifact were called,
+  // under the importer's own ids (they resolve through the id ledger) and WITHOUT a content hash.
   for (let i = 0; i < imported.entities.length; i++) {
-    const id = imported.entities[i].id;
-    eStore2.items.push({
-      id,
+    service.saveEntity({
+      id: imported.entities[i].id,
       kind: "disk-file",
       name: imported.entities[i].name,
-      summary: "",
-      status: "active",
-      confidence: 1,
-      evidence: [],
       artifactIds: [realManifestArt.id],
-      relatedEntityIds: [],
       payloadLoadAddress: 0x4000,
       payloadFormat: "prg",
       payloadSourceArtifactId: realManifestArt.id,
       // intentionally NO payloadContentHash (legacy state)
-      payloadAsmArtifactIds: [],
-      aliases: [],
-      mediumSpans: [],
       tags: ["manifest-import", "disk-file", "payload", "PRG"],
-      createdAt: "2099-01-01T00:00:00.000Z",
-      updatedAt: "2099-01-01T00:00:00.000Z",
     });
   }
-  fs.writeFileSync(entitiesPath, JSON.stringify(eStore2, null, 2));
 
   const mDry = service.backfillManifestPayloadHashes({ dryRun: true });
   assert.equal(mDry.manifestsScanned, 2, "both manifests scanned");
@@ -172,7 +145,7 @@ try {
   const mApplied = service.backfillManifestPayloadHashes({ dryRun: false });
   assert.equal(mApplied.updated, 2);
   for (const ent of imported.entities) {
-    const after = service.listEntities().find((e) => e.id === ent.id);
+    const after = service.getEntity(ent.id); // the importer id is a ledger alias of the graph node
     assert.ok(after.payloadContentHash, `manifest entity ${ent.name} hash backfilled`);
     assert.equal(after.payloadContentHash, ent.payloadContentHash);
   }

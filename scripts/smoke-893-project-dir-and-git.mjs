@@ -129,7 +129,18 @@ try {
     const fine = await tool("read_artifact", { path: outside });
     check(fine.includes("plain input"), "4 a file outside any project is read through A, as before", fine);
     const inRepo = await tool("read_artifact", { path: join(ROOT, "package.json") });
-    check(inRepo.includes('"name"') && !/refuses/.test(inRepo), "4b a file inside the MCP repo (samples, fixtures) is not another project's file", inRepo.slice(0, 80));
+    // The repo is exempt from "another project's file" only as the repo itself. A checkout that sits INSIDE a
+    // project (a worktree under another checkout that carries a knowledge/ marker, as .claude/worktrees/* does)
+    // lies in that enclosing project, and the refusal naming it is the correct answer there.
+    let enclosing;
+    for (let d = dirname(ROOT); d !== dirname(d) && !enclosing; d = dirname(d)) {
+      if (existsSync(join(d, "knowledge", "phase-plan.json")) || existsSync(join(d, "knowledge", "workflow-state.json"))) enclosing = d;
+    }
+    if (!enclosing) {
+      check(inRepo.includes('"name"') && !/refuses/.test(inRepo), "4b a file inside the MCP repo (samples, fixtures) is not another project's file", inRepo.slice(0, 80));
+    } else {
+      check(/refuses/.test(inRepo) && inRepo.includes(enclosing), "4b a checkout nested in a project: its files belong to that enclosing project, which the refusal names", inRepo.slice(0, 80));
+    }
   });
 
   // ── 6 — no git on PATH ────────────────────────────────────────────────────────────

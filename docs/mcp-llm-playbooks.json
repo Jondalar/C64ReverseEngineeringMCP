@@ -1372,6 +1372,19 @@
         },
         {
           "actor": "llm",
+          "action": "For an interactive loop of your own — stepping, breakpoints, traces, rewind — start a sandbox session with a stated purpose and a budget, pass its session_id to the runtime_* tools, list what is running, and end it when the answer is in hand.",
+          "tools": [
+            "runtime_sandbox_start",
+            "runtime_sandbox_list",
+            "runtime_sandbox_end"
+          ],
+          "persist": [
+            "session id",
+            "findings from the loop"
+          ]
+        },
+        {
+          "actor": "llm",
           "action": "For documentation screens, play a written scenario and assemble the reel — the same .feature notation the recorder writes.",
           "tools": [
             "runtime_scene_reel"
