@@ -99,7 +99,7 @@ const payloadPath = (n) => `artifacts/payloads/p${String(n).padStart(3, "0")}.pr
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-060-bulk", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "bulk-doors" });
+  await call("project_init", { preferred_assembler: "kickass", name: "bulk-doors" });
   await call("agent_onboard", {});
 
   mkdirSync(join(proj, "artifacts", "payloads"), { recursive: true });

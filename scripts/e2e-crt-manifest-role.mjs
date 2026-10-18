@@ -78,7 +78,7 @@ try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
 
-  await call("project_init", { project_dir: projectDir, name: "crt-manifest-role" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "crt-manifest-role" });
   await call("agent_onboard", { project_dir: projectDir });
   const r1 = await call("extract_crt", { project_dir: projectDir, crt_path: "media/one.crt", output_dir: "analysis/crt-one" });
   console.log(textOf(r1).split("\n").map((l) => "    | " + l).join("\n"));

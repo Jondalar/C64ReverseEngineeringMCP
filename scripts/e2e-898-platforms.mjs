@@ -148,10 +148,21 @@ const rpc = (method, params) => new Promise((res, rej) => {
   pend.set(id, (m) => { clearTimeout(t); res(m); });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
 });
-const call = async (name, args) => {
+const callOnce = async (name, args) => {
   const r = await rpc("tools/call", { name, arguments: args });
   if (r.error) throw new Error(`${name}: ${JSON.stringify(r.error)}`);
   return (r.result?.content || []).map((c) => c.text).join("\n");
+};
+// Spec 914 — a render writes ONE listing in ONE dialect. This test compares both, so every disasm
+// door call is followed by the same call written as `.tas`: a preview (import_graph=false), which
+// records nothing — the first render stays what the test is about.
+const call = async (name, args) => {
+  const text = await callOnce(name, args);
+  if (/^(disasm|disasm_prg|disasm_raw)$/.test(name) && !args?.paths) {
+    const out = /^Output: (.+\.asm)$/m.exec(text)?.[1];
+    if (out) await callOnce(name, { ...args, output_asm: out.replace(/\.asm$/, ".tas"), import_graph: false });
+  }
+  return text;
 };
 
 // One routine, written for no machine in particular: a border-colour store, the 6510 port,
@@ -216,10 +227,10 @@ const edgesTo = (dir, owner, type) => {
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-898", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  const initA = await call("project_init", { name: "platforms-a" });
+  const initA = await call("project_init", { preferred_assembler: "kickass", name: "platforms-a" });
   check(/Platform: c64 \(default\)/.test(initA), "project_init without platform: the project's machine is the C64", initA.split("\n").find((l) => l.startsWith("Platform")));
   await call("agent_onboard", {});
-  const initB = await call("project_init", { project_dir: projB, name: "platforms-b", platform: "vic20" });
+  const initB = await call("project_init", { preferred_assembler: "kickass", project_dir: projB, name: "platforms-b", platform: "vic20" });
   await call("agent_onboard", { project_dir: projB });
   check(/Platform: vic20/.test(initB), "project_init platform=vic20 sets the project default", initB.split("\n").find((l) => l.startsWith("Platform")));
   check(JSON.parse(readFileSync(join(projB, "knowledge", "project.json"), "utf8")).platform === "vic20", "…and it is in knowledge/project.json");
@@ -564,7 +575,7 @@ function makeD64(files) {
   head(10, "D8: the machine is stated and asked for; D9: a raw cartridge image is placed by its signature");
   const mkProject = async (tag, platform) => {
     const d = mkdtempSync(join(tmpdir(), `c64re-898-${tag}-`));
-    await call("project_init", { project_dir: d, name: `platforms-${tag}`, ...(platform ? { platform } : {}) });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: d, name: `platforms-${tag}`, ...(platform ? { platform } : {}) });
     await call("agent_onboard", { project_dir: d });
     return d;
   };
@@ -613,7 +624,7 @@ function makeD64(files) {
     check(!/look like another machine/.test(t), `${what}: …and does not second-guess it`);
   }
   // a machine named later settles it: the hint is gone
-  await call("project_init", { project_dir: pc, name: "platforms-d8c", platform: "vic20" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: pc, name: "platforms-d8c", platform: "vic20" });
   check(/^Machine: VIC-20 \(vic20\)/m.test(await onboardOf(pc)) && !/look like/.test(await onboardOf(pc)), "project_init platform settles it: the next onboarding states the machine and the hint is gone");
 
   // .d64 → extract_disk in a vic20 project → VIC-20 names with no platform argument
@@ -720,7 +731,7 @@ function makeD64(files) {
 
     // D-C / D-B / D-D / D-E on one VIC-20 file
     const pd = mkdtempSync(join(tmpdir(), "c64re-898-acc-"));
-    await call("project_init", { project_dir: pd, name: "acc" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: pd, name: "acc" });
     await call("agent_onboard", { project_dir: pd });
     // lda #1 ; sta $9600,x ; sta $9005 ; lda #$e ; sta $9110 ; jsr $FFD2 ; rts
     const accBody = [0xa9, 0x01, 0x9d, 0x00, 0x96, 0x8d, 0x05, 0x90, 0xa9, 0x0e, 0x8d, 0x10, 0x91, 0x20, 0xd2, 0xff, 0x60];
@@ -754,7 +765,7 @@ function makeD64(files) {
 
     // D-B on the c64: PHOENIX ($FF56) is a row whose name equals its symbol
     const pc64 = mkdtempSync(join(tmpdir(), "c64re-898-b64-"));
-    await call("project_init", { project_dir: pc64, name: "b64" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: pc64, name: "b64" });
     await call("agent_onboard", { project_dir: pc64 });
     put(pc64, "b.prg", prgBytes(0x0801, [0x20, 0x56, 0xff, 0x60]));
     await call("analyze", { project_dir: pc64, path: "artifacts/prg/b.prg", platform: "c64" });

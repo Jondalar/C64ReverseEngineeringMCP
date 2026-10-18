@@ -17,7 +17,7 @@ export const PHASE_TITLES: Record<PhaseNumber, string> = {
 export const PHASE_NARRATIVES: Record<PhaseNumber, string> = {
   1: "Pull bytes off the medium and register every produced artifact. Done when every payload visible on the medium has a registered artifact and the audit reports zero unregistered files.",
   2: "Understand how the title actually loads. A bootable disk ALWAYS starts at the stock DOS directory (track 18) — the first KERNAL-loadable file is the loader stub; it uploads custom drive-code + the $dd00 handshake before any custom-GCR is read. Disassemble the loader files at full function breadth and semantically annotate them HERE (the drivecode track→payload tables are byte tables, meaningless until the indexing code is read) — loader RE belongs to Discovery, not deferred to phase 3. KERNAL or custom fastloader? Container with sub-entries? Where do bytes land at runtime vs on disk? Done when the load chain is documented as a flow with loader entry points and load contexts, and the loader files are disassembled + annotated.",
-  3: "Run the deterministic Phase-1 analysis and a non-semantic first-pass disasm per relevant artifact. No LLM annotations yet. Done when every artifact has *_analysis.json + *_disasm.asm and rebuild verification has been attempted.",
+  3: "Run the deterministic Phase-1 analysis and a non-semantic first-pass disasm per relevant artifact. No LLM annotations yet. Done when every artifact has *_analysis.json + its listing (one file, in the project's dialect) and rebuild verification has been attempted.",
   4: "Inspect every non-trivial segment by hand. Classify, hypothesize, look up hardware references. Open questions welcome. Done when every non-trivial segment is either understood or tracked in an open question.",
   5: "Merge the inspection findings into entities, write annotations, re-disassemble. Every split low/high table the analysis found in confirmed code must be decided — declared in `splitTables` (`lo`, `hi`, `count`, `adjust` 1 for an RTS dispatch) or rejected with a reason — before the artifact leaves this phase; agent_advance_phase refuses otherwise. Done when the disasm rebuilds byte-identical with annotations, no found split table is open and ≥1 finding references the artifact.",
   6: "Step back from a single artifact. Cross-link entities across artifacts. Build flows. Spot meta-patterns. Done when cross-artifact relations + flows exist and anti-patterns / refuted hypotheses are recorded.",
@@ -182,8 +182,8 @@ export function buildWorkerPrompt(args: { phase: PhaseNumber; artifactId: string
       lines.push("- Load context recorded if runtime address differs from on-disk header.");
       break;
     case 3:
-      lines.push("- `<stem>_analysis.json` + `<stem>_disasm.asm` exist for the artifact.");
-      lines.push("- Rebuild verification attempted; result captured in the asm header.");
+      lines.push("- `<stem>_analysis.json` + the artifact's listing exist (the listing is found with the project's own lookup, whichever dialect it is written in).");
+      lines.push("- Rebuild verification attempted; the result is on the listing's record and stamped in its head.");
       break;
     case 4:
       lines.push("- Every non-trivial segment in the listing has either a 1-line classification or an open-question id.");

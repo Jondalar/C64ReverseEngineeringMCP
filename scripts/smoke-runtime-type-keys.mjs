@@ -63,7 +63,7 @@ async function withDaemon(port, body) {
     };
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-runtime-type-keys", version: "1" } });
     server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: proj, name: "type-keys" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "type-keys" });
     await call("agent_onboard", { project_dir: proj });
     await call("runtime_session_start", { project_dir: proj });
     await body(call);

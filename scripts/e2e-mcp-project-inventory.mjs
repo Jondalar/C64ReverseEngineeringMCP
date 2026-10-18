@@ -125,7 +125,7 @@ try {
 
   // 6. initialize the project from the DEFAULT surface (vision §2.4 entry step;
   //    path-portable: project came from C64RE_PROJECT_DIR, cwd=tmp).
-  const initRes = await callTool("project_init", { project_dir: projectDir, name: "E2E Inventory" });
+  const initRes = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "E2E Inventory" });
   ok(okText(initRes) && /initialized/i.test(textOf(initRes)), "6 project_init initializes an external project (default surface)", textOf(initRes).split("\n")[0]);
 
   // 6b. onboard + select a workflow — the swimlane's project-baseline steps.

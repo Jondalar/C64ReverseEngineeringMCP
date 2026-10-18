@@ -1,4 +1,5 @@
 import { machineLines } from "./machine-report.js";
+import { readProjectDialect } from "../lib/dialect.js";
 import { formatCartridges, projectCartridges } from "../knowledge-graph/cartridge-context.js";
 import { formatCartridgeMigration, readCartridgeMigration } from "../knowledge-graph/migrate/cartridge-grammar.js";
 import { existsSync } from "node:fs";
@@ -168,13 +169,13 @@ function cartridgeStatusLines(root: string): string[] {
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, optional description/tags/assembler/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, preferred_assembler (kickass | 64tass — required the first time: the human chooses the dialect the project's listings are written in), optional description/tags/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
       description: z.string().optional().describe("Optional project description"),
       tags: z.array(z.string()).optional().describe("Optional project tags"),
-      preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("Preferred assembler dialect for generated source and later workflow defaults."),
+      preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("The assembler dialect this project works in: every listing the renderer writes is in it (kickass = .asm, 64tass = .tas), and it is what the rebuild proof assembles with. REQUIRED the first time — there is no default; ask the human. Once set, re-running project_init without it keeps it."),
       machine_model: z.string().optional().describe("Which C64 the project's machine is — a model name such as c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists them all). Omitted: c64-pal for a new project; an existing project keeps its own. The runtime checks the name when it starts the machine and refuses one it cannot run, naming what it lacks."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4"]).optional().describe("Which machine the project's CODE runs on — the default for every render, analysis and lookup whose call and whose file's record name none: c64 (default when omitted), c1541, vic20 (VIC-20) or plus4 (C16 / C116 / Plus/4). Not the runtime's machine (that is machine_model, always a C64). Omitted: a new project has none (= c64), an existing project keeps its own."),
     },
@@ -183,6 +184,18 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // A project without history loses its hand-written state on the first wrong write,
       // so no git means nothing is created — checked before anything is written.
       if (!gitAvailable()) return textContent(noGitRefusal("project_init"));
+      // Spec 914 D6 — the human decides which assembler the project works in, and nothing is created
+      // until he has: a project with no dialect would refuse its first render anyway.
+      if (!preferred_assembler && !readProjectDialect(projectRoot)) {
+        return textContent([
+          `# project_init refused`,
+          ``,
+          `Which assembler does this project work in? Ask the human — there is no default, and nothing was written.`,
+          `- kickass — KickAssembler: listings are .asm`,
+          `- 64tass — 64tass: listings are .tas`,
+          `Then call project_init again with preferred_assembler="kickass" or "64tass". Sources in the other dialect can still be mixed in later (assemble_source units).`,
+        ].join("\n"));
+      }
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model, ...(platform ? { platform } : {}) });
       // BUG-015 — sort any loose media in the project root into the canonical
@@ -366,7 +379,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Root: ${status.project.rootPath}`,
         `Status: ${status.project.status}`,
         ...machineLines(root, service),
-        `Preferred assembler: ${status.project.preferredAssembler ?? "(not set)"}`,
+        `Preferred assembler: ${status.project.preferredAssembler ?? "(NOT SET — no listing is rendered until the human chooses: agent_onboard or project_init with preferred_assembler=kickass|64tass)"}`,
         `Workflow: ${status.workflowState.summary}`,
         `Current phase: ${status.workflowState.currentPhaseId ?? "(none)"}`,
         `Next recommended phase: ${status.workflowState.nextRecommendedPhaseId ?? "(none)"}`,
@@ -2248,7 +2261,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           ``,
           `⚠ UNGROUNDED (L1): this file/payload finding cites no backing extract artifact.`,
           `   Extract the source payload (extract_disk / extract_crt auto-runs disasm+analyse),`,
-          `   then re-save with artifact_ids=[<_analysis.json / _disasm.asm id>] or evidence citing`,
+          `   then re-save with artifact_ids=[<_analysis.json / listing id>] or evidence citing`,
           `   the extract. A trace runId+cycle or a heuristic is NOT grounding.`,
         );
       }

@@ -62,7 +62,7 @@ const runWf = async (payloadId) => {
 };
 const origin = (asm) => (/\.pc\s*=\s*\$([0-9A-Fa-f]{4})/.exec(asm) ?? [])[1]?.toUpperCase();
 try {
-  await call("project_init", { project_dir: dir, name: "hdrless" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "hdrless" });
   await call("agent_onboard", { project_dir: dir });
 
   head("H1. cartridge chips are headerless");
@@ -109,7 +109,7 @@ try {
   dir2 = mkdtempSync(join(tmpdir(), "c64re-e2e-hdrless2-"));
   mkdirSync(join(dir2, "media"), { recursive: true });
   writeFileSync(join(dir2, "media", "blob.bin"), RAW);
-  await call("project_init", { project_dir: dir2, name: "hdrless-raw" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: dir2, name: "hdrless-raw" });
   await call("agent_onboard", { project_dir: dir2 });
   head("H3 / H4. a raw payload is headerless, and unknown is not invented");
   const rp = await call("register_payload", { project_dir: dir2, name: "blob", source_prg_path: join(dir2, "media", "blob.bin"), load_address: 0xc100, format: "raw" });
@@ -124,7 +124,7 @@ try {
   dir2 = mkdtempSync(join(tmpdir(), "c64re-e2e-hdrless3-"));
   mkdirSync(join(dir2, "media"), { recursive: true });
   writeFileSync(join(dir2, "media", "blob.bin"), RAW);
-  await call("project_init", { project_dir: dir2, name: "hdrless-unknown" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: dir2, name: "hdrless-unknown" });
   await call("agent_onboard", { project_dir: dir2 });
   const rp2 = await call("register_payload", { project_dir: dir2, name: "blob2", source_prg_path: join(dir2, "media", "blob.bin"), format: "raw" });
   const rl2 = await call("list_payloads", { project_dir: dir2, limit: 50 });

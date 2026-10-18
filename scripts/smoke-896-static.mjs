@@ -143,22 +143,33 @@ try {
       const d = await tool("disasm_prg", { prg_path: stub, no_analysis: true });
       check(/rebuild verified byte-identical/.test(d) && /with 64tass/.test(d) && !/jar not found/i.test(d),
         "1a preferredAssembler=64tass: the rebuild is verified, by 64tass", d.split("\n").filter((l) => /rebuild|WARNING/.test(l)).join(" | "));
-      const asm = readFileSync(join(P, "stub_disasm.asm"), "utf8");
-      check(/rebuild verified byte-identical .* with 64tass/.test(asm), "1b the verdict is stamped into the listing head, naming the assembler");
+      // Spec 914 — the project writes 64tass, so the listing is the .tas and there is no .asm; its stamp is a `;` comment.
+      check(existsSync(join(P, "stub_disasm.tas")) && !existsSync(join(P, "stub_disasm.asm")), "1b a 64tass project gets ONE listing: the .tas, no .asm beside it");
+      const asm = readFileSync(join(P, "stub_disasm.tas"), "utf8");
+      check(/^; rebuild verified byte-identical .* with 64tass/m.test(asm), "1b the verdict is stamped into the listing head, naming the assembler, in 64tass comment syntax");
       // the listing of a BASIC-bearing PRG is data for the basic bytes and code after: byte-identical rebuild
       const dc = await tool("disasm_prg", { prg_path: canon, no_analysis: true });
       check(/rebuild verified byte-identical/.test(dc), "1c the canonical-chain PRG also rebuilds byte-identical", dc.split("\n").filter((l) => /rebuild|WARNING/.test(l)).join(" | "));
     }
   });
 
-  // Q: no preference, its own server, in a project with no preference recorded
-  if (have64tass) {
+  // Q: no preference recorded (Spec 914 D6: there is no default) — its own server
+  {
     const q = join(Q, "stub.prg"); writeFileSync(q, STUB_PRG);
     await session(cleanEnv({ C64RE_PROJECT_DIR: Q }), async (tool) => {
       const d = await tool("disasm_prg", { prg_path: q, no_analysis: true });
+      check(/refused/.test(d) && /preferred_assembler/.test(d) && /assembler=/.test(d) && !existsSync(join(Q, "stub_disasm.asm")) && !existsSync(join(Q, "stub_disasm.tas")),
+        "1d no preference: the render is REFUSED naming how to set it, and nothing is written", d.split("\n").slice(0, 4).join(" | "));
+      const onFile = haveKick ? "kickass" : "64tass";
       const want = haveKick ? "KickAssembler" : "64tass";
-      check(/rebuild verified byte-identical/.test(d) && d.includes(`with ${want}`),
-        `1d no preference: ${want} (KickAssembler first when installed), verified`, d.split("\n").filter((l) => /rebuild|WARNING/.test(l)).join(" | "));
+      if (haveKick || have64tass) {
+        const named = await tool("disasm_prg", { prg_path: q, no_analysis: true, assembler: onFile });
+        check(/rebuild verified byte-identical/.test(named) && named.includes(`with ${want}`),
+          `1d' assembler=${onFile} on the call: ${want}, verified`, named.split("\n").filter((l) => /rebuild|WARNING|refused/.test(l)).join(" | "));
+        const again = await tool("disasm_prg", { prg_path: q, no_analysis: true });
+        check(/rebuild verified byte-identical/.test(again) && again.includes(`with ${want}`),
+          "1d'' …and the next render of the same bytes keeps it, without being told", again.split("\n").filter((l) => /rebuild|WARNING|refused/.test(l)).join(" | "));
+      }
     });
   }
   if (haveKick || have64tass) {

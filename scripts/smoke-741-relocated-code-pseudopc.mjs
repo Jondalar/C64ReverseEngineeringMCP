@@ -53,6 +53,16 @@ function writePrg(name, loadAddr, bytes) {
   return p;
 }
 
+// Spec 914 — a render writes ONE listing in ONE dialect. These checks read both, so every render
+// runs twice: the .asm, and the .tas beside it (args[2] is the .asm output).
+function spawnBoth(args) {
+  const kick = spawnSync(process.execPath, [cliCjs, ...args, "--dialect", "kickass"], { cwd: work, encoding: "utf8" });
+  if (kick.status !== 0) return kick;
+  const tassArgs = [...args];
+  tassArgs[2] = args[2].replace(/\.asm$/, ".tas");
+  return spawnSync(process.execPath, [cliCjs, ...tassArgs, "--dialect", "64tass"], { cwd: work, encoding: "utf8" });
+}
+
 function disasm(prgPath, outAsm, relocations, analysisJson, entryHex) {
   const args = ["disasm-prg", prgPath, outAsm];
   if (entryHex) args.push(entryHex);
@@ -66,7 +76,7 @@ function disasm(prgPath, outAsm, relocations, analysisJson, entryHex) {
     writeFileSync(rp, JSON.stringify(relocations, null, 2));
     args.push("--relocations", rp);
   }
-  const r = spawnSync(process.execPath, [cliCjs, ...args], { cwd: work, encoding: "utf8" });
+  const r = spawnBoth(args);
   if (r.status !== 0) throw new Error(`disasm-prg failed: ${r.stderr || r.stdout}`);
 }
 
@@ -322,7 +332,7 @@ try {
   const out43 = join(work, "i43.asm");
   const rp = join(work, "i43_reloc.json");
   writeFileSync(rp, JSON.stringify(relocs43));
-  const rr = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg43, out43, "1000,1019", json43, "--no-register", "--relocations", rp, "--annotations", annPath], { cwd: work, encoding: "utf8" });
+  const rr = spawnBoth(["disasm-prg", prg43, out43, "1000,1019", json43, "--no-register", "--relocations", rp, "--annotations", annPath]);
   if (rr.status !== 0) throw new Error(rr.stderr || rr.stdout);
   const tas43 = readFileSync(out43.replace(/\.asm$/, ".tas"), "utf8");
   const defs = (name) => (tas43.match(new RegExp(`^\\s*${name}\\s*(=|:)`, "gm")) ?? []).length;
@@ -360,7 +370,7 @@ for (const variant of [
     const rp = join(work, `${name}_reloc.json`);
     writeFileSync(rp, JSON.stringify([{ fileStart: "1091", fileEnd: "10EA", runtimeAddr: "02A1" }, { fileStart: "10EB", fileEnd: "116F", runtimeAddr: "010B" }]));
     const out = join(work, `${name}.asm`);
-    const r = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg, out, "1000,1019", json, "--no-register", "--relocations", rp, "--annotations", ann], { cwd: work, encoding: "utf8" });
+    const r = spawnBoth(["disasm-prg", prg, out, "1000,1019", json, "--no-register", "--relocations", rp, "--annotations", ann]);
     if (r.status !== 0) throw new Error(r.stderr || r.stdout);
     const tasPath = out.replace(/\.asm$/, ".tas");
     for (const [dialect, file, re] of [["kick", out, /^\s*\.label\s+src_010B_base\s*=/gm], ["tass", tasPath, /^\s*src_010B_base\s*(=|:)/gm]]) {
@@ -401,7 +411,7 @@ try {
     const out = join(work, `foreign_${tag}.asm`);
     const args = ["disasm-prg", prg, out, "C000", json, "--no-register", "--annotations", ann];
     if (platform) args.push("--platform", platform);
-    const r = spawnSync(process.execPath, [cliCjs, ...args], { cwd: work, encoding: "utf8" });
+    const r = spawnBoth(args);
     if (r.status !== 0) throw new Error(`disasm-prg failed: ${r.stderr || r.stdout}`);
     return out;
   };

@@ -24,7 +24,7 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
 ## ${EXTRACT_FIRST_MARKER} — always apply
 - **Extract-first grounding (L1).** Every finding about a file/payload MUST cite a
   backing **extract artifact** via \`artifact_ids\` (the extracted bytes / its
-  \`_disasm.asm\` / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
+  listing / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
   grounding. An unbacked file/payload finding is tagged \`ungrounded\`.
 - **Extract ⇒ always disasm + analyse + VERIFY (L2).** Extraction is never raw:
   \`extract_disk\` / \`extract_crt\` auto-run \`analyze\` + \`disasm\` on every

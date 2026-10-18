@@ -1,6 +1,6 @@
 # Spec 914 — A listing is written in one dialect, chosen per file, and sources of different dialects build together
 
-**Status:** PROPOSED (2026-10-17).
+**Status:** BUILT on branch `spec/914` (2026-10-17), not merged: S1–S7 green in `scripts/e2e-914-dialect.mjs`, the old corpus green; open: S8 (the reporter on #138) and the UI highlight of `.tas`, by hand.
 **Repo:** C64RE (renderer, readers, rebuild proof, assemble, UI, onboarding). TRX64 untouched.
 **Number:** 914 (registry: `specs/README.md`).
 **Origin:** issue #138 (a 64tass project deletes the `.asm` after every render; the "Run disasm"
@@ -144,4 +144,60 @@ Scenario: a KickAssembler unit calls into a 64tass unit
 
 ## §5 Decisions taken while building
 
-—
+- **The pipeline CLI takes `--dialect`; without it the output name decides** (`.asm` KickAssembler,
+  `.tas`/`.tass` 64tass), and a name that says neither is refused. This is the low-level door the
+  MCP wrapper and the shell loops share. It also ends the old defect that `output_asm` ending in
+  `.tas` got KickAssembler text. At the MCP level an explicit output name is read as an explicit
+  dialect (after `assembler=`); a name that contradicts `assembler=` is refused.
+- **Only a dialect the call NAMES (`assembler=`) is remembered on the file** (`ArtifactRecord.assembler`,
+  on the record of the bytes, as `platform` is). A dialect the project decided, or one an output name
+  implied, stays the project's. A preview (`import_graph=false`) remembers nothing, like the machine.
+- **`project_init` demands the choice only when none is stored.** Re-running it without the argument
+  keeps what is there (it is also the way to change the model later). `agent_onboard` asks, first
+  thing, when the project has none, and records the answer when given `preferred_assembler`.
+  `service.initProject` stays callable without one (fixtures, programs); the refusal is at the doors a
+  person or an LLM uses.
+- **The rebuild verdict lives on the listing's record** (`rebuild`: verified, assembler, line, the
+  listing's sha256 at the time, when). It counts for the listing as it was measured: an edit made after
+  the proof reads as "not proven". A listing no proof ever recorded on (a project from before) is read
+  by the stamp in its head, in either comment syntax. A missing assembler writes no verdict.
+- **An explicit `C64RE_64TASS_BIN` / `C64RE_KICKASS_JAR` is a pin**: that file or none. Before, a wrong
+  value fell back silently to another binary, which is the "silent fallback" D4 removes at the
+  tool level too, and what lets a test make an assembler absent.
+- **The auto-close hint is a new kind, `listing-exists {source}`**, naming the bytes. `file-exists`
+  hints already stored keep working.
+- **`listingFor` order: the dialect on the file, the project's, KickAssembler, 64tass.** A project
+  rendered before this holds both files and no preference: KickAssembler is read, as before. The
+  index walker (`walkListings`) and the version tie rule follow the same order; the tie rule now asks
+  the file's dialect before the project's.
+- **`listingFor` shares the tie rule's order but not its code.** It reads a listing's dialect from the
+  file NAME, not from `versionFormatForArtifact` (which trusts a record's `format` field first, and the
+  old renderer registered KickAssembler text under a `.tas` name as `asm`), and it also finds a listing
+  no record knows (a project that never registered it), which the version model cannot rank. The version
+  group's tie rule (`tieContext`) gained the same per-file step, so the two agree on which spelling wins.
+  `disasm_menu` has no record of the bytes to write the dialect onto: it takes `assembler=` or the project's.
+- **Mixed builds are wrapper sources**: for each unit the tool writes, in the output folder, an equates
+  file in the unit's dialect and a one-line-per-file wrapper that includes the equates and then the
+  unit's own file, and assembles the wrapper. The foreign file is read by the assembler and never
+  written (sha256 before and after). `uses` is explicit (a unit that fails on an undefined label is
+  refused naming the label, and naming the unit that exports it when that unit is simply not listed).
+  Only global names travel: a name inside a namespace or scope cannot be spelled the same way in the
+  other assembler. Units default to `analysis/build/`.
+- **"Foreign" is a registration, not a lock.** The record says `foreign-source`, the dialect, tags
+  `foreign`/`read-only`; the store has no read-only flag, so nothing but the tools' own discipline (and the
+  hash check) keeps a person from editing the file.
+- **Listing statistics changed shape**: instruction and data line counts now count every line of the
+  structure (they used to match on text and skipped lines inside a relocation block and counted
+  indented comments as instructions).
+- **`disasm_menu` text rows**: an `.encoding "ascii"` / `.enc "none"` line is written before `.text`
+  rows, because the two assemblers' default text encodings differ. The exporter's old behaviour of
+  dropping `$00` bytes from text rows is unchanged.
+- **A KickAssembler block comment escapes `*/`** inside its rows; a routine comment containing it used
+  to end the comment early.
+- **UI**: the dialect order is a module value set from the loaded snapshot; the "asm" button reads
+  `.asm`, `.tas` or `.asm/.tas` from what the sources really are.
+- **Tests**: every `project_init` in the existing scripts names a dialect (`kickass`); the scripts that
+  read both dialects of one set of bytes render twice (the second a preview), by `pairDialects` in
+  `scripts/lib/mcp-stdio.mjs` or by a second call. The differential proof for S2 compared the new
+  pipeline with the old one on 342 invocations of that corpus: KickAssembler text identical, 64tass text
+  identical once comments are set aside (the old converter had folded indentation inside block comments).

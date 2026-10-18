@@ -98,7 +98,7 @@ const KICK = [
   ".label zpvar = $FB",                                                          // 44  defined AFTER its use
 ].join("\n");
 
-// the 64tass image, by the converter's own rules (tass-converter.ts)
+// the 64tass image, by the rules the 64tass emitter follows (pipeline/src/lib/listing.ts)
 const TASS = KICK.split("\n").map((l) => {
   if (/^\s*\.cpu _6502/.test(l)) return '      .cpu "6502"';
   const pc = l.match(/^\s*\.pc\s*=\s*(\$[0-9A-Fa-f]+)\s*".*?"/); if (pc) return `      * = ${pc[1]}`;
@@ -177,7 +177,7 @@ check(/Open in source/.test(panel) && /sourceJump/.test(panel) && /onJumpToSourc
 const app = readFileSync(join(ROOT, "ui/src/App.tsx"), "utf8");
 check(/jumpToAddress=\{asmOverlay\.jumpToAddress\}/.test(app), "App passes jumpToAddress into the AsmView overlay");
 check(/sourceJump=\{asmSourcesForOwner\}/.test(app) && /no ASM for owner/.test(app), "App resolves the owner to its ASM artifacts and says when there is none");
-check(/_disasm\\\.asm\$\/i\.test\(a\.relativePath\)/.test(app), "the owner's own <stem>_disasm.asm is the first source tab");
+check(/_disasm\\\.\(asm\|tas\|tass\)\$\/i\.test\(a\.relativePath\)/.test(app), "the owner's own <stem>_disasm listing (either dialect) is the first source tab");
 check(/handleSelectEntity\(entityId, "listing"\); setActiveTab\("listing"\)/.test(app) && /listingJump=/.test(app), "the listing jump (D5.1) stays as it was");
 const css = readFileSync(join(ROOT, "ui/src/index.css"), "utf8");
 check(/\.asm-row-hit\s*\{/.test(css), "index.css styles .asm-row-hit");

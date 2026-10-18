@@ -257,7 +257,7 @@ try {
     try {
       await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-862", version: "1" } });
       proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-      await callTool("project_init", { name: "opt862smoke" });
+      await callTool("project_init", { preferred_assembler: "kickass", name: "opt862smoke" });
       await callTool("agent_onboard", {});
       const text = await callTool("optimisation_candidates", {
         prg_path: "artifacts/prg/cand.prg",

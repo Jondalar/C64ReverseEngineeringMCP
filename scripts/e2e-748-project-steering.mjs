@@ -67,7 +67,7 @@ try {
 
   // 5 project_init scaffolds the record/reconcile steering block (and keeps the
   //   hand-written rules). It is appended because the file already exists.
-  await m.call("project_init", { name: "748.2 gate" });
+  await m.call("project_init", { preferred_assembler: "kickass", name: "748.2 gate" });
   const steerAfterInit = readFileSync(file, "utf8");
   // Assert the MARKER the provisioner actually keys on, not the prose around it.
   // This read `"Record + reconcile discipline (Spec 748.2"` and went red when the

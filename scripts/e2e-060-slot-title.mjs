@@ -101,7 +101,7 @@ const LONG_TITLE =
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-060-slot-title", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "slot-title" });
+  await call("project_init", { preferred_assembler: "kickass", name: "slot-title" });
   await call("agent_onboard", {});
 
   // ── §1 the limit is readable before the call is composed ──────────────────

@@ -3,8 +3,9 @@ import { basename, dirname, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { analyzeBasicProgram, dialectForPlatform, stripPrgHeader, tokenize, toPrg } from "./lib/basic-v2";
-import { emitKickAssemblerSources } from "./lib/kickasm";
-import { disassemblePrgToKickAsm, RelocationEntry } from "./lib/prg-disasm";
+import { emitMenuSources } from "./lib/menu-sources";
+import { disassemblePrg, RelocationEntry } from "./lib/prg-disasm";
+import { dialectName, listingFormat, parseDialect, type Dialect } from "./lib/listing";
 import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
@@ -52,9 +53,9 @@ function usage(): never {
       "  node dist/cli.js extract-crt <crt> [outputDir]",
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
-      "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--relocations <json>] [--annotations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--annotations <json>] [--relocations <json>]",
+      "  node dist/cli.js disasm-menu [analysisDir] [outputDir] [--dialect kickass|64tass]",
+      "  node dist/cli.js disasm-prg <prg> [outputListing] [entryHex,...] [--dialect kickass|64tass] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--relocations <json>] [--annotations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputListing> --load-address <addr> [--dialect kickass|64tass] [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541|vic20|plus4|none] [--cartridge-type <crt hardware type>] [--annotations <json>] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]] [--platform c64|c1541|vic20|plus4]",
       "  node dist/cli.js basic-list <prg> [--json] [--platform c64|vic20|plus4]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801] [--platform c64|vic20|plus4]",
@@ -124,9 +125,19 @@ function main(): void {
   }
 
   if (command === "disasm-menu") {
+    const flagAt = args.findIndex((arg) => arg === "--dialect" || arg.startsWith("--dialect="));
+    let menuDialect: Dialect | undefined;
+    if (flagAt >= 0) {
+      const flagArg = args[flagAt]!;
+      menuDialect = parseDialect(flagArg.includes("=") ? flagArg.slice(flagArg.indexOf("=") + 1) : (args[flagAt + 1] ?? ""), "--dialect");
+      args.splice(flagAt, flagArg.includes("=") ? 1 : 2);
+    }
+    if (menuDialect === undefined) {
+      throw new Error("disasm-menu writes its sources in one dialect and none was given: pass --dialect kickass or --dialect 64tass.");
+    }
     const analysisDir = resolve(args[0] ?? "analysis");
-    const outputDir = resolve(args[1] ?? `${analysisDir}/kickasm_sources`);
-    emitKickAssemblerSources(analysisDir, outputDir);
+    const outputDir = resolve(args[1] ?? `${analysisDir}/${menuDialect === "64tass" ? "tass" : "kickasm"}_sources`);
+    emitMenuSources(analysisDir, outputDir, menuDialect);
     return;
   }
 
@@ -151,6 +162,7 @@ function main(): void {
     let calleeCatalogPath: string | undefined;
     let noAnalysis = false;
     let cartridgeType: number | undefined;
+    let dialect: Dialect | undefined;
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
       if (args[i] === "--cartridge-type" && args[i + 1]) {
@@ -181,6 +193,11 @@ function main(): void {
         annotationsPath = args[i].slice("--annotations=".length);
       } else if (args[i] === "--no-analysis") {
         noAnalysis = true;
+      } else if (args[i] === "--dialect" && args[i + 1]) {
+        dialect = parseDialect(args[i + 1]!, "--dialect");
+        i += 1;
+      } else if (args[i].startsWith("--dialect=")) {
+        dialect = parseDialect(args[i].slice("--dialect=".length), "--dialect");
       } else {
         remaining.push(args[i]);
       }
@@ -227,7 +244,8 @@ function main(): void {
     const prgAbs = resolve(prgPath);
     const relocations = relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined;
     const chosenAnalysis = analysisPath ?? positionalAnalysis;
-    const prgStats = disassemblePrgToKickAsm(prgAbs, outputPath, {
+    const prgStats = disassemblePrg(prgAbs, outputPath, {
+      ...(dialect ? { dialect } : {}),
       entryPoints,
       title: prgPath,
       analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
@@ -248,9 +266,9 @@ function main(): void {
     registerCliArtifact({
       kind: "generated-source",
       scope: "generated",
-      title: `${basename(prgAbs)} disassembly (KickAssembler)`,
+      title: `${basename(prgAbs)} disassembly (${dialectName(prgStats.dialect)})`,
       path: outputPath,
-      format: "asm",
+      format: listingFormat(prgStats.dialect),
       role: "disasm",
       producedByTool: "pipeline_cli:disasm-prg",
     });
@@ -259,7 +277,7 @@ function main(): void {
 
   // Bytes at an address, with no PRG header in front of them. Same renderer, same
   // annotation handling, same pair of outputs — only the way the image is read differs,
-  // and that difference is one branch inside `disassemblePrgToKickAsm`.
+  // and that difference is one branch inside `disassemblePrg`.
   if (command === "disasm-raw") {
     let platform: PlatformTag | "none" = "c64";
     let loadAddress: number | undefined;
@@ -271,6 +289,7 @@ function main(): void {
     let rawCalleeCatalogPath: string | undefined;
     let noAnalysis = false;
     let cartridgeType: number | undefined;
+    let dialect: Dialect | undefined;
     const remaining: string[] = [];
     const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string => {
       const value = inline ?? next;
@@ -311,6 +330,9 @@ function main(): void {
         if (inline === undefined) i += 1;
       } else if (flag === "--no-analysis") {
         noAnalysis = true;
+      } else if (flag === "--dialect") {
+        dialect = parseDialect(takeValue(flag, inline, args[i + 1]), "--dialect");
+        if (inline === undefined) i += 1;
       } else {
         remaining.push(arg);
       }
@@ -323,7 +345,8 @@ function main(): void {
     const entryPoints = parseAddressList(remaining[2] ?? "", "entryPoints");
     const rawAbs = resolve(rawPath);
     const chosenAnalysis = analysisFlagPath ?? remaining[3];
-    const stats = disassemblePrgToKickAsm(rawAbs, outputPath, {
+    const stats = disassemblePrg(rawAbs, outputPath, {
+      ...(dialect ? { dialect } : {}),
       entryPoints,
       title: rawPath,
       analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
@@ -352,15 +375,15 @@ function main(): void {
         // import was handed a path that does not exist.
         `Analysis used: ${stats.analysisPath ?? "none"}`,
         `Annotations used: ${stats.annotationsPath ?? "none"}`,
-        `64tass: ${stats.tassPath}`,
+        `Dialect: ${dialectName(stats.dialect)} (${stats.listingPath})`,
       ].join("\n") + "\n",
     );
     registerCliArtifact({
       kind: "generated-source",
       scope: "generated",
-      title: `${basename(rawAbs)} @ ${hex(stats.loadAddress)} disassembly (KickAssembler)`,
+      title: `${basename(rawAbs)} @ ${hex(stats.loadAddress)} disassembly (${dialectName(stats.dialect)})`,
       path: outputPath,
-      format: "asm",
+      format: listingFormat(stats.dialect),
       role: "disasm",
       producedByTool: "pipeline_cli:disasm-raw",
     });

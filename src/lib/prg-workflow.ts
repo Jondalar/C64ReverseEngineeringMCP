@@ -6,6 +6,8 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { registerToolKnowledge } from "../project-knowledge/integration.js";
 import { ensureIdDirIn, PAYLOAD_OUTPUT_BASE } from "./id-path.js";
 import { rebuildVerification } from "./rebuild-verify.js";
+import { defaultListingName, dialectLabel, listingFormat, resolveDialect, type Dialect } from "./dialect.js";
+import { annotationsPathFor } from "../project-knowledge/listing-for.js";
 
 export type WorkflowMode = "quick" | "full";
 
@@ -37,6 +39,8 @@ export interface PrgReverseWorkflowOptions {
    * verdict on any of them.
    */
   verifyRebuild?: boolean;
+  /** Spec 914 D2: the dialect to write the listing in; absent, the file's record then the project's decide. */
+  assembler?: string;
 }
 
 export type WorkflowPhaseStatus = "done" | "skipped" | "blocked";
@@ -68,8 +72,9 @@ export interface PrgReverseWorkflowResult {
   viewsBuilt: string[];
   nextRequiredAction: string;
   analysisPath: string;
-  asmPath: string;
-  tassPath: string;
+  /** The ONE listing, in `dialect` — or the path it would have had when the dialect did not resolve. */
+  listingPath: string;
+  dialect?: Dialect;
   ramReportPath?: string;
   pointerReportPath?: string;
   /** The rebuild verdict line, when the listing was verified. */
@@ -119,8 +124,12 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     : prgAbs.replace(/\.prg$/i, "");
   mkdirSync(dirname(baseAbs), { recursive: true });
   const analysisPath = `${baseAbs}_analysis.json`;
-  const asmPath = `${baseAbs}_disasm.asm`;
-  const tassPath = `${baseAbs}_disasm.tas`;
+  // Spec 914 D2 — which dialect: the call's, the source file's record, the project's. Nothing else.
+  let sourceRow: ReturnType<ProjectKnowledgeService["listArtifacts"]>[number] | undefined;
+  try { sourceRow = new ProjectKnowledgeService(projectRoot).listArtifacts().find((art) => art.path === prgAbs); } catch { /* no record: the project decides */ }
+  const dialectChoice = resolveDialect({ projectDir: projectRoot, artifact: sourceRow, explicit: opts.assembler, subject: basename(prgAbs) });
+  const dialect: Dialect | undefined = dialectChoice.ok ? dialectChoice.dialect : undefined;
+  const asmPath = `${baseAbs}${defaultListingName("", dialect ?? "kickass")}`;
   const ramReportPath = `${baseAbs}_RAM_STATE_FACTS.md`;
   const pointerReportPath = `${baseAbs}_POINTER_TABLE_FACTS.md`;
   const mode: WorkflowMode = opts.mode ?? "full";
@@ -145,6 +154,10 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     [{ path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "analysis-target" }],
   );
   phases.push({ phase: "register-input", status: "done", output: prgAbs, artifact: inputReg.outputArtifactIds[0] });
+  // A dialect the caller NAMED sticks to the file (D2); one the project decided stays the project's.
+  if (dialectChoice.ok && dialectChoice.via === "argument" && inputReg.outputArtifactIds[0]) {
+    try { new ProjectKnowledgeService(projectRoot).setArtifactDialectFields(inputReg.outputArtifactIds[0], { assembler: dialectChoice.dialect }); } catch { /* the listing stands without the stamp */ }
+  }
 
   const analysisArgs = [prgAbs, analysisPath];
   if (entries) analysisArgs.push(entries);
@@ -189,7 +202,11 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     }
   }
 
-  if (!blocked) {
+  if (!blocked && !dialectChoice.ok) {
+    phases.push({ phase: "disasm", status: "blocked", reason: dialectChoice.refusal });
+    blocked = true;
+  }
+  if (!blocked && dialect) {
     // Headerless bytes (loadAddress given) are listed by disasm-raw at that address; only a PRG
     // is handed to disasm-prg, which reads its first two bytes as the load address.
     const disasmArgs = opts.loadAddress !== undefined
@@ -200,6 +217,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     // made an explicit analysis lose to the stem-matched sidecar (BUG-055).
     if (entries) disasmArgs.push(entries);
     if (existsSync(analysisPath)) disasmArgs.push("--analysis", analysisPath);
+    disasmArgs.push("--dialect", dialect);
     // A file whose listing was chosen without platform names keeps that choice here.
     try {
       const row = new ProjectKnowledgeService(projectRoot).listArtifacts().find((art) => art.path === prgAbs);
@@ -214,25 +232,24 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
         projectRoot,
         "disasm",
         `Disassemble PRG: ${basename(prgAbs)}`,
-        { prg_path: opts.prgPath, output_asm: asmPath, analysis_json: analysisPath },
+        { prg_path: opts.prgPath, output_asm: asmPath, analysis_json: analysisPath, assembler: dialect },
         [
           { path: prgAbs, kind: opts.loadAddress !== undefined ? "raw" : "prg", scope: "input", role: "disasm-target" },
           { path: analysisPath, kind: "other", scope: "analysis", role: "analysis-json", format: "json" },
         ],
         [
-          { path: asmPath, kind: "generated-source", scope: "generated", role: "kickassembler-source", format: "asm" },
-          { path: tassPath, kind: "generated-source", scope: "generated", role: "64tass-source", format: "tass" },
+          { path: asmPath, kind: "generated-source", scope: "generated", role: dialect === "64tass" ? "64tass-source" : "kickassembler-source", format: listingFormat(dialect) },
         ],
       );
       artifactsWritten.push(asmPath);
-      if (existsSync(tassPath)) artifactsWritten.push(tassPath);
-      phases.push({ phase: "disasm", status: "done", output: asmPath });
+      phases.push({ phase: "disasm", status: "done", output: asmPath, reason: `${dialectLabel(dialect)} listing` });
 
       // The other half of L2: does the listing rebuild to the bytes it describes?
       if (opts.verifyRebuild !== false) {
         const verdict = await rebuildVerification({
           projectDir: projectRoot,
           asmPath,
+          dialect,
           prgPath: prgAbs,
           // A raw blob was disassembled with an explicit load address and has no
           // 2-byte header of its own; the rebuilt PRG does.
@@ -244,7 +261,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
         phases.push({
           phase: "rebuild-verify",
           status: verdict.assemblerUnavailable ? "skipped" : "done",
-          reason: verdict.line.replace(/^\/\/\s*/, ""),
+          reason: verdict.line,
         });
       } else {
         phases.push({ phase: "rebuild-verify", status: "skipped", reason: "verify_rebuild=false" });
@@ -314,7 +331,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     : phases.some((p) => p.status === "skipped") ? "incomplete"
       : "done";
 
-  const annotationsPath = `${baseAbs}_disasm_annotations.json`;
+  const annotationsPath = annotationsPathFor(asmPath);
   const nextRequiredAction = overall === "blocked"
     ? "Resolve the blocked phase before continuing."
     : existsSync(annotationsPath)
@@ -333,8 +350,8 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     viewsBuilt,
     nextRequiredAction,
     analysisPath,
-    asmPath,
-    tassPath,
+    listingPath: asmPath,
+    ...(dialect ? { dialect } : {}),
     ramReportPath: mode === "full" ? ramReportPath : undefined,
     pointerReportPath: mode === "full" ? pointerReportPath : undefined,
     rebuildVerdict,
@@ -351,6 +368,8 @@ export interface PayloadReverseWorkflowOptions {
   rebuildViews?: boolean;
   entryPoints?: string[];
   verifyRebuild?: boolean;
+  /** Spec 914 D2: the dialect to write the listing in; see PrgReverseWorkflowOptions. */
+  assembler?: string;
 }
 
 export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOptions): Promise<PrgReverseWorkflowResult> {
@@ -411,6 +430,7 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     loadAddress: isPrg ? undefined : explicitLoad,
     payloadId: payload.id,
     verifyRebuild: opts.verifyRebuild,
+    ...(opts.assembler ? { assembler: opts.assembler } : {}),
   });
 
   // Stamp the produced asm artifacts back onto the entity so the UI shows
@@ -424,7 +444,7 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     // `relative()` answers with the platform separator and the store holds `/` (#28): on
     // Windows this comparison never matched a row, and the listing never reached the entity.
     const storeSpelling = (path: string) => relative(projectRoot, path).replace(/\\/g, "/");
-    const wanted = new Set([storeSpelling(result.asmPath), storeSpelling(result.tassPath)]);
+    const wanted = new Set([storeSpelling(result.listingPath)]);
     const asmArtifactIds = refreshedService.listArtifacts()
       .filter((entry) => wanted.has(entry.relativePath))
       .map((entry) => entry.id);
@@ -488,7 +508,7 @@ export function renderPrgReverseWorkflowResult(result: PrgReverseWorkflowResult)
   lines.push(``);
   if (result.rebuildVerdict) {
     lines.push(`## Rebuild`);
-    lines.push(result.rebuildVerdict.replace(/^\/\/\s*/, ""));
+    lines.push(result.rebuildVerdict);
     lines.push(``);
   }
   lines.push(`## Next required step`);

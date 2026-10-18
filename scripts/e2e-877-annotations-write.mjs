@@ -105,7 +105,7 @@ const writePrg = (name) => {
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-877-write", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "877-write" });
+  await call("project_init", { preferred_assembler: "kickass", name: "877-write" });
   await call("agent_onboard", {});
 
   // ── W1 the door is visible ───────────────────────────────────────────────

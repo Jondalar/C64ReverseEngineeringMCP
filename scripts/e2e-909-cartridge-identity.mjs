@@ -74,7 +74,7 @@ writeFileSync(join(dir, "media", "ef-port.crt"), B);
 const m = await session(dir);
 const call = m.call;
 try {
-  await call("project_init", { project_dir: dir, name: "x909" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "x909" });
   await call("agent_onboard", { project_dir: dir });
   const slug = slugOf(dir);
 
@@ -202,7 +202,7 @@ head("S6. an old project moves once");
   const s1 = await session(old);
   let slug;
   try {
-    await s1.call("project_init", { project_dir: old, name: "old909" });
+    await s1.call("project_init", { preferred_assembler: "kickass", project_dir: old, name: "old909" });
     await s1.call("agent_onboard", { project_dir: old });
     slug = slugOf(old);
     await s1.call("extract_crt", { project_dir: old, crt_path: "media/gmod2-orig.crt" });

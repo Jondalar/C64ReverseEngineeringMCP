@@ -19,9 +19,10 @@
 // (graph.sqlite and its -wal, every document, every listing, every JSON store and view);
 // the read path compares before answering and rebuilds on a mismatch, saying so.
 
-import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, type Dirent } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, relative, basename, extname } from "node:path";
 import { ensureCutover } from "../knowledge-graph/cutover.js";
+import { walkListings } from "./listing-for.js";
 import { KnowledgeRecords, GraphStore } from "../knowledge-graph/records.js";
 import { scanDocs, listDocFiles, type ScannedDoc } from "../docs/scan.js";
 import { parseFrontmatter, type Frontmatter } from "../docs/frontmatter.js";
@@ -339,42 +340,8 @@ function listViews(root: string): string[] {
 /** 740.3 D5 — one listing per disassembly, from the artifact and analysis trees. */
 function listListings(root: string): string[] {
   const out: string[] = [];
-  for (const dir of ["artifacts", "analysis"]) walkAsm(join(root, dir), root, (relPath) => out.push(relPath));
+  walkListings(["artifacts", "analysis"].map((dir) => join(root, dir)), root, (relPath) => out.push(relPath));
   return out;
-}
-
-const LISTING_PREFERENCE = ["asm", "tas", "tass"];
-
-/**
- * The renderer writes `.asm` (KickAssembler) beside `.tas` (64tass) since 2026-09-06, and
- * `.tass` before that. Both dialects of one disassembly are the same listing; indexing
- * both doubled every hit in an old project and skipped `.tas` in a new one. So per
- * directory and stem: `.asm` when present, else `.tas`, else `.tass`.
- */
-function walkAsm(dir: string, root: string, onFile: (relPath: string) => void, depth = 0): void {
-  if (depth > 6 || !existsSync(dir)) return;
-  let entries: Dirent[];
-  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-  const byStem = new Map<string, Map<string, string>>(); // stem → ext → file name
-  for (const entry of entries) {
-    const abs = join(dir, entry.name);
-    let isDir = entry.isDirectory();
-    if (entry.isSymbolicLink()) { try { isDir = statSync(abs).isDirectory(); } catch { continue; } }
-    if (isDir) { walkAsm(abs, root, onFile, depth + 1); continue; }
-    const m = /^(.*)\.(asm|tas|tass)$/i.exec(entry.name);
-    if (!m) continue;
-    const exts = byStem.get(m[1]) ?? new Map<string, string>();
-    exts.set(m[2].toLowerCase(), entry.name);
-    byStem.set(m[1], exts);
-  }
-  let asmCount = 0;
-  for (const exts of byStem.values()) {
-    if (asmCount >= 200) break;
-    const ext = LISTING_PREFERENCE.find((e) => exts.has(e));
-    if (!ext) continue;
-    asmCount++;
-    onFile(relative(root, join(dir, exts.get(ext)!)));
-  }
 }
 
 /**

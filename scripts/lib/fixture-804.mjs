@@ -93,7 +93,7 @@ export async function buildFixture804(root, log = () => {}) {
   const mcp = startMcp(root, { C64RE_PROJECT_DIR: dir, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_AUTOSTART: "0" });
   try {
     await mcp.init();
-    await mcp.tool("project_init", { project_dir: dir, name: "Spec 804 fixture" });
+    await mcp.tool("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "Spec 804 fixture" });
     // A session onboards before it works in a project; the server refuses every project
     // tool until it has (the onboarding gate came after this fixture was written).
     await mcp.tool("agent_onboard", { project_dir: dir });

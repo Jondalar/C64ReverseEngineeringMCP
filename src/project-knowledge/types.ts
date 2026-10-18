@@ -163,6 +163,20 @@ export const ArtifactRecordSchema = z.object({
   // the machine's own tables. Set by disasm `platform: "none"`, honoured by every
   // re-render, cleared by an explicit machine (c64 / c1541 / vic20 / plus4). Not the machine: that is `platform`.
   symbolTables: z.enum(["none"]).optional(),
+  // Spec 914 D2: on the file the bytes came from — the assembler dialect its listing is
+  // written in. Set by a render that names one (`assembler=`), kept by every later render of
+  // the same bytes; it beats the project's `preferredAssembler`.
+  assembler: z.enum(["kickass", "64tass"]).optional(),
+  // Spec 914 D4: on a LISTING — what the last rebuild proof said. `verified` is true only when
+  // the listing assembled and matched the bytes byte for byte; `listingHash` is the sha256 of the
+  // listing as it was when that was measured, so an edit made since reads as "not proven".
+  rebuild: z.object({
+    verified: z.boolean(),
+    assembler: z.enum(["kickass", "64tass"]),
+    line: z.string(),
+    listingHash: z.string().optional(),
+    checkedAt: TimestampSchema,
+  }).optional(),
   // Spec 023: alternate load contexts beyond the on-disk PRG header.
   loadContexts: z.array(LoadContextSchema).default([]),
   // Spec 034: current phase in the seven-phase RE workflow. Default 1
@@ -1140,6 +1154,8 @@ export const TaskPrioritySchema = z.enum(["low", "medium", "high", "critical"]);
 // Spec 038: auto-close hints for NEXT-hint generated tasks.
 export const TaskAutoCloseHintSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("file-exists"), path: z.string() }),
+  // Spec 914 D3: closes when the bytes at `source` have a listing, in whichever dialect the project writes
+  z.object({ kind: z.literal("listing-exists"), source: z.string() }),
   z.object({ kind: z.literal("artifact-registered"), role: z.string() }),
   z.object({ kind: z.literal("phase-reached"), artifactId: IdSchema, phase: z.number().int().min(1).max(7) }),
 ]);

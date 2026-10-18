@@ -70,10 +70,13 @@ try {
     for (const mode of ["analysis", "legacy"]) {
       const tag = `${platform}/${mode}`;
       const asmPath = join(dir, `${platform}_${mode}.asm`);
-      node("disasm-prg", prg, asmPath, ...(mode === "analysis" ? ["--analysis", analysis] : ["--no-analysis", "1001"]),
-        "--platform", platform, "--annotations", annPath);
-      const asm = readFileSync(asmPath, "utf8");
       const tasPath = asmPath.replace(/\.asm$/, ".tas");
+      const renderArgs = [...(mode === "analysis" ? ["--analysis", analysis] : ["--no-analysis", "1001"]),
+        "--platform", platform, "--annotations", annPath];
+      // Spec 914 — a render writes ONE listing in ONE dialect; the other dialect is its own render of the same bytes.
+      node("disasm-prg", prg, asmPath, ...renderArgs, "--dialect", "kickass");
+      node("disasm-prg", prg, tasPath, ...renderArgs, "--dialect", "64tass");
+      const asm = readFileSync(asmPath, "utf8");
       const tas = readFileSync(tasPath, "utf8");
       console.log(`\n── ${tag}`);
 

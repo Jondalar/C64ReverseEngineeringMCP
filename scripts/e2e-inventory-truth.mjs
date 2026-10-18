@@ -310,7 +310,7 @@ const openVersionQuestions = (svc) =>
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-inventory-truth", version: "1.0" } });
     server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: proj, name: "Inventory Truth" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "Inventory Truth" });
     await call("agent_onboard", { project_dir: proj });
 
     // Nine files the project declares intentional, three it does not.

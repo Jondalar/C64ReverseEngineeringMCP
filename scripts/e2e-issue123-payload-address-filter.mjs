@@ -58,7 +58,7 @@ try {
     env: { ...process.env, C64RE_PROJECT_DIR: dir, C64RE_RUNTIME_AUTOSTART: "0" }, stderr: "ignore",
   }));
   const call = async (name, args) => (await client.callTool({ name, arguments: args })).content.map((c) => c.text).join("\n");
-  await call("project_init", { name: "synth2", project_dir: dir });
+  await call("project_init", { preferred_assembler: "kickass", name: "synth2", project_dir: dir });
   await call("agent_onboard", {});
   const ex = await call("extract_crt", { crt_path: "input/crt/synth2.crt" });
   check("extract_crt ran", /Imported manifest|payload|chip/i.test(ex), ex.slice(0, 300));

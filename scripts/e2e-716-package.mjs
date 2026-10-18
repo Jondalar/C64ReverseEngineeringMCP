@@ -265,7 +265,7 @@ try {
   // scaffolds the project and ingests whatever loose files it finds, so the payload is
   // written AFTER it — a file dropped in first is swept into the scaffold and the analyse
   // call then refuses a path that no longer exists.
-  const inited = await call("project_init", { project_dir: proj, name: "spec-716-probe" });
+  const inited = await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "spec-716-probe" });
   check(!inited.startsWith("ERROR"), "project_init works in an installed package", inited.split("\n")[0]?.slice(0, 70));
 
   // A two-byte load header and four bytes of code: the smallest thing `analyze` can be

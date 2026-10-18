@@ -779,8 +779,8 @@ export interface PrgReverseWorkflowResponse {
   viewsBuilt: string[];
   nextRequiredAction: string;
   analysisPath: string;
-  asmPath: string;
-  tassPath: string;
+  listingPath: string;
+  dialect?: "kickass" | "64tass";
   ramReportPath?: string;
   pointerReportPath?: string;
 }

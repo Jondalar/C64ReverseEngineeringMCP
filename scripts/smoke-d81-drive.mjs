@@ -56,7 +56,7 @@ try {
   console.log("C64RE #33 — a .d81 on a private machine\n");
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-d81", version: "1" } });
   server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { project_dir: dir, name: "d81" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "d81" });
   await call("agent_onboard", { project_dir: dir });
   writeFileSync(join(dir, "hello.d81"), d81WithPrg("hello", prg)); // after project_init, which sorts media
 

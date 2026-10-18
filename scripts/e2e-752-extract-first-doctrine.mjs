@@ -52,7 +52,7 @@ const { autoAnalyzeExtractedPayloads, summarizeAutoChain } = await import(pathTo
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-752c-"));
 const svc = new ProjectKnowledgeService(proj);
-svc.initProject({ name: "752 auto-chain" });
+svc.initProject({ preferredAssembler: "kickass", name: "752 auto-chain" });
 mkdirSync(join(proj, "input", "prg"), { recursive: true });
 
 // A tiny valid PRG: load $1000, LDA #$00 / RTS.
@@ -117,7 +117,7 @@ const tagged = (f) => (f.tags ?? []).includes("ungrounded");
 
 const ep = mkdtempSync(join(tmpdir(), "c64re-752e-"));
 const esvc = new ProjectKnowledgeService(ep);
-esvc.initProject({ name: "752 enforce" });
+esvc.initProject({ preferredAssembler: "kickass", name: "752 enforce" });
 
 // a1 — file/payload finding (addressRange + routine tag) with NO backing → ungrounded.
 const f1 = esvc.saveFinding({ kind: "classification", title: "routine at C000", addressRange: { start: 0xc000, end: 0xc010 }, tags: ["routine"] });
@@ -149,7 +149,7 @@ const { computeNextStep } = await import(pathToFileURL(`${ROOT}/dist/server-tool
 // Project with ONLY an ungrounded finding + clean inventory → rung 7b fires.
 const sp = mkdtempSync(join(tmpdir(), "c64re-752f-"));
 const ssvc = new ProjectKnowledgeService(sp);
-ssvc.initProject({ name: "752 nextstep" });
+ssvc.initProject({ preferredAssembler: "kickass", name: "752 nextstep" });
 ssvc.saveFinding({ kind: "classification", title: "ungrounded routine", addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });
 ssvc.buildAllViews();
 const ns = computeNextStep(sp);
@@ -164,7 +164,7 @@ ok(/ungrounded/i.test(ns.primary.why) && /no backing extract/.test(ns.primary.wh
 // Control: no ungrounded findings → the rung does not fire.
 const sp2 = mkdtempSync(join(tmpdir(), "c64re-752g-"));
 const ssvc2 = new ProjectKnowledgeService(sp2);
-ssvc2.initProject({ name: "752 nextstep ctrl" });
+ssvc2.initProject({ preferredAssembler: "kickass", name: "752 nextstep ctrl" });
 ssvc2.buildAllViews();
 const ns2 = computeNextStep(sp2);
 ok(!/ungrounded/i.test(ns2.primary.why), "S8 control (no ungrounded) → rung does not fire", `step=${ns2.primary.stepId}`);
@@ -181,7 +181,7 @@ const { linkExtractedPayloadFiles } = await import(pathToFileURL(`${ROOT}/dist/l
 // relinked to a real PRG and then auto-disassembled.
 const dp = mkdtempSync(join(tmpdir(), "c64re-752h-"));
 const dsvc = new ProjectKnowledgeService(dp);
-dsvc.initProject({ name: "752 real disk" });
+dsvc.initProject({ preferredAssembler: "kickass", name: "752 real disk" });
 const man = extractDiskImage(`${ROOT}/samples/fixtures/load-fidelity/lf-002-5block.d64`, join(dp, "analysis", "disk"));
 const manArt = dsvc.saveArtifact({ kind: "manifest", scope: "generated", title: "manifest", path: man.manifestPath, role: "disk-manifest", format: "json" });
 const dimp = dsvc.importManifestArtifact(manArt.id);
@@ -209,7 +209,7 @@ ok(dEnt?.internal !== true, "REVIEW relinked disk-file entity is no longer inter
 // L1 indirect: a payload backed ONLY by a d64 disk image is NOT grounding.
 const lp = mkdtempSync(join(tmpdir(), "c64re-752i-"));
 const lsvc = new ProjectKnowledgeService(lp);
-lsvc.initProject({ name: "752 L1 indirect" });
+lsvc.initProject({ preferredAssembler: "kickass", name: "752 L1 indirect" });
 const d64Art = lsvc.saveArtifact({ kind: "d64", scope: "input", title: "game.d64", path: join(lp, "input", "game.d64"), role: "disk-image" });
 const payOnlyDisk = lsvc.saveEntity({ kind: "payload", name: "disk_only_payload", payloadSourceArtifactId: d64Art.id, payloadFormat: "prg" });
 const fIndirectBad = lsvc.saveFinding({ kind: "classification", title: "routine in disk payload", payloadId: payOnlyDisk.id, addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });

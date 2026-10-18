@@ -69,7 +69,7 @@ try {
   console.log("C64RE #29 — a PRG in the sandbox starts, and the report says so\n");
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-sandbox-prg", version: "1" } });
   server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { project_dir: proj, name: "sandbox-prg-start" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "sandbox-prg-start" });
   await call("agent_onboard", { project_dir: proj });
   // Written after project_init, which sorts top-level media into input/.
   writeFileSync(join(proj, "basic.prg"), Buffer.from(basic));

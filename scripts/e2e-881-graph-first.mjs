@@ -65,7 +65,7 @@ function session() {
 
 const s1 = session();
 await s1.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "881", version: "1" } });
-await s1.call("project_init", { project_dir: proj, name: "spec-881" });
+await s1.call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "spec-881" });
 await s1.call("agent_onboard", { project_dir: proj });
 
 // A listing over the threshold, and one comfortably under it.

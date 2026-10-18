@@ -120,6 +120,12 @@ const rebuild = (kind, src, label, expected) => {
   } catch (e) { return `assembler failed: ${(e.stderr ?? e.stdout ?? e.message).toString().split("\n").slice(0, 3).join(" | ")}`; }
   return Buffer.compare(readFileSync(out), expected) === 0 ? true : "bytes differ";
 };
+// Spec 914 — a render writes ONE listing in ONE dialect; this test reads both, so each render is made twice:
+// the .asm, and the .tas beside it.
+const nodePair = (verb, prg, asmPath, ...rest) => {
+  node(verb, prg, asmPath, ...rest, "--dialect", "kickass");
+  node(verb, prg, asmPath.replace(/\.asm$/, ".tas"), ...rest, "--dialect", "64tass");
+};
 const rebuilds = (tag, asmPath, tasPath, expected) => {
   const safe = tag.replace(/\W/g, "_");
   if (HAVE_KICKASS) { const r = rebuild("ka", asmPath, `ka_${safe}`, expected); check(r === true, `${tag}: .asm rebuilds byte-identical (KickAssembler)`, r === true ? "" : r); }
@@ -138,9 +144,12 @@ try {
   for (const platform of ["c64", "plus4"]) {
     console.log(`\n== ${platform}, with analysis`);
     const asmPath = join(dir, `${platform}.asm`);
-    node("disasm-prg", prgPath, asmPath, "--analysis", analysis, "--platform", platform, "--relocations", relocPath, "--annotations", annPath);
-    const asm = readFileSync(asmPath, "utf8");
     const tasPath = asmPath.replace(/\.asm$/, ".tas");
+    const renderArgs = ["--analysis", analysis, "--platform", platform, "--relocations", relocPath, "--annotations", annPath];
+    // Spec 914 — a render writes ONE listing in ONE dialect; the other dialect is its own render of the same bytes.
+    node("disasm-prg", prgPath, asmPath, ...renderArgs, "--dialect", "kickass");
+    node("disasm-prg", prgPath, tasPath, ...renderArgs, "--dialect", "64tass");
+    const asm = readFileSync(asmPath, "utf8");
     const tas = readFileSync(tasPath, "utf8");
     for (const [text, kind] of [[asm, ".asm"], [tas, ".tas"]]) {
       for (const name of ["status_colour", "erase_player", "sound_off", "lonely", "decrunch_start", "mid_op", "zp_flag"]) {
@@ -169,7 +178,7 @@ try {
 
     console.log(`\n== ${platform}, without analysis (annotations are not applied on the relocation path - and it says so)`);
     const plainPath = join(dir, `${platform}_plain.asm`);
-    node("disasm-prg", prgPath, plainPath, "0FFE", "--no-analysis", "--platform", platform, "--relocations", relocPath, "--annotations", annPath);
+    nodePair("disasm-prg", prgPath, plainPath, "0FFE", "--no-analysis", "--platform", platform, "--relocations", relocPath, "--annotations", annPath);
     const plain = readFileSync(plainPath, "utf8");
     check(/NOT applied: relocation rendering without an analysis JSON/.test(plain), "the header says the names were not applied");
     check(!/erase_player|decrunch_start/.test(plain), "no name is half-applied");
@@ -178,7 +187,7 @@ try {
 
   console.log("\n== no annotations: a relocated listing is unchanged by naming (no equates, no names)");
   const barePath = join(dir, "bare.asm");
-  node("disasm-prg", prgPath, barePath, "--analysis", analysis, "--platform", "c64", "--relocations", relocPath);
+  nodePair("disasm-prg", prgPath, barePath, "--analysis", analysis, "--platform", "c64", "--relocations", relocPath);
   const bare = readFileSync(barePath, "utf8");
   check(!/erase_player|status_colour|mid_op|\.label\s+\w+\s*=\s*\$0751/.test(bare), "nothing is named that the human did not name");
   rebuilds("bare", barePath, barePath.replace(/\.asm$/, ".tas"), prg1);
@@ -190,7 +199,7 @@ try {
   const an2 = join(dir, "c_an.json");
   node("analyze-prg", p2, an2, "1000");
   const asm2Path = join(dir, "c.asm");
-  node("disasm-prg", p2, asm2Path, "--analysis", an2, "--platform", "c64", "--relocations", r2, "--annotations", a2);
+  nodePair("disasm-prg", p2, asm2Path, "--analysis", an2, "--platform", "c64", "--relocations", r2, "--annotations", a2);
   const asm2 = readFileSync(asm2Path, "utf8");
   const tas2 = readFileSync(asm2Path.replace(/\.asm$/, ".tas"), "utf8");
   for (const [text, kind] of [[asm2, ".asm"], [tas2, ".tas"]]) {

@@ -11,7 +11,7 @@ workspace UI cartridge grid) can consume.
 | `extract_crt` | Parse a `.crt` image (any VICE hardware type), extract per-bank chip binaries, emit `manifest.json`. |
 | `reconstruct_lut` | Reconstruct boot LUT payload groups from extracted CRT data (custom-mapper menus / loaders). |
 | `export_menu` | Export menu payload binaries from extracted CRT data. |
-| `disasm_menu` | Generate KickAssembler sources for all menu payloads. |
+| `disasm_menu` | Generate assembler sources (KickAssembler `.asm` or 64tass `.tas`, the project's dialect or `assembler`) for all menu payloads. |
 
 ## Manifest shape
 

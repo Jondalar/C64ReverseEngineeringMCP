@@ -220,7 +220,7 @@ try {
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-899", version: "1" } });
     server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: dir, name: "s899" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "s899" });
     await call("agent_onboard", { project_dir: dir });
     // project_init sorts the media it finds into input/; put the two this block uses back.
     writeFileSync(join(dir, "fault.prg"), d011Prg("fault"));

@@ -140,7 +140,7 @@ try {
   ok(p0.primaryTool === "project_init", "3c primary tool is the project_init product tool", p0.primaryTool || "(none)");
 
   // 4. initialize + select workflow + lay down media so inventory becomes dirty.
-  const initRes = await callTool("project_init", { project_dir: projectDir, name: "E2E Step Loop" });
+  const initRes = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "E2E Step Loop" });
   ok(okText(initRes) && /initialized/i.test(textOf(initRes)), "4a project_init initializes the external project", "");
   // A session onboards before it works in a project; the server refuses otherwise.
   await callTool("agent_onboard", { project_dir: projectDir });

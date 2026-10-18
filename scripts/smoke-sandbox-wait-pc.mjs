@@ -71,7 +71,7 @@ try {
   console.log("C64RE #49 — 'the CPU reaches' is an execution breakpoint\n");
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-sandbox-wait-pc", version: "1" } });
   server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { project_dir: proj, name: "sandbox-wait-pc" });
+  await call("project_init", { preferred_assembler: "kickass", project_dir: proj, name: "sandbox-wait-pc" });
   await call("agent_onboard", { project_dir: proj });
   writeFileSync(join(proj, "irq.prg"), prg);
 

@@ -117,7 +117,7 @@ try {
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-900", version: "1" } });
     server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-    await call("project_init", { project_dir: dir, name: "s900" });
+    await call("project_init", { preferred_assembler: "kickass", project_dir: dir, name: "s900" });
     await call("agent_onboard", { project_dir: dir });
     writeFileSync(join(dir, "fire.prg"), Buffer.from([...stub, ...code])); // project_init sorts media into input/
     const t = await call("runtime_sandbox_run", {

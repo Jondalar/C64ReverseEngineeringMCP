@@ -99,7 +99,7 @@ const leaks = (text) => [/\/Users\//, /\/tmp\//, /\/var\/folders\//, /\browid\b/
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-823", version: "0" } });
   notify("notifications/initialized", {});
-  const init = await callTool("project_init", { project_dir: projectDir, name: "s823" });
+  const init = await callTool("project_init", { preferred_assembler: "kickass", project_dir: projectDir, name: "s823" });
   check(!/Tool Error/i.test(textOf(init)), "project_init through the MCP door");
   // A session onboards before it works in a project; the server refuses otherwise.
   // This gate predates the onboarding gate and went red the day that arrived, in

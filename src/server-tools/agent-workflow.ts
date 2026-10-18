@@ -16,6 +16,7 @@ import { INVENTORY_PATTERNS_FILE } from "../project-knowledge/inventory-patterns
 import type { ServerToolContext } from "./types.js";
 import { ensureDefaultSteering } from "./steering-defaults.js";
 import { markOnboarded } from "./onboarding-gate.js";
+import { readProjectDialect } from "../lib/dialect.js";
 import {
   GIT_WARNING_LINE, gitAdoptCommand, gitAvailable, noGitRefusal, uncommittedKnowledgeFiles, workTreeRoot,
 } from "../project-knowledge/project-git.js";
@@ -419,8 +420,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. A broken `.mcp.json` is reported as a warning (Claude Code drops the server silently when it does not parse). Returns: project metadata, the project's machine (`Machine:` — ask the human when none is recorded and files look foreign), workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
     {
       project_dir: z.string().optional().describe("Project root. Wins over C64RE_PROJECT_DIR when given; omitted, C64RE_PROJECT_DIR, then the project this session onboarded into, then process.cwd()."),
+      preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("The assembler dialect the HUMAN chose for this project's listings (kickass = .asm, 64tass = .tas). A project that has none is asked at onboarding; this records the answer. Never guess it."),
     },
-    async ({ project_dir }) => {
+    async ({ project_dir, preferred_assembler }) => {
       const projectRoot = ctx.projectDir({ projectDir: project_dir });
       // A session that cannot keep history does not start writing: refused before the
       // sweeps below touch the project. A project outside a work tree is onboarded, with
@@ -440,6 +442,23 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         if (dirty > 0) gitNote = `Git: ${dirty} file(s) under knowledge/ are not committed — commit the project after a step that changed knowledge/.`;
       }
       const service = new ProjectKnowledgeService(projectRoot);
+      // Spec 914 D6 — the human chooses which assembler the project works in; there is no default.
+      let dialectLine: string | undefined;
+      if (preferred_assembler) {
+        const recorded = service.setPreferredAssembler(preferred_assembler);
+        dialectLine = recorded
+          ? `Assembler: ${preferred_assembler} — recorded as the project's dialect (listings are ${preferred_assembler === "64tass" ? ".tas" : ".asm"}).`
+          : `Assembler: ${preferred_assembler} NOT recorded — this directory has no project yet; run project_init with preferred_assembler=${preferred_assembler}.`;
+      } else if (!readProjectDialect(projectRoot)) {
+        dialectLine = [
+          `## ▶ ASK THE HUMAN FIRST: which assembler does this project work in?`,
+          `No assembler dialect is set for this project, and there is no default: disasm, disasm_prg, disasm_raw, disasm_menu and run_prg_reverse_workflow REFUSE until it is, and so does the rebuild proof of an extract.`,
+          `- kickass — KickAssembler: listings are .asm`,
+          `- 64tass — 64tass: listings are .tas`,
+          `Record the human's answer with agent_onboard(preferred_assembler="kickass" | "64tass") (or project_init). A single file can still be rendered in the other dialect with assembler= on the render, and sources in the other dialect build together with yours (assemble_source units).`,
+          ``,
+        ].join("\n");
+      }
       // Bug 16 / Spec 022: auto-import analysis runs whose entities are
       // not yet back-linked, so the audit no longer warns about them.
       const autoImport = service.autoImportUnimportedAnalysisRuns();
@@ -456,6 +475,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
       const lines: string[] = [...gitHead];
       lines.push(`# Agent Onboarding`);
+      if (dialectLine) lines.push(dialectLine);
       if (gitNote) lines.push(gitNote);
       // The host config is read by the NEXT session, so a broken one is said here, while a
       // human can still fix it. A warning, never a refusal: this session is already running.

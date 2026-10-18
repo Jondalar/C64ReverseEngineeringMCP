@@ -80,7 +80,7 @@ try {
   const tools = new Set(((await rpc("tools/list", {})).result?.tools || []).map((t) => t.name));
   check(tools.has("code_cost"), "code_cost is on the default surface — a tool not in DEFAULT_TOOLS is hidden");
   check(tools.has("change_impact") && tools.has("trace_cost"), "so are change_impact and trace_cost (§8)");
-  await call("project_init", { name: "cost861static" });
+  await call("project_init", { preferred_assembler: "kickass", name: "cost861static" });
   // A session onboards before it works in a project; the server refuses otherwise.
   await call("agent_onboard", {});
 

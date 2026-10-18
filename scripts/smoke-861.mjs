@@ -441,7 +441,7 @@ try {
     try {
       await rpcMcp("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-861", version: "1" } });
       proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-      await callTool("project_init", { name: "cost861smoke" });
+      await callTool("project_init", { preferred_assembler: "kickass", name: "cost861smoke" });
       // A session onboards before it works in a project; the server refuses
       // otherwise, and this gate is local, so nothing in CI caught that it did not.
       await callTool("agent_onboard", {});

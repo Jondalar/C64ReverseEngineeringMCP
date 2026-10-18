@@ -149,7 +149,7 @@ const WHY_LBL = "both readings are half of it: the rts is reached from the door 
 try {
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-877-merge", version: "1" } });
   proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-  await call("project_init", { name: "877-merge" });
+  await call("project_init", { preferred_assembler: "kickass", name: "877-merge" });
   await call("agent_onboard", {});
 
   // ── M1 ───────────────────────────────────────────────────────────────────
