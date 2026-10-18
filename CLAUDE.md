@@ -18,13 +18,17 @@ loaded into every context window.
    runtime is unavailable, tools say so and carry the setup recipe; they never quietly
    do something else. Do not reintroduce an in-repo core. (Spec 806; the single-path
    rule it replaces is retired in `DOCTRINE.md`.)
-2. **One SHARED machine, plus ephemeral sandboxes.** The session the human sees is
-   exactly one, and the UI shows only that one: human and LLM co-drive it, and it is
-   never power-cycled for a test. For point work — depacking, a test run, a comparison
-   — C64RE **may** spawn its own `trx64-daemon` sandbox on its own port. A sandbox is
-   born with a budget and **ends itself** when the budget runs out, whether or not
-   anyone is still listening. Amended 2026-08-14; the reasoning and the reaping rule
-   are in `DOCTRINE.md`.
+2. **One SHARED machine, plus sandboxes the LLM starts for a purpose.** The session
+   the human sees is exactly one, and the UI shows only that one: human and LLM
+   co-drive it, and it is never power-cycled for a test. Anything else the LLM needs a
+   machine for — depacking, a test run, a comparison, or an interactive loop of
+   stepping, breakpoints, traces and rewind — it starts itself, as a `trx64-daemon`
+   sandbox on its own port: one call (`runtime_sandbox_run`) or a session
+   (`runtime_sandbox_start` → a `session_id` for every `runtime_*` tool, ended with
+   `runtime_sandbox_end`). A sandbox has a stated purpose and a budget, is invisible to
+   the UI and to every other MCP process, and **ends itself** on reached / failed /
+   budget / idle / owner gone. Amended 2026-08-14 and 2026-10-14; the reasoning is in
+   `DOCTRINE.md`.
 3. **The 1541 drive CPU stays its own 6502** (a TRX64 rule now). Do not merge it into
    the C64 core.
 4. **Traces go into the trace store, never into a one-off script.** Capture the whole
@@ -67,13 +71,13 @@ delivering it there is in scope. Cross-repo edits and commits in both are normal
 
 ## Project Overview
 
-MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis analysis pipeline to provide heuristic disassembly, semantic annotation, and dual-assembler output (KickAssembler + 64tass) for C64 PRG files, disk images (D64/G64), and CRT cartridges.
+MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis analysis pipeline to provide heuristic disassembly, semantic annotation, and assembler output in one dialect per project (KickAssembler or 64tass, chosen at onboarding) for C64 PRG files, disk images (D64/G64), and CRT cartridges.
 
 C64RE is the reverse-engineering workbench, not the emulator: the runtime is TRX64 (Spec 771), reached as a separate daemon process. There is no runtime in this repo — the TypeScript emulator and the VICE bridge were deleted 2026-08-12 (Spec 806). Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
 **Ownership:** the agent working here owns and stewards **both** repos — C64RE and the sibling TRX64 (`../TRX64`). The Leitregel split is an internal division of **one owner's** work, **not a handoff to a separate party**: when a capability moves "→ TRX64" (e.g. the TS runtime is deprecating and its live capabilities — trace, intervention, rewind, checkpoints, drive-to-state, monitor — migrate), delivering it there is in scope, carried across, not deferred to someone else. Cross-repo edits + commits in both repos are normal.
 
-**Spec numbering is cross-repo (2026-07-03):** C64RE + TRX64 share **one** number range; the single registry is `specs/README.md` (this board). A new spec in **either** repo takes the next free number there. TRX64 spec files live under `../TRX64/docs/` and keep descriptive names — their numbers are assigned on the board (776–782 so far; the new `776-overlay-intervention-diff.md` was created pre-numbered).
+**Spec numbering is cross-repo (2026-07-03):** C64RE + TRX64 share **one** number range; the single registry is `specs/README.md` (this board). A new spec in **either** repo takes the next free number there. TRX64 spec files live under `../TRX64/docs/internal/` and keep descriptive names — their numbers are assigned on the board (776–782 so far; the new `776-overlay-intervention-diff.md` was created pre-numbered).
 
 ## Build & Run
 
@@ -108,7 +112,7 @@ cli.ts → server.ts (MCP tools/prompts) → run-cli.ts (spawns node) → pipeli
 - `pipeline/src/analysis/pipeline.ts` — Main analysis orchestrator; runs 9 analyzers
 - `pipeline/src/lib/prg-disasm.ts` — PRG→ASM conversion with annotation rendering (largest file, ~1700 LOC)
 - `pipeline/src/lib/mos6502.ts` — Complete 6502 ISA (256 opcodes including undocumented)
-- `pipeline/src/lib/tass-converter.ts` — KickAssembler→64tass dialect conversion
+- `pipeline/src/lib/tass-converter.ts` — KickAssembler→64tass dialect conversion (replaced by one emitter per dialect, Spec 914)
 - `pipeline/src/lib/annotations.ts` — Annotation schema and loading
 
 ## The per-PRG analysis loop
@@ -132,7 +136,7 @@ memory; that file decides.
 ## Output File Naming
 
 - `<name>_analysis.json` — Phase 1 heuristic output
-- `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass). Projects written before 2026-09-06 hold `.tass`; every reader accepts both, the renderer writes `.tas`.
+- `<name>_disasm.asm` **or** `<name>_disasm.tas` — Disassembly, ONE dialect per render (since 2026-10-17, Spec 914). The user must choose the dialect at onboarding (`preferredAssembler`, no default); a single file may override it (`assembler=` on the render, kept on its record). A render with no chosen dialect is refused. Readers ask for "the listing", never build a path by swapping `.asm`. Sources in another dialect (a loader, template code) may sit beside it and are built by their own assembler, linked through exported symbols. Projects written before 2026-09-06 hold `.tass`; older projects may hold both files, and both are read.
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Analysis reports
 

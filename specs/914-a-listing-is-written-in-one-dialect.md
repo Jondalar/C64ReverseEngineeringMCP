@@ -1,6 +1,6 @@
 # Spec 914 — A listing is written in one dialect, chosen per file, and sources of different dialects build together
 
-**Status:** BUILT on branch `spec/914` (2026-10-17), not merged: S1–S7 green in `scripts/e2e-914-dialect.mjs`, the old corpus green; open: S8 (the reporter on #138) and the UI highlight of `.tas`, by hand.
+**Status:** BUILT and merged (2026-10-18): S1–S7 green in `scripts/e2e-914-dialect.mjs`, the old corpus green; the `.tas` highlight checked in the UI (owner session, demo project). Open: S8, the reporter's retest on #138. Ships with the next C64RE release.
 **Repo:** C64RE (renderer, readers, rebuild proof, assemble, UI, onboarding). TRX64 untouched.
 **Number:** 914 (registry: `specs/README.md`).
 **Origin:** issue #138 (a 64tass project deletes the `.asm` after every render; the "Run disasm"
