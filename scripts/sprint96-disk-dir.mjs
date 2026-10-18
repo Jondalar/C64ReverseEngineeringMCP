@@ -4,7 +4,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 const disk = "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64";
-if (!existsSync(disk)) process.exit(2);
+if (!existsSync(disk)) { console.error(`sprint96-disk-dir: input missing (a commercial disk image, never committed): ${disk}\nThis is a dump tool with no assertions; it needs that image to say anything. Exit 2 = input absent.`); process.exit(2); }
 
 const { G64Parser } = await import("../dist/disk/g64-parser.js");
 const parser = new G64Parser(readFileSync(disk));
