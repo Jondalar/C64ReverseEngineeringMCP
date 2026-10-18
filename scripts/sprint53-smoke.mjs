@@ -64,64 +64,21 @@ try {
   const all = service.listEntities({ kind: "payload" });
   assert.equal(all.length, 2, `expected 2 payload entities, got ${all.length}`);
 
-  // ---- Test 3: dedupePayloadEntities migration collapses legacy duplicates ----
-  // Simulate legacy state: write a sibling entity directly that bypasses
-  // the new saveEntity dedup.
-  const fs = await import("node:fs");
-  const entitiesPath = join(root, "knowledge", "entities.json");
-  const store = JSON.parse(fs.readFileSync(entitiesPath, "utf8"));
-  store.items.push({
-    id: "entity-payload-legacy-zzzz",
-    kind: "payload",
-    name: "16_dad",
-    summary: "legacy prefixed copy",
-    status: "active",
-    confidence: 1,
-    evidence: [],
-    artifactIds: [sourceArtifact.id],
-    relatedEntityIds: [],
-    payloadLoadAddress: 0x0801,
-    payloadFormat: "prg",
-    payloadSourceArtifactId: sourceArtifact.id,
-    payloadContentHash: "deadbeef",
-    payloadAsmArtifactIds: [],
-    aliases: [],
-    mediumSpans: [],
-    tags: ["pipeline-cli", "payload"],
-    createdAt: "2099-01-01T00:00:00.000Z",
-    updatedAt: "2099-01-01T00:00:00.000Z",
-  });
-  fs.writeFileSync(entitiesPath, JSON.stringify(store, null, 2));
-
-  // Add a finding referencing the legacy duplicate.
-  service.saveFinding({
-    kind: "observation",
-    title: "Legacy finding",
-    entityIds: ["entity-payload-legacy-zzzz"],
-  });
-
-  const dryRun = service.dedupePayloadEntities({ dryRun: true });
-  assert.equal(dryRun.duplicateGroupCount, 1, `expected 1 dup group dry-run; got ${dryRun.duplicateGroupCount}`);
-  assert.equal(dryRun.mergedRowCount, 1);
-  // Dry-run: state unchanged.
-  const stateAfterDry = service.listEntities({ kind: "payload" });
-  assert.equal(stateAfterDry.length, 3);
-
-  const applied = service.dedupePayloadEntities({ dryRun: false });
-  assert.equal(applied.duplicateGroupCount, 1);
-  assert.equal(applied.referenceRemapCounts.findings, 1, "finding entity ref must remap");
-
+  // ---- Test 3: dedupePayloadEntities after the graph cut-over ----
+  // Since a323cf96 (Spec 822.2) payload identity is derived in the graph, one node per (owner stem, load
+  // address); there is no entities.json to plant a legacy duplicate in and nothing left to merge. The tool
+  // keeps its shape and reports the survivors: the dedup itself is what Tests 1-2 above prove.
+  for (const dryRun of [true, false]) {
+    const r = service.dedupePayloadEntities({ dryRun });
+    assert.equal(r.duplicateGroupCount, 0, "nothing to dedupe: identity is derived");
+    assert.equal(r.mergedRowCount, 0);
+    assert.equal(r.survivorCount, 2, `both payloads survive; got ${r.survivorCount}`);
+  }
   const stateAfter = service.listEntities({ kind: "payload" });
-  assert.equal(stateAfter.length, 2, `expected 2 after dedupe; got ${stateAfter.length}`);
+  assert.equal(stateAfter.length, 2, `expected 2 payload entities; got ${stateAfter.length}`);
   const survivor = stateAfter.find((e) => e.name === "murder");
   assert.ok(survivor, "survivor 'murder' present");
-  assert.ok(survivor.aliases.includes("16_dad"), `survivor aliases include legacy name; got ${survivor.aliases}`);
-  assert.ok(survivor.aliases.includes("01_murder"));
-
-  // Finding should now reference survivor.
-  const findings = service.listFindings();
-  const updated = findings.find((f) => f.title === "Legacy finding");
-  assert.deepEqual(updated.entityIds, [survivor.id], `finding remapped; got ${updated.entityIds}`);
+  assert.ok(survivor.aliases.includes("01_murder"), `survivor aliases keep the folded name; got ${survivor.aliases}`);
 
   // ---- Test 4: manifest-internal classification ----
   // Register an internal artifact (manifest.json), then a payload pointing at it.

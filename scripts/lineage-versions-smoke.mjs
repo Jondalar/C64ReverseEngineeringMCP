@@ -88,8 +88,9 @@ try {
     scope: "analysis",
     title: "V1 disasm",
     path: v1Path,
-    derivedFrom: v0.id,
   });
+  // No derivedFrom here on purpose: since sprint 52 (Bug 30, 25c7a61d) a save that names a parent is an
+  // explicit lineage bump and bypasses the path dedup; a plain re-save of the same path is the overwrite.
   assert.equal(v1Again.id, v1.id, "save_artifact dedups by path");
   assert.ok(v1Again.versions.length >= 1, "versions[] has prior content hash");
   assert.ok(v1Again.versions.some((v) => v.contentHash === beforeSnap.contentHash), "prior hash recorded");

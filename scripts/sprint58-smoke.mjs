@@ -43,29 +43,18 @@ try {
   });
   fs.writeFileSync(join(root, "knowledge/artifacts.json"), JSON.stringify(artStore, null, 2));
 
-  const entStore = JSON.parse(fs.readFileSync(join(root, "knowledge/entities.json"), "utf8"));
-  entStore.items.push({
-    id: "entity-legacy-annotations",
+  // The entity goes in through the door: since a323cf96 (Spec 822.2) entities live in the graph, there is no
+  // knowledge/entities.json to plant a row in. (artifacts.json is still a JSON store.)
+  const legacyEntity = service.saveEntity({
     kind: "payload",
     name: "01 Murder Annotations",
-    summary: "",
-    status: "active",
-    confidence: 1,
-    evidence: [],
     artifactIds: ["artifact-legacy-annotations"],
-    relatedEntityIds: [],
     payloadLoadAddress: 0x0801,
     payloadFormat: "raw",
     payloadSourceArtifactId: "artifact-legacy-annotations",
-    payloadAsmArtifactIds: [],
-    aliases: [],
-    mediumSpans: [],
-    tags: [],
     // intentionally NO internal flag
-    createdAt: "2099-01-01T00:00:00.000Z",
-    updatedAt: "2099-01-01T00:00:00.000Z",
   });
-  fs.writeFileSync(join(root, "knowledge/entities.json"), JSON.stringify(entStore, null, 2));
+  assert.equal(legacyEntity.internal, undefined, "the entity starts without the flag");
 
   // ---- Test 1: backfill_internal_flags dry run ----
   const dry = service.backfillInternalFlags({ dryRun: true });
@@ -81,7 +70,7 @@ try {
   assert.equal(applied.entitiesUpdated, 1);
   const artAfter = service.listArtifacts().find((a) => a.id === "artifact-legacy-annotations");
   assert.equal(artAfter.internal, true, "artifact flag set");
-  const entAfter = service.listEntities().find((e) => e.id === "entity-legacy-annotations");
+  const entAfter = service.listEntities().find((e) => e.id === legacyEntity.id);
   assert.equal(entAfter.internal, true, "entity flag inherited from primary artifact");
 
   // Idempotent: second run should be a no-op.

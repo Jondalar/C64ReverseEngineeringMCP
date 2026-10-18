@@ -46,7 +46,9 @@ try {
   assert.match(prompt, /Hand-off contract/);
 
   // phaseForTool + isToolAllowedInPhase.
-  assert.equal(phaseForTool("analyze_prg"), 3);
+  // analyze/disasm are first-class in phase 2 (Discovery) since 61912c99 "loader RE is a Discovery activity";
+  // phaseForTool answers the first phase that lists the tool.
+  assert.equal(phaseForTool("analyze_prg"), 2);
   assert.equal(phaseForTool("save_finding"), 5);
   assert.equal(phaseForTool("agent_propose_next"), "agnostic");
   const ok = isToolAllowedInPhase("disasm_prg", 3, true);

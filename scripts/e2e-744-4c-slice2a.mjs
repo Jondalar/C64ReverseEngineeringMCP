@@ -6,7 +6,8 @@
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
@@ -15,6 +16,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
 const PORT = 14772;
+// Its own project, init'd and onboarded: the repository root is no project, and a checkout nested in another project
+// (a worktree) would resolve C64RE_PROJECT_DIR=ROOT to that enclosing project, which this session never onboarded.
+const PROJ = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-e2e-744-2a-")));
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
@@ -28,7 +32,7 @@ killPort();
 
 const procs = [];
 function spawnMcp() {
-  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT, C64RE_RUNTIME_AUTOSTART: "0" }, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: PROJ, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT, C64RE_RUNTIME_AUTOSTART: "0" }, stdio: ["pipe", "pipe", "pipe"] });
   procs.push(proc);
   let buf = ""; const pending = new Map(); let nextId = 1;
   proc.stdout.on("data", (d) => { buf += d.toString(); let nl; while ((nl = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1); if (!line) continue; let m; try { m = JSON.parse(line); } catch { continue; } if (m.id != null && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } });
@@ -37,11 +41,11 @@ function spawnMcp() {
   const text = (r) => (r?.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
   return { proc, rpc, call, text, kill: () => { try { proc.stdin.end(); proc.kill(); } catch {} } };
 }
-async function ready(m) { await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "slice2a", version: "1" } }); m.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n"); }
+async function ready(m) { await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "slice2a", version: "1" } }); m.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n"); await m.call("project_init", { project_dir: PROJ, name: "e2e-744-2a" }); await m.call("agent_onboard", { project_dir: PROJ }); }
 let wsId = 1;
 const wsRpc = (ws, method, params) => new Promise((res, rej) => { const id = wsId++; const t = setTimeout(() => rej(new Error("ws timeout " + method)), 30000); const on = (data, isBin) => { if (isBin) return; let m; try { m = JSON.parse(data.toString()); } catch { return; } if (m.id === id) { clearTimeout(t); ws.off("message", on); m.error ? rej(new Error(m.error.message)) : res(m.result); } }; ws.on("message", on); ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params })); });
 
-const daemon = spawn(process.execPath, [daemonScript, "--project", ROOT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT }, stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(process.execPath, [daemonScript, "--project", PROJ, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: PROJ }, stdio: ["ignore", "pipe", "pipe"] });
 let dlog = ""; daemon.stdout.on("data", (d) => dlog += d); daemon.stderr.on("data", (d) => dlog += d);
 
 let exit = 0;
@@ -90,7 +94,7 @@ try {
 } finally {
   for (const p of procs) { try { p.kill(); } catch {} }
   try { daemon.kill(); } catch {}
-  await sleep(200); killPort();
+  await sleep(200); killPort(); try { rmSync(PROJ, { recursive: true, force: true }); } catch {}
 }
 console.log(`\nSpec 744.4c slice 2a: ${pass} pass, ${fail} fail`);
 process.exit(exit || (fail > 0 ? 1 : 0));
