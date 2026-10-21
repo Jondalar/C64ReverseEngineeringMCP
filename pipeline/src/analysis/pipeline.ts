@@ -529,7 +529,7 @@ function collectGraphSeeds(
   const rejected: EntryPointRejection[] = lookup.skipped.map((skip) => ({
     address: skip.address,
     source: "graph" as const,
-    reason: "owned_by_other" as const,
+    reason: skip.reason ?? ("owned_by_other" as const),
     detail: skip.detail,
   }));
   return {

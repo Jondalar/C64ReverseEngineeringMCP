@@ -201,7 +201,7 @@ export type CodeSeedLookup =
       /** Spec 867 D1 — the window this image occupies, and where that window came from. */
       window: PayloadWindow;
       seeds: CodeSeed[];
-      skipped: Array<{ address: number; detail: string }>;
+      skipped: Array<{ address: number; detail: string; reason?: "heuristic_caller" }>;
       outOfScope: CodeSeedOutOfScope[];
     }
   | { status: "absent"; owner: string; path?: string; reason: string };
@@ -286,10 +286,14 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
     }
 
     // S2 — another overlay calls or jumps into this image.
-    const callers = new Map<number, Map<string, { type: string; count: number }>>();
+    // Issue #140 — `heuristic` counts the call sites that sit in a probable-code
+    // render (control-flow producer: a source that is not confirmed code). A data
+    // chip that extract_crt rendered at $8000 "calls" anywhere; such a site is a
+    // guess about the CALLER, so it cannot make an address code in somebody else.
+    const callers = new Map<number, Map<string, { type: string; count: number; heuristic: number }>>();
     for (const row of db
-      .prepare("SELECT type, to_id, owner, COUNT(*) AS sites FROM edges WHERE type IN ('CALLS','JUMPS_TO') AND to_id LIKE '%:addr:%' GROUP BY type, to_id, owner ORDER BY to_id")
-      .all() as Array<{ type: string; to_id: string; owner: string | null; sites: number }>) {
+      .prepare("SELECT type, to_id, owner, COUNT(*) AS sites, SUM(confidence = 'heuristic') AS heuristic FROM edges WHERE type IN ('CALLS','JUMPS_TO') AND to_id LIKE '%:addr:%' GROUP BY type, to_id, owner ORDER BY to_id")
+      .all() as Array<{ type: string; to_id: string; owner: string | null; sites: number; heuristic: number }>) {
       const a = addressOfId(row.to_id);
       if (!a || a.kind !== "addr" || !inRange(a.address)) continue;
       if (ctxSpaceOfId(row.to_id) !== space) continue;
@@ -299,10 +303,10 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       if (!byOwner) { byOwner = new Map(); callers.set(a.address, byOwner); }
       const key = `${row.type}|${from}`;
       const seen = byOwner.get(key);
-      if (seen) seen.count += Number(row.sites);
-      else byOwner.set(key, { type: row.type, count: Number(row.sites) });
+      if (seen) { seen.count += Number(row.sites); seen.heuristic += Number(row.heuristic); }
+      else byOwner.set(key, { type: row.type, count: Number(row.sites), heuristic: Number(row.heuristic) });
     }
-    const skipped: Array<{ address: number; detail: string }> = [];
+    const skipped: Array<{ address: number; detail: string; reason?: "heuristic_caller" }> = [];
     for (const [address, byOwner] of [...callers.entries()].sort((l, r) => l[0] - r[0])) {
       const addrId = `${mine[0]!.id.split(":")[0]}:${space}:addr:${address.toString(16).padStart(4, "0")}`;
       const target = resolvesTo.get(addrId);
@@ -321,6 +325,11 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       const hole = holes.find((h) => covers(h, address));
       if (hole) {
         outOfScope.push({ address, detail: `${from}, but ${hex4(address)} is inside ${describeWindow(hole)}, which loads inside this payload's window — that stretch is its business, not this image's` });
+        continue;
+      }
+
+      if ([...byOwner.values()].every((v) => v.heuristic === v.count)) {
+        skipped.push({ address, detail: `${from}, but every call site is heuristic (a probable-code render, not confirmed code) — a guess about the caller does not make ${hex4(address)} code here (issue #140)`, reason: "heuristic_caller" });
         continue;
       }
 

@@ -156,7 +156,9 @@ export interface EntryPointRejection {
     /** the byte at the address is not a decodable opcode */
     | "undecodable"
     /** a graph seed the graph itself assigns to a different owner (Spec 826 RESOLVES_TO) */
-    | "owned_by_other";
+    | "owned_by_other"
+    /** a graph seed whose every caller is a probable-code render, not confirmed code (issue #140) */
+    | "heuristic_caller";
   detail: string;
 }
 
