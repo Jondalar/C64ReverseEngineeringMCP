@@ -78,6 +78,10 @@ S1 (human routine) and S3 (resolved alias) are unchanged.
   several = not seeded, and the listing header names it ("`$3200`: target not validated,
   claimants menu / prog_a / prog_b"). Reading the loader's key (LUT row / file number) to decide
   it statically is not needed and not built.
+- **Rejected (owner, 2026-10-21): a static "later window overlays mine" rule** (PR #143: a window
+  that starts later inside mine and runs past my end takes the address, and keeps the seed
+  without a run). Start order is not load order; without a traced run neither occupant is
+  seeded, and the header names both. #142 (heuristic callers) is D1 and is closed with it.
 - Replaces 867 §2's "inside my window the code is mine" for cross-owner seeds; 867's window
   and holes logic is unchanged.
 
