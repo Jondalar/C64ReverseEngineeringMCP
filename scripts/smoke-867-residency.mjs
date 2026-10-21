@@ -73,7 +73,7 @@ async function rpc(endpoint, deadlineMs = 20_000) {
 }
 
 const port = await freePort();
-const daemon = spawn(DAEMON, ["--project", proj, "--port", String(port), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", proj, "--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
 cleanups.push(() => daemon.kill("SIGKILL"));
 
 const graph = Graph.open(proj);

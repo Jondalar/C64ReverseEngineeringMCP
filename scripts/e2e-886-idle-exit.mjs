@@ -42,7 +42,7 @@ new ProjectKnowledgeService(proj).initProject({ name: "886" });
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: proj, port: String(PORT) });
 if (plan.mode === "none") { console.log("SKIPPED e2e:886-idle-exit: no trx64-daemon found — NOT passed."); process.exit(0); }
 const startDaemon = (idle) => {
-  const d = spawn(plan.cmd, [...plan.args, "--headless", "--idle-exit", String(idle)], { stdio: ["ignore", "pipe", "pipe"] });
+  const d = spawn(plan.cmd, [...plan.args, "--idle-exit", String(idle)], { stdio: ["ignore", "pipe", "pipe"] });
   d.log = ""; d.stdout.on("data", (b) => { d.log += b; }); d.stderr.on("data", (b) => { d.log += b; });
   d.exited = new Promise((res) => d.once("exit", (code) => res(code)));
   return d;

@@ -765,14 +765,14 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
   // ---- Spec 263 — SID audio export ----
   server.tool(
     "runtime_session_export_audio",
-    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Exports the LIVE session only; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
+    "Render N seconds of a session's SID audio (reSID) to a stereo s16le 44.1kHz WAV, offline: the daemon runs the machine for those N seconds (a run with a stop, breakpoints live) and renders what the SID played — on the shared session and on a sandbox session alike, with no A/V client needed. The machine is left stopped where the N seconds ended. Exports the session's own machine; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
     {
       session_id: z.string(),
       out_path: z.string(),
       duration_sec: z.number(),
     },
     safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
-      // Runs on the shared machine — the same session the UI drives.
+      // The session's own machine (the shared one, or the sandbox the id names).
       const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };

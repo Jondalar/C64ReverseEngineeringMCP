@@ -196,7 +196,7 @@ if (plan.mode === "none") {
   skip("5/9 runtime_session_run against a daemon — no TRX64 daemon found (set C64RE_TRX64_BIN)");
 } else {
   const ENDPOINT = `ws://127.0.0.1:${port}`;
-  const daemon = spawn(plan.cmd, [...plan.args, "--headless", "--idle-exit", "300"], { stdio: ["ignore", "pipe", "pipe"], env: cleanEnv({ C64RE_ROOT: ROOT }) });
+  const daemon = spawn(plan.cmd, [...plan.args, "--idle-exit", "300"], { stdio: ["ignore", "pipe", "pipe"], env: cleanEnv({ C64RE_ROOT: ROOT }) });
   let dlog = ""; daemon.stdout.on("data", (b) => { dlog += b; }); daemon.stderr.on("data", (b) => { dlog += b; });
   let m;
   try {

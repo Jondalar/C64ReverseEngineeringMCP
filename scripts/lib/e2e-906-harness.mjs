@@ -105,9 +105,9 @@ export class Harness {
     return dir;
   }
   /** A trx64-daemon of this run's own on a free port: the stand-in for "the shared session". */
-  async daemon(bin, projectDir, { headless = true } = {}) {
+  async daemon(bin, projectDir, { scratch } = {}) {
     const port = await freePort();
-    const child = spawn(bin, ["--project", projectDir, "--port", String(port), ...(headless ? ["--headless"] : [])], { stdio: "ignore" });
+    const child = spawn(bin, ["--project", projectDir, "--port", String(port), ...(scratch ? ["--scratch", scratch] : [])], { stdio: "ignore" });
     const stop = () => { try { child.kill("SIGTERM"); } catch { /* gone */ } };
     this.cleanups.push(stop);
     for (let i = 0; i < 80; i++) {

@@ -8,6 +8,7 @@
 
 import type { MachineIdentity } from "./machine-model.js";
 import type { IdleExitStatus } from "./idle-exit.js";
+import { runUntil, type RunOptions, type WireCall } from "./run-until.js";
 
 /** Spec 863 — the identity fields a state reply carries (read them with `machineIdentity`). */
 type MachineIdentityFields = MachineIdentity;
@@ -73,7 +74,7 @@ export abstract class RuntimeMethods {
   keepAlive(seconds: number | null) {
     return this.call<IdleExitStatus & { armed: boolean }>("daemon/keep_alive", { seconds });
   }
-  state(sessionId: string) { return this.call<{ c64Cycles: number; idleExit?: IdleExitStatus; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } } & Partial<MachineIdentityFields>>("session/state", { session_id: sessionId }); }
+  state(sessionId: string) { return this.call<{ c64Cycles: number; idleExit?: IdleExitStatus; mode: string; runState?: string; controlOwner?: string; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } } & Partial<MachineIdentityFields>>("session/state", { session_id: sessionId }); }
   /** Spec 863 — every model the runtime knows, runnable or not (with what it lacks). */
   models() { return this.call<{ models: Array<Record<string, unknown> & { name: string }>; current: string }>("session/models"); }
   /** Spec 863 — switch the running machine to another model at the next frame boundary
@@ -86,55 +87,9 @@ export abstract class RuntimeMethods {
   /** `null` when no cartridge is inserted — that is the answer, not a failure. */
   cartStatus(sessionId: string) { return this.call<Record<string, unknown> | null>("session/cart_status", { session_id: sessionId }); }
   closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
-  /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
-  run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles, source: "llm" }); }
-  /** Live continuous run (UI Live mode). Spec 767 — source="llm": these come from
-   *  the MCP/agent side (the UI talks WS directly, not via this client). */
-  // Live continuous run (UI Live mode) — Spec 767. With `cycles`, a BOUNDED run that
-  // still streams every rendered frame through the daemon stream pump and auto-pauses at
-  // the cap (Spec 767 slice 2); `pace: "warp"` runs it fast (restored on auto-pause).
-  // Without `cycles`, an uncapped free-run. source="llm" so the UI border goes green.
-  runLive(sessionId: string, opts?: { cycles?: number; pace?: string; pacing?: unknown }) {
-    return this.call("debug/run", {
-      session_id: sessionId,
-      cycles: opts?.cycles,
-      pace: opts?.pace,
-      pacing: opts?.pacing,
-      source: "llm",
-    });
-  }
-  /** Spec 767 slice 2 — a bounded advance that STREAMS live to the UI via the daemon pump
-   *  (warp), then auto-pauses at the cap. Starts the capped run and waits for the auto-pause
-   *  so the caller gets the after-state, while the UI shows the machine RUNNING the whole
-   *  time (no freeze). Requires the stream pump (--stream) — callers gate on
-   *  state().streamPump and fall back to the blocking run() when it's a headless daemon. */
-  async runCapped(sessionId: string, cycles: number, pace = "warp") {
-    const start = await this.state(sessionId) as Awaited<ReturnType<RuntimeMethods["state"]>> & { pacing?: { mode: string; ratio?: number } };
-    await this.runLive(sessionId, { cycles, pace });
-    // Poll until the pump auto-pauses at the cap (runState leaves "running"), or a bp/jam
-    // stops it. Generous wall-clock deadline: warp advances a few M cyc/s, plus margin.
-    const t0 = Date.now();
-    const deadline = t0 + Math.min(120_000, 3_000 + cycles / 3_000);
-    for (;;) {
-      const s = await this.state(sessionId);
-      if (s.runState !== "running") return { ...s, stalled: false, pumpIdle: false };
-      if (s.c64Cycles <= start.c64Cycles && Date.now() - t0 > 300) {
-        // Accepted, "running", and not one cycle in 300 ms (warp does millions): nothing is
-        // pumping the machine (the daemon's pump thread lives only while an A/V client is
-        // attached). Do not leave it "running" for whoever attaches next to free-run; put the
-        // pace back that the capped run switched, and do the bounded advance blocking.
-        await this.pause(sessionId);
-        if (start.pacing?.mode) await this.call("session/set_pacing", { session_id: sessionId, mode: start.pacing.mode, ratio: start.pacing.ratio });
-        try {
-          await this.run(sessionId, cycles);
-          return { ...(await this.state(sessionId)), stalled: false, pumpIdle: true };
-        } catch {
-          return { ...(await this.state(sessionId)), stalled: true, pumpIdle: true };
-        }
-      }
-      if (Date.now() > deadline) return { ...s, stalled: false, pumpIdle: false };
-      await new Promise((r) => setTimeout(r, 25));
-    }
+  /** Spec 910 D10 — the one run: `debug/run` with a stop (`cycles`, any armed breakpoint) and, with `wait`, held until the machine has stopped. */
+  runUntil(sessionId: string, o: Omit<RunOptions, "wait"> & { wait?: boolean }) {
+    return runUntil(this.call.bind(this) as WireCall, sessionId, { wait: true, source: "llm", ...o });
   }
   pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId, source: "llm" }); }
   resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId, source: "llm" }); }

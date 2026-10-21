@@ -29,26 +29,22 @@ export function planUntil(u: UntilCondition): { addr: number } {
 const hex = (v: number) => `$${v.toString(16).toUpperCase().padStart(4, "0")}`;
 
 /** The answer of a run: cycles that actually passed (after - before, both read from the
- *  daemon), never the figure that was asked for. */
+ *  daemon), never the figure that was asked for. `stoppedBy` names a stop other than the cycle cap
+ *  (a breakpoint, a watchpoint, a JAM). */
 export function describeRunAdvance(a: {
   requestedCycles?: number; before: number; after: number; pc: number; via: string;
   until?: { addr: number; halted: boolean };
-  /** The live capped run was accepted but no pump advanced the machine; it was paused again. */
-  stalled?: boolean;
+  stoppedBy?: string;
 }): string {
   const adv = a.after - a.before;
   const pc = hex(a.pc);
-  if (adv <= 0 && a.stalled) {
-    return `The machine did not advance: the daemon accepted the run but nothing pumped it, so it was paused again and the blocking run failed (cycles ${a.after}, PC ${pc}; ${a.via}). `
-      + "The live run needs the daemon's stream pump, which runs only while a UI client is attached, and the blocking fallback failed too.";
-  }
   if (adv <= 0) {
     return `The machine did not advance: cycles stayed at ${a.after} and PC at ${pc} (${a.via}). `
-      + "Nothing ran. If it should have, the session is paused, jammed, or stalled — check runtime_session_status.";
+      + "Nothing ran. If it should have, the machine is jammed, or a breakpoint stands on the instruction it is parked on — check runtime_session_status.";
   }
   const asked = a.requestedCycles !== undefined ? ` (asked for up to ${a.requestedCycles})` : "";
   const stop = a.until
     ? (a.until.halted ? ` Stopped at ${hex(a.until.addr)}.` : ` Did NOT reach ${hex(a.until.addr)} within the cycle budget.`)
-    : "";
+    : a.stoppedBy ? ` Stopped early: ${a.stoppedBy}.` : "";
   return `Advanced ${adv} cycles${asked} (${a.via}). cycles=${a.after} pc=${pc}.${stop}`;
 }

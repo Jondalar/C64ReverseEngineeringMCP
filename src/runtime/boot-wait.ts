@@ -32,7 +32,8 @@ export function bootState(pc: number, cycles: number): BootState {
 
 interface Driver {
   state(sid: string): Promise<{ c64Cycles?: number; cpu?: { pc: number } }>;
-  run(sid: string, cycles: number): Promise<unknown>;
+  /** Spec 910 D10 — a run with a stop, waited for: the machine is stopped on that cycle when it returns. */
+  runUntil(sid: string, o: { cycles: number; pace: "warp"; wait: true }): Promise<unknown>;
 }
 
 export const bootRefusal = (pc: number, cycles: number): string =>
@@ -41,8 +42,8 @@ export const bootRefusal = (pc: number, cycles: number): string =>
   `Run the machine (runtime_session_run) until the screen shows READY, then type again.`;
 
 /**
- * With the machine PAUSED: if it is still booting, advance it (bounded) until it is at the
- * input loop. Returns what it found and how many cycles it advanced.
+ * With the machine stopped: if it is still booting, run it (a run with a stop per slice, bounded) until
+ * it is at the input loop. Returns what it found and how many cycles it advanced.
  */
 export async function waitForBasic(d: Driver, sid: string): Promise<{ result: "ready" | "skipped" | "timeout"; advanced: number; pc: number; cycles: number }> {
   const read = async () => { const s = await d.state(sid); return { pc: s.cpu?.pc ?? 0, cycles: s.c64Cycles ?? 0 }; };
@@ -52,7 +53,7 @@ export async function waitForBasic(d: Driver, sid: string): Promise<{ result: "r
   if (st0 === "not-booting") return { result: "skipped", advanced: 0, ...cur };
   const start = cur.cycles;
   while (cur.cycles - start < BOOT_WAIT_CYCLES) {
-    await d.run(sid, SLICE);
+    await d.runUntil(sid, { cycles: SLICE, pace: "warp", wait: true });
     cur = await read();
     const st = bootState(cur.pc, cur.cycles);
     if (st === "at-input-loop") return { result: "ready", advanced: cur.cycles - start, ...cur };
