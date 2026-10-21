@@ -126,6 +126,7 @@
     "e2e:750-lut": "node scripts/ensure-built.mjs mcp && node scripts/e2e-750-lut.mjs",
     "e2e:750-real": "node scripts/ensure-built.mjs mcp && node scripts/e2e-750-real.mjs",
     "e2e:805-sandbox-batch": "node scripts/ensure-built.mjs mcp && node scripts/e2e-805-sandbox-batch.mjs",
+    "e2e:sandbox-depack-item-zp": "node scripts/ensure-built.mjs mcp && node scripts/e2e-sandbox-depack-item-zp.mjs",
     "check:runtime-invisible": "node scripts/ensure-built.mjs mcp && node scripts/check-runtime-invisible.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "build:platform-kb": "node scripts/ensure-built.mjs mcp && node dist/platform-kb/seed.js",
