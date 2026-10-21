@@ -254,6 +254,12 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       ? recorded
       : { owner, name: owner, space: space as PayloadWindow["space"], bank: null, start: lo, end: hi, source: "analysed-range" };
     const holes = innerWindows(windows, window).filter((w) => w.owner !== owner);
+    // Issue #140 — the same rule for a window that starts inside mine but runs
+    // past my end: from its start on it overlays this one, so an address it
+    // covers is its business too. Only a strictly later start counts; a window
+    // with my start is a co-occupant (Spec 867 §2), not an overlay.
+    const overlays = windows.filter((w) => w.owner !== owner && w.space === window.space && w.bank === window.bank
+      && w.start > window.start && w.start <= window.end && w.end > window.end);
     const outOfScope: CodeSeedOutOfScope[] = [];
 
     const seeds = new Map<number, CodeSeed>();
@@ -325,6 +331,11 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       const hole = holes.find((h) => covers(h, address));
       if (hole) {
         outOfScope.push({ address, detail: `${from}, but ${hex4(address)} is inside ${describeWindow(hole)}, which loads inside this payload's window — that stretch is its business, not this image's` });
+        continue;
+      }
+      const overlay = overlays.find((w) => covers(w, address));
+      if (overlay) {
+        outOfScope.push({ address, detail: `${from}, but ${hex4(address)} is inside ${describeWindow(overlay)}, which starts inside this payload's window and overlays it from there — that stretch is its business, not this image's (issue #140)` });
         continue;
       }
 

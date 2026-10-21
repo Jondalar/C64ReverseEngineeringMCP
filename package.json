@@ -290,6 +290,7 @@
     "e2e:829": "node scripts/ensure-built.mjs all && node scripts/e2e-829-basic-v2.mjs",
     "e2e:838-islands": "node scripts/ensure-built.mjs all && node scripts/e2e-838-islands.mjs",
     "e2e:140-heuristic-seeds": "node scripts/ensure-built.mjs mcp && node scripts/e2e-140-heuristic-seeds.mjs",
+    "e2e:140-overlay-window": "node scripts/ensure-built.mjs mcp && node scripts/e2e-140-overlay-window.mjs",
     "smoke:bug015": "node scripts/ensure-built.mjs mcp && node scripts/smoke-bug015-init-media-sort.mjs",
     "smoke:bug008-009": "node scripts/ensure-built.mjs ui && node scripts/smoke-bug008-009-disk-tab.mjs",
     "smoke:bug017": "node scripts/ensure-built.mjs mcp && node scripts/ensure-built.mjs ui && node scripts/smoke-bug017-disk-sector-nav.mjs",
