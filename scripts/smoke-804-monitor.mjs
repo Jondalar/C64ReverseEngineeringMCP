@@ -31,7 +31,7 @@ const check = (cond, msg, detail = "") => {
 console.log("Spec 804 — the monitor with names, against a sandbox runtime\n");
 const { dir, paths } = await buildFixture804(ROOT);
 
-const daemon = spawn(DAEMON, ["--project", dir, "--port", String(PORT), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", dir, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
 daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
 const budget = setTimeout(() => { console.log("FAIL  sandbox budget (150 s) exhausted"); daemon.kill("SIGKILL"); process.exit(1); }, 150_000);

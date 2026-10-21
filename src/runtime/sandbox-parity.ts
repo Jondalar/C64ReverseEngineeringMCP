@@ -58,6 +58,7 @@ export const SANDBOX_PARITY: Readonly<Record<string, ParityVerdict>> = {
   runtime_resolve_pc: session,
   runtime_find_cheat: session,
   runtime_rip_range: session,
+  runtime_session_export_audio: session,
 
   // ── trace
   runtime_trace_start: session,
@@ -138,7 +139,6 @@ export const SANDBOX_PARITY: Readonly<Record<string, ParityVerdict>> = {
   runtime_session_start: ui("it starts or attaches the SHARED machine the workbench shows; " + LIFECYCLE),
   runtime_session_close: ui(LIFECYCLE),
   runtime_keep_alive: ui("it holds the shared daemon up against its idle exit; a sandbox's life is its budget and idle limit, set at runtime_sandbox_start"),
-  runtime_session_export_audio: ui("it renders the live A/V stream's SID audio; a sandbox is born headless, with no A/V stream"),
   runtime_input_load_vicerc: ui("it configures the keymap the workbench's keyboard uses; a sandbox has no keyboard of a human"),
   runtime_input_load_config: ui("it configures the keymap the workbench's keyboard uses; a sandbox has no keyboard of a human"),
   runtime_input_save_config: ui("it configures the keymap the workbench's keyboard uses; a sandbox has no keyboard of a human"),

@@ -44,11 +44,13 @@ cycle it fired on, the end cycle + PC + registers, the 40x25 text screen, and th
 memory you asked for as a hex dump. The steps are the capture-scenario notation, one
 per line; every step that lasts carries its own duration and the machine is stopped
 between steps, so **the same list replays to the same bytes** — also from a fresh start. Every
-sandbox is a new daemon, started headless: it stands at its reset vector at cycle 0 and moves
-only when the run tells it to, so nothing depends on how long the caller took to speak. The
+sandbox is a new daemon, the same one the shared machine is: it runs from the moment it
+starts, and the boot takes its clock by stops — a power cycle with a breakpoint on the reset
+routine stops it on its first instruction at cycle 0, and every advance after that is a run
+with a stop on an exact cycle — so nothing depends on how long the caller took to speak. The
 same arguments give the same warm-up (frames to READY), the same press and release cycles,
 the same end cycle, registers and RAM, however many times and however busy the host is. (A
-daemon left to run on its own until it was paused started every run at a different cycle:
+daemon left to run on its own and paused by a call started every run at a different cycle:
 one case pressed up to 15 frames apart.)
 
 Drive 8 starts as a 1541. A medium that only fits a 1581 — a `.d81` — gets one: the
@@ -182,16 +184,19 @@ naming the four and their purposes.
 
 **What it stands at.** Switched on, warmed to the BASIC prompt, the medium in (`.crt`,
 `.d64`, `.g64`, `.d81`, `.prg` or a `.c64re` snapshot, by content; `drive_type`, `model`
-and `run` as for the one-call run), and **paused** at the cycle the answer names. A session
-advances only when a tool runs it, which is what makes the same calls replay to the same
-bytes. Every medium a sandbox mounts, at the start or later (`runtime_media_mount`,
-`runtime_media_swap`, `runtime_swap_disk_and_continue`, the monitor's `mount`, an `insert`
-step of a run or a reel), is mounted as a **copy** in the sandbox's scratch: the runtime
-writes a mounted disk or cartridge back to the file it was given — on eject, on
-`runtime_media_persist`, and when the machine ends — so the sandbox is never handed the
-project's path. The same file mounted again gets the same copy, with what the program
-wrote to it. The copy goes with the sandbox; the project's image is byte-identical after a
-run or a session, however it ends. There is no write-back option.
+and `run` as for the one-call run), and **stopped** at the cycle the answer names: the boot
+ends in a run with a stop. From then on it moves when a tool runs it (`runtime_session_run`,
+`runtime_until`, `runtime_type` with `settle`) or starts it running (a program started, a
+resume); a run you ask for stops on its exact cycle or at an armed breakpoint, which is what
+makes the same calls replay to the same bytes. The daemon of a sandbox is started with
+`--scratch`: every medium it is handed by a path, at the start or later
+(`runtime_media_mount`, `runtime_media_swap`, `runtime_swap_disk_and_continue`, the monitor's
+`mount` and `swapcrt`, an `insert` step of a run or a reel, a snapshot's embedded media), is
+opened from a **copy** in the sandbox's scratch and only the copy is written — on eject, on
+`runtime_media_persist`, and when the machine ends. The same file mounted again gets the
+same copy, with what the program wrote to it. The copy goes with the sandbox; the project's
+image is byte-identical after a run or a session, however it ends. A runtime that does not
+report `noWriteback` after `--scratch` is refused at the start. There is no write-back option.
 
 **Every runtime tool, the same.** The routing is by session id: `sb-…` goes to that
 sandbox's daemon, anything else to the active backend as before. The verdict per tool lives
@@ -202,7 +207,7 @@ in code — `src/runtime/sandbox-parity.ts`:
 | works, on the session | everything that takes a `session_id` and reads or moves a machine: run control, monitor, breakpoints, trace start/mark/finalize, checkpoints and the recorder, rewind and overlay, the VIC inspection tools, media, `runtime_type` / `runtime_joystick` / `runtime_render_screen`, anchors, the scenario registry |
 | works, from files | the tools that read or write files and the project and involve no machine: the trace readers (`trace_store_*`, `runtime_swimlane_slice`, `runtime_query_events`, …), snapshot diffs, the candidate store (`runtime_candidate_*`) |
 | works, a machine per call | `runtime_sandbox_run`, `runtime_scene_reel`, `runtime_feature_run` |
-| **refused by name** | what serves a human's UI: `runtime_session_start` and `runtime_session_close` (the shared session's lifecycle — a sandbox has its own doors), `runtime_keep_alive`, `runtime_backend`, `runtime_down`, `runtime_input_*` (the keymap of the workbench's keyboard), `runtime_session_export_audio` (a sandbox is born headless, with no A/V stream) |
+| **refused by name** | what serves a human's UI: `runtime_session_start` and `runtime_session_close` (the shared session's lifecycle — a sandbox has its own doors), `runtime_keep_alive`, `runtime_backend`, `runtime_down`, `runtime_input_*` (the keymap of the workbench's keyboard) |
 
 A refused tool answers with the reason and does nothing — also `runtime_down`, which would
 otherwise end every sandbox of every project.
@@ -342,7 +347,7 @@ Anchor names are accepted wherever a checkpoint id is: `runtime_checkpoint_pin`,
 takes the id only — an anchor holds its own pin; `runtime_anchor_drop` releases it.
 
 For a single quick try that you *want* on the shared machine (and the human knows), `runtime_overlay_run`
-restores an anchor into it, patches, runs and leaves it paused there.
+restores an anchor into it, patches, runs and leaves it stopped there.
 
 ## From an anchor to a map — every state of a game, found by one call
 
@@ -383,11 +388,13 @@ is `runtime_sandbox_run`.
 ```
 
 - **Never `--port 4312`** — that is the human's live session.
-- Add **`--headless`** for a silent, deterministic machine: no A/V stream, no
-  connect-time auto-run, advances only on explicit `session/run`. Use it for
-  tool/logic tests where you want full control of the clock.
-- **Without** `--headless` it behaves like the product: streams frames + audio and
-  free-runs. Use it when you want to watch/screenshot a boot as the user would see it.
+- There is one kind of daemon: it free-runs from startup, with or without a client, and
+  streams frames + audio to whoever subscribes. For a deterministic clock take it with
+  stops, not with a mode: power-cycle with a breakpoint on `$FCE2`
+  (`debug/break_add`, `monitor/exec "reset cold"`) and it stops at cycle 0, then run
+  with `debug/run {cycles, pace: "warp", wait: true}`, which stops on exactly that cycle.
+- Add **`--scratch <dir>`** when the machine only exists to try something: every medium it
+  is handed is opened from a copy in that directory and no file of yours is written.
 - Add **`--model c64-ntsc`** (or `--video ntsc`) for an NTSC C64 — chosen before the
   machine is switched on, so a release that detects the standard at boot sees NTSC.
   `session/models` lists every model and what an unrunnable one lacks. A frame is then
@@ -410,12 +417,12 @@ const call = (method, params = {}) => new Promise((r) => {
 });
 await new Promise((r) => ws.addEventListener("open", r));
 
-await call("session/create", {});                                 // { model: "c64-ntsc" } for an NTSC C64
-await call("media/mount", { path: "/abs/pfad/zum/spiel.crt" });   // cart → power-cycle + boot
-await call("debug/pause", {});                                    // ← BEFORE any joystick input
+await call("debug/break_add", { pc: 0xfce2 });                    // the reset routine
+await call("media/mount", { path: "/abs/pfad/zum/spiel.crt" });   // cart → power-cycle; stops at $FCE2, cycle 0
 const frame = (await call("session/state", {})).result.cyclesPerFrame;  // 19656 PAL, 17095 NTSC
+await call("debug/break_del", {});
 await call("session/joystick_set", { port: 2, left: true });
-await call("session/run", { cycles: frame * 60 });                // 60 frames of this machine
+await call("debug/run", { cycles: frame * 60, pace: "warp", wait: true });  // 60 frames, stops on that cycle
 await call("session/joystick_clear", { port: 2 });
 
 const shot = (await call("session/screenshot", {})).result.dataUrl;   // base64 PNG data URL
@@ -459,10 +466,10 @@ unflushed.
 | method | what |
 |---|---|
 | `session/create` | build/attach the machine in THIS process |
-| `session/state` | `c64Cycles`, `runState`, `cpu.pc`, `controlOwner`, `streamPump` |
+| `session/state` | `c64Cycles`, `runState`, `cpu.pc`, `controlOwner`, `noWriteback` / `scratchDir` |
 | `media/mount` `{path}` | mount `.crt`/`.d64`/`.g64` (a cart power-cycles + boots) |
-| `session/run` `{cycles}` | bounded advance (needs `running == false`) |
-| `debug/run` `{cycles?, pace?}` | free-run; with `cycles` a bounded run that still streams, auto-pausing at the cap |
+| `debug/run` `{cycles?, pace?, wait?}` | the one run: with `cycles` it stops on exactly that cycle, a breakpoint or watchpoint stops it earlier, `pace: "warp"` runs it as fast as possible for the run, `wait: true` holds the call until it has stopped and answers `{reason, pc, cycles}` |
+| `session/run` `{cycles}` | the old name of `debug/run {cycles, wait: true}` (as fast as possible) |
 | `debug/pause` | freeze |
 | `session/joystick_set` `{port, up/down/left/right/fire, at_cycle?}` / `session/joystick_clear` `{at_cycle?}` | input; `at_cycle` (absolute `c64Cycles`, not in the past) takes effect at that cycle, also inside one `session/run` |
 | `session/key_down` / `session/key_up` `{key, at_cycle?}` | the same for one key |
@@ -481,13 +488,14 @@ not regex the monitor's text dump back into bytes when all you wanted was memory
 
 ## Gotchas that cost time
 
-- **Binary frames.** Without `--headless` the daemon pushes BIN_VIC (`0x01`) / BIN_AUDIO
+- **Binary frames.** The daemon pushes BIN_VIC (`0x01`) / BIN_AUDIO
   (`0x02`) as binary WS messages. A JSON parser without the `typeof e.data !== "string"`
   guard throws on them.
-- **Joystick needs a pause first.** `debug/pause` BEFORE `session/joystick_set`; on a
-  free-running machine the input window races the advance and is lost.
-- **`session/run` refuses while running.** It errors with "session is running under the
-  autonomous loop" — `debug/pause` first, or drive with `debug/run {cycles}` instead.
+- **Joystick needs a stop first.** Stop the machine BEFORE `session/joystick_set` and give the
+  press a run with a stop; on a running machine the input window races the advance and is lost.
+- **A bare machine is already running.** Every daemon free-runs from startup: a test that
+  counts cycles takes its clock with a stop (a breakpoint on `$FCE2` and a power cycle), then
+  runs with `debug/run {cycles, wait: true}`.
 - **Monitor writes bypass the cart mapper.** `wr` into `$8000-$9FFF` hits RAM, not the
   cart bank — do not use it to probe banking.
 - **One machine per process.** Two sandboxes = two daemons on two ports.

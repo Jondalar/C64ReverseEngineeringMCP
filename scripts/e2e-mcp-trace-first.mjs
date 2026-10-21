@@ -56,7 +56,7 @@ if (!existsSync(DAEMON)) {
   process.exit(0);
 }
 const PORT = Number(process.env.E2E_TRACE_FIRST_PORT || 4398);
-const daemon = spawn(DAEMON, ["--project", projectDir, "--port", String(PORT), "--headless"], { stdio: ["ignore", "ignore", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", projectDir, "--port", String(PORT)], { stdio: ["ignore", "ignore", "pipe"] });
 let daemonLog = "";
 daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
 const budget = setTimeout(() => { console.log("  FAIL  sandbox budget (600 s) exhausted"); daemon.kill("SIGKILL"); process.exit(1); }, 600_000);

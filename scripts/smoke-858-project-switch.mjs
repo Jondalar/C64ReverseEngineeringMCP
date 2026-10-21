@@ -45,7 +45,7 @@ const { ProjectKnowledgeService } = await import("../dist/project-knowledge/serv
 for (const d of [A, B]) new ProjectKnowledgeService(d).initProject({ name: d === A ? "alpha" : "beta" });
 const rA = realpathSync(A), rB = realpathSync(B);
 
-const daemon = spawn(DAEMON, ["--project", A, "--port", String(PORT), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", A, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
 daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
 const budget = setTimeout(() => { console.log("FAIL  sandbox budget (90 s) exhausted"); daemon.kill("SIGKILL"); process.exit(1); }, 90_000);

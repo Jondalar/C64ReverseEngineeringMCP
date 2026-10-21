@@ -33,7 +33,7 @@ const check = (cond, msg, detail = "") => {
 
 const base = mkdtempSync(join(tmpdir(), "c64re-859-"));
 
-const daemon = spawn(DAEMON, ["--project", base, "--port", String(PORT), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", base, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
 daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
 const budget = setTimeout(() => { console.log("FAIL  sandbox budget (90 s) exhausted"); daemon.kill("SIGKILL"); process.exit(1); }, 90_000);

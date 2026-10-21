@@ -195,18 +195,19 @@ a verdict for each runtime tool, and a tool added without one fails the gate.
   (`idle_minutes`, default 10; a call in flight is activity). At most four live sandbox
   sessions per MCP process; the fifth is refused, naming the four and their purposes.
 - **What it stands at.** Switched on and warmed to the BASIC prompt, the medium in, and
-  **paused** at the cycle the answer names: a session advances only when a tool runs it
-  (`runtime_session_run`, `runtime_until`, `runtime_type` with `settle`, …), so the same
-  calls replay to the same bytes. A medium is mounted as a **copy** in the sandbox's
-  scratch — the runtime writes a mounted disk or cartridge back on exit, and the project's
-  image is never changed.
+  **stopped** at the cycle the answer names (the boot ends in a run with a stop): it moves
+  when a tool runs it (`runtime_session_run`, `runtime_until`, `runtime_type` with
+  `settle`, …) or starts it running, and a run stops on its exact cycle, so the same calls
+  replay to the same bytes. The daemon is started with `--scratch`: a medium is opened from
+  a **copy** in the sandbox's scratch and only the copy is written, through whatever door it
+  comes in — the project's image is never changed.
 - **Whose it is.** The MCP process that started it. Another process calling its id is
   refused (`not yours`, naming whose and what for); it is not in `runtime_sandbox_list` of
   anyone else; the workbench UI never shows it; it never reaches the shared session and the
   shared session never reaches it; it is the emulator also while a C64 Ultimate is the
   selected backend. The tools that serve a human's UI (`runtime_session_start`,
   `runtime_session_close`, `runtime_keep_alive`, `runtime_backend`, `runtime_down`,
-  `runtime_input_*`, `runtime_session_export_audio`) refuse a sandbox id by name and say
+  `runtime_input_*`) refuse a sandbox id by name and say
   why.
 - **How it ends.** `runtime_sandbox_end { session_id, outcome: reached | failed, summary }`,
   or by itself: when the **budget** runs out, when no call has reached it for the **idle**

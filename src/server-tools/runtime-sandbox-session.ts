@@ -30,13 +30,12 @@ export function registerRuntimeSandboxSessionTools(server: McpServer, context: S
       "session_id (runtime_session_run, runtime_until, runtime_monitor, runtime_type, runtime_trace_start, runtime_trace_finalize, " +
       "runtime_checkpoint_*, runtime_rewind, runtime_anchor_*, runtime_candidate_*, …): they work on it exactly as on the shared " +
       "session. The tools that serve a human's UI (runtime_session_start, runtime_session_close, runtime_keep_alive, " +
-      "runtime_backend, runtime_down, runtime_input_*, runtime_session_export_audio) refuse a sandbox id by name and say why. " +
+      "runtime_backend, runtime_down, runtime_input_*) refuse a sandbox id by name and say why. " +
       "ISOLATION: it is invisible to the workbench UI and to every other C64RE process (another MCP process calling your id is " +
       "refused 'not yours'), it never reaches the shared session and the shared session never reaches it, and it is always the " +
-      "emulator — also while a C64 Ultimate is the selected backend. It is born headless and stands at the BASIC prompt at the " +
-      "cycle the answer names, PAUSED: it advances only when a tool runs it, so the same calls replay to the same bytes. A medium " +
-      "you pass — or mount later with runtime_media_mount, runtime_media_swap or the monitor's `mount` — is mounted as a COPY in the sandbox's scratch (the runtime writes a mounted disk or cartridge back to the file it was given; the " +
-      "project's image is never changed, and nothing writes the copy back). Captures (runtime_trace_start) land in the project's trace root and are KEPT when the " +
+      "emulator — also while a C64 Ultimate is the selected backend. It is the same daemon as the shared machine, started for a purpose: it runs like any machine and the boot ends in a run with a stop, so it stands at the BASIC prompt at the cycle the answer names, STOPPED there. From then on it moves when you run it (runtime_session_run, runtime_until, runtime_type with settle) or when a tool starts it running (resuming, a program started); a run you ask for stops on its exact cycle or at an armed breakpoint, so the same calls replay to the same bytes. " +
+      "A medium you pass — or mount later with runtime_media_mount, runtime_media_swap or the monitor's `mount` — is opened by the runtime from a COPY in the sandbox's scratch (the sandbox's daemon never writes a medium back into the file it was given, through any door; the project's image is never changed and nothing writes the copy back). " +
+      "Captures (runtime_trace_start) land in the project's trace root and are KEPT when the " +
       "sandbox ends; everything else the machine held — scratch, the medium's copy, checkpoints in memory — is gone. " +
       "ENDING: call runtime_sandbox_end with outcome reached or failed and a summary when the purpose is done; it also ends " +
       "ITSELF when the budget runs out, when no call reaches it for the idle limit, or when this MCP process dies — a trace " +
@@ -114,9 +113,9 @@ export function registerRuntimeSandboxSessionTools(server: McpServer, context: S
         `purpose: ${why}`,
         `machine: ${s.machine}${model ? "" : chosenModel ? " — the project's model" : " — the default; pass `model` for another"}`,
         `deadline: ${s.deadline} at the latest (budget ${budget_minutes} min); ends itself after ${s.idleMinutes} min without a call, or when this MCP process dies`,
-        `now: cycle ${s.cycle} · PC $${s.pc.toString(16).padStart(4, "0").toUpperCase()} · PAUSED — it moves only when a tool runs it`,
+        `now: cycle ${s.cycle} · PC $${s.pc.toString(16).padStart(4, "0").toUpperCase()} · stopped here by the boot — it moves when a tool runs it (runtime_session_run, runtime_until, …)`,
         `project: ${s.projectDir} — captures (runtime_trace_start) land in its trace root and are kept; the outcome goes into its step log`,
-        ...(s.mediaCopy ? [`medium: a copy of ${absMedia} is mounted; writes stay in the sandbox`] : []),
+        ...(s.media ? [`medium: ${s.media} is mounted from a copy the runtime made in its scratch; writes stay in the sandbox`] : []),
         "",
         ...s.log.map((l) => `  ${l}`),
         "",

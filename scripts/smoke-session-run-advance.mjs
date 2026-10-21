@@ -73,7 +73,7 @@ async function scenario(port, withViewer) {
       const t = await call("runtime_session_run", { session_id: sidArg, max_instructions: 1_000_000, cycle_budget: 1_000_000 });
       const m = /Advanced (\d+) cycles/.exec(t);
       check(m && +m[1] >= 1_000_000, `${label}: bounded run ${i} advances the budget`, (m ? m[0] : t.slice(0, 160)));
-      check(withViewer ? /live-streamed/.test(t) : !/live-streamed/.test(t) && !/did not advance/.test(t), `${label}: run ${i} took the ${withViewer ? "live pump" : "blocking"} path`, (/\(Runtime[^)]*\)/.exec(t) ?? [""])[0]);
+      check(/a run with a stop/.test(t) && !/did not advance/.test(t), `${label}: run ${i} was one run with a stop, whoever watches`, (/\(Runtime[^)]*\)/.exec(t) ?? [""])[0]);
     }
     void sid;
   } finally {

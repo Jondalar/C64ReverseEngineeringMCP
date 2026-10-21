@@ -117,7 +117,7 @@ cleanups.push(() => rmSync(proj, { recursive: true, force: true }));
 // ── the shared-machine stand-in: a runtime of our own, started PAL ───────────────────
 const port = await freePort();
 const endpoint = `ws://127.0.0.1:${port}`;
-const daemon = spawn(DAEMON, ["--project", proj, "--port", String(port), "--headless", "--model", "c64-pal"], { stdio: ["ignore", "pipe", "pipe"] });
+const daemon = spawn(DAEMON, ["--project", proj, "--port", String(port), "--model", "c64-pal"], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
 daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
 cleanups.push(() => daemon.kill("SIGKILL"));

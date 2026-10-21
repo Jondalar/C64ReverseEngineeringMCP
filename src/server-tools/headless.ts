@@ -241,7 +241,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_run",
-    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by cycle_budget, default 10000000 cycles); other kinds are refused by name.",
+    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. This is a run with a stop, on every machine alike (the shared one and a sandbox): it starts the machine running, stops it on the cycle budget or at an armed breakpoint, watchpoint or JAM, and the call returns when it has stopped; the machine stays stopped there. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by cycle_budget, default 10000000 cycles); other kinds are refused by name.",
     {
       session_id: z.string(),
       max_instructions: z.number().int().min(1).max(10_000_000),
@@ -277,17 +277,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return { content: [{ type: "text" as const, text: describeRunAdvance({ before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: "Runtime Daemon, run to address", until: { addr, halted: r.halted && r.finalPc === addr } }) }] };
       }
       const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
-      // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI
-      // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
-      // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
-      // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
-      // The blocking run is refused on a machine the daemon is free-running; with no pump
-      // attached nobody is watching that run, so stop it and do the bounded advance.
-      if (!s0.streamPump && s0.runState === "running") await runtimeDaemon.pause(session_id);
-      const after: Awaited<ReturnType<typeof runtimeDaemon.state>> & { stalled?: boolean; pumpIdle?: boolean } = s0.streamPump
-        ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
-        : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
-      return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, stalled: after.stalled, via: `Runtime Daemon${s0.streamPump ? (after.pumpIdle ? ", live pump idle (no UI attached), run done blocking" : ", live-streamed") : ""}` }) }] };
+      // Spec 910 D10 — one run, on every daemon: start it with a stop (the cycle cap, and any armed
+      // breakpoint or watchpoint) and wait for the stop. The machine is stopped where it ended.
+      const stop = await runtimeDaemon.runUntil(session_id, { cycles, pace: "warp", wait: true });
+      const stoppedBy = stop.reason === "budget" ? undefined : `${stop.reason} at $${stop.pc.toString(16).toUpperCase().padStart(4, "0")}`;
+      return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: stop.cycles, pc: stop.pc, stoppedBy, via: "Runtime Daemon, a run with a stop" }) }] };
       });
     },
 ));
@@ -794,13 +788,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // shape as the joystick) — the queue can be played out in MACHINE time.
   server.tool(
     "runtime_type",
-    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines, and to press keys that print nothing. Not for joystick (use runtime_joystick). KEY TOKENS: {RETURN} {RUN/STOP} {HOME} {CLR} {DEL} {INST} {CRSR UP} {CRSR DOWN} {CRSR LEFT} {CRSR RIGHT} {F1}..{F8} {SPACE} {QUOTE}, modifiers {SHIFT} {C=} {CTRL}, and combos with + such as {SHIFT+RETURN}, {C=+1}, {CTRL+3}. They are pressed in the CIA1 matrix, so a game that scans $DC00/$DC01 sees them, not only the KERNAL's GETIN (F2/F4/F6/F8, CRSR UP/LEFT, CLR and INST are SHIFT plus the neighbouring key, as on the real keyboard). An unknown {...} token is refused with the list, never typed; the C64 has no brace keys, so there is no literal-brace escape. RESTORE is not on the matrix and is not available. A text with tokens is always played out in machine time (as with settle), because the held keys must be released at a known cycle. Without `settle` (and without tokens) the text is only QUEUED: the daemon plays it out as the machine runs, and since the live session free-runs in real time between calls, your next tool call can land in the middle of the typing and read a half-typed line. With `settle: true` the tool pauses the machine, advances exactly the machine time the queue needs, and restores whether it was running — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). A machine that is still booting (KERNAL init / memory test, BASIC not yet at its input loop) would lose the keys: with settle the tool first advances it, bounded to about 3 s of machine time, until BASIC is waiting for input, and refuses (typing nothing) if it never gets there; a program that took the machine over is not held up; without settle the answer carries a warning. Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
+    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines, and to press keys that print nothing. Not for joystick (use runtime_joystick). KEY TOKENS: {RETURN} {RUN/STOP} {HOME} {CLR} {DEL} {INST} {CRSR UP} {CRSR DOWN} {CRSR LEFT} {CRSR RIGHT} {F1}..{F8} {SPACE} {QUOTE}, modifiers {SHIFT} {C=} {CTRL}, and combos with + such as {SHIFT+RETURN}, {C=+1}, {CTRL+3}. They are pressed in the CIA1 matrix, so a game that scans $DC00/$DC01 sees them, not only the KERNAL's GETIN (F2/F4/F6/F8, CRSR UP/LEFT, CLR and INST are SHIFT plus the neighbouring key, as on the real keyboard). An unknown {...} token is refused with the list, never typed; the C64 has no brace keys, so there is no literal-brace escape. RESTORE is not on the matrix and is not available. A text with tokens is always played out in machine time (as with settle), because the held keys must be released at a known cycle. Without `settle` (and without tokens) the text is only QUEUED: the daemon presses the keys as the machine runs. A machine that is running (the shared one, or a sandbox that nothing has stopped) types while you make your next call, so that call can land in the middle of the typing and read a half-typed line; a machine that is stopped types nothing until it runs again. With `settle: true` the tool stops the machine, runs it for exactly the machine time the queue needs (one run with a stop, as fast as possible), and puts it back as it found it, running or stopped — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). A machine that is still booting (KERNAL init / memory test, BASIC not yet at its input loop) would lose the keys: with settle the tool first advances it, bounded to about 3 s of machine time, until BASIC is waiting for input, and refuses (typing nothing) if it never gets there; a program that took the machine over is not held up; without settle the answer carries a warning. Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
     {
       session_id: z.string(),
       text: z.string().describe("Text to type. Use \\r or \\n for RETURN. {TOKEN} presses a non-printing key (e.g. {F5}, {RUN/STOP}, {CRSR DOWN}, {SHIFT+RETURN})."),
       hold_cycles: z.number().int().min(1000).max(2_000_000).optional(),
       gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
-      settle: z.boolean().optional().describe("Play the whole queue out before returning: the machine is paused and advanced by exactly the cycles the queue needs, so the text is typed when the call returns. Default false (queue and return)."),
+      settle: z.boolean().optional().describe("Play the whole queue out before returning: the machine is stopped and run for exactly the cycles the queue needs, so the text is typed when the call returns. Default false (queue and return)."),
       extra_frames: z.number().int().min(0).max(300).optional().describe("With settle: extra frames after the last key, for the target to act on it (default 2). A BASIC line needs a few; a game menu may want more."),
     },
     safeHandler("runtime_type", async ({ session_id, text, hold_cycles, gap_cycles, settle, extra_frames }) => {
@@ -826,7 +820,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
           `Hold cycles: ${hold}  Gap cycles: ${gap}`,
           ...(booting ? [`WARNING: the machine is still booting (cycle ${st.c64Cycles}, PC $${(st.cpu?.pc ?? 0).toString(16).toUpperCase()}); BASIC is not at its input loop yet, so this line will probably be lost. Use settle: true, which waits for READY first.`] : []),
-          `Queued only. The machine free-runs between calls, so your next call may read a half-typed line —`,
+          `Queued only. The keys are pressed as the machine runs: a running machine types them while you make your next call (it may read a half-typed line), a stopped machine types them when it next runs —`,
           `pass settle: true when what you do next depends on the typing having finished.`,
         ].join("\n") }] };
       }
@@ -841,13 +835,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const F = machineIdentity(before).cyclesPerFrame;
       const wasRunning = before?.runState === "running";
       await runtimeDaemon.pause(session_id);
+      // One run with a stop per stretch: the machine stops on exactly that cycle (Spec 910 D10).
       const advance = async (cycles: number) => {
-        let remaining = cycles;
-        while (remaining > 0) {
-          const step = Math.min(F * 50, remaining);
-          await runtimeDaemon.run(session_id, step);
-          remaining -= step;
-        }
+        if (cycles > 0) await runtimeDaemon.runUntil(session_id, { cycles, pace: "warp", wait: true });
       };
       const settleBack = async () => { if (wasRunning) await runtimeDaemon.resume(session_id); };
       // Keys typed into a machine that has not reached BASIC's input loop are lost (#64): wait for it,
@@ -885,7 +875,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ...(keyList.length ? [`Key tokens pressed in the CIA1 matrix: ${keyList.join(" ")}`] : []),
         ...(boot.advanced > 0 ? [`The machine was still booting: advanced ${boot.advanced} cycles to BASIC's input loop first.`] : []),
         `Hold cycles: ${hold}  Gap cycles: ${gap}  Extra frames: ${extra}`,
-        `cycles ${from} → ${to} (${to - from}), machine paused for the typing and ${wasRunning ? "resumed" : "left paused"} after it`,
+        `cycles ${from} → ${to} (${to - from}), machine stopped for the typing and ${wasRunning ? "set running again" : "left stopped"} after it`,
         `The text is typed now — this is not a queue you have to wait for.`,
       ].join("\n") }] };
     },
@@ -895,7 +885,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // number of FRAMES, measured in machine time rather than wall-clock time.
   server.tool(
     "runtime_joystick",
-    "Set or HOLD joystick state on a session. Use to drive game input. Not for keyboard (use runtime_type). Two modes. Without `hold_frames` it sets the port state and returns immediately — the machine keeps free-running in real time, so a press lasts as long as it takes you to make the next call, which is a moment you do not control. With `hold_frames` the press is FRAME-LOCKED: the tool pauses the machine, applies the state, advances exactly that many frames, releases, and restores whether the machine was running. That is the same thing runtime_scene_reel does, and it is what you want against a title that debounces its own $DC00/$DC01 poll behind a raster-frame wait — a menu that samples once per frame will step once per press instead of zero or five times at random. Reach for hold_frames FIRST for any menu or in-game input; the bare set mode is for holding a direction across several other calls on purpose. Inputs: session_id, direction/fire flags, optional port (1 or 2, default 2), optional hold_frames. Returns: applied state, and for a hold the cycle window it covered.",
+    "Set or HOLD joystick state on a session. Use to drive game input. Not for keyboard (use runtime_type). Two modes. Without `hold_frames` it sets the port state and returns immediately — a machine that is running keeps running, so a press lasts as long as it takes you to make the next call, which is a moment you do not control (a stopped machine holds it until it runs again). With `hold_frames` the press is FRAME-LOCKED: the tool stops the machine, applies the state, runs exactly that many frames (one run with a stop), releases, and puts the machine back as it found it, running or stopped. That is the same thing runtime_scene_reel does, and it is what you want against a title that debounces its own $DC00/$DC01 poll behind a raster-frame wait — a menu that samples once per frame will step once per press instead of zero or five times at random. Reach for hold_frames FIRST for any menu or in-game input; the bare set mode is for holding a direction across several other calls on purpose. Inputs: session_id, direction/fire flags, optional port (1 or 2, default 2), optional hold_frames. Returns: applied state, and for a hold the cycle window it covered.",
     {
       session_id: z.string(),
       up: z.boolean().optional(),
@@ -904,7 +894,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       right: z.boolean().optional(),
       fire: z.boolean().optional(),
       port: z.number().int().min(1).max(2).optional().describe("Joystick port (1 or 2). Default 2."),
-      hold_frames: z.number().int().positive().max(3000).optional().describe("Hold the stated state for exactly this many frames of the machine, then release — a frame is 19656 cycles on PAL, 17095 on NTSC, read from the machine. The machine is paused around it, so the press lands in machine time, not wall-clock time. A tap is 2-4 frames; a menu repeat wants ~15-30. Omit to set the state and return immediately."),
+      hold_frames: z.number().int().positive().max(3000).optional().describe("Hold the stated state for exactly this many frames of the machine, then release — a frame is 19656 cycles on PAL, 17095 on NTSC, read from the machine. The machine is stopped around it, so the press lands in machine time, not wall-clock time. A tap is 2-4 frames; a menu repeat wants ~15-30. Omit to set the state and return immediately."),
     },
     safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire, port, hold_frames }) => {
       // BUG-028 — joystick on the SHARED daemon session.
@@ -918,12 +908,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         return { content: [{ type: "text" as const, text: [
           `Joystick port ${p} — session ${session_id} (Runtime Daemon)`,
           `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
-          `Set and returned. The machine free-runs between calls, so this press lasts until your next call —`,
+          `Set and returned. The press lasts until it is cleared or the next call changes it, and a running machine keeps moving meanwhile —`,
           `if the title samples its port behind a frame wait, pass hold_frames instead and the press is measured in frames.`,
         ].join("\n") }] };
       }
 
-      // Issue #6 — FRAME-LOCKED press. The live session free-runs in wall-clock time
+      // Issue #6 — FRAME-LOCKED press. A running machine moves in wall-clock time
       // between two tool calls, so set → run → clear as three calls cannot land a press
       // inside a poll routine's sampling window, and no cycle_budget from the caller
       // side fixes that. Here the machine is stopped for the whole press: it advances
@@ -940,13 +930,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const from = (await runtimeDaemon.state(session_id))?.c64Cycles ?? 0;
       try {
         await runtimeDaemon.joystickSet(session_id, p, state);
-        // Chunked so one long hold is still a sequence of bounded daemon calls.
-        let left_ = hold_frames * F;
-        while (left_ > 0) {
-          const step = Math.min(F * 50, left_);
-          await runtimeDaemon.run(session_id, step);
-          left_ -= step;
-        }
+        // One run with a stop: exactly hold_frames frames, however long the hold (Spec 910 D10).
+        await runtimeDaemon.runUntil(session_id, { cycles: hold_frames * F, pace: "warp", wait: true });
       } finally {
         // Release even if the advance threw — a stuck direction is worse than a
         // failed call, and the human shares this machine.
@@ -958,7 +943,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (wasRunning) await runtimeDaemon.resume(session_id);
       return { content: [{ type: "text" as const, text: [
         `Joystick port ${p} — session ${session_id}: held ${pressed} for ${hold_frames} frame(s) of ${F} cycles, then released`,
-        `cycles ${from} → ${after} (${after - from}), machine paused for the press and ${wasRunning ? "resumed" : "left paused"} after it`,
+        `cycles ${from} → ${after} (${after - from}), machine stopped for the press and ${wasRunning ? "set running again" : "left stopped"} after it`,
         `The press was measured in machine time, so it lands the same way every run — the same guarantee runtime_scene_reel gives.`,
         `If the title still misses it, the hold is shorter than its poll interval: raise hold_frames.`,
       ].join("\n") }] };

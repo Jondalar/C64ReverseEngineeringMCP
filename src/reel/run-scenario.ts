@@ -6,11 +6,12 @@
 // cycles, present these keys, hold this stick, what is on the screen, where is the
 // raster.
 //
-// The machine is paused for the whole run. Every advance is a bounded run in
-// cycles, so a slow network or a busy host costs wall clock and nothing else —
-// which is the difference between this and the defect in BUG-050, where the
-// machine ran on while the caller was thinking and no two attempts started their
-// first command from the same place.
+// A SCRIPT over the one sandbox lifecycle (Spec 910 D3): `runtime/sandbox-sessions.ts` starts the machine,
+// puts the scenario's origin into it at the reset vector, and ends it; this walks the steps in between.
+// The machine is stopped between steps and every advance is a run with a stop on an exact cycle, so a slow
+// network or a busy host costs wall clock and nothing else — which is the difference between this and the
+// defect in BUG-050, where the machine ran on while the caller was thinking and no two attempts started
+// their first command from the same place.
 
 import type { Scenario, Step, Predicate } from "../project-knowledge/scenario-gherkin.js";
 import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
@@ -21,14 +22,17 @@ import {
 import {
   describeMachine, machineIdentity, scenarioModelRefusal, type MachineIdentity, type ModelRow,
 } from "../runtime/machine-model.js";
-import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
-import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
+import { runUntil } from "../runtime/run-until.js";
+import {
+  ejectSandboxDisk, endSandboxSession, mountSandboxMedium, sandboxCall, startSandboxSession,
+} from "../runtime/sandbox-sessions.js";
+import type { DriveBoard } from "./drive-board.js";
+import type { SandboxScriptOptions } from "./run-sandbox.js";
 import type { Frame } from "./gif89a.js";
 import type { JournalEntry } from "./record-scenario.js";
 import {
   inputOffsetFor, offsetRefusal, offsetsRequested, type InputOffsetOptions, type InputRecord,
 } from "./input-offset.js";
-import { requireProbeRuntime } from "./frame-probe.js";
 
 // A bounded run is split a frame at a time so a breakpoint or a JAM still stops where it
 // happens. How long a frame is comes from the machine (Spec 863), never from here.
@@ -65,6 +69,8 @@ export interface RunResult {
   readonly journal?: { readonly armedAtCycle: number; readonly entries: readonly JournalEntry[] };
   /** Spec 899 D1 — the offset every input step used, when an offset option was set. */
   readonly inputs: readonly InputRecord[];
+  /** The machine as the reel left it: registers and a hash of all RAM, to hold against another path's end state. */
+  readonly endState: { readonly cycle: number; readonly pc: number; readonly cpu: { a: number; x: number; y: number; sp: number; flags: number }; readonly ramSha256: string };
 }
 
 interface MachineState {
@@ -101,7 +107,7 @@ function fnv1a(bytes: Uint8Array): bigint {
   return h;
 }
 
-export interface RunOptions extends SandboxOptions, InputOffsetOptions {
+export interface RunOptions extends SandboxScriptOptions, InputOffsetOptions {
   /**
    * Resolve a medium named in the feature file to a path on disk.
    *
@@ -160,15 +166,44 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     );
   }
 
+  if (scenario.origin.kind === "mark") {
+    throw new Error(
+      `scenario "${scenario.name}" starts from the mark "${scenario.mark}" — a driven capture ` +
+        `starts from a medium or a bare machine. A mark belongs to a branch scenario.`,
+    );
+  }
+  const originPath = scenario.origin.kind === "medium"
+    ? (opts.resolveMedium ? opts.resolveMedium(scenario.origin.path, "origin") : scenario.origin.path)
+    : undefined;
+
   // Spec 863 — the machine a scenario runs on: the one the caller names, else the one it
   // was recorded on, else the caller's default (the project's). A recorded scenario on
-  // another model is refused below, once the machine has said what it is.
-  const box = await SandboxSession.start({ ...opts, model: opts.model ?? scenario.model ?? opts.defaultModel });
+  // another model is refused once the machine has said what it is, before anything goes in.
+  let rows: ModelRow[] | undefined;
+  const refuseOtherModel = async (m: MachineIdentity, c: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>): Promise<void> => {
+    if (!scenario.model) return;
+    rows ??= (await c<{ models?: ModelRow[] }>("session/models")).models ?? [];
+    const why = scenarioModelRefusal(scenario.name, scenario.model, m.model, rows);
+    if (why) throw new Error(why);
+  };
+  const sb = await startSandboxSession({
+    purpose: `reel: ${scenario.name}`, budgetMinutes: (opts.budgetMs ?? 10 * 60_000) / 60_000,
+    projectDir: opts.projectDir ?? "", daemonProjectDir: opts.projectDir, mediaPath: originPath,
+    model: opts.model ?? scenario.model ?? opts.defaultModel, driveType: opts.driveType, script: true,
+    boot: {
+      // A reel replays from the reset vector with the medium mounted, as the recording did (a snapshot replaces the machine).
+      mode: "vector", mountVia: "mount", verifyMachine: refuseOtherModel,
+      ...(offsetsRequested(opts) ? { needs: "an input offset" } : {}),
+    },
+  });
+  const call = sandboxCall(sb.id);
+  let outcome: "reached" | "failed" = "failed";
+  let summary = "the reel did not finish";
   const log: string[] = [];
   const shots: Shot[] = [];
   let canvas: { width: number; height: number; palette: Uint8Array } | undefined;
 
-  const state = (): Promise<MachineState> => box.call<MachineState>("session/state");
+  const state = (): Promise<MachineState> => call<MachineState>("session/state");
   let machine: MachineIdentity;
   let F = 0;
   // The schedule's clock. `due` is the cycle the steps so far have reached; `at` is where
@@ -191,12 +226,12 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
   const runCycles = async (total: number): Promise<void> => {
     due += total;
     while (at < due) {
-      const step = Math.min(F, due - at);
-      const r = await box.call<{ c64Cycles?: number }>("session/run", { cycles: step });
-      at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
+      // One run with a stop on the exact cycle (Spec 910 D10). A machine that cannot move (a JAM) does not hold the schedule.
+      const stop = await runUntil(call, undefined, { cycles: due - at, pace: "warp", wait: true, source: "reel" });
+      at = stop.cycles > at ? stop.cycles : due;
     }
   };
-  const frameIndices = async (): Promise<FrameIndices> => box.call<FrameIndices>("session/frame_indices");
+  const frameIndices = async (): Promise<FrameIndices> => call<FrameIndices>("session/frame_indices");
 
   // Spec 899 D1 — the cycle an input step presses at: where it always pressed, plus its offset.
   // No offset option: undefined, no `at_cycle` on the call, the same bytes as before.
@@ -213,7 +248,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
 
   // ── Spec 813 — regions and the bytes behind them ───────────────────────────
   const readRanges = async (ranges: RegionRange[]): Promise<Uint8Array> => {
-    const r = await box.call<ReadMemoryResult>("session/read_memory", { ranges });
+    const r = await call<ReadMemoryResult>("session/read_memory", { ranges });
     return joinChunks(r.chunks.map((c) => new Uint8Array(Buffer.from(c.bytes, "base64"))));
   };
 
@@ -258,54 +293,11 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     return readRanges(region.ranges);
   };
 
-  // Spec 863 — a recorded scenario on another model is not replayed: its frames and
-  // cycles are the other machine's. Refused naming both, before anything runs.
-  let rows: ModelRow[] | undefined;
-  const refuseOtherModel = async (): Promise<void> => {
-    if (!scenario.model) return;
-    rows ??= (await box.call<{ models?: ModelRow[] }>("session/models")).models ?? [];
-    const why = scenarioModelRefusal(scenario.name, scenario.model, machine!.model, rows);
-    if (why) throw new Error(why);
-  };
-
   try {
-    await box.call("debug/pause", { source: "reel" });
+    // The lifecycle switched the machine on, put the origin in at the reset vector and left it stopped;
+    // the schedule starts there (a mount that ran the machine was passed with a stop armed, see session-boot.ts).
     await readMachine();
-    await refuseOtherModel();
-    log.push(`machine: ${describeMachine(machine!)}`);
-    if (offsetsRequested(opts)) await requireProbeRuntime(box.call.bind(box) as Parameters<typeof requireProbeRuntime>[0], "an input offset");
-    const call = box.call.bind(box) as Parameters<typeof setDriveBoard>[0];
-    if (opts.driveType && opts.driveType !== "1541") {
-      await setDriveBoard(call, opts.driveType);
-      log.push(`drive 8 is a ${opts.driveType}, as asked`);
-    }
-
-    if (scenario.origin.kind === "medium") {
-      const path = opts.resolveMedium
-        ? opts.resolveMedium(scenario.origin.path, "origin")
-        : scenario.origin.path;
-      if (/\.c64re$/i.test(path)) {
-        // `Given the snapshot "…"` — a snapshot is not media, it REPLACES the machine
-        // (the runtime refuses to mount one).
-        await box.call("snapshot/undump", { path });
-        log.push(`undumped ${path}`);
-      } else {
-        await openFittingDrive(call, () => box.call("media/mount", { path }), log);
-        log.push(`mounted ${path}`);
-      }
-    } else if (scenario.origin.kind === "mark") {
-      throw new Error(
-        `scenario "${scenario.name}" starts from the mark "${scenario.mark}" — a driven capture ` +
-          `starts from a medium or a bare machine. A mark belongs to a branch scenario.`,
-      );
-    }
-
-    // Take the clock. A mount can leave the machine running, and a running machine
-    // is exactly what makes a schedule unrepeatable.
-    await box.call("debug/pause", { source: "reel" });
-    // A snapshot origin replaces the machine, model included.
-    await readMachine();
-    await refuseOtherModel();
+    log.push(...sb.log);
 
     // Regions resolve ONCE, against the VIC bases the machine reports at the start.
     // Resolving per predicate would let a scenario compare two different boxes and
@@ -316,7 +308,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     resync();
     let armedAtCycle = at;
     if (opts.journal) {
-      const armed = await box.call<{ armedAtCycle?: number }>("session/input_journal", { arm: true });
+      const armed = await call<{ armedAtCycle?: number }>("session/input_journal", { arm: true });
       armedAtCycle = armed?.armedAtCycle ?? at;
     }
 
@@ -335,7 +327,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
             await runCycles(off);
             inputs.push({ step: i, text: step.text, offset: off, pressAt: at });
           }
-          await box.call("session/type", { text: step.keys });
+          await call("session/type", { text: step.keys });
           log.push(`${i}: ${step.text}`);
           break;
         }
@@ -346,11 +338,11 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         // however many of its scans you said.
         case "key": {
           const press = pressAt(i, step.text, step.frames);
-          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "reel" }));
+          for (const k of step.keys) await call("session/key_down", at_(press, { key: k, source: "reel" }));
           // With an offset the release is scheduled before the run, a fixed distance from the press.
-          if (press !== undefined) for (const k of step.keys) await box.call("session/key_up", at_(press + step.frames * F, { key: k, source: "reel" }));
+          if (press !== undefined) for (const k of step.keys) await call("session/key_up", at_(press + step.frames * F, { key: k, source: "reel" }));
           await runCycles(step.frames * F);
-          if (press === undefined) for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
+          if (press === undefined) for (const k of step.keys) await call("session/key_up", { key: k, source: "reel" });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
         }
@@ -359,10 +351,10 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           const press = pressAt(i, step.text, step.frames);
           const set: Record<string, unknown> = { port: step.port, source: "reel" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", at_(press, set));
-          if (press !== undefined) await box.call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
+          await call("session/joystick_set", at_(press, set));
+          if (press !== undefined) await call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
           await runCycles(step.frames * F);
-          if (press === undefined) await box.call("session/joystick_clear", { port: step.port });
+          if (press === undefined) await call("session/joystick_clear", { port: step.port });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
         }
@@ -371,14 +363,14 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         // clock — the steps between them do, and they happen while it is held.
         case "keyDown": {
           const press = pressAt(i, step.text);
-          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "reel" }));
+          for (const k of step.keys) await call("session/key_down", at_(press, { key: k, source: "reel" }));
           log.push(`${i}: ${step.text} (held until its release)`);
           break;
         }
 
         case "keyUp": {
           const press = pressAt(i, step.text);
-          for (const k of step.keys) await box.call("session/key_up", at_(press, { key: k, source: "reel" }));
+          for (const k of step.keys) await call("session/key_up", at_(press, { key: k, source: "reel" }));
           log.push(`${i}: ${step.text}`);
           break;
         }
@@ -387,14 +379,14 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           const press = pressAt(i, step.text);
           const set: Record<string, unknown> = { port: step.port, source: "reel" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", at_(press, set));
+          await call("session/joystick_set", at_(press, set));
           log.push(`${i}: ${step.text} (held until its release)`);
           break;
         }
 
         case "joystickUp": {
           const press = pressAt(i, step.text);
-          await box.call("session/joystick_clear", at_(press, { port: step.port }));
+          await call("session/joystick_clear", at_(press, { port: step.port }));
           log.push(`${i}: ${step.text}`);
           break;
         }
@@ -415,11 +407,9 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           // A hardware-style side swap: eject, let the drive notice, insert.
           // `runtime/swap_disk_and_continue` is not used — it is a stub.
           const path = opts.resolveMedium ? opts.resolveMedium(step.path, "insert") : step.path;
-          await box.call("media/unmount", { slot: 8 });
+          await ejectSandboxDisk(sb.id);
           await runCycles(F * 30);
-          await openFittingDrive(call, () => box.call("media/mount", { path }), log);
-          // A mount can flip the controller to running; this front owns the clock.
-          await box.call("debug/pause", { source: "reel" });
+          await mountSandboxMedium(sb.id, path, "mount", log);
           await readMachine();
           resync();
           await runCycles(F * 30);
@@ -432,7 +422,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         // steps after it count is the new model's.
         case "model": {
           const from = machine!.model;
-          const r = await box.call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "reel" });
+          const r = await call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "reel" });
           await readMachine();
           // The switch waited for the frame boundary; the recording's clock after it is
           // that boundary too, and the frames after it are the new model's.
@@ -444,7 +434,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         case "capture": {
           // A capture is a WHOLE frame: `displayed` is the frozen previous frame,
           // so a mid-frame grab returns the picture before the interesting one.
-          const landed = await box.call<{ cyclesAdvanced: number }>("session/advance_to_frame");
+          const landed = await call<{ cyclesAdvanced: number }>("session/advance_to_frame");
           // The frame boundary moved the machine but not the schedule: the next wait runs
           // to where the schedule says, so a shot does not make every later input late.
           at = (await state()).c64Cycles;
@@ -476,9 +466,14 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
 
     if (!canvas) throw new Error("no frame was captured");
     const journal = opts.journal
-      ? await box.call<{ entries?: JournalEntry[] }>("session/input_journal", { arm: false })
+      ? await call<{ entries?: JournalEntry[] }>("session/input_journal", { arm: false })
       : undefined;
     const end = await state();
+    const ram = Buffer.concat([await readRanges([{ addr: 0, len: 0x8000, lens: "ram" }]), await readRanges([{ addr: 0x8000, len: 0x8000, lens: "ram" }])]);
+    const { createHash } = await import("node:crypto");
+    const st = end as unknown as { cpu: { pc: number; a?: number; x?: number; y?: number; sp?: number; flags?: number } };
+    outcome = "reached";
+    summary = `${shots.length} shot(s), ended at cycle ${end.c64Cycles}`;
     return {
       shots,
       width: canvas.width,
@@ -486,37 +481,40 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
       palette: canvas.palette,
       log,
       endCycle: end.c64Cycles,
-      port: box.port,
+      port: sb.port,
       machine: machineIdentity(end),
       regions: regionLines,
       waits,
       ...(journal ? { journal: { armedAtCycle, entries: journal.entries ?? [] } } : {}),
       inputs,
+      endState: {
+        cycle: end.c64Cycles, pc: st.cpu.pc,
+        cpu: { a: st.cpu.a ?? 0, x: st.cpu.x ?? 0, y: st.cpu.y ?? 0, sp: st.cpu.sp ?? 0, flags: st.cpu.flags ?? 0 },
+        ramSha256: createHash("sha256").update(ram).digest("hex"),
+      },
     };
   } finally {
-    await box.close();
+    await endSandboxSession(sb.id, outcome, summary).catch(() => undefined);
   }
 
   /**
    * Run until the CPU FETCHES `address`, within `timeoutFrames` frames; returns the whole
-   * frames that passed. A bounded `session/run` stops on the daemon's PC breakpoint, which
+   * frames that passed. A bounded run stops on the daemon's PC breakpoint, which
    * matches the fetch address whatever the banking; it is removed again on every exit.
    */
   async function waitForPc(address: number, timeoutFrames: number): Promise<number> {
     const id = "__reel_wait_pc__";
     if ((await state()).cpu.pc === address) return 0;
-    await box.call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
+    await call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
     try {
       const from = at;
       const budget = timeoutFrames * F;
-      while (at - from < budget) {
-        const step = Math.min(F, budget - (at - from));
-        const r = await box.call<{ c64Cycles?: number; breakpoint?: { pc?: number } }>("session/run", { cycles: step });
-        at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
-        if (r?.breakpoint) {
-          resync();
-          return Math.floor((at - from) / F);
-        }
+      // One run with two stops: the breakpoint, and the cap at the end of the window (Spec 910 D10).
+      const stop = await runUntil(call, undefined, { cycles: budget, pace: "warp", wait: true, source: "reel" });
+      at = stop.cycles > at ? stop.cycles : at + budget;
+      if ((stop.reason === "breakpoint" || stop.reason === "observer") && stop.pc === address) {
+        resync();
+        return Math.floor((at - from) / F);
       }
       resync();
       const pc = (await state()).cpu.pc;
@@ -526,7 +524,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           `was fetched from that address in the whole window`,
       );
     } finally {
-      await box.call("api/call", { method: "removeBreakpoint", args: [id] });
+      await call("api/call", { method: "removeBreakpoint", args: [id] });
     }
   }
 
