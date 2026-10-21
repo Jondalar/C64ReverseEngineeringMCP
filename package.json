@@ -238,6 +238,7 @@
     "e2e:issue123-payload-address-filter": "node scripts/ensure-built.mjs all && node scripts/e2e-issue123-payload-address-filter.mjs",
     "e2e:issue124-loader-lens-gate-project": "node scripts/ensure-built.mjs mcp && node scripts/e2e-issue124-loader-lens-gate-project.mjs",
     "e2e:867-window": "node scripts/ensure-built.mjs all && node scripts/e2e-867-window.mjs",
+    "e2e:915-seeds": "node scripts/ensure-built.mjs all && node scripts/e2e-915-seeds.mjs",
     "e2e:866": "node scripts/ensure-built.mjs all && node scripts/e2e-866-two-doors.mjs",
     "e2e:877-equates": "node scripts/ensure-built.mjs all && node scripts/e2e-877-equates.mjs",
     "e2e:060-bulk": "node scripts/ensure-built.mjs all && node scripts/e2e-060-bulk-doors.mjs",

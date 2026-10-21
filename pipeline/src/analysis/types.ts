@@ -569,6 +569,12 @@ export interface CodeSeedReport {
    * refusals — nothing was asked for and nothing was taken away.
    */
   outOfScope?: Array<{ address: number; detail: string }>;
+  /**
+   * Spec 915 — cross-owner calls and jumps the reader saw and did NOT apply as seeds: the caller is
+   * probable code, a traced run saw another payload resident, or nothing says which of several
+   * claimants is in the window. The edges stay in the graph; this is why they did not seed.
+   */
+  notSeeded?: Array<{ address: number; reason: "heuristic_caller" | "other_resident" | "not_validated"; detail: string }>;
 }
 
 export interface AnalysisOptions {

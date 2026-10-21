@@ -1,6 +1,6 @@
 # Spec 915 — A code seed crosses an owner boundary only from real code, into the payload that is in the window
 
-**Status:** READY TO BUILD (2026-10-21). D1–D3 decided with the owner.
+**Status:** BUILT on branch `spec/915-seeds` (2026-10-21), S1–S3 green (`e2e:915-seeds`, the 838 and 867 smokes). Open: S4, the reporter's retest on the real cartridge (#140). D1–D3 decided with the owner.
 **Repo:** C64RE (the runtime trace import that writes the graph, and the code-seed reader in the pipeline). TRX64 untouched.
 **Number:** 915 (registry: `specs/README.md`).
 **Origin:** issue #140 (a reporter, an unreleased 1 MB EasyFlash cartridge that cannot be shared;
@@ -94,3 +94,24 @@ S1 (human routine) and S3 (resolved alias) are unchanged.
   edges; a target no claimant matches stays ownerless and is reported.
 - **S3** Spec 838 and 867 smokes stay green.
 - **S4** The reporter's retest on the real cartridge (issue #140 acceptance 1–3).
+
+---
+
+## §5 As built (2026-10-21)
+
+- **The id grammar.** D2's target key `ram/<owner>:addr:…` needed Spec 818's `addr-no-owner` rule lifted: an `addr`
+  id may now name the payload a run saw resident (`deriveProjectId`); a cartridge context still names a bank, never
+  an owner. The `e2e:818` gate follows (the old refusal became "names that payload"; the cartridge refusal stays).
+- **Which bytes.** The trace carries no memory image, but every retired instruction carries its own bytes. After an
+  executed transfer into a window another payload claims, the next 16 retired instructions (same flow lane, inside the
+  claimed windows) are the bytes at the target. They are held against each claimant's own code bytes with the Spec 867
+  comparison (`scoreClaimantBytes`, the function `windowResidency` now uses too): at least four bytes compared, all equal.
+  No TRX64 change was needed. `crossWindow.ownerless` in the import result lists every site that matched no one
+  (`no_match`) or that the trace showed too little of to compare (`undecided`).
+- **The reader.** An edge is real code unless its confidence is `heuristic` or its evidence provenance `probable_code`.
+  A runtime edge's caller is the owner in its `from` id (its `owner` column is the run). What is not seeded lands in
+  `codeSeedReport.notSeeded` and in the listing header (`not seeded:`); the 838 subtraction by `RESOLVES_TO` is unchanged
+  and still reports through `rejectedEntryPoints`.
+- **A smoke that encoded the old rule.** `e2e:867-window` section 6.1 expected every module to seed `$1000` from the
+  loader's call into a window of six occupants; under this spec none does, and the report names the six. Its three
+  checks follow. Nothing else in the 867 gate changed.

@@ -37,12 +37,15 @@ import { describeCartridge, readCartridges } from "../cartridges.js";
 import { readCaptureMount } from "../../trace/capture-mount.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { RUNTIME_TRACE_PRODUCER } from "../producer-ids.js";
+import { claimantsAt, loadWindows, covers, type PayloadWindow } from "../windows.js";
+import { PayloadBytes } from "../../symbols/payload-bytes.js";
+import { ownerOfEntityId, scoreClaimantBytes } from "../../symbols/window-residency.js";
 
 export const RUNTIME_PRODUCER = RUNTIME_TRACE_PRODUCER;
 const ORIGIN = "runtime" as const;
 const CONFIDENCE = "observed" as const;
 /** Edge types this producer writes. READS, WRITES, USES_ZP, USES_HARDWARE and CALLS are 819/820's types with a different origin. */
-export const RUNTIME_EDGE_TYPES = ["READS", "WRITES", "USES_ZP", "USES_HARDWARE", "CALLS", "HANDLES_IRQ", "HANDLES_NMI", "EXECUTES"] as const;
+export const RUNTIME_EDGE_TYPES = ["READS", "WRITES", "USES_ZP", "USES_HARDWARE", "CALLS", "JUMPS_TO", "HANDLES_IRQ", "HANDLES_NMI", "EXECUTES"] as const;
 /** Static access types whose presence at a pc means "the static side saw this instruction" (D3). */
 const STATIC_ACCESS_TYPES = ["READS", "WRITES", "READS_INDIRECT", "WRITES_INDIRECT", "USES_ZP", "USES_HARDWARE", "REFERENCES_DATA"];
 /** Static call types — the same D3 check for a retiring `jsr` (826 D6). */
@@ -115,6 +118,17 @@ export interface ImportRuntimeTraceResult {
   nmiEntries: number;
   collapsedPcs: number;
   marks: string[];
+  /**
+   * Spec 915 D2 — the executed jsr / jmp / jmp (ind) whose target lies in a window claimed by another payload than the
+   * caller's, and what the bytes the trace saw there said: `matched` sites were written once per resident payload (target
+   * key `ram/<owner>:addr:...`); every site that was NOT is listed with the reason (`no_match`: a claimant was compared
+   * and none is these bytes; `undecided`: the trace saw too few comparable code bytes to decide). Nothing is guessed.
+   */
+  crossWindow: {
+    sites: number;
+    matched: number;
+    ownerless: Array<{ pc: number; target: number; kind: "jsr" | "jmp" | "jmp-ind"; reason: "no_match" | "undecided"; executions: number; claimants: string[] }>;
+  };
   ms: number;
   peakRssMb: number;
 }
@@ -125,6 +139,7 @@ export interface ImportRuntimeTraceResult {
 // Same rules, same limitation: an NMI taken from main flow with no vector hint
 // reads as `irq`.
 
+const OP_JMP_ABS = 0x4c, OP_JMP_IND = 0x6c;
 const OP_BRK = 0x00, OP_JSR = 0x20, OP_PLP = 0x28, OP_RTI = 0x40, OP_PHA = 0x48, OP_RTS = 0x60, OP_PLA = 0x68, OP_PHP = 0x08, OP_TXS = 0x9a;
 
 function stackEffect(op: number): number {
@@ -297,6 +312,44 @@ function indirectShape(mode: AddressingMode, b1: number, b2: number, x: number):
   return undefined;
 }
 
+// ------------------------------------------------------------------ cross-window control flow (Spec 915 D2)
+// The target of an executed jsr / jmp / jmp (ind) in ANOTHER payload's window names a payload only if the
+// machine says which one is there. The trace carries the bytes of every instruction it retires, so the
+// instructions executed right after the transfer ARE the bytes at the target; they are held against each
+// claimant's own code bytes with the one residency comparison (`scoreClaimantBytes`, Spec 867 D3).
+
+/** Retired instructions observed after a transfer, at most. */
+const OBSERVE_STEPS = 16;
+
+type CrossKind = "jsr" | "jmp" | "jmp-ind";
+
+interface CrossSite {
+  pc: number;
+  target: number;
+  kind: CrossKind;
+  count: number;
+  first: number;
+  last: number;
+  flow: FlowKind;
+  claimants: string[];
+  /** payload -> executions the observed bytes were that payload's (and the most bytes compared / matched on any of them) */
+  owners: Map<string, { count: number; compared: number; matched: number }>;
+  noMatch: number;
+  undecided: number;
+}
+
+interface Watch {
+  pc: number;
+  kind: CrossKind;
+  /** unknown for jmp (ind) until the next retire shows where it went */
+  target: number | undefined;
+  cycle: number;
+  lane: FlowKind;
+  steps: number;
+  bytes: Map<number, number>;
+  windows: PayloadWindow[];
+}
+
 function pushValue(values: number[], v: number): void {
   if (values.length < MAX_VALUES && !values.includes(v)) values.push(v);
 }
@@ -368,6 +421,15 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
     throw error;
   }
 
+  // ---- Spec 915 D2: the windows payloads occupy, and the machinery that decides which payload a window holds
+  let windows: PayloadWindow[];
+  try { windows = loadWindows(store).filter((w) => w.space === "ram"); } catch (error) { store.close(); throw error; }
+  const payloadBytes = new PayloadBytes(options.projectDir, new Map(), new Map());
+  const crossSites = new Map<string, CrossSite>();
+  const crossCache = new Map<string, PayloadWindow[] | null>(); // pc|target -> the target's claimants when the transfer leaves the caller's payload, else null
+  const matchCache = new Map<string, { owners: Array<{ owner: string; compared: number; matched: number }>; noMatch: boolean; undecided: boolean }>();
+  let watch: Watch | undefined;
+
   // ---- the static instruction at a pc, for the opcode-mismatch check (D2)
   const staticOpcode = new Map<number, number>();
   if (options.analysisPath) {
@@ -396,6 +458,82 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
       return id;
     };
   })();
+
+  const ownerOfRoutine = (pc: number): string | undefined => {
+    const rid = routineOf(pc);
+    return rid ? ownerOfEntityId(rid) : undefined;
+  };
+  /** The claimants at `target` when the transfer from `pc` leaves the caller's payload; null when it stays inside, or nobody claims the target. */
+  const leavesCallerPayload = (pc: number, target: number): PayloadWindow[] | null => {
+    if (windows.length === 0) return null;
+    const key = `${pc}|${target}`;
+    const hit = crossCache.get(key);
+    if (hit !== undefined) return hit;
+    const there = claimantsAt(windows, { address: target, space: "ram" }).claimants;
+    let result: PayloadWindow[] | null = null;
+    if (there.length > 0) {
+      const callerOwner = ownerOfRoutine(pc);
+      const callers = callerOwner !== undefined ? [callerOwner] : claimantsAt(windows, { address: pc, space: "ram" }).claimants.map((w) => w.owner);
+      if (!callers.some((o) => there.some((w) => w.owner === o))) result = there;
+    }
+    crossCache.set(key, result);
+    return result;
+  };
+  const closeWatch = (): void => {
+    const w = watch;
+    watch = undefined;
+    if (!w || w.target === undefined) return;
+    const target = w.target;
+    const siteKey = `${w.pc}|${target}|${w.kind}`;
+    let site = crossSites.get(siteKey);
+    if (!site) {
+      site = { pc: w.pc, target, kind: w.kind, count: 0, first: w.cycle, last: w.cycle, flow: w.lane, claimants: w.windows.map((x) => x.owner), owners: new Map(), noMatch: 0, undecided: 0 };
+      crossSites.set(siteKey, site);
+    }
+    site.count += 1;
+    site.last = w.cycle;
+    const signature = `${target}|${[...w.bytes.entries()].sort((a, b) => a[0] - b[0]).map(([a, v]) => `${a}:${v}`).join(",")}`;
+    let res = matchCache.get(signature);
+    if (!res) {
+      const owners: Array<{ owner: string; compared: number; matched: number }> = [];
+      let comparable = false;
+      for (const win of w.windows) {
+        const set = payloadBytes.comparisonSet({ kind: "analysis", owner: win.owner }, target);
+        if (set.length === 0) continue;
+        const sc = scoreClaimantBytes(payloadBytes, win.owner, set, w.bytes);
+        if (sc.compared >= 4) comparable = true;
+        if (sc.ok) owners.push({ owner: win.owner, compared: sc.compared, matched: sc.matched });
+      }
+      res = { owners, noMatch: owners.length === 0 && comparable, undecided: owners.length === 0 && !comparable };
+      matchCache.set(signature, res);
+    }
+    if (res.noMatch) site.noMatch += 1;
+    else if (res.undecided) site.undecided += 1;
+    for (const o of res.owners) {
+      const e = site.owners.get(o.owner);
+      if (e) { e.count += 1; e.compared = Math.max(e.compared, o.compared); e.matched = Math.max(e.matched, o.matched); }
+      else site.owners.set(o.owner, { count: 1, compared: o.compared, matched: o.matched });
+    }
+  };
+  /** One retiring step, fed to the transfer being watched. */
+  const feedWatch = (step: Step, lane: FlowKind): void => {
+    const w = watch;
+    if (!w) return;
+    if (w.steps === 0) {
+      if (w.target === undefined) w.target = step.pc; // jmp (ind): where the pointer sent it
+      else if (step.pc !== w.target) { watch = undefined; return; } // an interrupt between the transfer and the target: nothing observed
+      const there = leavesCallerPayload(w.pc, w.target);
+      if (!there) { watch = undefined; return; }
+      w.windows = there;
+    }
+    if (lane !== w.lane) return; // an interrupt handler's bytes are not the window's
+    if (!w.windows.some((x) => covers(x, step.pc))) { closeWatch(); return; } // left the claimed windows: the observation is complete
+    const d = disasm6502((addr) => (addr === step.pc ? step.opcode : addr === ((step.pc + 1) & 0xffff) ? step.b1 : step.b2), step.pc);
+    const raw = [step.opcode, step.b1, step.b2];
+    for (let i = 0; i < d.size && i < 3; i += 1) w.bytes.set((step.pc + i) & 0xffff, raw[i]!);
+    w.steps += 1;
+    if (w.steps >= OBSERVE_STEPS) closeWatch();
+  };
 
   // ---- stream the capture (D4): fold as the events go past, keep nothing else
   const obs = new Map<number, Obs>();
@@ -538,6 +676,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
             if (e) { e.count += 1; e.last = ev.cycle; } else irq.set(pc, { flow: r.entry, count: 1, first: ev.cycle, last: ev.cycle });
           }
           pcsSeen.add(pc);
+          if (watch) feedWatch(step, r.lane);
           const rid = routineOf(pc);
           if (rid) {
             const x = exec.get(rid);
@@ -566,6 +705,12 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
             noteArg(site.args.Y, y);
             noteArg(site.args.C, c);
           }
+          if (windows.length > 0 && (step.opcode === OP_JSR || step.opcode === OP_JMP_ABS || step.opcode === OP_JMP_IND)) {
+            if (watch) closeWatch();
+            const abs = step.b1 | (step.b2 << 8);
+            if (step.opcode === OP_JMP_IND) watch = { pc, kind: "jmp-ind", target: undefined, cycle: ev.cycle, lane: r.lane, steps: 0, bytes: new Map(), windows: [] };
+            else if (leavesCallerPayload(pc, abs)) watch = { pc, kind: step.opcode === OP_JSR ? "jsr" : "jmp", target: abs, cycle: ev.cycle, lane: r.lane, steps: 0, bytes: new Map(), windows: [] };
+          }
           if ((cpuSteps & 0xfffff) === 0) rss();
           return;
         }
@@ -589,6 +734,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
       }
     }, (h) => { header = h; });
     flushPending(undefined);
+    if (watch) closeWatch();
   } catch (error) {
     store.close();
     platform?.close();
@@ -693,7 +839,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
 
   // ---- edges
   const edges: EdgeInput[] = [];
-  const counts: ImportRuntimeTraceResult["rows"] = { READS: 0, WRITES: 0, USES_ZP: 0, USES_HARDWARE: 0, CALLS: 0, HANDLES_IRQ: 0, HANDLES_NMI: 0, EXECUTES: 0, collapsedSpans: 0 };
+  const counts: ImportRuntimeTraceResult["rows"] = { READS: 0, WRITES: 0, USES_ZP: 0, USES_HARDWARE: 0, CALLS: 0, JUMPS_TO: 0, HANDLES_IRQ: 0, HANDLES_NMI: 0, EXECUTES: 0, collapsedSpans: 0 };
   const evKey = (pc: number) => `run:${runId}:pc:${hex4(pc)}`;
   const uses = new Map<string, { from: string; type: "USES_ZP" | "USES_HARDWARE"; to: string; pc: number; ea: number; reads: number; writes: number; first: number; last: number; flow: FlowKind; bankCtx: string; bankConf: string; note?: string }>();
   const noteUses = (from: string, type: "USES_ZP" | "USES_HARDWARE", to: string, o: { pc: number; ea: number; write: boolean; count: number; first: number; last: number; flow: FlowKind; bankCtx: string; bankConf: string }, note?: string) => {
@@ -766,6 +912,38 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
     edges.push({ from: u.from, type: u.type, to: u.to, evidenceKey: evKey(u.pc), origin: ORIGIN, confidence: CONFIDENCE, evidence });
     counts[u.type] += 1;
   }
+  // Spec 915 D2 — one edge per payload the observed bytes matched, the payload in the target's key; none matched = the ownerless addr node, said so.
+  const crossOwnerless: ImportRuntimeTraceResult["crossWindow"]["ownerless"] = [];
+  let crossMatched = 0;
+  const residentAddr = (owner: string, a: number): string => {
+    const id = deriveProjectId({ slug, ctx: { space: "ram", owner }, kind: "addr", address: a });
+    if (!nodeIds.has(id)) {
+      nodeIds.add(id);
+      nodes.push({ id, kind: "addr", name: null, attrs: { resident_payload: owner }, origin: ORIGIN, confidence: CONFIDENCE, evidence: [{ run_id: runId }] });
+    }
+    return id;
+  };
+  const emitCross = (cross: CrossSite, from: string, type: "CALLS" | "JUMPS_TO", base: Record<string, unknown>): void => {
+    const owners = [...cross.owners.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    if (owners.length > 0) {
+      crossMatched += 1;
+      for (const [owner, m] of owners) {
+        edges.push({
+          from, type, to: residentAddr(owner, cross.target), evidenceKey: evKey(cross.pc), origin: ORIGIN, confidence: CONFIDENCE,
+          evidence: { ...base, resident_payload: owner, executions: cross.count, matched_executions: m.count, match: { compared: m.compared, matched: m.matched }, claimants: cross.claimants },
+        });
+        counts[type] += 1;
+      }
+      return;
+    }
+    const reason = cross.noMatch > 0 ? "no_match" : "undecided";
+    crossOwnerless.push({ pc: cross.pc, target: cross.target, kind: cross.kind, reason, executions: cross.count, claimants: cross.claimants });
+    edges.push({
+      from, type, to: addrNode(cross.target), evidenceKey: evKey(cross.pc), origin: ORIGIN, confidence: CONFIDENCE,
+      evidence: { ...base, resident_payload: null, residency: reason, executions: cross.count, claimants: cross.claimants },
+    });
+    counts[type] += 1;
+  };
   // 826 D6 — one runtime CALLS row per jsr site, with the observed arguments. The
   // callee is the routine at the target (any owner, the file's own containment
   // lookup), else the platform ROM node when the target is ROM under the $01 the
@@ -774,8 +952,11 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   for (const site of [...calls.values()].sort((a, b) => a.pc - b.pc)) {
     const { from, note } = fromOf(site.pc, OP_JSR, false, "call");
     const target = site.target & 0xffff;
-    const rid = routineOf(target);
-    const to = rid ?? (lensFor(target, site.p01, false) === "rom" ? derivePlatformId(platformForCtx(ctx), target) : addrNode(target));
+    // Spec 915 D2 — a jsr into another payload's window: the callee is the payload the observed bytes name, never "the routine
+    // that happens to be at that address" (any overlay's), so it is filed under each matched payload or stays on the ownerless addr node.
+    const cross = crossSites.get(`${site.pc}|${target}|jsr`);
+    const rid = cross ? undefined : routineOf(target);
+    const to = rid ?? (lensFor(target, site.p01, false) === "rom" && !cross ? derivePlatformId(platformForCtx(ctx), target) : addrNode(target));
     const evidence: Record<string, unknown> = {
       pc: site.pc, target, run_id: runId, count: site.count, first_cycle: site.first, last_cycle: site.last, flow: site.flow,
       bank_ctx: site.bankCtx, bank_ctx_conf: site.bankConf, pc_source: "retire", opcode: OP_JSR, mnemonic: "jsr", addr_mode: "abs",
@@ -784,8 +965,22 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
     if (site.flows) evidence.flow_counts = site.flows;
     if (site.bankVariants) evidence.bank_ctx_variants = [...site.bankVariants].sort();
     if (note) evidence.note = note;
+    if (cross) {
+      emitCross(cross, from, "CALLS", evidence);
+      continue;
+    }
     edges.push({ from, type: "CALLS", to, evidenceKey: evKey(site.pc), origin: ORIGIN, confidence: CONFIDENCE, evidence });
     counts.CALLS += 1;
+  }
+  // Spec 915 D2 — the jmp and jmp (ind) that left the caller's payload. (A jmp inside it is not a cross-payload fact and is not written here.)
+  for (const cross of [...crossSites.values()].filter((c) => c.kind !== "jsr").sort((a, b) => a.pc - b.pc || a.target - b.target)) {
+    const { from } = fromOf(cross.pc, cross.kind === "jmp" ? OP_JMP_ABS : OP_JMP_IND, true);
+    const evidence: Record<string, unknown> = {
+      pc: cross.pc, target: cross.target, run_id: runId, count: cross.count, first_cycle: cross.first, last_cycle: cross.last, flow: cross.flow,
+      pc_source: "retire", opcode: cross.kind === "jmp" ? OP_JMP_ABS : OP_JMP_IND, mnemonic: "jmp", addr_mode: cross.kind === "jmp" ? "abs" : "ind",
+      instruction: cross.kind === "jmp" ? `jmp $${hex4(cross.target).toUpperCase()}` : `jmp (...) -> $${hex4(cross.target).toUpperCase()}`,
+    };
+    emitCross(cross, from, "JUMPS_TO", evidence);
   }
   // D7 — interrupt entries, from the run node to the handler
   let irqEntries = 0;
@@ -836,7 +1031,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   return {
     runId, runNodeId, slug, tracePath, traceBytes, formatVersion: header.version, eventCount: stream.eventCount, cpuSteps, accesses,
     distinctPcs: pcsSeen.size, cycleStart, cycleEnd, pcSource, rows: counts, addrNodes: nodeIds.size, unattributedPcs: unattributed.size,
-    notes: { opcodeMismatch, noStaticEdge }, cartridge: { cart: runCart ?? null, via: cartVia, bank: crtBank ?? null, notes: cartNotes }, staticAccessEdges, irqEntries, nmiEntries, collapsedPcs: collapsed.size, marks,
+    notes: { opcodeMismatch, noStaticEdge }, crossWindow: { sites: crossSites.size, matched: crossMatched, ownerless: crossOwnerless }, cartridge: { cart: runCart ?? null, via: cartVia, bank: crtBank ?? null, notes: cartNotes }, staticAccessEdges, irqEntries, nmiEntries, collapsedPcs: collapsed.size, marks,
     ms: Number(process.hrtime.bigint() - t0) / 1e6, peakRssMb: peakRss / 1048576,
   };
 }

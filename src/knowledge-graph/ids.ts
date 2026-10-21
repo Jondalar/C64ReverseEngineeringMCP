@@ -126,9 +126,10 @@ export function deriveProjectId(parts: ProjectIdParts): string {
   if (needsOwner && ctx.space !== "crt" && ctx.owner === undefined) {
     throw new IdRuleError("routine-needs-owner", `${parts.kind} under ${ctx.space} needs an owner`);
   }
-  if (parts.kind === "addr" && ctx.owner !== undefined) {
-    throw new IdRuleError("addr-no-owner", "an address is an address, whoever is there");
-  }
+  // An `addr` node is "an address, whoever is there" (ownerless) — except where a runtime
+  // run SAW which payload was in the window at that address: then the id names it
+  // (`ram/<owner>:addr:3200`), one node per resident payload. A crt space names its
+  // bank, never an owner (`crt-no-owner`, in ctxToken).
   return `${parts.slug}:${ctxToken(ctx)}:${parts.kind}:${formatAddr4(parts.address)}`;
 }
 

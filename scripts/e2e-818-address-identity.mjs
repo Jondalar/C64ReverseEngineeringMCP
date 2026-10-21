@@ -47,10 +47,11 @@ const idB = deriveProjectId({ slug, ctx: ctxB, kind: "routine", address: 0x7e00 
 check(idA === "s818:ram/main_ovl_7e00:routine:7e00", `derived id ${idA}`);
 check(deriveProjectId({ slug, ctx: { space: "crt", cart: "ef-port", bank: 7 }, kind: "routine", address: 0x8000 }) === "s818:crt/ef-port/07:routine:8000", "crt id carries the cartridge and the bank (Spec 909: a bank lives inside a cartridge)");
 check(deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: 0xc000 }) === "s818:ram:addr:c000", "addr id has no owner");
+check(deriveProjectId({ slug, ctx: ctxA, kind: "addr", address: 0x1000 }) === "s818:ram/main_ovl_7e00:addr:1000", "an addr a run saw a payload resident at names that payload");
 
 const refusals = [
   [() => deriveProjectId({ slug, ctx: { space: "ram" }, kind: "routine", address: 0x1000 }), "routine-needs-owner"],
-  [() => deriveProjectId({ slug, ctx: ctxA, kind: "addr", address: 0x1000 }), "addr-no-owner"],
+  [() => deriveProjectId({ slug, ctx: { space: "crt", cart: "ef-port", bank: 7, owner: "x" }, kind: "addr", address: 0x8000 }), "crt-no-owner"],
   [() => deriveProjectId({ slug, ctx: { space: "crt", cart: "ef-port" }, kind: "routine", address: 0x8000 }), "crt-needs-bank"],
   [() => deriveProjectId({ slug, ctx: { space: "crt", bank: 7 }, kind: "routine", address: 0x8000 }), "crt-needs-cart"],
   [() => parseId("s818:crt/07:routine:8000"), "crt-needs-cart"],
