@@ -24,12 +24,15 @@
 // NOTATION is shared — `parseStep` from the scenario parser — because a repo
 // with two ways to say "wait 170 frames" ends up with two of everything.
 //
-// Nothing here may reach the shared machine. This module imports the sandbox
-// session and nothing from `src/runtime/`: no endpoint, no singleton client, no
-// way to address the shared port even by accident. `sharedRuntimePort` below is
-// the ONE place that names it, and it names it only in order to refuse it —
-// `assertNotShared` makes the one remaining coincidence, a free port that happens
-// to BE the shared one, a refusal rather than a surprise.
+// A SCRIPT over the one sandbox lifecycle (Spec 910 D3, `runtime/sandbox-sessions.ts`). It has no boot, no
+// medium door and no end of its own: it starts a sandbox through `startSandboxSession`, translates its step
+// language into the same runtime calls a session is driven with (`runUntil` for every advance), mounts through
+// `mountSandboxMedium`, and ends through `endSandboxSession`. A one-shot run is a session whose caller never sees
+// the id.
+//
+// Nothing here may reach the shared machine: the sandbox lifecycle never addresses the shared port, and
+// `assertNotShared` (re-exported below) makes the one remaining coincidence, a free port that happens to BE the
+// shared one, a refusal rather than a surprise.
 
 import { existsSync } from "node:fs";
 import type { Step, Predicate, Check, SeriesRead } from "../project-knowledge/scenario-gherkin.js";
@@ -38,9 +41,13 @@ import {
   joinChunks, screenShows, screenCodesToRows, SCREEN_COLS, SCREEN_ROWS,
   type RegionLens, type RegionRange,
 } from "../project-knowledge/region.js";
-import { describeMachine, machineIdentity, type MachineIdentity } from "../runtime/machine-model.js";
-import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
-import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
+import { machineIdentity, type MachineIdentity } from "../runtime/machine-model.js";
+import { runUntil } from "../runtime/run-until.js";
+import {
+  ejectSandboxDisk, endSandboxSession, mountSandboxMedium, sandboxCall, sandboxEndedBecause, startSandboxSession,
+} from "../runtime/sandbox-sessions.js";
+import type { DriveBoard } from "./drive-board.js";
+export { assertNotShared, sharedRuntimePort } from "./shared-port.js";
 import {
   inputOffsetFor, offsetRefusal, offsetsRequested, type InputOffsetOptions, type InputRecord,
 } from "./input-offset.js";
@@ -52,29 +59,9 @@ import {
 // A bounded run is split a frame at a time so a JAM still stops where it happens. How
 // long a frame is comes from the machine (Spec 863): 19 656 cycles PAL, 17 095 NTSC.
 
-/** How far the machine is warmed before anything is put into it, and how often
- *  the warm-up looks. A sandbox daemon hands you a machine at its RESET vector:
- *  no VIC registers written, no KERNAL vectors, no editor reading the keyboard.
- *  Measured on the real daemon: $D018 is written and READY. is on the screen at
- *  about 120 frames. Putting a PRG in before that pokes bytes the BASIC cold
- *  start then walks over, and typing into it types into nothing. */
-const BOOT_FRAMES_MAX = 400;
-const BOOT_POLL_FRAMES = 20;
-
-/** Where the SHARED machine lives. Read from the environment rather than from
- *  `src/runtime/daemon-client.ts`, so this file has no edge into the shared
- *  client at all — the import itself is what a reviewer would have to trust. */
-export function sharedRuntimePort(env: NodeJS.ProcessEnv = process.env): number {
-  const ep = env.C64RE_RUNTIME_ENDPOINT?.trim() || "ws://127.0.0.1:4312";
-  const m = /:(\d+)\s*\/?$/.exec(ep);
-  return m ? Number(m[1]) : 4312;
-}
-
-/** What one typed key costs: session/type presses each key for 80 000 cycles and waits
- *  80 000 before the next (the daemon's defaults, which this runner does not override). */
+/** What one typed key costs: session/type presses each key for 80 000 cycles and waits 80 000 before the next
+ *  (the daemon's defaults, which this runner does not override). */
 const KEY_CYCLES = 160_000;
-/** The screen editor waiting for a key (KERNAL $E5CD–$E5D4): READY. and nothing started. */
-const KEY_WAIT_LOOP: readonly [number, number] = [0xe5cd, 0xe5d4];
 const hex4 = (n: number): string => `$${n.toString(16).padStart(4, "0").toUpperCase()}`;
 
 export interface MemoryRead {
@@ -84,7 +71,19 @@ export interface MemoryRead {
   readonly lens: RegionLens;
 }
 
-export interface SandboxRunOptions extends SandboxOptions, InputOffsetOptions {
+/** Spec 910 — what a script over the sandbox lifecycle takes of the sandbox itself. */
+export interface SandboxScriptOptions {
+  /** Wall-clock ceiling; the sandbox ends itself at this age. Default 10 minutes. */
+  budgetMs?: number;
+  /** The project the outcome is recorded in; also where the daemon keeps its project. Absent: a temp dir, and no step log. */
+  projectDir?: string;
+  /** Spec 863 — which C64 the machine is (a row of the runtime's model table, e.g. `c64-ntsc`). Omitted: the runtime's default. */
+  model?: string;
+  /** What the sandbox is for, as the step log records it. */
+  purpose?: string;
+}
+
+export interface SandboxRunOptions extends SandboxScriptOptions, InputOffsetOptions {
   /** The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re. */
   mediaPath?: string;
   /** A PRG's entry: start there after the load instead of typing RUN. */
@@ -275,20 +274,6 @@ function fnv1a(bytes: Uint8Array): bigint {
   return h;
 }
 
-/** Refuse to be the shared machine. `freePort()` asks the OS for a port nobody
- *  holds, so the shared port comes back only when NOTHING is listening on it —
- *  and a sandbox squatting there would answer the next `runtime_session_start`
- *  as if it were the co-driven session. Loud, not clever. */
-export function assertNotShared(port: number): void {
-  const shared = sharedRuntimePort();
-  if (port !== shared) return;
-  throw new Error(
-    `the OS handed out port ${port}, which is where the SHARED machine lives — so this ` +
-      `sandbox would answer as the session the human co-drives. Nothing was run. Retry: ` +
-      `the port is picked fresh each time.`,
-  );
-}
-
 /**
  * Run one schedule on a private machine and report what it did. The machine is
  * started, driven and ENDED by this call; it does not exist afterwards, and its
@@ -299,14 +284,20 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   // Refused before a daemon starts: a contradiction in the offset options costs no machine.
   const refusal = offsetRefusal(opts);
   if (refusal) throw new Error(refusal);
-  const box = await SandboxSession.start(opts);
-  try {
-    assertNotShared(box.port);
-  } catch (e) {
-    await box.close();
-    throw e;
-  }
-
+  // The sandbox: the one lifecycle starts it, boots it (switched on, warmed to the BASIC prompt, the medium in), and
+  // ends it. This function is the script that runs between the two.
+  const offsetsNeed = offsetsRequested(opts) ? "an input offset"
+    : (opts.checks ?? []).some((c) => c.check.kind === "memory" && c.check.window) ? "a `throughout` check"
+    : opts.steps.some((s) => s.kind === "series") ? "a series read" : undefined;
+  const sb = await startSandboxSession({
+    purpose: opts.purpose ?? "one-shot run", budgetMinutes: (opts.budgetMs ?? 10 * 60_000) / 60_000,
+    projectDir: opts.projectDir ?? "", daemonProjectDir: opts.projectDir, mediaPath: opts.mediaPath, model: opts.model,
+    driveType: opts.driveType, run: opts.run, script: true,
+    boot: { mode: "basic", startExactly: opts.startExactly, ...(offsetsNeed ? { needs: offsetsNeed } : {}) },
+  });
+  const call = sandboxCall(sb.id);
+  let outcome: "reached" | "failed" = "failed";
+  let summary = "the run did not finish";
   const log: string[] = [];
   const waits: { text: string; frames: number; budget: number; cycle: number }[] = [];
   const reads: { read: MemoryRead; bytes: Uint8Array }[] = [];
@@ -316,10 +307,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   const anchorsSet: { name: string; path: string; cycle: number; pc: number; step: number }[] = [];
   let failedWait: SandboxRunResult["failedWait"];
   /** Set when the runtime dropped this machine onto its isolated CPU core. */
-  let coreOnly: string | undefined;
+  const coreOnly: string | undefined = sb.coreOnly;
 
-  const state = (): Promise<MachineState> => box.call<MachineState>("session/state");
-  const frameIndices = (): Promise<FrameIndices> => box.call<FrameIndices>("session/frame_indices");
+  const state = (): Promise<MachineState> => call<MachineState>("session/state");
+  const frameIndices = (): Promise<FrameIndices> => call<FrameIndices>("session/frame_indices");
   /** The machine as it says it is, and its frame length — re-read after anything that can
    *  replace the machine (a `.c64re` opened into it carries its own model). */
   let machine: MachineIdentity;
@@ -339,9 +330,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   const runCycles = async (total: number): Promise<void> => {
     due += total;
     while (at < due) {
-      const step = Math.min(F, due - at);
-      const r = await box.call<{ c64Cycles?: number }>("session/run", { cycles: step });
-      at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
+      // One run with a stop on the exact cycle (Spec 910 D10). A machine that cannot move (a JAM) does not hold the
+      // schedule: its time passes, as it did when a run answered with the cycle it started at.
+      const stop = await runUntil(call, undefined, { cycles: due - at, pace: "warp", wait: true, source: "sandbox" });
+      at = stop.cycles > at ? stop.cycles : due;
     }
   };
   /**
@@ -372,9 +364,9 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       }
       return asked;
     }
-    return defaultProbeLine(box.call.bind(box) as Parameters<typeof defaultProbeLine>[0], machine!.model, machine!.linesPerFrame);
+    return defaultProbeLine(call as Parameters<typeof defaultProbeLine>[0], machine!.model, machine!.linesPerFrame);
   };
-  const probeCall = box.call.bind(box) as Parameters<typeof probeSeries>[0];
+  const probeCall = call as Parameters<typeof probeSeries>[0];
   /** `I read the series …`: one probe call over the window, the changes only. */
   const readSeries = async (i: number, step: Extract<Step, { kind: "series" }>): Promise<SeriesResult> => {
     const line = await probeLine(step.line);
@@ -391,7 +383,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     };
   };
   const readRanges = async (ranges: RegionRange[]): Promise<Uint8Array> => {
-    const r = await box.call<ReadMemoryResult>("session/read_memory", { ranges });
+    const r = await call<ReadMemoryResult>("session/read_memory", { ranges });
     return joinChunks(r.chunks.map((c) => new Uint8Array(Buffer.from(c.bytes, "base64"))));
   };
   /**
@@ -421,154 +413,24 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return { codes: await readRanges([{ addr: base & 0xffff, len: SCREEN_COLS * SCREEN_ROWS, lens: "ram" }]) };
   };
 
-  /**
-   * Switch on and wait for READY. before anything goes in.
-   *
-   * A daemon hands over a machine at its reset vector. `media/open` on a PRG
-   * pokes bytes at $0801 that the BASIC cold start then clears, and a `type`
-   * step types into a KERNAL that is not scanning the keyboard yet — both fail
-   * silently, and both look like the medium being wrong. So the sandbox does
-   * what a person does: switch on, wait for the prompt, then insert.
-   */
-  const warmBoot = async (): Promise<{ frames: number; ready: boolean }> => {
-    for (let f = 0; f < BOOT_FRAMES_MAX; f += BOOT_POLL_FRAMES) {
-      await runCycles(BOOT_POLL_FRAMES * F);
-      const { codes } = await screenCodes();
-      if (codes && screenShows(codes, "READY.", SCREEN_COLS)) return { frames: f + BOOT_POLL_FRAMES, ready: true };
-    }
-    // Not a failure: a machine that never reaches a BASIC prompt is a real
-    // machine (a cartridge already in the port, an ultimax start). Reported,
-    // so a schedule that assumed a prompt can see why it typed into nothing.
-    return { frames: BOOT_FRAMES_MAX, ready: false };
-  };
-
   try {
-    // Keep the clock. The daemon is born headless (it stands at cycle 0 and moves only when
-    // told to), so this pause is a guard, not the start of determinism: a later `media/open`
-    // can flip the controller to running (see below), and a machine that runs on while the
-    // caller is thinking is what made one recipe give five different outcomes (BUG-050).
-    // Every advance is a bounded run in cycles.
-    await box.call("debug/pause", { source: "sandbox" });
+    // The lifecycle booted the machine and left it stopped at a cycle of its own making; the schedule starts there.
     await readMachine();
     resync();
-    log.push(`machine: ${describeMachine(machine!)}`);
-    const call = box.call.bind(box) as Parameters<typeof setDriveBoard>[0];
-    if (opts.driveType && opts.driveType !== "1541") {
-      await setDriveBoard(call, opts.driveType);
-      log.push(`drive 8 is a ${opts.driveType}, as asked`);
-    }
-
-    // Spec 899 — what needs the runtime's cycle-exact input or its frame probe says so NOW,
-    // before the medium goes in: an older runtime is refused by name, never run with the
-    // press moved to a frame boundary or the window read one frame at a time.
-    const windowed = (opts.checks ?? []).some((c) => c.check.kind === "memory" && c.check.window);
-    const needs = offsetsRequested(opts) ? "an input offset" : windowed ? "a `throughout` check" : opts.steps.some((s) => s.kind === "series") ? "a series read" : undefined;
-    if (needs) await requireProbeRuntime(box.call.bind(box) as Parameters<typeof requireProbeRuntime>[0], needs);
-
-    const boot = await warmBoot();
-    log.push(
-      boot.ready
-        ? `switched on and warmed to the BASIC prompt (${boot.frames} frames)`
-        : `switched on for ${boot.frames} frames; it never reached a BASIC prompt — ` +
-          `a typed step would type into nothing`,
-    );
-
-    if (opts.mediaPath) {
-      // `media/open` and not `media/mount`: the daemon decides what the file IS
-      // from its CONTENT, so a .crt is inserted, a disk mounted, a .c64re
-      // becomes the machine and a .prg is loaded. A sandbox that only took disks
-      // would send the cartridge case straight back to the shared machine, which
-      // is the defect this whole spec is about.
-      const mediaPath = opts.mediaPath;
-      const opened = await openFittingDrive(call, () => box.call<{ message?: string; kind?: string; autostart?: boolean; run?: number | null }>(
-        "media/open", opts.run == null ? { path: mediaPath } : { path: mediaPath, run: opts.run },
-      ), log);
-      // A runtime that knows `run` echoes it (a number, or null when none was asked for).
-      // One that does not drops the parameter without a word, and the PRG would sit
-      // loaded while this report claimed a start.
-      const knowsRun = opened != null && "run" in opened;
-      if (opts.run != null && (!knowsRun || opened.run !== opts.run)) {
-        throw new Error(
-          `this runtime does not take \`run\` on media/open (it answered ${JSON.stringify(opened?.run ?? "nothing")}) — ` +
-            `nothing was started at ${hex4(opts.run)}. Update the runtime (c64re runtime install), or ` +
-            `omit run and let a $0801 BASIC line start it.`,
-        );
-      }
-      log.push(typeof opened?.message === "string" ? opened.message : `opened ${opts.mediaPath}`);
-      // A mount can flip the controller back to running; this front owns the clock.
-      await box.call("debug/pause", { source: "sandbox" });
-      // A snapshot replaces the machine — model included (Spec 863).
-      const was = machine!.model;
-      await readMachine();
-      resync();
-      if (machine!.model !== was) log.push(`the medium made this machine a ${describeMachine(machine!)}`);
-
-      // Ask the machine whether it is still a whole machine. Measured on a runtime
-      // before C64RE #29 was fixed there: poking a .prg into a machine that has no disk
-      // and no cartridge latches it as an instruction EXERCISER, and the runtime then advances it
-      // on an isolated CPU core with no VIC, no CIAs, no SID and no drive. The
-      // CPU and memory stay real; nothing else does. A cartridge or a disk keeps
-      // the whole machine, which is why the case this tool exists for is fine —
-      // but a caller who passed a .prg and got a frozen screen back deserves the
-      // reason, not a mystery. `advance_to_frame` IS the runtime's own answer to
-      // "is the VIC sweeping", so it is the probe.
-      try {
-        if (!opts.startExactly) {
-          await box.call("session/advance_to_frame");
-          await readMachine();
-          resync();
-        }
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        if (/not sweeping|raster/i.test(m)) {
-          coreOnly =
-            "the runtime latched this machine as an instruction EXERCISER and is advancing it on an " +
-            "isolated CPU core — no VIC, no CIAs, no SID, no 1541. A .prg poked into a machine with " +
-            "no disk and no cartridge does that. The CPU, the registers and the memory below are " +
-            "real; the screen is whatever the VIC last drew, no frame can be taken, and a typed key " +
-            "is never scanned. To watch a PRG actually RUN, put it on a .d64 and load it from there, " +
-            "or use the shared machine (runtime_session_start + runtime_load_prg), which stays whole.";
-          log.push(`NOTE: ${coreOnly}`);
-        } else {
-          throw e;
-        }
-      }
-
-      // Who starts the PRG. A runtime that knows `run` starts it itself — at the entry,
-      // or by typing RUN: for a $0801 BASIC line — and its keys play out as this paused
-      // machine is advanced. An older one queued RUN into a buffer nothing drained, so
-      // here the sandbox types it. `RUN:` and not `RUN`: the editor reads the whole
-      // screen line, and a colon makes whatever stands right of it a statement that
-      // never runs instead of a ?SYNTAX ERROR.
-      if (opened?.kind === "prg" && !coreOnly && (opts.run != null || opened.autostart)) {
-        const typed = opts.run == null ? "RUN:\r" : "";
-        if (typed && !knowsRun) await box.call("session/type", { text: typed });
-        await runCycles(typed.length * KEY_CYCLES + F * 30);
-        // Say what HAPPENED, not what was attempted: a machine still in the editor's
-        // key wait did not start the program, whatever was typed.
-        const pc = (await state()).cpu.pc;
-        const how = opts.run != null ? `started at ${hex4(opts.run)}` : `RUN: typed by the ${knowsRun ? "runtime" : "sandbox"}`;
-        log.push(
-          pc >= KEY_WAIT_LOOP[0] && pc <= KEY_WAIT_LOOP[1]
-            ? `${how}, but the machine is still waiting for a key at the READY prompt (PC ${hex4(pc)}) — the program did not start`
-            : `${how}; PC ${hex4(pc)} ${opts.run != null || pc < 0xa000 ? "— the program is running" : "(in ROM)"}`,
-        );
-      }
-    }
+    log.push(...sb.log);
 
     if (opts.patches) {
       // The runtime writes into a running machine through its overlay door, which restores a
       // checkpoint first. The checkpoint is taken here, a moment before, so the restore puts
       // the machine back exactly where it stands and only the patch differs.
-      const cp = await box.call<{ ref?: { id?: string } }>("checkpoint/capture");
+      const cp = await call<{ ref?: { id?: string } }>("checkpoint/capture");
       const anchorId = cp?.ref?.id;
       if (!anchorId) throw new Error("the runtime took no checkpoint to write the code in against");
       const wire = opts.patches.map((p) => ({
         space: p.space, addr: p.addr & 0xffff, bytes: [...p.bytes],
         ...(p.space === "ram" ? {} : { bank: p.bank ?? 0 }),
       }));
-      const wrote = await box.call<{ applied?: unknown[] }>("runtime/overlay_run", { anchor_id: anchorId, patches: wire, run_cycles: 0 });
-      await box.call("debug/pause", { source: "sandbox" });
+      const wrote = await call<{ applied?: unknown[] }>("runtime/overlay_run", { anchor_id: anchorId, patches: wire, run_cycles: 0 });
       await readMachine();
       resync();
       log.push(opts.patches.length === 0
@@ -585,10 +447,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     const startRecordingBefore = Math.max(0, Math.min(opts.trace?.afterSteps ?? 0, opts.steps.length));
     const startRecording = async (): Promise<void> => {
       if (!opts.trace) return;
-      const boundary = await box.call<{ c64Cycles?: number; rasterLine?: number; rasterCycle?: number }>("session/advance_to_frame");
+      const boundary = await call<{ c64Cycles?: number; rasterLine?: number; rasterCycle?: number }>("session/advance_to_frame");
       await readMachine();
       resync();
-      const started = await box.call<{ run?: { runId?: string }; outputPath?: string }>("trace/start_domains", {
+      const started = await call<{ run?: { runId?: string }; outputPath?: string }>("trace/start_domains", {
         domains: [...(opts.trace.domains ?? ["c64-cpu", "memory"])],
         output: opts.trace.output,
       });
@@ -600,7 +462,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         linesPerFrame: machine!.linesPerFrame,
       };
       const { anchorLabel } = await import("../cost/trace-cost.js");
-      await box.call("trace/run/mark", { label: anchorLabel(anchor) });
+      await call("trace/run/mark", { label: anchorLabel(anchor) });
       trace = { storePath: started.outputPath ?? opts.trace.output, runId: started.run?.runId ?? "", events: 0, anchor };
       log.push(`recording into ${trace.storePath} from the frame boundary at cycle ${anchor.clock} (line ${anchor.line}, cycle ${anchor.cycle})`);
     };
@@ -624,7 +486,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
             await runCycles(off);
             inputs.push({ step: i, text: step.text, offset: off, pressAt: at });
           }
-          await box.call("session/type", { text: step.keys });
+          await call("session/type", { text: step.keys });
           // The type buffer drains as the machine runs, so a `type` with nothing
           // after it would return before a single key was pressed.
           await runCycles(Math.max(0, Math.max(F * 4, step.keys.length * KEY_CYCLES + F * 2) - (off ?? 0)));
@@ -634,12 +496,12 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
 
         case "key": {
           const press = pressAt(i, step.text, step.frames);
-          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "sandbox" }));
+          for (const k of step.keys) await call("session/key_down", at_(press, { key: k, source: "sandbox" }));
           // With an offset the release is scheduled too, BEFORE the run: its cycle is a fixed
           // distance from the press, and a call made after the run could find the clock past it.
-          if (press !== undefined) for (const k of step.keys) await box.call("session/key_up", at_(press + step.frames * F, { key: k, source: "sandbox" }));
+          if (press !== undefined) for (const k of step.keys) await call("session/key_up", at_(press + step.frames * F, { key: k, source: "sandbox" }));
           await runCycles(step.frames * F);
-          if (press === undefined) for (const k of step.keys) await box.call("session/key_up", { key: k, source: "sandbox" });
+          if (press === undefined) for (const k of step.keys) await call("session/key_up", { key: k, source: "sandbox" });
           log.push(`${i}: ${step.text} (held, then released${offsetNote(press)})`);
           break;
         }
@@ -648,14 +510,14 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         // while it is held.
         case "keyDown": {
           const press = pressAt(i, step.text);
-          for (const k of step.keys) await box.call("session/key_down", at_(press, { key: k, source: "sandbox" }));
+          for (const k of step.keys) await call("session/key_down", at_(press, { key: k, source: "sandbox" }));
           log.push(`${i}: ${step.text} (held until its release${offsetNote(press)})`);
           break;
         }
 
         case "keyUp": {
           const press = pressAt(i, step.text);
-          for (const k of step.keys) await box.call("session/key_up", at_(press, { key: k, source: "sandbox" }));
+          for (const k of step.keys) await call("session/key_up", at_(press, { key: k, source: "sandbox" }));
           log.push(`${i}: ${step.text}${offsetNote(press)}`);
           break;
         }
@@ -664,14 +526,14 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           const press = pressAt(i, step.text);
           const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", at_(press, set));
+          await call("session/joystick_set", at_(press, set));
           log.push(`${i}: ${step.text} (held until its release${offsetNote(press)})`);
           break;
         }
 
         case "joystickUp": {
           const press = pressAt(i, step.text);
-          await box.call("session/joystick_clear", at_(press, { port: step.port }));
+          await call("session/joystick_clear", at_(press, { port: step.port }));
           log.push(`${i}: ${step.text}${offsetNote(press)}`);
           break;
         }
@@ -680,10 +542,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           const press = pressAt(i, step.text, step.frames);
           const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
           for (const d of step.directions) set[d] = true;
-          await box.call("session/joystick_set", at_(press, set));
-          if (press !== undefined) await box.call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
+          await call("session/joystick_set", at_(press, set));
+          if (press !== undefined) await call("session/joystick_clear", at_(press + step.frames * F, { port: step.port }));
           await runCycles(step.frames * F);
-          if (press === undefined) await box.call("session/joystick_clear", { port: step.port });
+          if (press === undefined) await call("session/joystick_clear", { port: step.port });
           log.push(`${i}: ${step.text} (held, then released${offsetNote(press)})`);
           break;
         }
@@ -716,10 +578,9 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
 
         case "insert": {
           const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
-          await box.call("media/unmount", { slot: 8 });
+          await ejectSandboxDisk(sb.id);
           await runCycles(F * 30);
-          await openFittingDrive(call, () => box.call("media/open", { path }), log);
-          await box.call("debug/pause", { source: "sandbox" });
+          await mountSandboxMedium(sb.id, path, "open", log);
           await readMachine();
           resync();
           await runCycles(F * 30);
@@ -731,7 +592,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         // the frames counted after it are the new model's.
         case "model": {
           const from = machine!.model;
-          const r = await box.call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "sandbox" });
+          const r = await call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "sandbox" });
           await readMachine();
           resync();
           log.push(`${i}: ${step.text} — ${from} → ${machine!.model} at cycle ${r?.switchedAt?.c64Cycles ?? "?"}`);
@@ -746,7 +607,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           if (existsSync(path) && !opts.anchors.replace) {
             throw new Error(`"${step.text}": the anchor "${step.name}" already exists (${path}). Run with --replace-anchors to replace it, or give this one another name`);
           }
-          const dumped = await box.call<{ cycle?: number; pc?: number }>("snapshot/dump", { path });
+          const dumped = await call<{ cycle?: number; pc?: number }>("snapshot/dump", { path });
           const where = await state();
           anchorsSet.push({ name: step.name, path, cycle: dumped?.cycle ?? where.c64Cycles, pc: dumped?.pc ?? where.cpu.pc, step: i });
           log.push(`${i}: ${step.text} -> ${path} (cycle ${dumped?.cycle ?? where.c64Cycles}, PC ${hex4(dumped?.pc ?? where.cpu.pc)})`);
@@ -770,7 +631,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     // it the index builds in the background and the evaluation that follows this
     // call reads an empty one.
     if (opts.trace && trace) {
-      const stopped = await box.call<{ run?: { eventCount?: number }; status?: unknown }>("trace/run/stop", { wait_index: true });
+      const stopped = await call<{ run?: { eventCount?: number }; status?: unknown }>("trace/run/stop", { wait_index: true });
       trace = { ...trace, events: Number(stopped.run?.eventCount ?? 0) };
       log.push(`capture finalized: ${trace.events} events in ${trace.storePath}`);
     }
@@ -784,7 +645,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     } else if (opts.wantFrame) {
       // A whole frame: `displayed` is the frozen previous one, so a mid-frame
       // grab returns the picture before the interesting one.
-      await box.call("session/advance_to_frame");
+      await call("session/advance_to_frame");
       const f = await frameIndices();
       const { encodeWithin } = await import("./gif89a.js");
       const encoded = encodeWithin(
@@ -810,8 +671,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     }
 
     const end = await state();
+    outcome = "reached";
+    summary = `${opts.steps.length} step(s) done at cycle ${end.c64Cycles}`;
     return {
-      port: box.port,
+      port: sb.port,
       machine: machineIdentity(end),
       log, waits, reads, frame, screenRows, screenUnreadable, trace, checks, inputs, series, anchorsSet, failedWait,
       endCycle: end.c64Cycles,
@@ -822,13 +685,13 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       },
       runState: end.runState,
       coreOnly,
-      endedBecause: box.ended,
+      endedBecause: sandboxEndedBecause(sb.id),
       elapsedMs: Date.now() - startedAt,
     };
   } finally {
-    // The budget already guarantees this; closing here is what makes the COMMON
+    // The one end (Spec 910 D5). The budget already guarantees it; ending here is what makes the COMMON
     // case leave nothing behind rather than a daemon idling out its ten minutes.
-    await box.close();
+    await endSandboxSession(sb.id, outcome, summary).catch(() => undefined);
   }
 
   /** Spec 900 — decide every check written after exactly `n` steps, where the run is now. */
@@ -856,7 +719,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     check: Extract<Check, { kind: "memory" }>, win: { frames: number; line?: number },
   ): Promise<Pick<SandboxCheckResult, "pass" | "actual" | "cycle" | "failedAt" | "stopped">> {
     const line = await probeLine(win.line);
-    const call = box.call.bind(box) as Parameters<typeof probeAssert>[0];
+    const probeCall = call as Parameters<typeof probeAssert>[0];
     const stop = async (s: ProbeStop) => {
       await landedAt(s.c64Cycles);
       return { pass: false, actual: `UNDECIDED — ${describeStop(s)}`, cycle: s.c64Cycles, stopped: s };
@@ -864,13 +727,13 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     const fail = (frame: number, cycle: number, l: number, c: number, actual: string) =>
       ({ pass: false, actual, cycle, failedAt: { frame, cycle, line: l, rasterCycle: c } });
     if (check.op === "is") {
-      const r = await probeAssert(call, { frames: win.frames, line, addr: check.address, lens: check.lens, expect: check.values });
+      const r = await probeAssert(probeCall, { frames: win.frames, line, addr: check.address, lens: check.lens, expect: check.values });
       if ("stopped" in r) return stop(r.stopped);
       await landedAt(r.c64Cycles);
       if (r.held) return { pass: true, actual: `held for ${win.frames} frames`, cycle: r.c64Cycles };
       return fail(r.frame, r.c64Cycles, r.line, r.cycle, describeAssertFailure(r));
     }
-    const r = await probeSeries(call, { frames: win.frames, line, reads: [{ addr: check.address, len: 1, lens: check.lens, label: "" }] });
+    const r = await probeSeries(probeCall, { frames: win.frames, line, reads: [{ addr: check.address, len: 1, lens: check.lens, label: "" }] });
     if (r.stopped) return stop(r.stopped);
     await landedAt(r.c64Cycles);
     const bad = firstViolation(check, r.rows);
@@ -904,24 +767,22 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   /**
    * Run until the CPU FETCHES `address`, within `timeoutFrames` frames; returns the whole
    * frames that passed. The daemon's PC breakpoint matches the fetch address whatever the
-   * banking (KERNAL ROM included) and a bounded `session/run` stops on it. The breakpoint is
+   * banking (KERNAL ROM included) and a bounded run (`runUntil`) stops on it. The breakpoint is
    * removed again on every exit, so later steps run as if it had never been there.
    */
   async function waitForPc(address: number, timeoutFrames: number): Promise<number> {
     const id = "__sandbox_wait_pc__";
     if ((await state()).cpu.pc === address) return 0;
-    await box.call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
+    await call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
     try {
       const from = at;
       const budget = timeoutFrames * F;
-      while (at - from < budget) {
-        const step = Math.min(F, budget - (at - from));
-        const r = await box.call<{ c64Cycles?: number; breakpoint?: { pc?: number } }>("session/run", { cycles: step });
-        at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
-        if (r?.breakpoint) {
-          resync();
-          return Math.floor((at - from) / F);
-        }
+      // One run with two stops: the breakpoint, and the cap at the end of the window (Spec 910 D10).
+      const stop = await runUntil(call, undefined, { cycles: budget, pace: "warp", wait: true, source: "sandbox" });
+      at = stop.cycles > at ? stop.cycles : at + budget;
+      if ((stop.reason === "breakpoint" || stop.reason === "observer") && stop.pc === address) {
+        resync();
+        return Math.floor((at - from) / F);
       }
       resync();
       const st = await state();
@@ -932,7 +793,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           `was fetched from that address in the whole window`,
       );
     } finally {
-      await box.call("api/call", { method: "removeBreakpoint", args: [id] });
+      await call("api/call", { method: "removeBreakpoint", args: [id] });
     }
   }
 

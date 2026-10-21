@@ -4,15 +4,16 @@
 // input down, run `frames`, let go, run `release_frames`, read the key. A key never seen before is a new
 // state and its machine is captured on the spot. A JAM ends the branch as a crash state (named by its PC).
 //
-// The machine is a sandbox of this call's own (`SandboxSession`): it has its own port, a budget, and it is
-// ended before the answer goes out. Nothing here can reach the shared session.
+// The machine is a sandbox of this call's own — a script over the one sandbox lifecycle (Spec 910 D3,
+// `runtime/sandbox-sessions.ts`): it has its own port, a budget, and it is ended before the answer goes out.
+// Nothing here can reach the shared session.
 
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SandboxSession } from "../reel/sandbox-session.js";
-import { assertNotShared } from "../reel/run-sandbox.js";
-import { machineIdentity, describeMachine, type MachineIdentity } from "../runtime/machine-model.js";
+import { describeMachine, type MachineIdentity } from "../runtime/machine-model.js";
+import { runUntil } from "../runtime/run-until.js";
+import { endSandboxSession, mountSandboxMedium, sandboxCall, startSandboxSession } from "../runtime/sandbox-sessions.js";
 import { joinChunks } from "../project-knowledge/region.js";
 import { holds, readPlan, Refusal, type Move, type StateMapSpec } from "./describe.js";
 
@@ -79,36 +80,34 @@ interface MemoryChunks { chunks: { addr: number; len: number; lens: string; byte
 
 export async function runSearch(spec: StateMapSpec, ctx: SearchContext): Promise<SearchResult> {
   const startedAt = Date.now();
-  const budgetMs = spec.budgetMinutes * 60_000;
   const scratch = mkdtempSync(join(tmpdir(), "c64re-map-"));
-  const box = await SandboxSession.start({ budgetMs });
+  // The anchor is the medium: the runtime opens it from a copy in its own scratch (and lays the anchor's embedded media out
+  // there too), and it REPLACES the machine.
+  const sb = await startSandboxSession({
+    purpose: "state map search", budgetMinutes: spec.budgetMinutes, projectDir: "", mediaPath: ctx.anchorFile, script: true,
+    boot: { mode: "vector", mountVia: "open" },
+  });
+  let outcome: "reached" | "failed" = "failed";
+  let summary = "the search did not finish";
   try {
-    assertNotShared(box.port);
-    return await drive(spec, ctx, box, scratch, startedAt);
+    const r = await drive(spec, ctx, sb.id, sb.identity, scratch, startedAt);
+    outcome = "reached";
+    summary = `${r.runs} runs, ${r.states.length} states`;
+    return r;
   } finally {
     // The sandbox ends here, answer or error: the budget would end it, this is the common case.
-    await box.close();
+    await endSandboxSession(sb.id, outcome, summary).catch(() => undefined);
     try { rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
 
-async function drive(spec: StateMapSpec, ctx: SearchContext, box: SandboxSession, scratch: string, startedAt: number): Promise<SearchResult> {
-  const call = <T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> => box.call<T>(method, params);
+async function drive(spec: StateMapSpec, ctx: SearchContext, id: string, machine: MachineIdentity, scratch: string, startedAt: number): Promise<SearchResult> {
+  const call = sandboxCall(id);
   const deadline = startedAt + spec.budgetMinutes * 60_000;
 
   let runtimeVersion: string | undefined;
   try { const p = await call<{ version?: string }>("ping"); runtimeVersion = typeof p?.version === "string" ? p.version : undefined; } catch { /* the version is a note, not a need */ }
 
-  // The anchor opens from a copy: the runtime lays an anchor's embedded media out beside the file it opens.
-  const copyDir = join(scratch, "anchor");
-  mkdirSync(copyDir, { recursive: true });
-  const anchorCopy = join(copyDir, "anchor.c64re");
-  copyFileSync(ctx.anchorFile, anchorCopy);
-  await call("debug/pause", { source: "sandbox" });
-  await call("media/open", { path: anchorCopy });
-  await call("debug/pause", { source: "sandbox" });
-  const st0 = await call<Record<string, unknown>>("session/state");
-  const machine: MachineIdentity = machineIdentity(st0);
   const F = machine.cyclesPerFrame;
 
   const plan = readPlan(spec);
@@ -178,20 +177,15 @@ async function drive(spec: StateMapSpec, ctx: SearchContext, box: SandboxSession
     const h = held.get(index)!;
     if ("cp" in h) await call("checkpoint/restore", { id: h.cp, then: "pause" });
     else {
-      // A file is a machine to open, as the anchor was; the copy keeps the runtime's media folder out of the scratch's other files.
-      const dir = join(scratch, "reopen", String(index));
-      mkdirSync(dir, { recursive: true });
-      const copy = join(dir, "state.c64re");
-      copyFileSync(h.file, copy);
-      await call("media/open", { path: copy });
-      await call("debug/pause", { source: "sandbox" });
+      // A file is a machine to open, as the anchor was: the one door a script mounts through.
+      await mountSandboxMedium(id, h.file, "open", []);
     }
     await call("session/joystick_clear", {});
   };
 
   const run = async (cycles: number): Promise<{ jam?: number }> => {
-    const r = await call<{ jam?: { pc?: number } }>("session/run", { cycles });
-    return typeof r?.jam?.pc === "number" ? { jam: r.jam.pc } : {};
+    const stop = await runUntil(call, undefined, { cycles, pace: "warp", wait: true, source: "sandbox" });
+    return stop.reason === "jam" ? { jam: stop.pc } : {};
   };
 
   const press = async (mv: Move): Promise<void> => {

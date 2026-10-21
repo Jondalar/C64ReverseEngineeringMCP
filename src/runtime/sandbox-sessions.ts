@@ -22,12 +22,19 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { SandboxSession } from "../reel/sandbox-session.js";
-import { assertNotShared } from "../reel/run-sandbox.js";
-import { bootSandbox } from "../reel/session-boot.js";
-import { describeMachine } from "./machine-model.js";
+import { assertNotShared } from "../reel/shared-port.js";
+import { bootSandbox, mountMedium, ejectDisk, type BootOptions } from "../reel/session-boot.js";
+import { describeMachine, type MachineIdentity } from "./machine-model.js";
 import { isSandboxId } from "./sandbox-parity.js";
-import { readJson, removeFile, stateDir, writeJsonAtomic } from "./state-dir.js";
+import { readJson, removeFile, writeJsonAtomic } from "./state-dir.js";
+import {
+  endSandbox, existingFiles, iso, recordFile, recordsDir, recordOutcome, reconcileRecord,
+  type EndInfo, type EndReason, type SandboxRecord,
+} from "./sandbox-end.js";
 import type { DriveBoard } from "../reel/drive-board.js";
+
+export type { EndInfo, EndReason, SandboxRecord };
+export { recordsDir };
 
 /** At most this many live sandbox sessions per MCP process (ports, cores). */
 export const MAX_LIVE_SESSIONS = 4;
@@ -39,47 +46,6 @@ const MAX_CALL_MS = 4 * 60 * 60_000;
 const REAPER_TRAIL_MS = 2_000;
 /** Records of ended sessions are kept this long for the next process to ask about. */
 const ENDED_RECORD_KEEP_MS = 7 * 24 * 3_600_000;
-
-export type EndReason = "reached" | "failed" | "budget" | "idle" | "owner gone" | "runtime exited";
-
-export interface SandboxRecord {
-  v: 1;
-  id: string;
-  ownerPid: number;
-  port: number;
-  purpose: string;
-  projectDir: string;
-  model?: string;
-  media?: string;
-  /** Spec 909 — sha256 of the bytes mounted (the copy made at start): which image a capture of this session ran */
-  mediaSha256?: string;
-  startedAt: string;
-  deadline: string;
-  budgetMinutes: number;
-  idleMinutes: number;
-  state: "running" | "ended";
-  reason?: string;
-  outcome?: string;
-  summary?: string;
-  endedAt?: string;
-  durationSec?: number;
-  artefacts?: string[];
-  /** The outcome is in the project's step log. An owner that died could not write it; the next process to look does. */
-  logged?: boolean;
-}
-
-export interface EndInfo {
-  id: string;
-  reason: EndReason;
-  outcome: string;
-  summary?: string;
-  endedAt: string;
-  durationSec: number;
-  purpose: string;
-  artefacts: string[];
-  /** Whether the outcome reached the project's step log, and if not why. */
-  recorded: string;
-}
 
 interface Live {
   id: string;
@@ -94,15 +60,16 @@ interface Live {
   budgetTimer?: NodeJS.Timeout;
   idleTimer?: NodeJS.Timeout;
   captures: Set<string>;
+  /** A script over this lifecycle (a one-shot run, a reel, a search): not listed, not counted against the limit, not ended by a tool. */
+  script: boolean;
   finishing?: Promise<EndInfo>;
   endingReason?: EndReason;
 }
 
 const live = new Map<string, Live>();
 const ended = new Map<string, EndInfo>();
-
-export function recordsDir(): string { return join(stateDir(), "sandbox-sessions"); }
-const recordFile = (id: string): string => join(recordsDir(), `${id}.json`);
+/** Ids of the sandboxes that were scripts over the lifecycle: they are not listed. */
+const scripts = new Set<string>();
 
 function ownerAlive(pid: number): boolean {
   if (pid === process.pid) return true;
@@ -134,8 +101,6 @@ function pruneOldRecords(): void {
   } catch { /* no directory yet */ }
 }
 
-const iso = (ms: number): string => new Date(ms).toISOString();
-
 /** Log the outcome of every session that ended without its owner (see `reconcileRecord`). */
 async function sweepUnlogged(): Promise<void> {
   try {
@@ -156,6 +121,15 @@ export interface StartSandboxOptions {
   driveType?: DriveBoard;
   run?: number;
   idleMinutes?: number;
+  /** Where the daemon keeps its project (default: the sandbox's own temp dir). */
+  daemonProjectDir?: string;
+  /**
+   * A script over this lifecycle — a one-shot run, a reel, a state-map search, a cost capture: the same daemon, boot,
+   * calls and end as a session, but not listed, not counted against the limit, and ended by the script, not by a tool.
+   */
+  script?: boolean;
+  /** How the machine is brought up; see `BootOptions`. The medium, the run address and the drive come from the fields above. */
+  boot?: Pick<BootOptions, "mode" | "mountVia" | "startExactly" | "needs" | "verifyMachine">;
 }
 
 export interface StartedSandbox {
@@ -164,16 +138,21 @@ export interface StartedSandbox {
   deadline: string;
   idleMinutes: number;
   machine: string;
+  /** The machine as the boot left it. */
+  identity: MachineIdentity;
   log: string[];
   cycle: number;
   pc: number;
   projectDir: string;
-  mediaCopy?: string;
+  /** The medium the sandbox was started with: it is mounted from a copy the daemon made in its scratch. */
+  media?: string;
+  /** Set when the runtime latched the machine as an instruction exerciser (no VIC, no CIAs, no drive). */
+  coreOnly?: string;
 }
 
 /** The refusal for the 5th live session: names the four and their purposes. */
 function tooMany(): Error {
-  const rows = [...live.values()].map((e) => `  ${e.id} — ${e.rec.purpose} (until ${e.rec.deadline})`);
+  const rows = [...live.values()].filter((e) => !e.script).map((e) => `  ${e.id} — ${e.rec.purpose} (until ${e.rec.deadline})`);
   return new Error(
     `runtime_sandbox_start: this MCP process already holds ${MAX_LIVE_SESSIONS} sandbox sessions (a port and a core each):\n${rows.join("\n")}\n` +
     `End one with runtime_sandbox_end { session_id, outcome, summary } when its purpose is reached or failed. Nothing was started.`);
@@ -181,9 +160,9 @@ function tooMany(): Error {
 
 /** Start a sandbox session: daemon, boot, medium in, record written, timers armed. */
 export async function startSandboxSession(o: StartSandboxOptions): Promise<StartedSandbox> {
-  if (live.size >= MAX_LIVE_SESSIONS) throw tooMany();
-  pruneOldRecords();
-  await sweepUnlogged();
+  const script = o.script === true;
+  if (!script && [...live.values()].filter((e) => !e.script).length >= MAX_LIVE_SESSIONS) throw tooMany();
+  if (!script) { pruneOldRecords(); await sweepUnlogged(); }
   const budgetMs = Math.round(o.budgetMinutes * 60_000);
   const idleMs = Math.round((o.idleMinutes ?? DEFAULT_IDLE_MINUTES) * 60_000);
   const id = freeId(o.purpose);
@@ -201,7 +180,7 @@ export async function startSandboxSession(o: StartSandboxOptions): Promise<Start
   let box: SandboxSession;
   try {
     box = await SandboxSession.start({
-      budgetMs: budgetMs + REAPER_TRAIL_MS, model: o.model, recordFile: recFile,
+      budgetMs: budgetMs + REAPER_TRAIL_MS, model: o.model, recordFile: recFile, projectDir: o.daemonProjectDir,
       onExit: (why) => { if (entry) void finish(entry, "runtime exited", why); },
     });
   } catch (e) {
@@ -210,33 +189,31 @@ export async function startSandboxSession(o: StartSandboxOptions): Promise<Start
   }
   entry = {
     id, box, rec: { ...rec, port: box.port }, recFile, startedMs, budgetMs, idleMs,
-    lastActivity: Date.now(), inflight: 0, captures: new Set(),
+    lastActivity: Date.now(), inflight: 0, captures: new Set(), script,
   };
   writeJsonAtomic(recFile, entry.rec);
   live.set(id, entry);
+  if (script) scripts.add(id);
   try {
     assertNotShared(box.port);
-    // A medium is mounted as a COPY in the session's scratch (SandboxSession.copyMedium): the runtime
-    // writes a mounted disk or cartridge back to the file it was opened from, and a session that
-    // debugs a copy protection (or just a LOAD that saves) must not change the project's image.
-    // Media mounted later go through the same door, whatever tool mounts them.
-    const mediaCopy = o.mediaPath ? box.copyMedium(o.mediaPath) : undefined;
-    if (mediaCopy) {
+    // The medium is handed to the daemon by its own path: the daemon was started with `--scratch`, opens it from a
+    // copy in its scratch dir and writes only the copy (Spec 910 D1/D2), through whatever door a medium later takes.
+    if (o.mediaPath) {
       // the image hash names the cartridge a later trace import files its nodes under
-      entry.rec.mediaSha256 = createHash("sha256").update(readFileSync(mediaCopy)).digest("hex");
+      entry.rec.mediaSha256 = createHash("sha256").update(readFileSync(o.mediaPath)).digest("hex");
       writeJsonAtomic(recFile, entry.rec);
     }
     const booted = await bootSandbox(box.call.bind(box) as Parameters<typeof bootSandbox>[0], {
-      mediaPath: mediaCopy, run: o.run, driveType: o.driveType,
+      ...o.boot, mediaPath: o.mediaPath, run: o.run, driveType: o.driveType,
     });
     armTimers(entry);
     return {
       id, port: box.port, deadline: entry.rec.deadline, idleMinutes: idleMs / 60_000,
-      machine: describeMachine(booted.machine), log: booted.log, cycle: booted.cycle, pc: booted.pc,
-      projectDir: o.projectDir, mediaCopy,
+      machine: describeMachine(booted.machine), identity: booted.machine, log: booted.log, cycle: booted.cycle, pc: booted.pc,
+      projectDir: o.projectDir, media: o.mediaPath, ...(booted.coreOnly ? { coreOnly: booted.coreOnly } : {}),
     };
   } catch (e) {
-    await finish(entry, "failed", `could not start: ${e instanceof Error ? e.message : String(e)}`, false);
+    await finish(entry, "failed", `could not start: ${e instanceof Error ? e.message : String(e)}`, !script);
     throw e;
   }
 }
@@ -259,89 +236,58 @@ function scheduleIdle(e: Live): void {
   e.idleTimer.unref?.();
 }
 
-function existingFiles(paths: Iterable<string>): string[] {
-  return [...paths].filter((p) => { try { return existsSync(p); } catch { return false; } });
-}
-
-/** End a session: finish a trace, shut the daemon down, remove its scratch, close the record, log the outcome. */
+/**
+ * End a session — the one end (Spec 910 D5, `endSandbox` of `sandbox-end.ts`): finalize a trace, record the outcome,
+ * stop the daemon, remove the scratch. Every reason and every caller takes these steps in this order; the keeper's
+ * owner-gone and budget ends run the same function.
+ */
 async function finish(e: Live, reason: EndReason, summary?: string, record = true): Promise<EndInfo> {
   if (e.finishing) return e.finishing;
   e.endingReason = reason;
   e.finishing = (async () => {
     if (e.budgetTimer) clearTimeout(e.budgetTimer);
     if (e.idleTimer) clearTimeout(e.idleTimer);
-    // A trace in progress is finished, not lost: the .c64retrace is the authority and its index is
-    // built on the first read, so stopping without waiting for the index is enough — and quick.
-    if (reason !== "runtime exited") {
-      try {
-        const st = await e.box.call<{ active?: boolean; retracePath?: string }>("trace/run/status", {}, 5_000);
-        if (st?.active) {
-          if (st.retracePath) e.captures.add(st.retracePath);
-          const stopped = await e.box.call<{ index?: { duckdbPath?: string; retracePath?: string } }>("trace/run/stop", { wait_index: false }, 120_000);
-          for (const p of [stopped?.index?.retracePath, stopped?.index?.duckdbPath]) if (p) e.captures.add(p);
+    let info!: EndInfo;
+    const steps = await endSandbox({
+      // A daemon that exited by itself cannot be asked anything; for every other reason it is up.
+      call: reason === "runtime exited" ? undefined : (m, p, t) => e.box.call(m, p, t),
+      captures: e.captures,
+      scratchDir: null,
+      record: async () => {
+        const now = Date.now();
+        const durationSec = Math.round((now - e.startedMs) / 1000);
+        const artefacts = existingFiles(e.captures);
+        info = {
+          id: e.id, reason, outcome: reason, summary, endedAt: iso(now), durationSec, purpose: e.rec.purpose, artefacts, recorded: "not recorded",
+        };
+        e.rec = { ...e.rec, state: "ended", reason, outcome: reason, summary, endedAt: info.endedAt, durationSec, artefacts };
+        try { writeJsonAtomic(e.recFile, e.rec); } catch { /* the in-process answer stands */ }
+        if (record) {
+          info.recorded = await recordOutcome(e.rec.projectDir, info);
+          if (info.recorded.startsWith("recorded")) {
+            e.rec = { ...e.rec, logged: true };
+            try { writeJsonAtomic(e.recFile, e.rec); } catch { /* the answer stands */ }
+          }
         }
-      } catch { /* the daemon may already be going; shutdown below finishes a recording trace too */ }
-      try { await e.box.call("daemon/shutdown", {}, 5_000); } catch { /* it closes the socket as it answers */ }
-    }
-    await e.box.close();
-    const now = Date.now();
-    const durationSec = Math.round((now - e.startedMs) / 1000);
-    const artefacts = existingFiles(e.captures);
-    const info: EndInfo = {
-      id: e.id, reason, outcome: reason, summary, endedAt: iso(now), durationSec, purpose: e.rec.purpose, artefacts, recorded: "not recorded",
+      },
+      stop: async () => {
+        if (reason !== "runtime exited") { try { await e.box.call("daemon/shutdown", {}, 5_000); } catch { /* it closes the socket as it answers */ } }
+        await e.box.stop();
+      },
+    });
+    // The scratch goes after the daemon is down (see sandbox-end.ts), with the temp dir that holds `--scratch`.
+    e.box.removeScratch();
+    info ??= {
+      id: e.id, reason, outcome: reason, summary, endedAt: iso(Date.now()), durationSec: Math.round((Date.now() - e.startedMs) / 1000),
+      purpose: e.rec.purpose, artefacts: existingFiles(e.captures), recorded: "not recorded",
     };
-    e.rec = { ...e.rec, state: "ended", reason, outcome: reason, summary, endedAt: info.endedAt, durationSec, artefacts };
-    try { writeJsonAtomic(e.recFile, e.rec); } catch { /* the in-process answer stands */ }
+    const failedSteps = steps.failed.map((f) => `${f.step}: ${f.error}`);
+    if (failedSteps.length) info.recorded += ` (end steps that failed: ${failedSteps.join("; ")})`;
     live.delete(e.id);
     ended.set(e.id, info);
-    if (record) {
-      info.recorded = await recordOutcome(e.rec.projectDir, info);
-      if (info.recorded.startsWith("recorded")) {
-        e.rec = { ...e.rec, logged: true };
-        try { writeJsonAtomic(e.recFile, e.rec); } catch { /* the answer stands */ }
-      }
-    }
     return info;
   })();
   return e.finishing;
-}
-
-async function recordOutcome(projectDir: string, i: EndInfo): Promise<string> {
-  try {
-    const { recordAgentStepFromCode } = await import("../server-tools/agent-workflow.js");
-    const line = `Sandbox session ${i.id} ended (${i.outcome}) after ${i.durationSec}s — purpose: ${i.purpose}` +
-      (i.summary ? ` — ${i.summary}` : "") + (i.artefacts.length ? ` — kept: ${i.artefacts.join(", ")}` : "");
-    recordAgentStepFromCode(projectDir, line);
-    return `recorded in the step log of ${projectDir}`;
-  } catch (e) {
-    return `not recorded in a step log (${e instanceof Error ? e.message : String(e)})`;
-  }
-}
-
-/**
- * A session that ended without its owner saying so (the keeper ended it on the budget, or because the owner
- * died) has its outcome in the record but not in the project's step log: the keeper is a few lines of node
- * and the log is the product's. The next process that looks at the record writes it, once. Returns the
- * record as it stands afterwards.
- */
-async function reconcileRecord(rec: SandboxRecord): Promise<SandboxRecord> {
-  if (rec.state !== "ended" || rec.logged) return rec;
-  const endedMs = rec.endedAt ? Date.parse(rec.endedAt) : Date.now();
-  const info: EndInfo = {
-    id: rec.id, reason: (rec.reason ?? "runtime exited") as EndReason, outcome: rec.outcome ?? rec.reason ?? "ended",
-    summary: rec.summary, endedAt: rec.endedAt ?? iso(endedMs), purpose: rec.purpose,
-    durationSec: rec.durationSec ?? Math.max(0, Math.round((endedMs - Date.parse(rec.startedAt)) / 1000)),
-    artefacts: existingFiles(rec.artefacts ?? []), recorded: "not recorded",
-  };
-  // Claim it first: two processes looking at once write one entry, not two.
-  const claimed: SandboxRecord = { ...rec, logged: true, durationSec: info.durationSec, artefacts: info.artefacts };
-  try { writeJsonAtomic(recordFile(rec.id), claimed); } catch { return rec; }
-  const r = await recordOutcome(rec.projectDir, info);
-  if (!r.startsWith("recorded")) {
-    try { writeJsonAtomic(recordFile(rec.id), { ...claimed, logged: false }); } catch { /* best effort */ }
-    return rec;
-  }
-  return claimed;
 }
 
 /** What the ledger holds for an id, after any outcome the owner could not log is logged. */
@@ -373,14 +319,14 @@ export interface SandboxRow {
 
 /** This process's own live sessions — a sandbox is invisible to every other. */
 export function listSandboxSessions(): SandboxRow[] {
-  return [...live.values()].map((e) => ({
+  return [...live.values()].filter((e) => !e.script).map((e) => ({
     id: e.id, purpose: e.rec.purpose, port: e.rec.port, deadline: e.rec.deadline,
     idleSeconds: e.inflight > 0 ? 0 : Math.round((Date.now() - e.lastActivity) / 1000),
     idleLimitMinutes: e.idleMs / 60_000, projectDir: e.rec.projectDir,
   }));
 }
 
-export function endedSandboxes(): EndInfo[] { return [...ended.values()]; }
+export function endedSandboxes(): EndInfo[] { return [...ended.values()].filter((i) => !scripts.has(i.id)); }
 
 /** The live session of this process, or undefined (does not throw; for a tool that wants the binding). */
 export function sandboxBinding(id: string): { projectDir: string; port: number; purpose: string; deadline: string; media?: string; mediaSha256?: string } | undefined {
@@ -455,6 +401,38 @@ export async function callSandbox<T = unknown>(
 /** A capture path a tool chose for this session (the daemon was told to write it): kept and listed on end. */
 export function noteSandboxArtefact(id: string, path: string): void {
   live.get(id)?.captures.add(path);
+}
+
+// ── what a script over the lifecycle needs besides `callSandbox` ──────────────────────────────────
+
+/** A call bound to one sandbox: the shape every client of a daemon in this repo takes. */
+export function sandboxCall(id: string): <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T> {
+  return <T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number) => callSandbox<T>(id, method, params, timeoutMs);
+}
+
+/**
+ * Put a medium into a running sandbox — the one door a script mounts through (a reel's or a run's `insert` step). The
+ * daemon copies it into its scratch; the machine is left stopped (a door that runs it is passed with a stop armed).
+ */
+export async function mountSandboxMedium(id: string, path: string, via: "open" | "mount", log: string[]): Promise<{ parked: boolean }> {
+  const e = live.get(id);
+  if (!e) throw await lookupError(id);
+  const call = sandboxCall(id) as Parameters<typeof mountMedium>[0];
+  const r = await mountMedium(call, path, via, log);
+  if (!r.parked) log.push("NOTE: the machine ran on past the stops armed for the medium, so the clock after this is not reproducible");
+  return r;
+}
+
+/** Take the disk out of drive 8. */
+export async function ejectSandboxDisk(id: string): Promise<void> {
+  await ejectDisk(sandboxCall(id) as Parameters<typeof ejectDisk>[0]);
+}
+
+/** Why a sandbox ended on its own (its budget, its daemon exiting), or null while it lives or when a caller ended it. */
+export function sandboxEndedBecause(id: string): string | null {
+  const i = ended.get(id);
+  return i && (i.reason === "budget" || i.reason === "runtime exited" || i.reason === "idle" || i.reason === "owner gone")
+    ? `${i.reason}${i.summary ? `: ${i.summary}` : ""}` : null;
 }
 
 // ── a reader for trace stores while a C64 Ultimate is the selected backend ───────────────────────────
