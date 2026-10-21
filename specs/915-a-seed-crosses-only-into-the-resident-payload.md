@@ -112,6 +112,9 @@ S1 (human routine) and S3 (resolved alias) are unchanged.
   A runtime edge's caller is the owner in its `from` id (its `owner` column is the run). What is not seeded lands in
   `codeSeedReport.notSeeded` and in the listing header (`not seeded:`); the 838 subtraction by `RESOLVES_TO` is unchanged
   and still reports through `rejectedEntryPoints`.
+- **The alias pass follows the key.** An `addr` node that names a payload resolves (826.0 `RESOLVES_TO`) only to that
+  payload's code; otherwise `ram/prog_a:addr:3200` would alias the menu's routine there and the S3 alias seed would
+  hand the menu the entry the run said is prog_a's. Found in review; `e2e:915-seeds` S2c, red without the fix.
 - **A smoke that encoded the old rule.** `e2e:867-window` section 6.1 expected every module to seed `$1000` from the
   loader's call into a window of six occupants; under this spec none does, and the report names the six. Its three
   checks follow. Nothing else in the 867 gate changed.

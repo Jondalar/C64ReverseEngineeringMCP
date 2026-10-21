@@ -29,26 +29,28 @@ export interface ResolveResult {
   ms: number;
 }
 
-interface AddrRow { id: string; space: string; bank: number | null; cart: string | null; address: number }
+interface AddrRow { id: string; space: string; bank: number | null; cart: string | null; owner: string | null; address: number }
 interface CandRow { id: string; kind: string; layer: string }
 
 /** Runs on an open store; pass `inTransaction` when the caller already holds one (the annotation importer does). */
 export function resolveAddressesIn(store: GraphStore, options: { inTransaction?: boolean } = {}): ResolveResult {
   const t0 = process.hrtime.bigint();
   const db = store.db;
-  const addrs = db.prepare("SELECT DISTINCT id, space, bank, cart, address FROM nodes WHERE kind = 'addr' ORDER BY id").all() as unknown as AddrRow[];
+  const addrs = db.prepare("SELECT DISTINCT id, space, bank, cart, owner, address FROM nodes WHERE kind = 'addr' ORDER BY id").all() as unknown as AddrRow[];
+  // An `addr` node that names a payload (a traced run saw it resident, Spec 915) resolves only
+  // inside that payload; an ownerless one still looks at every owner's code at the address.
   const candidates = db.prepare(
-    "SELECT DISTINCT id, kind, layer FROM nodes WHERE address = ? AND space = ? AND kind IN ('routine', 'label', 'data_block') AND (? IS NULL OR bank IS NULL OR bank = ?) AND (? IS NULL OR cart IS NULL OR cart = ?) ORDER BY id",
+    "SELECT DISTINCT id, kind, layer FROM nodes WHERE address = ? AND space = ? AND kind IN ('routine', 'label', 'data_block') AND (? IS NULL OR bank IS NULL OR bank = ?) AND (? IS NULL OR cart IS NULL OR cart = ?) AND (? IS NULL OR owner = ?) ORDER BY id",
   );
   // 826.0 T4 — an address INSIDE a named table (`lda $FDF5` into
   // zone_sector_interleave_tbl $FDD4-$FDFF) belongs to that data block: the
   // reference lands on the name, with the offset said. Only ranged data
   // blocks; a routine's extent is not an alias (a jump into its middle is a
   // label, 819's business).
-  const ranged = db.prepare("SELECT DISTINCT id, kind, layer, space, bank, cart, address, end_address FROM nodes WHERE kind = 'data_block' AND end_address IS NOT NULL AND end_address > address ORDER BY id")
-    .all() as unknown as Array<CandRow & { space: string; bank: number | null; cart: string | null; address: number; end_address: number }>;
+  const ranged = db.prepare("SELECT DISTINCT id, kind, layer, space, bank, cart, owner, address, end_address FROM nodes WHERE kind = 'data_block' AND end_address IS NOT NULL AND end_address > address ORDER BY id")
+    .all() as unknown as Array<CandRow & { space: string; bank: number | null; cart: string | null; owner: string | null; address: number; end_address: number }>;
   const containing = (a: AddrRow) => ranged
-    .filter((d) => d.space === a.space && d.address < a.address && a.address <= d.end_address && (a.bank === null || d.bank === null || d.bank === a.bank) && (a.cart === null || d.cart === null || d.cart === a.cart))
+    .filter((d) => d.space === a.space && (a.owner === null || d.owner === a.owner) && d.address < a.address && a.address <= d.end_address && (a.bank === null || d.bank === null || d.bank === a.bank) && (a.cart === null || d.cart === null || d.cart === a.cart))
     .sort((x, y) => (x.end_address - x.address) - (y.end_address - y.address) || x.id.localeCompare(y.id));
   const del = db.prepare("DELETE FROM edges WHERE producer = ? AND owner IS NULL");
   const ins = db.prepare(
@@ -59,7 +61,7 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
   const run = () => {
     del.run(RESOLVE_PRODUCER);
     for (const a of addrs) {
-      const rows = candidates.all(a.address, a.space, a.bank, a.bank, a.cart, a.cart) as unknown as CandRow[];
+      const rows = candidates.all(a.address, a.space, a.bank, a.bank, a.cart, a.cart, a.owner, a.owner) as unknown as CandRow[];
       const all = [...new Set(rows.map((r) => r.id))].filter((id) => id !== a.id);
       // Precedence by kind: a jsr into $2000 means the ROUTINE there even when a
       // human label sits on the same address; a named table (data_block, 826.0

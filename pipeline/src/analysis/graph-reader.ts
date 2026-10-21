@@ -340,7 +340,6 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       const addrId = `${mine[0]!.id.split(":")[0]}:${space}:addr:${address.toString(16).padStart(4, "0")}`;
       const target = resolvesTo.get(addrId);
       const targetOwner = target ? ownerOfId(target) : undefined;
-      const total = sites.reduce((sum, v) => sum + v.count, 0);
       const from = [...new Set(sites.map((v) => `${v.type} from "${v.from}"`))].sort().join(", ");
 
       // Spec 867 D1 — the window decides first, and overlap stops meaning
@@ -396,7 +395,6 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       const jumpOnly = using.every((v) => v.type === "JUMPS_TO");
       const useTotal = using.reduce((sum, v) => sum + v.count, 0);
       const useFrom = [...new Set(using.map((v) => `${v.type} from "${v.from}"`))].sort().join(", ");
-      void total;
       add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${useFrom} (${useTotal} site${useTotal === 1 ? "" : "s"})${how}`);
     }
 

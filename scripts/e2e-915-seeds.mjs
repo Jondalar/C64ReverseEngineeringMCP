@@ -10,6 +10,7 @@
 //        static only      none is seeded, the header names the claimants
 //        run A (prog_a)   prog_a is seeded, the menu is not
 //        run B (prog_b)   the set {prog_a, prog_b} is seeded, still not the menu
+//   S2c  a payload-keyed target resolves (826.0 alias) only to its own payload's code
 //   S2b  `jmp` and `jmp (ind)` into another window are written as payload-keyed edges (the payload in the
 //        target's id); a target no claimant matches stays ownerless and is reported, so is one the trace
 //        saw too little of to decide
@@ -247,6 +248,34 @@ importRun(join(p.dir, "run_915_a.c64retrace"));
 const g2 = Graph.open(p.dir);
 check(g2.store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer = 'runtime-trace' AND owner = 'run_915_a'").get().n === before, "importing the same capture again replaces its rows (no duplicates)");
 void rB;
+
+// ======================================================================== S2c
+// A payload-keyed target resolves only inside its own payload. Otherwise the alias pass (826.0)
+// would point `ram/prog_a:addr:3200` at the MENU's routine there, and the alias seed (S3) would
+// hand the menu the very entry the run said is prog_a's.
+console.log("\nS2c — a payload-keyed target resolves only to its own payload's code\n");
+{
+  const { resolveAddresses } = await import("../dist/knowledge-graph/producers/resolve.js");
+  const q = newProject("s2c");
+  writeGraph(q.dir, {
+    nodes: [
+      { id: rid("menu", "routine", 0x3200), kind: "routine", owner: "menu", address: 0x3200, end: 0x320d, name: "menu_3200" },
+      { id: addrId(0x3200, "prog_a"), kind: "addr", owner: "prog_a", address: 0x3200 },
+    ],
+    edges: [],
+  });
+  resolveAddresses(q.dir);
+  const qdb = new DatabaseSync(join(q.dir, "knowledge", "graph.sqlite"), { readOnly: true });
+  const alias = () => qdb.prepare("SELECT to_id FROM edges WHERE type = 'RESOLVES_TO' AND from_id = ?").all(addrId(0x3200, "prog_a")).map((r) => r.to_id);
+  check(alias().length === 0, `prog_a's target with only the menu's routine at $3200 resolves to nothing (${alias().join(", ") || "none"})`);
+  qdb.close();
+  writeGraph(q.dir, { nodes: [{ id: rid("prog_a", "routine", 0x3200), kind: "routine", owner: "prog_a", address: 0x3200, end: 0x320d, name: "prog_a_3200" }], edges: [] });
+  resolveAddresses(q.dir);
+  const qdb2 = new DatabaseSync(join(q.dir, "knowledge", "graph.sqlite"), { readOnly: true });
+  const to = qdb2.prepare("SELECT to_id FROM edges WHERE type = 'RESOLVES_TO' AND from_id = ?").all(addrId(0x3200, "prog_a")).map((r) => r.to_id);
+  check(to.length === 1 && to[0] === rid("prog_a", "routine", 0x3200), `…and with prog_a's own routine there, it resolves to that one (${to.join(", ") || "none"})`);
+  qdb2.close();
+}
 
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"}  Spec 915 seeds: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount === 0 ? 0 : 1);
