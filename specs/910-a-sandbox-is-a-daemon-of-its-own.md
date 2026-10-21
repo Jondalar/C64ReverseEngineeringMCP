@@ -1,6 +1,6 @@
 # Spec 910 — A sandbox is a daemon of its own: one way to start it, one way to run, every runtime tool proven equal on it, and it never writes back
 
-**Status:** BUILT on `spec/910` (2026-10-21; both halves; extended the same day by P5–P7, the run model). Not merged; the TRX64 pin is bumped by the owner.
+**Status:** BUILT and merged (2026-10-21; both halves; extended the same day by P5–P7, the run model). TRX64 half on TRX64 main `db70224`. Open: the pin moves to the next TRX64 release (with it, a sandbox starts only on a daemon that has `--scratch`); the reporter's retest on TRX64 #20.
 **Repo:** both.
 - TRX64 (capability): a daemon that never writes a medium back into the file it was opened from; one
   run model (the machine free-runs, a run may end itself after N cycles or at a breakpoint); no
