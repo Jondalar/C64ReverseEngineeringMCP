@@ -1,6 +1,6 @@
 # Spec 910 — A sandbox is a daemon of its own: one way to start it, one way to run, every runtime tool proven equal on it, and it never writes back
 
-**Status:** IN BUILD (2026-10-21; extended the same day by P5–P7, the run model).
+**Status:** BUILT on `spec/910` (2026-10-21; both halves; extended the same day by P5–P7, the run model). Not merged; the TRX64 pin is bumped by the owner.
 **Repo:** both.
 - TRX64 (capability): a daemon that never writes a medium back into the file it was opened from; one
   run model (the machine free-runs, a run may end itself after N cycles or at a breakpoint); no
@@ -351,3 +351,39 @@ later change touches it.
     - A scenario replay stopped by a breakpoint ends with `stopped`.
     - API `until` and `overlay_run` push `debug/stopped`.
     - `audio/export` bumps `machine_generation`.
+- **C64RE (`spec/910`).**
+  - **D10.** `src/runtime/run-until.ts` is the one run: `debug/run {cycles?, pace?, wait}`, answering the stop
+    `{reason, pc, cycles}`. `run()`, `runCapped()`, `runLive()` and the `streamPump` branch are gone; `runtime_session_run`,
+    `runtime_type`/`runtime_joystick` (settle, hold), `waitForBasic`, the reel, the one-shot run, the state-map search
+    and the boot all run with a stop and wait. A wait for a PC is one run with two stops (the breakpoint, the cap).
+    `--headless` and its filters left `resolve-daemon-spawn.ts`. `runtime_session_export_audio` was tried on a sandbox
+    (`audio/export` renders offline) and is `works / session`.
+  - **The clock of a free-running daemon.** A fresh sandbox has already run when the first call arrives, so the boot takes
+    its clock by stops (`session-boot.ts`): a power cycle with an exec breakpoint on `$FCE2` stops it on its first
+    instruction at cycle 0, then `checkpoint/clear` (the ring held the anchors of the free-run before the cycle).
+    A door that implies running (`media/open` of a PRG or a cartridge, a power cycle) is passed with breakpoints armed
+    where the machine will stand — the PRG's entry, the PC it is at, `$FCE2`, and the vector at the top of an Ultimax
+    cartridge's high ROM — so it is parked there, not stopped by a pause that lands at a wall-clock cycle (measured: 1 in
+    600 PRG starts ran a frame before the pause). The same for `mountSandboxMedium`. Reels now start a cartridge at the
+    reset vector (cycle 0), where the headless daemon ran 5 M hidden cycles first.
+  - **D2.** `SandboxSession.start` passes `--scratch <its temp dir>/scratch` and refuses to start unless `session/state`
+    says `noWriteback`. `MEDIA_PATH_METHODS`, the monitor path rewrite and `copyMedium` are deleted.
+  - **D3.** `runtime/sandbox-sessions.ts` is the lifecycle: `startSandboxSession` (with `script: true` for a one-shot run,
+    a reel, a search: not listed, not counted against the four, ended by the script), `sandboxCall`,
+    `mountSandboxMedium`, `ejectSandboxDisk`, `endSandboxSession`. `runSandbox`, `runScenario` and `runSearch` are
+    scripts over it; the sweep, the feature runner and the cost capture call `runSandbox`. `scripts/check-one-sandbox-driver.mjs`
+    reads the source and fails on a second place.
+  - **D5.** `runtime/sandbox-end.ts` is the one end: finalize a trace, record the outcome in the step log, stop the daemon,
+    remove the scratch. The scratch goes after the daemon (a deviation from the order written in P4): the daemon's exit
+    work writes into it, and a directory removed under a live daemon is recreated or fails its write. The keeper loads
+    this module and runs `endFromKeeper` for owner gone and budget; with no record (the trace reader's daemon) it only
+    signals the daemon.
+  - **D4.** `scripts/lib/parity-fixtures.mjs` is the one fixture file (hand-written, plus a generated call for any tool
+    whose schema asks for nothing but a session). `e2e:910-parity` runs it on a sandbox and on a daemon started without
+    `--scratch`, compares normalised answers (ids, ports, paths, scratch copy names `001-name`, checkpoint counters,
+    times), refuses ui-only tools by name, checks S12 on the registered texts and S8 (`reset cold` with breakpoints on
+    `$FCE2` and the cold start, on both daemons). The 906 parity walk moved into it.
+  - **Tests.** `check:one-sandbox-driver` (S1), `e2e:910` (S2, S5 with decoys and every door C64RE has, S6, S7 for
+    reached/failed/budget/idle/owner gone/runtime exited), `e2e:910-parity` (S3, S4, S8, S12).
+  - **Pin.** The runtime that C64RE starts must be TRX64 with `4c65ce7` and `d1be072` (run model, `--scratch`):
+    a daemon without them rejects `--scratch` or lacks `debug/run {wait}`.

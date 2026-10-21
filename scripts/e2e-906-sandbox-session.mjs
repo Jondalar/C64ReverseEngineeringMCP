@@ -4,9 +4,7 @@
 //
 //   S1 start for a purpose      session id, port, machine, deadline; the shared session byte-for-byte unchanged;
 //                               no purpose / no budget refused by name
-//   S2 the full feature set     every runtime tool on the parity list (derived from the live server, so a new runtime tool
-//                               without a verdict fails here) called with a sandbox id and compared with the same
-//                               call on a shared session in the same state; the ui-only tools refuse the id by name
+//   S2 (moved)                  the tool-by-tool parity walk is e2e:910-parity
 //   S3 side by side             two sandboxes started by two MCP processes + the shared session, stepped, breakpointed and
 //                               traced at once; no trace holds another machine's events; "not yours"; the UI sees one
 //   S4 ending                   reached / failed: daemon gone, port free, scratch removed, captures kept and listed,
@@ -25,7 +23,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { d64WithPrg } from "./lib/d64-fixture.mjs";
-import { walk, normalize } from "./lib/e2e-906-walk.mjs";
 import { Harness, ROOT, counterPrg, findDaemon, listening, load, loopPrg, makeChecker, pidAlive, processesMatching, scratchDirs, sleep } from "./lib/e2e-906-harness.mjs";
 
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
@@ -46,8 +43,6 @@ console.log(`runtime: ${DAEMON}`);
 const H = new Harness("c64re-906-");
 process.env.C64RE_STATE_DIR = H.state; // this script reads the process ledger of the run, not the owner's
 const { bootSandbox } = await load("reel/session-boot.js");
-const { SANDBOX_PARITY } = await load("runtime/sandbox-parity.js");
-const { collectToolInventory } = await load("server.js");
 
 const idOf = (s) => /\bsb-[a-z0-9-]+\b/.exec(s)?.[0];
 const portOf = (s) => Number(/on port (\d+)/.exec(s)?.[1]);
@@ -91,7 +86,7 @@ const sbS1 = idOf(started);
 check(/^SANDBOX SESSION sb-/.test(started) && !!sbS1, "start answers a session id sb-…", started.slice(0, 200));
 check(portOf(started) > 0 && portOf(started) !== shared.port, "…its own port, not the shared one", String(portOf(started)));
 check(/machine: c64-pal/.test(started) && /deadline: \d{4}-\d\d-\d\dT/.test(started), "…the machine it booted and the deadline", started);
-check(/PAUSED/.test(started) && /cycle \d+/.test(started), "…and says it stands paused at a cycle");
+check(/stopped here by the boot/.test(started) && /cycle \d+/.test(started), "…and says it stands stopped at a cycle");
 check((await shot()) === before, "the shared session's cycle, registers, run state and all of RAM are byte-for-byte unchanged by the start");
 const list1 = await mcp.call("runtime_sandbox_list", {});
 check(list1.includes(sbS1) && /S1 start for a purpose/.test(list1) && /1 of 4/.test(list1), "runtime_sandbox_list shows it with its purpose", list1);
@@ -122,92 +117,8 @@ head("S1  the limit: four live sandbox sessions per MCP process");
   for (const id of [...ids.slice(1), idOf(sixth)]) await m1b.call("runtime_sandbox_end", { session_id: id, outcome: "reached", summary: "limit test over" });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════
-head("S2  the full feature set, tool by tool");
-const calledOnSandbox = new Set();
-const isErr = (t) => /^# (?:T|t)ool (?:E|e)rror/.test(t);
-// the registered runtime tools come from the live server's code, never from a list kept here
-const registered = collectToolInventory().map((t) => t.name);
-const parity = await load("runtime/sandbox-parity.js");
-check(parity.unclassifiedRuntimeTools(registered).length === 0, "every registered runtime tool has a sandbox verdict (works / ui-only)", parity.unclassifiedRuntimeTools(registered).join(", "));
-check(parity.staleParityEntries(registered).length === 0, "…and the table names no tool that is not registered", parity.staleParityEntries(registered).join(", "));
-const liveTools = new Set(mcp.tools.map((t) => t.name));
-const missingFromSurface = registered.filter((n) => /^runtime_/.test(n) && !liveTools.has(n));
-check(missingFromSurface.length === 0, "the MCP server under test (full tool set) lists every registered runtime tool", missingFromSurface.join(", "));
-
-// the shared stand-in is brought to the same state the sandbox is started in
-const sharedS2 = await H.daemon(DAEMON, await H.project("shared-s2"));
-const sharedS2Ws = await H.ws(sharedS2.port);
-await bootSandbox((m, p) => sharedS2Ws.call(m, p ?? {}), { mediaPath: prgA });
-const mcpS2 = await H.mcp(proj, { endpoint: sharedS2.endpoint, env: { C64RE_FULL_TOOLS: "1" } });
-const s2 = await mcpS2.call("runtime_sandbox_start", { purpose: "S2 parity walk", budget_minutes: 20, media_path: "a.prg" });
-const sbS2 = idOf(s2);
-check(!!sbS2, "a sandbox session for the walk", s2.slice(0, 200));
-{
-  const a = await sharedS2Ws.call("session/state");
-  const b = JSON.parse((await mcpS2.call("runtime_monitor_registers", { session_id: sbS2 })));
-  check(a.cpu.pc === b.pc && a.c64Cycles === b.cycles, "both machines stand in the same state before the walk (same PC, same cycle)", `${a.cpu.pc}/${a.c64Cycles} vs ${b.pc}/${b.cycles}`);
-}
-const dirOf = (n) => { const d = join(H.dir, `walk-${n}`); mkdirSync(d, { recursive: true }); return d; };
-const targets = [
-  { tag: "shared", sid: "shared", ids: ["shared"], dir: dirOf("shared") },
-  { tag: "sb", sid: sbS2, ids: [sbS2], dir: dirOf("sb") },
-];
-for (const t of targets) t.file = (n) => join(t.dir, n);
-const P = { prg: prgA, d64 };
-const mismatches = [];
-let compared = 0;
-for (const e of walk(P)) {
-  const out = [];
-  for (const t of targets) {
-    if (e.need && !t[e.need]) { out.push(undefined); continue; }
-    const args = { session_id: t.sid, ...e.args(t) };
-    const text = await mcpS2.call(e.tool, args);
-    if (t.tag === "sb") calledOnSandbox.add(e.tool);
-    e.keep?.(text, t);
-    out.push(text);
-  }
-  const [a, b] = out;
-  if (a === undefined || b === undefined) { console.log(`  SKIPPED  ${e.tool} — an earlier answer it needs did not come`); continue; }
-  compared++;
-  if (e.expect === "ui-only") {
-    check(/refused for sandbox session/.test(b), `${e.tool} refuses a sandbox id by name`, b.slice(0, 200));
-    continue;
-  }
-  if (e.expect === "both-refuse") {
-    check(isErr(a) === isErr(b) || (/refus|not found|no active|unknown|none/i.test(a) && /refus|not found|no active|unknown|none/i.test(b)),
-      `${e.tool}: both refuse alike`, `${a.slice(0, 160)} <> ${b.slice(0, 160)}`);
-    continue;
-  }
-  const na = normalize(a, targets[0]);
-  const nb = normalize(b, targets[1]);
-  const same = na === nb;
-  if (!same) mismatches.push(e.tool);
-  check(same && (e.expect === "both-refuse-or-same" || !isErr(b)), `${e.tool}: the sandbox answers as the shared session does`, same ? b.slice(0, 200) : `\n--- shared:\n${na.slice(0, 500)}\n--- sandbox:\n${nb.slice(0, 500)}`);
-}
-console.log(`  (${compared} calls compared, ${mismatches.length} differ)`);
-
-// every tool the table says works on a session was called with the sandbox's id in this walk
-const sessionTools = Object.entries(SANDBOX_PARITY).filter(([, v]) => v.verdict === "works" && v.scope === "session").map(([k]) => k);
-const uncalled = sessionTools.filter((n) => !calledOnSandbox.has(n));
-check(uncalled.length === 0, `all ${sessionTools.length} session-scoped tools of the parity table were called with a sandbox id`, uncalled.join(", "));
-
-// the stores the sandbox wrote read like any other, through the trace readers, whichever machine wrote them
-{
-  const sbDir = targets[1].dir;
-  const duck = join(sbDir, "walk.duckdb");
-  check(existsSync(join(sbDir, "walk.c64retrace")), "the sandbox's capture is in the place the call chose, not in its scratch", sbDir);
-  const info = await mcpS2.call("trace_store_info", { path: duck });
-  check(!isErr(info) && /931|events/i.test(info), "trace_store_info reads the sandbox's capture", info.slice(0, 200));
-}
-// the tools that serve a human's UI refuse a sandbox id, and the sandbox is still there after
-for (const [tool, args] of [["runtime_session_close", {}], ["runtime_keep_alive", { minutes: 5 }], ["runtime_session_start", {}]]) {
-  const r = await mcpS2.call(tool, { session_id: sbS2, ...args });
-  check(/refused for sandbox session/.test(r) && /Nothing was done/.test(r) && r.includes(sbS2), `${tool} refuses the sandbox id by name, with its reason`, r.slice(0, 220));
-}
-check(/PC=/.test(await mcpS2.call("runtime_session_status", { session_id: sbS2 })), "…and the sandbox is untouched by those refusals");
-const endS2 = await mcpS2.call("runtime_sandbox_end", { session_id: sbS2, outcome: "reached", summary: "walk done" });
-check(/ended: reached/.test(endS2), "the walk's sandbox ends", endS2.slice(0, 100));
+// S2 (every working tool, tool by tool, against a shared-style daemon) moved into the parity proof of Spec 910:
+// `npm run e2e:910-parity` (scripts/e2e-910-parity.mjs, fixtures in scripts/lib/parity-fixtures.mjs).
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 head("S3  two sandboxes and the shared session, side by side");
