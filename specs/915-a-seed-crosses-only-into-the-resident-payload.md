@@ -1,6 +1,6 @@
 # Spec 915 — A code seed crosses an owner boundary only from real code, into the payload that is in the window
 
-**Status:** BUILT on branch `spec/915-seeds` (2026-10-21), S1–S3 green (`e2e:915-seeds`, the 838 and 867 smokes). Open: S4, the reporter's retest on the real cartridge (#140). D1–D3 decided with the owner.
+**Status:** BUILT and merged (2026-10-21): S1–S3 green (`e2e:915-seeds` 31/0, the 838 / 867 / 818 / 821 / 826 / 830 / remove-owner smokes). Open: S4, the reporter's retest on the real cartridge (#140, closed on fix). D1–D3 decided with the owner.
 **Repo:** C64RE (the runtime trace import that writes the graph, and the code-seed reader in the pipeline). TRX64 untouched.
 **Number:** 915 (registry: `specs/README.md`).
 **Origin:** issue #140 (a reporter, an unreleased 1 MB EasyFlash cartridge that cannot be shared;
