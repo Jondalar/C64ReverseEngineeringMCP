@@ -18,24 +18,20 @@
 // (2026-10-01, parent PID 1). So the machine dies with this object, on the budget, or
 // with the process, and the last of the three no longer depends on this process.
 //
-// The machine is born HEADLESS — command-driven, at its reset vector, cycle 0 — and
-// advanced only by bounded runs. That is what makes a schedule reproducible over a socket
-// AND across fresh starts: a round trip costs wall clock, but a machine that does not move
-// on its own does not care how long the caller took to say the first word. Measured
-// (BUG-050): with the machine left running, one recipe gave five different outcomes; paused
-// and advanced in cycles, five for five identical. Measured again (issue #67 retest): a
-// daemon started WITHOUT `--headless` runs on from the moment it accepts a connection, so
-// the pause landed at a cycle that depended on the wall clock (19657, 511083, 1985353 for a
-// pause 0, 0.5 and 2 s after the start) — and the same arguments pressed up to 15 frames
-// apart. Same run, same daemon was never the question; same run, fresh daemon is.
+// The machine is the same daemon as the shared one (Spec 910): it free-runs from the moment it starts, and
+// the clock is taken by stops, not by a machine that does not move — see `reel/session-boot.ts`. It is
+// started with `--scratch <its own dir>`: the daemon opens every medium it is handed from a copy in that
+// directory and writes only the copy, whatever method hands it over and however it ends, so no file of the
+// project is ever changed by it. `start` checks that `session/state` reports it (`noWriteback`) and refuses
+// to hand out a machine that does not.
 
 import { WebSocket } from "ws";
 import type { ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveDaemonSpawn } from "../runtime/resolve-daemon-spawn.js";
 import { runtimeSetupRecipe } from "../runtime/setup-recipe.js";
 import { platformProc, spawnHidden } from "../runtime/platform-proc.js";
@@ -50,16 +46,20 @@ const DEFAULT_BUDGET_MS = 10 * 60_000;
 const KEEPER_GRACE_MS = 5_000;
 
 /**
- * The keeper (see the header), run as `node -e`. argv: a JSON of [parentPid, budgetMs,
- * scratchDir, cmd, ...args]. It reports the daemon's pid on stdout, passes the daemon's
- * stderr through, exits with the daemon, and forwards a SIGTERM/SIGINT. Parent gone is
- * asked two ways: a changed ppid (POSIX reparents an orphan) and `kill(parent, 0)`
- * failing (Windows does not reparent).
+ * The keeper (see the header), run as `node -e`. argv: a JSON of [parentPid, budgetMs, scratchDir, endModuleUrl, cmd,
+ * ...args]. It reports the daemon's pid on stdout, passes the daemon's stderr through, exits with the daemon, and
+ * forwards a SIGTERM/SIGINT. Parent gone is asked two ways: a changed ppid (POSIX reparents an orphan) and
+ * `kill(parent, 0)` failing (Windows does not reparent).
+ *
+ * The keeper has NO end of its own (Spec 910 D5). A sandbox SESSION (it has a record) is ended by `endFromKeeper` of
+ * `runtime/sandbox-end.js` — the very function the owner's end runs: finalize a recording trace, record the outcome,
+ * stop the daemon, remove the scratch. A daemon without a record (the trace reader) is a plain child: it is signalled
+ * and its scratch removed once its owner is gone.
  */
 const KEEPER = `
 const { spawn } = require("node:child_process");
-const { rmSync, readFileSync, writeFileSync } = require("node:fs");
-const [parent, budget, scratch, cmd, ...args] = JSON.parse(process.argv[1]);
+const { rmSync } = require("node:fs");
+const [parent, budget, scratch, endUrl, cmd, ...args] = JSON.parse(process.argv[1]);
 const record = process.env.C64RE_KEEPER_RECORD;
 const port = process.env.C64RE_KEEPER_PORT;
 // The daemon's stderr goes THROUGH the keeper, not past it: handed the owner's pipe directly, the daemon
@@ -72,59 +72,61 @@ d.stderr.on("data", (b) => { try { process.stderr.write(b); } catch {} });
 process.stdout.on("error", () => {});
 process.stdout.write(String(d.pid) + "\\n");
 let orphaned = false;
+let exited = false;
 let why = null;
+let ending = null;
 const parentGone = () => {
   if (process.ppid !== parent) return true;
   try { process.kill(parent, 0); return false; } catch { return true; }
 };
-const kill = (sig) => { try { d.kill(sig); } catch {} setTimeout(() => { try { d.kill("SIGKILL"); } catch {} }, 1000).unref(); };
-// A sandbox SESSION (it has a record) is ended the polite way first: the runtime's own shutdown
-// request, which writes back a mounted medium and finishes a recording trace. It is signalled only
-// when that did not end it. The socket is reached through globalThis, which keeps the one socket
-// the sandbox path is allowed to name literally — the owner's, built from this.port — the only one.
+const kill = (sig) => { try { d.kill(sig); } catch {} };
+const modP = record && port && endUrl
+  ? import(endUrl).catch((e) => { process.stderr.write("keeper: cannot load the shared end (" + endUrl + "): " + e.message + "\\n"); return null; })
+  : Promise.resolve(null);
+// The daemon goes away: the polite request has been sent by the end; wait for it, then the signal, then the hard one.
+const stopDaemon = () => new Promise((resolve) => {
+  if (exited) return resolve();
+  d.once("exit", () => resolve());
+  setTimeout(() => kill("SIGTERM"), 3000).unref();
+  setTimeout(() => kill("SIGKILL"), 4500).unref();
+});
 const end = (reason) => {
   why = why || reason;
-  const W = globalThis["WebSocket"];
-  if (record && port && W) {
-    try {
-      const ws = new W("ws://127.0.0.1:" + port);
-      ws.onopen = () => { try { ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "daemon/shutdown", params: {} })); } catch {} };
-      ws.onerror = () => {};
-    } catch {}
-    setTimeout(() => kill("SIGTERM"), 3000);
-  } else kill("SIGTERM");
+  if (ending) return ending;
+  ending = (async () => {
+    const mod = await modP;
+    if (mod) {
+      try { await mod.endFromKeeper({ recordPath: record, port: Number(port), reason: why, scratchDir: scratch, stopDaemon }); }
+      catch (e) { process.stderr.write("keeper: the end failed: " + e.message + "\\n"); kill("SIGTERM"); }
+      return;
+    }
+    kill("SIGTERM");
+    await stopDaemon();
+    if (reason === "owner gone" && scratch) { try { rmSync(scratch, { recursive: true, force: true }); } catch {} }
+  })();
+  return ending;
 };
-// What the keeper saw goes into the session's record when its owner has not already ended it: the
-// next caller with the id is told "ended: budget" or "ended: owner gone", never "no such session".
-const markEnded = () => {
-  if (!record || !why) return;
-  try {
-    const j = JSON.parse(readFileSync(record, "utf8"));
-    if (j.state !== "running") return;
-    j.state = "ended";
-    j.reason = why;
-    j.outcome = why;
-    j.endedAt = new Date().toISOString();
-    writeFileSync(record, JSON.stringify(j, null, 2) + "\\n");
-  } catch {}
-};
-d.on("exit", (code) => {
-  // Asked again here, not only by the poll: measured, the daemon could be gone before
-  // the poll had noticed the caller was, and its scratch stayed behind.
-  if (!why && (orphaned || parentGone())) why = "owner gone";
-  markEnded();
-  if ((orphaned || parentGone()) && scratch) { try { rmSync(scratch, { recursive: true, force: true }); } catch {} }
+d.on("exit", async (code) => {
+  exited = true;
+  // Asked again here, not only by the poll: measured, the daemon could be gone before the poll had noticed the caller was.
+  if (!ending && (orphaned || parentGone())) { orphaned = true; await end("owner gone"); }
+  else if (ending) await ending;
   process.exit(code ?? 1);
 });
 d.on("error", () => process.exit(127));
-setTimeout(() => end("budget"), budget);
+setTimeout(() => { void end("budget"); }, budget);
 setInterval(() => {
-  if (!orphaned && parentGone()) { orphaned = true; end("owner gone"); }
+  if (!orphaned && parentGone()) { orphaned = true; void end("owner gone"); }
 }, 500);
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => kill("SIGTERM"));
 `;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** The shared end (`runtime/sandbox-end.js`) as a URL a plain `node -e` keeper can import: the built module beside this one. */
+function endModuleUrl(): string {
+  return pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), "..", "runtime", "sandbox-end.js")).href;
+}
 
 function repoRoot(): string {
   return resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -161,16 +163,12 @@ export interface SandboxOptions {
   onExit?: (why: string) => void;
 }
 
-/** The daemon methods that mount, insert or swap a medium named by `path`. */
-const MEDIA_PATH_METHODS = new Set(["media/open", "media/mount", "media/swap", "media/ingress", "runtime/swap_disk_and_continue"]);
-
 export class SandboxSession {
   private ws: WebSocket | null = null;
   private child: ChildProcess | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private ownTmp: string | null = null;
-  private readonly mediaCopies = new Map<string, string>();
   private reaper: NodeJS.Timeout | null = null;
   private closed = false;
   private endedBecause: string | null = null;
@@ -179,17 +177,21 @@ export class SandboxSession {
   private daemonPid: number | null = null;
   private registered: Promise<unknown> = Promise.resolve();
 
+  /** The daemon's `--scratch` dir: its copies of every medium it is handed. Inside the sandbox's own temp dir. */
+  private scratch = "";
+
   private constructor(readonly port: number) {}
 
   static async start(opts: SandboxOptions = {}): Promise<SandboxSession> {
     const port = await freePort();
     const s = new SandboxSession(port);
     // The scratch exists whether or not the daemon is given a project dir: it holds the copies of every
-    // medium mounted in this machine, and goes when the daemon is gone.
+    // medium handed to this machine (`--scratch`), and goes when the daemon is gone.
     s.ownTmp = mkdtempSync(join(tmpdir(), "c64re-reel-"));
+    s.scratch = join(s.ownTmp, "scratch");
     const projectDir = opts.projectDir ?? s.ownTmp;
 
-    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model, headless: true });
+    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model, scratch: s.scratch });
     if (plan.mode === "none") {
       throw new Error(runtimeSetupRecipe("no runtime binary available for an isolated capture run"));
     }
@@ -204,7 +206,7 @@ export class SandboxSession {
     // to the keeper, so it still cannot outlive the keeper.
     s.child = spawnHidden(process.execPath, [
       "-e", KEEPER,
-      JSON.stringify([process.pid, budget + KEEPER_GRACE_MS, s.ownTmp ?? "", plan.cmd, ...plan.args]),
+      JSON.stringify([process.pid, budget + KEEPER_GRACE_MS, s.ownTmp ?? "", opts.recordFile ? endModuleUrl() : "", plan.cmd, ...plan.args]),
     ], {
       detached: process.platform === "win32",
       stdio: ["ignore", "pipe", "pipe"],
@@ -267,6 +269,19 @@ export class SandboxSession {
         await sleep(250);
       }
     }
+    // The daemon must say it took `--scratch`: a runtime that ignores the option (an older pin) would write a
+    // medium back into the file it was handed, and a sandbox that can do that is not handed out.
+    try {
+      const st = await s.call<{ noWriteback?: boolean }>("session/state", {}, 10_000);
+      if (st?.noWriteback !== true) {
+        throw new Error(
+          "the runtime did not report `noWriteback` after `--scratch`: it would write a mounted disk or cartridge back into the " +
+          "file it was opened from, so no sandbox was started. Update the runtime (c64re runtime install).");
+      }
+    } catch (e) {
+      await s.close();
+      throw e;
+    }
     // In the ledger before anyone gets it: a `down` right after the start must find it. Reading
     // the OS identity is slow on Windows (PowerShell), so this is awaited, not left to race.
     await s.registered.catch(() => undefined);
@@ -307,45 +322,8 @@ export class SandboxSession {
     this.pending.clear();
   }
 
-  /**
-   * The copy of a medium this machine works on. The runtime writes a mounted disk or cartridge back to the
-   * file it was opened from (on eject, on persist, and on its way out), so a sandbox never hands it the
-   * project's path: it hands it a copy in its own scratch. The same source gives the same copy for the life
-   * of the machine, so a disk swapped out and back in keeps what the program wrote to it.
-   */
-  copyMedium(source: string): string {
-    if (!this.ownTmp) throw new Error("the sandbox has no scratch directory to hold its copy of the medium");
-    const key = resolvePath(source);
-    const known = this.mediaCopies.get(key);
-    if (known) return known;
-    const dir = join(this.ownTmp, "media", String(this.mediaCopies.size + 1));
-    mkdirSync(dir, { recursive: true });
-    const copy = join(dir, basename(key));
-    copyFileSync(key, copy);
-    this.mediaCopies.set(key, copy);
-    return copy;
-  }
-
-  /** The request, with every medium it would mount replaced by this machine's copy of it. */
-  private withMediaCopies(method: string, params: Record<string, unknown>): Record<string, unknown> {
-    const isFile = (p: unknown): p is string => {
-      if (typeof p !== "string" || p === "" || /\.(prg|c64re)$/i.test(p)) return false;
-      try { return statSync(p).isFile(); } catch { return false; }
-    };
-    if (MEDIA_PATH_METHODS.has(method) && isFile(params.path) && params.kind !== "eject") {
-      return { ...params, path: this.copyMedium(params.path) };
-    }
-    if (method === "monitor/exec" && typeof params.command === "string") {
-      const m = /^(\s*(?:mount|swapcrt)\s+)(?:"([^"]+)"|(\S.*?))\s*$/i.exec(params.command);
-      const named = m?.[2] ?? m?.[3];
-      if (m && isFile(named)) return { ...params, command: `${m[1]}"${this.copyMedium(named)}"` };
-    }
-    return params;
-  }
-
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 300_000): Promise<T> {
     if (this.closed) throw new Error(this.endedBecause ?? "the sandbox is closed");
-    params = this.withMediaCopies(method, params);
     await this.open();
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
@@ -363,7 +341,8 @@ export class SandboxSession {
     });
   }
 
-  async close(): Promise<void> {
+  /** The daemon goes away (the polite request first, then the signal) and its keeper with it. The scratch stays: see `removeScratch`. */
+  async stop(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     if (this.reaper) clearTimeout(this.reaper);
@@ -382,15 +361,24 @@ export class SandboxSession {
       if (this.child.exitCode === null) this.child.kill("SIGKILL");
     }
     this.child = null;
-    if (this.ownTmp) {
-      try { rmSync(this.ownTmp, { recursive: true, force: true }); } catch { /* best effort */ }
-      this.ownTmp = null;
-    }
+  }
+
+  /** The temp dir (the daemon's `--scratch` and, unless a project dir was given, its project dir) is removed. Only after `stop`: the daemon's exit work writes into it. */
+  removeScratch(): void {
+    if (!this.ownTmp) return;
+    try { rmSync(this.ownTmp, { recursive: true, force: true }); } catch { /* best effort */ }
+    this.ownTmp = null;
+  }
+
+  /** `stop`, then `removeScratch`. */
+  async close(): Promise<void> {
+    await this.stop();
+    this.removeScratch();
   }
 
   /** Why the sandbox went away, when it did so on its own. */
   get ended(): string | null { return this.endedBecause; }
 
-  /** The sandbox's scratch (its copies of mounted media; the daemon's project dir too, unless one was given). Removed on close. */
+  /** The sandbox's temp dir: the daemon's `--scratch` dir (its copies of every medium it was handed) and, unless a project dir was given, its project dir. Removed on close. */
   get scratchDir(): string | null { return this.ownTmp; }
 }
