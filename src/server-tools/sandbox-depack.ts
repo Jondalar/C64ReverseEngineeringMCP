@@ -64,8 +64,11 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
         initial_a: z.number().int().min(0).max(255).optional(),
         initial_x: z.number().int().min(0).max(255).optional(),
         initial_y: z.number().int().min(0).max(255).optional(),
+        // Per-item zero-page seeds, merged over the shared initial_zp (item keys win).
+        // One depacker over several streams often differs only in a zp pointer.
+        initial_zp: z.record(z.string(), z.number().int().min(0).max(255)).optional(),
       })).optional().describe(
-        "Depack N payloads in ONE runtime process instead of N. Every field ABOVE is the shared template (the resident loader, entry_pc, the zeropage convention, the caps); each item overrides only what differs — normally just offset/length/dest. This is the campaign case: one depacker, many chunks. Measured 18x faster than the same payloads one call at a time, because a process start costs ~740 ms and the depack itself costs milliseconds. Results are byte-identical to running them singly, and a payload that fails is reported in its own slot without sinking the rest.",
+        "Depack N payloads in ONE runtime process instead of N. Every field ABOVE is the shared template (the resident loader, entry_pc, the zeropage convention, the caps); each item overrides only what differs — normally just offset/length/dest. An item's initial_zp is merged over the shared one: the keys it names win, the others keep the shared value. This is the campaign case: one depacker, many chunks. Measured 18x faster than the same payloads one call at a time, because a process start costs ~740 ms and the depack itself costs milliseconds. Results are byte-identical to running them singly, and a payload that fails is reported in its own slot without sinking the rest.",
       ),
     },
     async (args) => {
@@ -126,6 +129,10 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
         const bytes = len === undefined ? buf.subarray(off) : buf.subarray(off, off + len);
         const srcLoad = item.source_load_address ?? args.source_load_address;
         const dest = item.dest_address ?? args.dest_address;
+        const itemZp: Record<number, number> = { ...shared.initialZp };
+        for (const [k, v] of Object.entries(item.initial_zp ?? {})) {
+          itemZp[parseHexU(k, 0xff)] = v;
+        }
         return {
           inputAbs: itemInputAbs,
           offset: off,
@@ -135,6 +142,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
             packed: bytes,
             sourceLoadAddress: srcLoad ? parseHexU(srcLoad) : undefined,
             destAddress: dest ? parseHexU(dest) : undefined,
+            initialZp: itemZp,
             initialA: item.initial_a ?? shared.initialA,
             initialX: item.initial_x ?? shared.initialX,
             initialY: item.initial_y ?? shared.initialY,
