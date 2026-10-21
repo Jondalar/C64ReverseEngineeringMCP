@@ -3260,6 +3260,13 @@ function renderSeedLedger(report: AnalysisReport): string[] {
       for (const item of outOfScope.slice(0, 12)) lines.push(`    ${formatAddress(item.address)}  ${item.detail}`);
       if (outOfScope.length > 12) lines.push(`    ... ${outOfScope.length - 12} more (full list in the analysis JSON: codeSeedReport.outOfScope)`);
     }
+    // Spec 915 — calls and jumps from other owners that were seen and not applied, and why.
+    const notSeeded = seedReport.notSeeded ?? [];
+    if (notSeeded.length > 0) {
+      lines.push(`  not seeded: ${notSeeded.length} cross-owner address${notSeeded.length === 1 ? "" : "es"} — the edge is in the graph, but it is not (yet) known to be real code entering THIS payload:`);
+      for (const item of notSeeded.slice(0, 12)) lines.push(`    ${formatAddress(item.address)}  ${item.detail}`);
+      if (notSeeded.length > 12) lines.push(`    ... ${notSeeded.length - 12} more (full list in the analysis JSON: codeSeedReport.notSeeded)`);
+    }
   }
 
   // The refusals. `already_code` is a satisfied entry, not a loss — it is

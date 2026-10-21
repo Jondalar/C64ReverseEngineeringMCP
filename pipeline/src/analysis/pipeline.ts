@@ -548,6 +548,7 @@ function collectGraphSeeds(
         bank: lookup.window.bank, source: lookup.window.source, name: lookup.window.name,
       },
       outOfScope: lookup.outOfScope,
+      notSeeded: lookup.notSeeded,
     },
   };
 }

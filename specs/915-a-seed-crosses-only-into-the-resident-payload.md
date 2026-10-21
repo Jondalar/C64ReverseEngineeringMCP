@@ -1,6 +1,6 @@
 # Spec 915 — A code seed crosses an owner boundary only from real code, into the payload that is in the window
 
-**Status:** READY TO BUILD (2026-10-21). D1–D3 decided with the owner.
+**Status:** BUILT and merged (2026-10-21): S1–S3 green (`e2e:915-seeds` 31/0, the 838 / 867 / 818 / 821 / 826 / 830 / remove-owner smokes). Open: S4, the reporter's retest on the real cartridge (#140, closed on fix). D1–D3 decided with the owner.
 **Repo:** C64RE (the runtime trace import that writes the graph, and the code-seed reader in the pipeline). TRX64 untouched.
 **Number:** 915 (registry: `specs/README.md`).
 **Origin:** issue #140 (a reporter, an unreleased 1 MB EasyFlash cartridge that cannot be shared;
@@ -78,6 +78,10 @@ S1 (human routine) and S3 (resolved alias) are unchanged.
   several = not seeded, and the listing header names it ("`$3200`: target not validated,
   claimants menu / prog_a / prog_b"). Reading the loader's key (LUT row / file number) to decide
   it statically is not needed and not built.
+- **Rejected (owner, 2026-10-21): a static "later window overlays mine" rule** (PR #143: a window
+  that starts later inside mine and runs past my end takes the address, and keeps the seed
+  without a run). Start order is not load order; without a traced run neither occupant is
+  seeded, and the header names both. #142 (heuristic callers) is D1 and is closed with it.
 - Replaces 867 §2's "inside my window the code is mine" for cross-owner seeds; 867's window
   and holes logic is unchanged.
 
@@ -94,3 +98,27 @@ S1 (human routine) and S3 (resolved alias) are unchanged.
   edges; a target no claimant matches stays ownerless and is reported.
 - **S3** Spec 838 and 867 smokes stay green.
 - **S4** The reporter's retest on the real cartridge (issue #140 acceptance 1–3).
+
+---
+
+## §5 As built (2026-10-21)
+
+- **The id grammar.** D2's target key `ram/<owner>:addr:…` needed Spec 818's `addr-no-owner` rule lifted: an `addr`
+  id may now name the payload a run saw resident (`deriveProjectId`); a cartridge context still names a bank, never
+  an owner. The `e2e:818` gate follows (the old refusal became "names that payload"; the cartridge refusal stays).
+- **Which bytes.** The trace carries no memory image, but every retired instruction carries its own bytes. After an
+  executed transfer into a window another payload claims, the next 16 retired instructions (same flow lane, inside the
+  claimed windows) are the bytes at the target. They are held against each claimant's own code bytes with the Spec 867
+  comparison (`scoreClaimantBytes`, the function `windowResidency` now uses too): at least four bytes compared, all equal.
+  No TRX64 change was needed. `crossWindow.ownerless` in the import result lists every site that matched no one
+  (`no_match`) or that the trace showed too little of to compare (`undecided`).
+- **The reader.** An edge is real code unless its confidence is `heuristic` or its evidence provenance `probable_code`.
+  A runtime edge's caller is the owner in its `from` id (its `owner` column is the run). What is not seeded lands in
+  `codeSeedReport.notSeeded` and in the listing header (`not seeded:`); the 838 subtraction by `RESOLVES_TO` is unchanged
+  and still reports through `rejectedEntryPoints`.
+- **The alias pass follows the key.** An `addr` node that names a payload resolves (826.0 `RESOLVES_TO`) only to that
+  payload's code; otherwise `ram/prog_a:addr:3200` would alias the menu's routine there and the S3 alias seed would
+  hand the menu the entry the run said is prog_a's. Found in review; `e2e:915-seeds` S2c, red without the fix.
+- **A smoke that encoded the old rule.** `e2e:867-window` section 6.1 expected every module to seed `$1000` from the
+  loader's call into a window of six occupants; under this spec none does, and the report names the six. Its three
+  checks follow. Nothing else in the 867 gate changed.

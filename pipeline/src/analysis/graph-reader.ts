@@ -12,7 +12,7 @@
 
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { covers, describeWindow, hex4, innerWindows, loadWindows, windowFor, type PayloadWindow } from "./payload-windows";
+import { claimantsAt, covers, describeWindow, hex4, innerWindows, loadWindows, windowFor, type PayloadWindow } from "./payload-windows";
 
 export type AccessEdgeType = "READS" | "WRITES" | "READS_INDIRECT" | "WRITES_INDIRECT";
 
@@ -165,7 +165,8 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
 // Three sources, never a byte-shape guess (Spec 750):
 //   S1 human_routine     a human-layer `routine` node THIS owner has in range
 //   S2 cross_owner_call  CALLS / JUMPS_TO from a DIFFERENT owner onto an
-//      cross_owner_jump  ownerless `addr` node inside this image
+//      cross_owner_jump  `addr` node inside this image (Spec 915: from real code
+//                        only, into the payload that is in the window)
 //   S3 resolved_alias    a Spec 826.0 RESOLVES_TO alias pointing at a
 //                        routine/label of THIS owner
 //
@@ -192,6 +193,17 @@ export interface CodeSeedOutOfScope {
   detail: string;
 }
 
+/**
+ * Spec 915 — a cross-owner call or jump the seed reader saw and did not apply: the caller is
+ * probable code, the window's resident is another payload, or nothing says which payload is in
+ * the window. Said in the listing header; the edge itself stays in the graph.
+ */
+export interface CodeSeedNotSeeded {
+  address: number;
+  reason: "heuristic_caller" | "other_resident" | "not_validated";
+  detail: string;
+}
+
 export type CodeSeedLookup =
   | {
       status: "ok";
@@ -203,6 +215,8 @@ export type CodeSeedLookup =
       seeds: CodeSeed[];
       skipped: Array<{ address: number; detail: string }>;
       outOfScope: CodeSeedOutOfScope[];
+      /** Spec 915 — cross-owner addresses seen and NOT seeded, with the reason. The edges stay in the graph. */
+      notSeeded: CodeSeedNotSeeded[];
     }
   | { status: "absent"; owner: string; path?: string; reason: string };
 
@@ -285,30 +299,48 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       add(a.address, "human_routine", `human routine node${row.name ? ` "${row.name}"` : ""} (graph human layer)`);
     }
 
-    // S2 — another overlay calls or jumps into this image.
-    const callers = new Map<number, Map<string, { type: string; count: number }>>();
+    // S2 — another overlay calls or jumps into this image (Spec 915).
+    //
+    // A cross-owner seed applies only when (1) the call site is real code — an edge that a
+    // probable-code render wrote (confidence `heuristic`, provenance `probable_code`) is recorded
+    // and never seeds — and (2) this payload is the one in the window when that call runs:
+    // a runtime run names it (an edge whose target `addr` node is keyed by the resident payload,
+    // `ram/<owner>:addr:…`), or the window has exactly one claimant. Several claimants and no
+    // validated edge: not seeded, and the header names them.
+    interface Site { type: string; from: string; real: boolean; runtime: boolean; toOwner: string | undefined; count: number }
+    const byAddress = new Map<number, Site[]>();
     for (const row of db
-      .prepare("SELECT type, to_id, owner, COUNT(*) AS sites FROM edges WHERE type IN ('CALLS','JUMPS_TO') AND to_id LIKE '%:addr:%' GROUP BY type, to_id, owner ORDER BY to_id")
-      .all() as Array<{ type: string; to_id: string; owner: string | null; sites: number }>) {
+      .prepare(
+        "SELECT type, to_id, from_id, owner, origin, confidence, json_extract(evidence, '$.provenance') AS provenance, COUNT(*) AS sites FROM edges WHERE type IN ('CALLS','JUMPS_TO') AND to_id LIKE '%:addr:%' GROUP BY type, to_id, from_id, owner, origin, confidence, provenance ORDER BY to_id",
+      )
+      .all() as Array<{ type: string; to_id: string; from_id: string; owner: string | null; origin: string; confidence: string; provenance: string | null; sites: number }>) {
       const a = addressOfId(row.to_id);
       if (!a || a.kind !== "addr" || !inRange(a.address)) continue;
       if (ctxSpaceOfId(row.to_id) !== space) continue;
-      const from = (row.owner ?? "").toLowerCase();
-      if (from === "" || from === owner) continue; // an edge of my own never crosses an overlay boundary
-      let byOwner = callers.get(a.address);
-      if (!byOwner) { byOwner = new Map(); callers.set(a.address, byOwner); }
-      const key = `${row.type}|${from}`;
-      const seen = byOwner.get(key);
+      const runtime = row.origin === "runtime";
+      // A runtime edge's `owner` column is the run; its caller is the owner in the from id (none for an addr node).
+      const from = (runtime ? ownerOfId(row.from_id) ?? "" : row.owner ?? "").toLowerCase();
+      if (!runtime && from === "") continue;
+      if (from === owner) continue; // an edge of my own never crosses an overlay boundary
+      const toOwner = ownerOfId(row.to_id)?.toLowerCase();
+      const real = row.confidence !== "heuristic" && row.provenance !== "probable_code";
+      let sites = byAddress.get(a.address);
+      if (!sites) { sites = []; byAddress.set(a.address, sites); }
+      const label = from === "" ? "a traced run" : from;
+      const seen = sites.find((x) => x.type === row.type && x.from === label && x.real === real && x.runtime === runtime && x.toOwner === toOwner);
       if (seen) seen.count += Number(row.sites);
-      else byOwner.set(key, { type: row.type, count: Number(row.sites) });
+      else sites.push({ type: row.type, from: label, real, runtime, toOwner, count: Number(row.sites) });
     }
     const skipped: Array<{ address: number; detail: string }> = [];
-    for (const [address, byOwner] of [...callers.entries()].sort((l, r) => l[0] - r[0])) {
+    const notSeeded: CodeSeedNotSeeded[] = [];
+    // The claimants of a window address: every recorded window covering it, plus mine when the project
+    // records none for me (the range being analysed stands in).
+    const allWindows = windows.some((w) => w.owner === owner && w.space === window.space) ? windows : [...windows, window];
+    for (const [address, sites] of [...byAddress.entries()].sort((l, r) => l[0] - r[0])) {
       const addrId = `${mine[0]!.id.split(":")[0]}:${space}:addr:${address.toString(16).padStart(4, "0")}`;
       const target = resolvesTo.get(addrId);
       const targetOwner = target ? ownerOfId(target) : undefined;
-      const sites = [...byOwner.values()].reduce((sum, v) => sum + v.count, 0);
-      const from = [...byOwner.entries()].map(([key, v]) => `${v.type} from "${key.split("|")[1]}"`).sort().join(", ");
+      const from = [...new Set(sites.map((v) => `${v.type} from "${v.from}"`))].sort().join(", ");
 
       // Spec 867 D1 — the window decides first, and overlap stops meaning
       // relevance. An address outside my window is somebody else's; an address
@@ -324,22 +356,46 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
         continue;
       }
 
-      // The address IS in my own window. Whoever wrote the node down, the code
-      // there is this payload's while this payload is loaded — a graph claim by
-      // another occupant of the SAME window is a second overlay of it, not a
-      // reason to refuse my own entry point (Spec 867 §2). The subtraction
-      // survives only where no window is recorded for the other owner: there the
-      // graph's owner claim is still the best answer anyone has.
+      // Spec 915 D3 — a runtime run that saw which payload was in the window said so on the edge:
+      // exactly those owners are seeded. The run decides; the claimants are not consulted.
+      const validated = [...new Set(sites.filter((v) => v.runtime && v.toOwner !== undefined).map((v) => v.toOwner!))].sort();
+      let using: Site[];
+      let how: string;
+      if (validated.length > 0) {
+        if (!validated.includes(owner)) {
+          notSeeded.push({ address, reason: "other_resident", detail: `${from}, but a traced run saw ${validated.join(" / ")} resident at ${hex4(address)}, not this payload` });
+          continue;
+        }
+        using = sites.filter((v) => v.runtime && v.toOwner === owner);
+        how = `; a traced run saw this payload resident here${validated.length > 1 ? ` (the set: ${validated.join(" / ")})` : ""}`;
+      } else {
+        // Spec 915 D1 — only real code seeds across an owner.
+        const real = sites.filter((v) => v.real);
+        if (real.length === 0) {
+          notSeeded.push({ address, reason: "heuristic_caller", detail: `${from} — probable code, never a seed across an owner (confirm the caller to make it one)` });
+          continue;
+        }
+        // Spec 915 D3, static edges only: one claimant of the window is the trivial yes.
+        const claimants = claimantsAt(allWindows, { address, space: window.space as PayloadWindow["space"], bank: window.bank }).claimants.map((w) => w.owner);
+        if (!claimants.includes(owner)) claimants.push(owner);
+        if (claimants.length > 1) {
+          notSeeded.push({ address, reason: "not_validated", detail: `${hex4(address)}: target not validated, claimants ${claimants.sort().join(" / ")} (${from}); a traced run that sees one of them resident decides it` });
+          continue;
+        }
+        using = real;
+        how = "";
+      }
+
+      // The graph's own owner claim still subtracts where no window is recorded for the other owner (Spec 838).
       const theirs = targetOwner !== undefined && targetOwner !== owner ? windowFor(windows, targetOwner) : undefined;
       if (targetOwner !== undefined && targetOwner !== owner && (!theirs || theirs.space !== window.space)) {
         skipped.push({ address, detail: `${from}, but RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, and this project records no window for "${targetOwner}", so the graph's owner claim still decides (the seed subtraction, which a window replaces where there is one)` });
         continue;
       }
-      const jumpOnly = [...byOwner.values()].every((v) => v.type === "JUMPS_TO");
-      const shared = theirs
-        ? `; the graph records owner "${targetOwner}"'s code at this address too — ${describeWindow(theirs)} shares this window, and inside this payload's own window the code is this payload's`
-        : "";
-      add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${from} (${sites} site${sites === 1 ? "" : "s"})${shared}`);
+      const jumpOnly = using.every((v) => v.type === "JUMPS_TO");
+      const useTotal = using.reduce((sum, v) => sum + v.count, 0);
+      const useFrom = [...new Set(using.map((v) => `${v.type} from "${v.from}"`))].sort().join(", ");
+      add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${useFrom} (${useTotal} site${useTotal === 1 ? "" : "s"})${how}`);
     }
 
     // S3 — a Spec 826 alias that already points at something of mine.
@@ -362,6 +418,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       seeds: [...seeds.values()].sort((l, r) => l.address - r.address),
       skipped,
       outOfScope: outOfScope.sort((l, r) => l.address - r.address),
+      notSeeded: notSeeded.sort((l, r) => l.address - r.address),
     };
   } finally {
     db.close();

@@ -32,6 +32,8 @@ the code that loads it says so outright.
 
 ## §2 D1 — The load-time context is the payload's window
 
+> **Replaced for cross-owner seeds by Spec 915 (2026-10-21).** The rule below, "inside my own window the code is mine, whoever else wrote a node there", no longer lets every co-occupant of the window seed this payload. A cross-owner seed now needs a real-code caller and the payload to be the one resident in the window (a trace names it; one claimant is the trivial yes; several claimants and no trace are not seeded and are named in the header). The window and holes logic of this section is unchanged.
+
 A payload record gains the window it occupies when loaded: the address range, its space, and
 its bank where one applies. It is not new knowledge — `payloadLoadAddress` plus the byte
 length is the window, and the loader's own call sites name it too. This spec makes it

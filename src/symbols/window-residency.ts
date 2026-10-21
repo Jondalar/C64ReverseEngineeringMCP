@@ -168,6 +168,31 @@ export async function windowResidency(input: WindowResidencyInput): Promise<Wind
   };
 }
 
+/**
+ * The one comparison: a claimant's own code bytes at `set` against the bytes memory holds
+ * (`live`, address → byte; an address memory has no byte for is not compared). Resident
+ * means at least four bytes compared and every one of them equal. Synchronous, so the
+ * runtime import (Spec 915) asks the same question of the bytes a trace observed that
+ * `windowResidency` asks of a capture — one rule, not two.
+ */
+export function scoreClaimantBytes(
+  bytes: PayloadBytes,
+  owner: string,
+  set: readonly number[],
+  live: ReadonlyMap<number, number>,
+): { compared: number; matched: number; ok: boolean } {
+  const code = bytes.codeBytes({ kind: "analysis", owner });
+  let matched = 0;
+  let compared = 0;
+  for (const addr of set) {
+    const have = live.get(addr);
+    if (have === undefined) continue;
+    compared += 1;
+    if (have === code.get(addr)) matched += 1;
+  }
+  return { compared, matched, ok: compared >= 4 && matched === compared };
+}
+
 async function byBytes(
   input: WindowResidencyInput,
   claimants: PayloadWindow[],
@@ -186,16 +211,7 @@ async function byBytes(
       continue;
     }
     const live = await input.bytes!.read(runtimeSpace(space), undefined, set);
-    const code = bytes.codeBytes({ kind: "analysis", owner: w.owner });
-    let matched = 0;
-    let compared = 0;
-    for (const addr of set) {
-      const have = live.get(addr);
-      if (have === undefined) continue;
-      compared += 1;
-      if (have === code.get(addr)) matched += 1;
-    }
-    const ok = compared >= 4 && matched === compared;
+    const { matched, compared, ok } = scoreClaimantBytes(bytes, w.owner, set, live);
     evidence.push({ owner: w.owner, window: describeWindow(w), compared, matched, resident: ok });
     if (ok) resident.push(w);
   }

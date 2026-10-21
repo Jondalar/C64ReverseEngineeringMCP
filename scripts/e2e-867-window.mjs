@@ -61,6 +61,7 @@ const { nodes, edges } = buildFixture(proj, GRAPH_DDL);
 
 const analyze = (owner, prg, dir = proj) => analyzeImage(dir, owner, prg);
 const seedAt = (report, a) => (report.codeSeedReport?.seeds ?? []).find((s) => s.address === a);
+const notSeededAt = (report, a) => (report.codeSeedReport?.notSeeded ?? []).find((s) => s.address === a);
 const scopeAt = (report, a) => (report.codeSeedReport?.outOfScope ?? []).find((s) => s.address === a);
 const refusals = (report) => (report.rejectedEntryPoints ?? []).filter((r) => r.reason !== "already_code");
 
@@ -71,13 +72,17 @@ for (const m of MODULES) analysed[m.owner] = analyze(m.owner, m.prg);
 
 for (const m of MODULES) {
   const r = analysed[m.owner];
-  check(seedAt(r, 0x1000) !== undefined, `${m.owner} seeds its own entry point ${hex(0x1000)} (${seedAt(r, 0x1000)?.origin ?? "MISSING"})`);
+  // Spec 915 replaces 867 section 2 for a cross-owner seed: the loader's jump into a window of six occupants is real code,
+  // but nothing says WHICH occupant is resident, so it seeds none of them and the header names all six.
+  const ns = notSeededAt(r, 0x1000);
+  check((seedAt(r, 0x1000) === undefined || seedAt(r, 0x1000).origin === "resolved_alias") && ns?.reason === "not_validated" && MODULES.every((x) => ns.detail.includes(x.owner)),
+    `${m.owner}: ${hex(0x1000)} is not seeded by the static call with six claimants (only mod_a's own resolved alias seeds, S3), and the report names all six (915)`);
 }
 const ownedByOther = MODULES.flatMap((m) => refusals(analysed[m.owner]).filter((x) => x.reason === "owned_by_other"));
 check(ownedByOther.length === 0, `not one of the six is refused as another's — owned_by_other = ${ownedByOther.length} (it was 6 before the window)`);
 check(
-  (seedAt(analysed.mod_b, 0x1000)?.detail ?? "").includes("mod_a"),
-  "…and the seed says the window is shared, naming the owner whose routine the graph records at the same address",
+  (notSeededAt(analysed.mod_b, 0x1000)?.detail ?? "").includes("mod_a"),
+  "…and the report names the owner whose routine the graph records at the same address among the claimants",
 );
 check(analysed.mod_c.codeSeedReport?.window?.source === "payload", "a module with a payload record takes its window from the record");
 check(analysed.mod_b.codeSeedReport?.window?.source === "analysed-range", "…and one without takes the range it is being analysed at");
@@ -86,7 +91,8 @@ check(analysed.mod_b.codeSeedReport?.window?.source === "analysed-range", "…an
 check(scopeAt(analysed.mod_f, 0x1180) !== undefined, `${hex(0x1180)} is OUT OF SCOPE for mod_f — its recorded window ends at ${hex(0x10ff)}`);
 check(refusals(analysed.mod_f).every((x) => x.address !== 0x1180), "…and it is not reported as a refusal: nobody asked for it, so nothing was refused");
 check(/outside this payload's window/.test(scopeAt(analysed.mod_f, 0x1180)?.detail ?? ""), "…the answer says why");
-check(seedAt(analysed.mod_c, 0x1180) !== undefined, "…while mod_c, whose window DOES reach $1180, seeds it");
+check(seedAt(analysed.mod_c, 0x1180) === undefined && /mod_c \/ mod_d \/ mod_e|mod_c/.test(notSeededAt(analysed.mod_c, 0x1180)?.detail ?? ""),
+  "…while mod_c, whose window DOES reach $1180, shares it with mod_d and mod_e: not validated, so not seeded, and the report names the claimants (915)");
 
 // ======================================================================== §6.2
 console.log("\n§6.2 — a wide payload stops collecting what loads inside it\n");

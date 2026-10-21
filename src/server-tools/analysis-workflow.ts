@@ -156,6 +156,7 @@ function describeCodeSeeds(analysisPath: string): string {
         status: string; owner: string; reason?: string; seeds?: Array<{ origin: string }>;
         window?: { start: number; end: number; space: string; bank: number | null; source: string; name: string };
         outOfScope?: Array<{ address: number; detail: string }>;
+        notSeeded?: Array<{ address: number; reason: string; detail: string }>;
       };
       rejectedEntryPoints?: Array<{ address: number; reason: string }>;
       strandedByDecodeConflict?: unknown[];
@@ -171,7 +172,7 @@ function describeCodeSeeds(analysisPath: string): string {
     if (seeds?.status === "ok" && (seeds.seeds?.length ?? 0) > 0) {
       const byOrigin = new Map<string, number>();
       for (const seed of seeds.seeds ?? []) byOrigin.set(seed.origin, (byOrigin.get(seed.origin) ?? 0) + 1);
-      lines.push(`Graph code seeds: ${seeds.seeds!.length} for owner "${seeds.owner}" — ${[...byOrigin].sort().map(([o, n]) => `${o}=${n}`).join(", ")}. Addresses only another overlay reaches are disassembled instead of rendered as .byte; the listing names which seed reached each region.`);
+      lines.push(`Graph code seeds: ${seeds.seeds!.length} for owner "${seeds.owner}" — ${[...byOrigin].sort().map(([o, n]) => `${o}=${n}`).join(", ")}. Addresses another owner's real code reaches into this payload are disassembled instead of rendered as .byte; the listing names which seed reached each region.`);
     } else if (seeds && seeds.status !== "ok") {
       // The reason can carry the project's entire owner list. Summarised — an old
       // analysis JSON on disk still holds the long form, so it is cut here too, not
@@ -181,6 +182,10 @@ function describeCodeSeeds(analysisPath: string): string {
     const outOfScope = seeds?.outOfScope ?? [];
     if (outOfScope.length > 0) {
       lines.push(`Out of scope for this window: ${outOfScope.length} cross-owner address${outOfScope.length === 1 ? "" : "es"} — outside the window, or inside a window that loads inside it. Not refusals: they were never this payload's (codeSeedReport.outOfScope).`);
+    }
+    const notSeeded = seeds?.notSeeded ?? [];
+    if (notSeeded.length > 0) {
+      lines.push(`Not seeded: ${notSeeded.length} cross-owner address${notSeeded.length === 1 ? "" : "es"} — the caller is probable code, a traced run saw another payload resident, or the window has several claimants and no run validated one (codeSeedReport.notSeeded). First: ${notSeeded[0]!.detail}`);
     }
     const rejected = report.rejectedEntryPoints ?? [];
     const refused = rejected.filter((r) => r.reason !== "already_code");
@@ -1461,7 +1466,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project dir)"),
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
-      entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]. Usually unnecessary: when the project graph knows an address another overlay calls into, the scan seeds it by itself and reports what it used. A list does NOT simply add seeds — an address inside an instruction another seed already decoded cannot be honoured, and the analysis names the ones it refused (`rejectedEntryPoints`, also printed in the listing header)."),
+      entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]. Usually unnecessary: when the project graph holds a call or jump from real (confirmed) code of another owner into this image, and this payload is the one in that window (a traced run saw it resident, or it is the window's only claimant), the scan seeds it by itself and reports what it used and what it did not seed (`codeSeedReport.notSeeded`). A list does NOT simply add seeds — an address inside an instruction another seed already decoded cannot be honoured, and the analysis names the ones it refused (`rejectedEntryPoints`, also printed in the listing header)."),
     },
     // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("analyze_prg", async (args) => runAnalyze("analyze_prg", { ...args, headed: true } as Parameters<typeof runAnalyze>[1])),
