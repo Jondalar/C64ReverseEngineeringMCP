@@ -1,6 +1,6 @@
 # Spec 910 — A sandbox is a daemon of its own: one way to start it, one way to run, every runtime tool proven equal on it, and it never writes back
 
-**Status:** BUILT and merged (2026-10-21; both halves; extended the same day by P5–P7, the run model). TRX64 half on TRX64 main `db70224`. Ships in C64RE 0.10.2, pinned to TRX64 0.14.2. Open: the reporter's retest on TRX64 #20 (closed on fix).
+**Status:** BUILT and merged (2026-10-21; both halves; extended the same day by P5–P7, the run model). TRX64 half on TRX64 main `db70224`. Ships in C64RE 0.10.2, pinned to TRX64 0.14.2; follow-ups (the old smokes in the new run model, no project scaffold from a projectless sandbox, frame replay anchor) in C64RE 0.10.3 / TRX64 0.14.3. Open: the reporter's retest on TRX64 #20 (closed on fix).
 **Repo:** both.
 - TRX64 (capability): a daemon that never writes a medium back into the file it was opened from; one
   run model (the machine free-runs, a run may end itself after N cycles or at a breakpoint); no
