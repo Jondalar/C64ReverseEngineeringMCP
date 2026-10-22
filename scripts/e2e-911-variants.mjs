@@ -56,10 +56,23 @@ try {
 
   // ═══════════════════════════════════════════════════════════════════════════════════════════
   head("S2  variants run beside the baseline, in parallel");
+  // A cartridge starts at its reset vector, at cycle 0, and its boot code (the trampoline) writes the RAM hook itself and
+  // selects bank 3. A fix patched in at cycle 0 would be overwritten by that boot code and would land in bank 0, so the
+  // cartridge is booted first, into an anchor, and the variants start from the booted machine.
+  writeFileSync(sc("cartboot.feature"), lines(
+    "Feature: boot the cartridge",
+    "Scenario: boot to its loop",
+    '  Given the cart "../media/game.crt"',
+    "  When I wait until the CPU reaches $9000 within 60 frames",
+    '  And I set the anchor "cartup"',
+    "  Then the CPU is at $9000",
+  ));
+  const booted = runCli([sc("cartboot.feature")]);
+  check(booted.code === 0 && existsSync(join(proj, "knowledge", "anchors", "cartup.c64re")), "the cartridge boots to its loop from cycle 0 and the anchor cartup is made", booted.stdout.slice(0, 300));
   writeFileSync(sc("cart.feature"), lines(
     "Feature: fixes in RAM and in a cartridge bank",
     "Scenario: three fixes beside the baseline",
-    '  Given the cart "../media/game.crt"',
+    '  Given the mark "cartup"',
     '  And variant "ramfix" assembles "../fixes/ramfix.tas" at $0A20',
     '  And variant "romfix" assembles "../fixes/romfix.tas" at roml bank 3 $9100',
     '  And variant "both" assembles "../fixes/ramfix.tas" at $0A20',

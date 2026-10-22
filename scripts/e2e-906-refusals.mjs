@@ -61,7 +61,8 @@ check(parity.unclassifiedRuntimeTools(registered).length === 0, "no registered r
 check(parity.staleParityEntries(registered).length === 0, "the table names no tool that is not registered", parity.staleParityEntries(registered).join(", "));
 const verdicts = Object.entries(parity.SANDBOX_PARITY);
 const uiOnly = verdicts.filter(([, v]) => v.verdict === "ui-only");
-check(uiOnly.length >= 9 && uiOnly.every(([, v]) => v.reason.length > 20), `${uiOnly.length} tools are ui-only, each with a reason`, uiOnly.map(([k]) => k).join(", "));
+check(uiOnly.length >= 8 && uiOnly.every(([, v]) => v.reason.length > 20), `${uiOnly.length} tools are ui-only, each with a reason`, uiOnly.map(([k]) => k).join(", "));
+check(parity.SANDBOX_PARITY.runtime_session_export_audio?.verdict === "works", "runtime_session_export_audio works on a sandbox (audio/export renders offline), so it is not among the ui-only tools");
 {
   // the live server, full tool set: the ui-only tools take a session_id (added at registration) and refuse a sandbox id before anything runs
   const m = await H.mcp(proj, { endpoint: noRuntime, env: { C64RE_FULL_TOOLS: "1" } });

@@ -445,9 +445,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
             const { sandboxBinding } = await import("../runtime/sandbox-sessions.js");
             const { writeCaptureMount } = await import("../trace/capture-mount.js");
             const { basename } = await import("node:path");
+            const { realpathSync } = await import("node:fs");
+            const same = (a: string, b: string): boolean => { try { return realpathSync(a) === realpathSync(b); } catch { return a === b; } };
             const sb = sandboxBinding(session_id);
-            const sourceName = typeof cart.sourceName === "string" ? cart.sourceName : undefined;
-            const ours = sb?.mediaSha256 !== undefined && sb.media !== undefined && sourceName !== undefined && basename(sb.media) === sourceName;
+            // A sandbox daemon opens every medium from a copy (`--scratch`) and reports the copy's name (`001-name`).
+            // The identity of what C64RE handed in survives the copy: the daemon lists {original, copy}.
+            let sourceName = typeof cart.sourceName === "string" ? cart.sourceName : undefined;
+            let original: string | undefined;
+            if (sb && sourceName !== undefined) {
+              const st = await runtimeDaemon.call<{ scratchCopies?: { original?: string; copy?: string }[] }>("session/state", { session_id }).catch(() => null);
+              const hit = st?.scratchCopies?.find((m) => typeof m.copy === "string" && typeof m.original === "string" && basename(m.copy) === sourceName);
+              if (hit?.original) { original = hit.original; sourceName = basename(hit.original); }
+            }
+            const ours = sb?.mediaSha256 !== undefined && sb.media !== undefined && sourceName !== undefined && basename(sb.media) === sourceName
+              && (original === undefined || same(original, sb.media));
             writeCaptureMount(retracePath, {
               v: 1, session: session_id, at: new Date().toISOString(),
               cartridge: {

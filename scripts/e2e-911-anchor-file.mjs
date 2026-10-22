@@ -51,8 +51,7 @@ try {
   const shared = await H.daemon(DAEMON, proj);
   const m = await H.mcp(proj, { endpoint: shared.endpoint, env: { C64RE_FULL_TOOLS: "1" } });
   const sharedWs = await H.ws(shared.port);
-  const sharedCycle = async () => (await sharedWs.call("session/state")).c64Cycles;
-  const sharedBefore = await sharedCycle();
+  const pin = await H.pinShared(sharedWs);
 
   // ═══════════════════════════════════════════════════════════════════════════════════════════
   head("S1  an anchor outlives the ring");
@@ -156,8 +155,8 @@ try {
   check(jsonOf(repl.stdout).results[0].verdict === "PASS" && repl.code === 0, "--replace-anchors replaces it", repl.stdout.slice(0, 300));
   check(existsSync(f2) && readFileSync(f2).length > 0 && before2.length > 0, "…and the file is there");
 
-  const sharedAfter = await sharedCycle();
-  check(sharedAfter === sharedBefore, "the shared session's cycle did not move across S1 and S1b", `${sharedBefore} -> ${sharedAfter}`);
+  const sharedNow = await pin.unchanged();
+  check(sharedNow.ok, "the shared session (paused stand-in) did not move across S1 and S1b: same cycle, same PC, still paused", sharedNow.text);
   sharedWs.close();
 } catch (e) {
   check(false, "script ran", String((e && e.stack) || e));

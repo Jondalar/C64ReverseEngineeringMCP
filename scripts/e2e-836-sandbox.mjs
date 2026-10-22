@@ -132,13 +132,20 @@ check(sockets.length === 1 && /this\.port/.test(sockets[0]),
 // order to refuse it. Nothing in this path connects to it.
 check(!/ws:\/\/127\.0\.0\.1:4312/.test(toolSrc + spawner),
   "neither the tool nor the spawner contains the shared endpoint at all");
-const guard = driver.slice(driver.indexOf("export function sharedRuntimePort"));
+// The guard lives in its own module (src/reel/shared-port.ts), so the sandbox side has no edge into the shared client.
+// Nothing else in the sandbox path (driver, tool, spawner, lifecycle, boot) may name the port.
+const guardSrc = readFileSync(join(ROOT, "src/reel/shared-port.ts"), "utf8");
+const guard = guardSrc.slice(guardSrc.indexOf("export function sharedRuntimePort"));
 const guardBody = guard.slice(0, guard.indexOf("\n}\n") + 2);
-const endpointHits = (driver.match(/4312/g) ?? []).length;
-const guardHits = (guardBody.match(/4312/g) ?? []).length;
-check(endpointHits > 0 && endpointHits === guardHits,
-  "the driver names the shared port only inside the guard that refuses it",
-  `${guardHits} of ${endpointHits} occurrences`);
+const pathHits = [["driver", driver], ["tool", toolSrc], ["spawner", spawner],
+  ["lifecycle", readFileSync(join(ROOT, "src/runtime/sandbox-sessions.ts"), "utf8")],
+  ["boot", readFileSync(join(ROOT, "src/reel/session-boot.ts"), "utf8")]]
+  .filter(([, src]) => /4312/.test(src.replace(/\/\/[^\n]*/g, ""))).map(([n]) => n);
+const endpointHits = (guardSrc.replace(/\/\/[^\n]*/g, "").match(/4312/g) ?? []).length;
+const guardHits = (guardBody.replace(/\/\/[^\n]*/g, "").match(/4312/g) ?? []).length;
+check(endpointHits > 0 && endpointHits === guardHits && pathHits.length === 0,
+  "the sandbox path names the shared port only inside the guard that refuses it",
+  `${guardHits} of ${endpointHits} occurrences in the guard module; named elsewhere in: ${pathHits.join(",") || "nowhere"}`);
 check(/return m \? Number\(m\[1\]\) : 4312;/.test(guardBody),
   "…and that guard only parses it into a number — it never opens it");
 
@@ -164,7 +171,7 @@ check(/ENDS ITSELF|ends itself/i.test(spawner), "the spawner still states the en
 // is always the keeper's attached child, and the keeper ends it when the owner is gone.
 check(/detached: (?:false|process\.platform === "win32")/.test(spawner)
   && /const d = spawn\(cmd, args, \{ stdio:[^}]*\}\)/.test(spawner) && !/const d = spawn\([^)]*detached/.test(spawner)
-  && /parentGone\(\)\) \{ orphaned = true; end\("owner gone"\)/.test(spawner),
+  && /parentGone\(\)\) \{ orphaned = true; (?:void |await )?end\("owner gone"\)/.test(spawner),
   "the daemon is a CHILD of the keeper, and the keeper ends it when the owner is gone, so it cannot outlive the process");
 check(/s\.reaper = setTimeout/.test(spawner), "a reaper is armed at start, before the machine is used");
 check(/void s\.close\(\)/.test(spawner), "…and it closes the sandbox when it fires, listener or not");
@@ -190,8 +197,9 @@ check(badStep > 0 && badStep < toolSrc.indexOf("runSandbox({"),
 // A machine the runtime has dropped onto its isolated CPU core is not a C64, and
 // the report says so instead of showing a stale screen as if it were live. This
 // is the one thing Spec 836 assumed needed no runtime work and does.
-check(/EXERCISER/.test(driver), "a machine that is not whole is reported as not whole");
-check(/advance_to_frame/.test(driver) && /not sweeping\|raster/.test(driver),
+const boot = readFileSync(join(ROOT, "src/reel/session-boot.ts"), "utf8");
+check(/EXERCISER/.test(boot), "a machine that is not whole is reported as not whole");
+check(/advance_to_frame/.test(boot) && /not sweeping\|raster/.test(boot),
   "…detected by asking the runtime whether its VIC is sweeping, not by guessing");
 check(/no frame was taken/.test(driver), "…and no picture is offered for a VIC that is not drawing");
 check(/NOT A WHOLE MACHINE/.test(toolSrc), "…and the caller sees it above the numbers, not in a footnote");

@@ -118,7 +118,7 @@ try {
   // ── the bare set mode still behaves as it always did ──────────────────────
   await box.call("debug/pause", { source: "gate" });
   const bare = await joystick({ session_id: SID, right: true }, {});
-  ok(/free-runs between calls/.test(text(bare)), "14 the bare set mode says why it is the weaker one");
+  ok(/keeps moving meanwhile/.test(text(bare)), "14 the bare set mode says why it is the weaker one");
   ok(await dc00() === 0x77, "15 and it leaves the direction held", `$${(await dc00()).toString(16)}`);
   await box.call("session/joystick_clear", { port: 2, source: "gate" });
 

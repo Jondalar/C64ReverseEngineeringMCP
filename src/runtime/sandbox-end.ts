@@ -69,7 +69,7 @@ export function existingFiles(paths: Iterable<string>): string[] {
 
 export async function recordOutcome(projectDir: string, i: EndInfo): Promise<string> {
   try {
-    const { recordAgentStepFromCode } = await import("../server-tools/agent-workflow.js");
+    const { recordAgentStepFromCode } = await import("../project-knowledge/agent-state.js");
     const line = `Sandbox session ${i.id} ended (${i.outcome}) after ${i.durationSec}s — purpose: ${i.purpose}` +
       (i.summary ? ` — ${i.summary}` : "") + (i.artefacts.length ? ` — kept: ${i.artefacts.join(", ")}` : "");
     recordAgentStepFromCode(projectDir, line);

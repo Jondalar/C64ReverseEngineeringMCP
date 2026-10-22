@@ -387,3 +387,14 @@ later change touches it.
     reached/failed/budget/idle/owner gone/runtime exited), `e2e:910-parity` (S3, S4, S8, S12).
   - **Pin.** The runtime that C64RE starts must be TRX64 with `4c65ce7` and `d1be072` (run model, `--scratch`):
     a daemon without them rejects `--scratch` or lacks `debug/run {wait}`.
+- **Follow-up (`fix/910-smokes`).**
+  - **The identity of a medium survives the copy.** Under `--scratch` the daemon reports a mounted medium by its copy's name
+    (`001-name`). `session/state` therefore also lists `scratchCopies: [{original, copy}]`, and the trace finalize writes the
+    capture's mount record under the original's name and hash (Spec 909 D4 matches on it).
+  - **The step log has a module of its own** (`project-knowledge/agent-state.ts`): the end of a sandbox adds its outcome there
+    without loading the tool registrations, which reach the shared runtime backend.
+  - **Tests that held the old world.**
+    - A daemon free-runs, so "the shared machine did not move" is proved on a paused stand-in (same cycle, same PC, still
+      paused), not by a clock that stands still.
+    - A cartridge starts at its reset vector: a fix that its boot code overwrites is tried from a booted anchor, not from cycle 0.
+    - A plain connection to a daemon is an A/V subscriber and holds the idle clock; the RPC-only connection of the MCP is `?av=0`.

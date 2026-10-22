@@ -76,7 +76,7 @@ try {
   const sc = (n) => join(proj, "scenarios", n);
   const shared = await H.daemon(DAEMON, proj);
   const sharedWs = await H.ws(shared.port);
-  const sharedBefore = (await sharedWs.call("session/state")).c64Cycles;
+  const pin = await H.pinShared(sharedWs);
   const m = await H.mcp(proj, { endpoint: shared.endpoint, env: { C64RE_FULL_TOOLS: "1", C64RE_SLOT_GATE: "0" } });
   const svc = new ProjectKnowledgeService(proj);
   svc.saveProjectProfile({ build: { command: "node build.mjs", outputs: ["out/game.prg"] } });
@@ -231,8 +231,8 @@ try {
   check(/^RED/.test(await m.call("runtime_candidate_verify_build", { id: "cand-old" })), "…and RED on a build without it");
   check(/Nothing was done/.test(await m.call("runtime_candidate_export", {})), "the retired runtime_candidate_export still answers, by pointing at the list");
 
-  const sharedAfter = (await sharedWs.call("session/state")).c64Cycles;
-  check(sharedAfter === sharedBefore, "S7: the shared session's cycle is unchanged across the whole run", `${sharedBefore} -> ${sharedAfter}`);
+  const sharedNow = await pin.unchanged();
+  check(sharedNow.ok, "S7: the shared session (a paused stand-in) is unchanged across the whole run: same cycle, same PC, still paused", sharedNow.text);
   sharedWs.close();
 } catch (e) {
   check(false, "script ran", String((e && e.stack) || e));
