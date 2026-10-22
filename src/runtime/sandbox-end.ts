@@ -68,6 +68,9 @@ export function existingFiles(paths: Iterable<string>): string[] {
 }
 
 export async function recordOutcome(projectDir: string, i: EndInfo): Promise<string> {
+  // A sandbox started with no project (a scenario run, a one-shot with no project_dir) has none to log into. An empty
+  // path is not "here": the step log resolves it to the process cwd and scaffolds a project there.
+  if (!projectDir) return "not recorded in a step log (this sandbox belongs to no project)";
   try {
     const { recordAgentStepFromCode } = await import("../server-tools/agent-workflow.js");
     const line = `Sandbox session ${i.id} ended (${i.outcome}) after ${i.durationSec}s — purpose: ${i.purpose}` +
