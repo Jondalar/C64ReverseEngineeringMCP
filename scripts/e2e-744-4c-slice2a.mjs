@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";

@@ -76,7 +76,7 @@ export interface FeatureRunOptions {
   readonly text?: string;
   /** Only scenarios whose name contains this. */
   readonly scenario?: string;
-  /** The project media, fixes and anchors are looked up in (default: found by walking up from each file, else the cwd). */
+  /** The project media, fixes and anchors are looked up in (default: found by walking up from each file; a file in none resolves its names against the cwd and records nothing). */
   readonly project?: string;
   /** Machines at once (default min(4, CPUs)). */
   readonly jobs?: number;
@@ -170,9 +170,14 @@ function featureFiles(path: string): string[] {
     });
 }
 
-/** The project a file belongs to — the same walk-up every tool uses — else the cwd. */
-function projectFor(file: string): string {
-  return findProjectRoot(dirname(file)) ?? process.cwd();
+/**
+ * Where a file's relative names resolve and whether that place is a project. The project is the one the same walk-up every
+ * tool uses finds; a file in none resolves its names against the cwd, and nothing is recorded anywhere — the cwd is a place
+ * to read from, never a project to write into.
+ */
+function projectFor(file: string): { dir: string; inProject: boolean } {
+  const root = findProjectRoot(dirname(file));
+  return root ? { dir: root, inProject: true } : { dir: process.cwd(), inProject: false };
 }
 
 export function rel(p: string): string {
@@ -193,6 +198,8 @@ interface Prepared {
   readonly file: string;
   readonly scenario: Scenario;
   readonly projectDir: string;
+  /** projectDir is a project (found or given), not just the cwd names resolve against. Only then is anything recorded into it. */
+  readonly inProject: boolean;
   readonly startedAt: number;
   readonly resolveMedium: (named: string) => string;
   readonly mediaPath?: string;
@@ -208,7 +215,7 @@ interface Prepared {
 
 type Prep = { result: ScenarioResult } | { prep: Prepared };
 
-async function prepare(file: string, text: string | undefined, scenario: Scenario, projectDir: string, reserved: Set<string>): Promise<Prep> {
+async function prepare(file: string, text: string | undefined, scenario: Scenario, projectDir: string, inProject: boolean, reserved: Set<string>): Promise<Prep> {
   const startedAt = Date.now();
   const unchecked = scenario.criteria.filter((c) => !c.check).map((c) => ({ line: c.line, text: c.text }));
   const base = { file, line: scenario.line ?? 0, scenario: scenario.name, unchecked };
@@ -268,7 +275,7 @@ async function prepare(file: string, text: string | undefined, scenario: Scenari
   }
   return {
     prep: {
-      file, scenario, projectDir, startedAt, resolveMedium, mediaPath, model, checks, unchecked, variants, cleanup,
+      file, scenario, projectDir, inProject, startedAt, resolveMedium, mediaPath, model, checks, unchecked, variants, cleanup,
     },
   };
 }
@@ -329,6 +336,7 @@ function verdictOf(run: SandboxRunResult): { verdict: Verdict; reason?: string }
 
 async function sandboxOptions(p: Prepared, placement: InputPlacement, replaceAnchors: boolean, extra: Record<string, unknown> = {}) {
   const { anchorFile, ensureAnchorsDir } = await import("../anchors/file.js");
+  let anchorScratch: string | undefined;
   return {
     // No projectDir: that is where the DAEMON keeps its scratch, and a scenario run must
     // not leave its copy-on-write media in the project it is testing.
@@ -341,7 +349,17 @@ async function sandboxOptions(p: Prepared, placement: InputPlacement, replaceAnc
     screen: false,
     resolveMedium: p.resolveMedium,
     anchors: {
-      pathFor: (name: string) => { ensureAnchorsDir(p.projectDir); return anchorFile(p.projectDir, name); },
+      pathFor: (name: string) => {
+        // No project: the anchor lives as long as this run, in a scratch directory — never in the cwd.
+        if (!p.inProject && !anchorScratch) {
+          const made = mkdtempSync(join(tmpdir(), "c64re-anchors-"));
+          anchorScratch = made;
+          process.once("exit", () => { try { rmSync(made, { recursive: true, force: true }); } catch { /* best effort */ } });
+        }
+        const home = p.inProject ? p.projectDir : anchorScratch!;
+        ensureAnchorsDir(home);
+        return anchorFile(home, name);
+      },
       replace: replaceAnchors,
     },
     inputOffsetCycles: placement.inputOffsetCycles,
@@ -379,7 +397,7 @@ async function runPlain(p: Prepared, placement: InputPlacement, replaceAnchors: 
     let note: string | undefined;
     if (verdict === "PASS" && placement.inputOffsetCycles === undefined && placement.jitterSeed === undefined) {
       const { recordPassForRun } = await import("../runtime/emulator-pass.js");
-      const rec = recordPassForRun({
+      const rec = !p.inProject ? { recorded: [], note: "no project: the green run was not recorded for the C64 Ultimate gate (give a project, or run inside one)" } : recordPassForRun({
         projectDir: p.projectDir, mediaPath: p.mediaPath, steps: p.scenario.steps, resolveMedium: p.resolveMedium, scenario: p.scenario.name, checks: run.checks,
       });
       note = rec.note;
@@ -406,7 +424,7 @@ async function afterAnchors(p: Prepared, run: SandboxRunResult): Promise<{ name:
   for (const a of run.anchorsSet) {
     const file = anchorFileRel(a.name);
     out.push({ name: a.name, file, cycle: a.cycle, pc: a.pc });
-    if (g.projectHoldsGraph(p.projectDir)) {
+    if (p.inProject && g.projectHoldsGraph(p.projectDir)) {
       try {
         g.recordAnchor(p.projectDir, {
           name: a.name, cycle: a.cycle, frame: Math.floor(a.cycle / run.machine.cyclesPerFrame), file,
@@ -450,6 +468,7 @@ async function finishVariants(p: Prepared, raws: Raw[]): Promise<ScenarioResult>
   let candidate: string | undefined;
   let candidateNote: string | undefined;
   try {
+    if (!p.inProject) throw new Error("no project to keep it in (give one, or run inside one)");
     const { recordFeatureRun } = await import("../candidates/feature-record.js");
     const rec = await recordFeatureRun(p.projectDir, {
       id: v.candidateId,
@@ -491,15 +510,15 @@ export function exitCodeOf(results: readonly ScenarioResult[], parseErrors: read
 }
 
 export async function runFeatures(opts: FeatureRunOptions): Promise<FeatureRun> {
-  const work: { file: string; text: string | undefined; scenario: Scenario; projectDir: string }[] = [];
+  const work: { file: string; text: string | undefined; scenario: Scenario; projectDir: string; inProject: boolean }[] = [];
   const parseErrors: string[] = [];
-  const sources: { file: string; text: string; projectDir: string }[] = [];
+  const sources: { file: string; text: string; projectDir: string; inProject: boolean }[] = [];
   if (opts.text !== undefined) {
-    sources.push({ file: INLINE, text: opts.text, projectDir: opts.project ? resolve(opts.project) : process.cwd() });
+    sources.push({ file: INLINE, text: opts.text, projectDir: opts.project ? resolve(opts.project) : process.cwd(), inProject: !!opts.project });
   } else {
     const files = (opts.paths ?? []).flatMap((p) => featureFiles(resolve(p)));
     if (files.length === 0) throw new Error(`no .feature files under ${(opts.paths ?? []).join(", ")}`);
-    for (const file of files) sources.push({ file, text: readFileSync(file, "utf8"), projectDir: opts.project ? resolve(opts.project) : projectFor(file) });
+    for (const file of files) sources.push({ file, text: readFileSync(file, "utf8"), ...(opts.project ? { projectDir: resolve(opts.project), inProject: true } : (({ dir, inProject }) => ({ projectDir: dir, inProject }))(projectFor(file))) });
   }
   // A line that does not parse is reported and counts as a failure of the run — but the
   // scenarios around it that did parse still run: one bad line in one file of twenty-five
@@ -510,7 +529,7 @@ export async function runFeatures(opts: FeatureRunOptions): Promise<FeatureRun> 
     for (const i of issues) { const m = `${where}:${i.line}: ${i.message}`; parseErrors.push(m); opts.onParseError?.(m); }
     for (const scenario of scenarios) {
       if (opts.scenario && !scenario.name.toLowerCase().includes(opts.scenario.toLowerCase())) continue;
-      work.push({ file: s.file, text: s.file === INLINE ? s.text : undefined, scenario, projectDir: s.projectDir });
+      work.push({ file: s.file, text: s.file === INLINE ? s.text : undefined, scenario, projectDir: s.projectDir, inProject: s.inProject });
     }
   }
 
@@ -525,7 +544,7 @@ export async function runFeatures(opts: FeatureRunOptions): Promise<FeatureRun> 
   const tasks: (() => Promise<void>)[] = [];
   const reserved = new Set<string>();
   for (const [i, w] of work.entries()) {
-    const prep = await prepare(w.file, w.text, w.scenario, w.projectDir, reserved);
+    const prep = await prepare(w.file, w.text, w.scenario, w.projectDir, w.inProject, reserved);
     if ("result" in prep) { emit(i, prep.result); continue; }
     const p: Prepared = w.text === undefined ? prep.prep : { ...prep.prep, inlineText: w.text };
     if (!p.variants) {
