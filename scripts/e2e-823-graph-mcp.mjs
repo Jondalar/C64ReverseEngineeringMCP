@@ -15,9 +15,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:823
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -39,7 +40,7 @@ check(!imports.some((i) => /node:fs|node:sqlite|project-knowledge/.test(i)), "gr
 
 // ---------------------------------------------------------------- project + seed
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-823-"));
+const projectDir = testTmpDir("c64re-e2e-823-");
 check(!projectDir.startsWith(ROOT), "project dir is outside the C64RE repo");
 
 // The project is initialized through the REAL door (project_init) once the

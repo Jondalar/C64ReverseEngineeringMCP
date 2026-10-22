@@ -7,11 +7,11 @@
 //   2  assemble_source with the real 64tass from PATH (skips loudly when none is on PATH)
 //   3  C64RE_FINGERPRINT_LIBS with two absolute library files loads both
 //   npm run build && node scripts/e2e-issue113-path-list-delimiter.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, delimiter, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { find64tassBinary, assembleSource } = await import(pathToFileURL(join(ROOT, "dist/assemble-source.js")).href);
@@ -27,7 +27,7 @@ const skip = (name, why) => { skips++; console.log(`SKIP  ${name}: ${why} — NO
 
 const savedEnv = { PATH: process.env.PATH, bin: process.env.C64RE_64TASS_BIN, libs: process.env.C64RE_FINGERPRINT_LIBS };
 delete process.env.C64RE_64TASS_BIN;
-const dir = mkdtempSync(join(tmpdir(), "c64re-path-list-"));
+const dir = testTmpDir("c64re-path-list-");
 try {
   console.log("[1] 64tass only on PATH");
   // The fixed install paths come before PATH in the lookup; when one exists the PATH entry

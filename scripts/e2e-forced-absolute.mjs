@@ -4,9 +4,9 @@
 // every following label (the segment-override bug). Run after `npm run build`.
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, readFileSync, rmSync, mkdtempSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 const require = createRequire(import.meta.url);
 const { disassemblePrg } = require("../dist/pipeline/lib/prg-disasm.cjs");
 const { L, emitListing } = require("../dist/pipeline/lib/listing.cjs");
@@ -16,7 +16,7 @@ const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" 
 
 console.log("forced-absolute — abs-with-zeropage-operand stays 3-byte + readable\n");
 
-const dir = mkdtempSync(join(tmpdir(), "fabs-"));
+const dir = testTmpDir("fabs-");
 try {
   // PRG @ $C000: STA $0074 (abs, 8D 74 00) + RTS (60). Header = load addr little-endian.
   const prg = Uint8Array.from([0x00, 0xc0, 0x8d, 0x74, 0x00, 0x60]);

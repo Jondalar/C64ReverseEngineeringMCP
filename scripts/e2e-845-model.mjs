@@ -5,9 +5,9 @@
 // session's model holds 177. The test below builds a small graph and checks that a
 // handful of asserted boundaries index all of it, that the edges between them are
 // derived rather than stated, and that what falls outside is visible.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { assertBoundary, listBoundaries, removeBoundary, ModelBoundaryError } = await import("../dist/model/store.js");
@@ -26,7 +26,7 @@ const check = (name, cond, detail) => {
 
 const SLUG = "testgame";
 function newProject() {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-845-"));
+  const dir = testTmpDir("c64re-845-");
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
   return dir;

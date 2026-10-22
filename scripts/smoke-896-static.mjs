@@ -14,10 +14,11 @@
 //      depacker that knows its destination writes a PRG with that load address
 //   8  analyze: a BASIC stub at $0801 is a `basic` segment, its SYS target an entry point
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -28,7 +29,7 @@ let pass = 0, fail = 0, skipped = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${String(d).replace(/\s+/g, " ").slice(0, 300)})` : ""}`); };
 const skip = (m) => { skipped++; console.log(`  SKIP  ${m}`); };
 
-const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-896-")));
+const base = testTmpDir("c64re-896-");
 const scratch = (name) => { const d = join(base, name); mkdirSync(d, { recursive: true }); return d; };
 
 function cleanEnv(extra = {}) {

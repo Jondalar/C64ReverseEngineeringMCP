@@ -15,11 +15,11 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
-import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { ensureUiLaunchers } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/ui-launcher.js")).href);
@@ -41,7 +41,7 @@ console.log("Workspace launchers — ui.sh + ui.ps1 + the double-click shims\n")
 // A project name with an apostrophe and a space: the two characters that break
 // naive quoting in both shells. This is not hypothetical — the corpus is full of
 // `wasteland_s1[ea_interplay_1988](!)`.
-const project = mkdtempSync(join(tmpdir(), "c64re-launcher-"));
+const project = testTmpDir("c64re-launcher-");
 const projectDir = join(project, "Mike's Disk (!)");
 const repoDir = join(project, "C64RE Tools", "repo");
 mkdirSync(projectDir, { recursive: true });
@@ -359,7 +359,7 @@ else {
 // shipped exactly that and the workbench could not be started. A package is recognised
 // positively: the built orchestrator present, the source entry absent.
 {
-  const pkgProject = join(tmpdir(), `c64re-launcher-pkg-${process.pid}`);
+  const pkgProject = testTmpDir("c64re-launcher-pkg-");
   const pkgRoot = join(pkgProject, "node_modules", "@trex64", "c64re");
   mkdirSync(join(pkgRoot, "dist", "workspace-ui"), { recursive: true });
   writeFileSync(join(pkgRoot, "dist", "workspace-ui", "launch.js"), "// built orchestrator\n");

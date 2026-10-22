@@ -5,9 +5,9 @@
 // already writes in its first paragraph — coverage, sources, and the evidence standard
 // ("the binary wins; every 'all stores to X' claim is an exhaustive opcode scan, not a
 // grep"). The test uses that document's real shape.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { parseFrontmatter, renderFrontmatter, template, parseCoverage } = await import("../dist/docs/frontmatter.js");
 const { scanDocs, lintDocs, formatDocLint, findDocsDirs } = await import("../dist/docs/scan.js");
@@ -23,7 +23,7 @@ const check = (name, cond, detail) => {
 
 const SLUG = "testgame";
 function newProject() {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-847-"));
+  const dir = testTmpDir("c64re-847-");
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   mkdirSync(join(dir, "docs", "model"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));

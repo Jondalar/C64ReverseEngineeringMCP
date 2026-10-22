@@ -18,10 +18,10 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const server = join(ROOT, "dist/workspace-ui/server.js");
@@ -37,7 +37,7 @@ const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
 const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 
 const PORT = 4329;
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-825-routes-"));
+const projectDir = testTmpDir("c64re-825-routes-");
 mkdirSync(join(projectDir, "knowledge"), { recursive: true });
 mkdirSync(join(projectDir, "analysis"), { recursive: true });
 writeFileSync(join(projectDir, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p825", name: "s825", slug: "s825", rootPath: projectDir, status: "active", createdAt: "2026-09-06T00:00:00.000Z", updatedAt: "2026-09-06T00:00:00.000Z" }));

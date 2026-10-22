@@ -1,10 +1,10 @@
 // BUG-033 — artifact-version reconcile must (A) clear a sticky `missing`/`stale`
 // flag when the file reappears on disk, and (B) never auto-pick a `related` companion
 // (.sym) over a primary listing (.asm/.tass) of the same subject.
-import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -12,7 +12,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-033 — version reconcile clears reappeared-missing + primary beats related\n");
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug033-"));
+const projectDir = testTmpDir("c64re-bug033-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const { subjectIdForArtifact } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/artifact-versions.js`).href);
 const svc = new ProjectKnowledgeService(projectDir);

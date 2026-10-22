@@ -20,8 +20,7 @@
 // Mint the capture isolated, no daemon:
 //   trx64cli --rom-dir <roms> boot --disk <crt> --cycles 30000000 \
 //     --trace run.c64retrace --trace-domains cart-read --dump /tmp/x.c64re
-import { writeFileSync, rmSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import {
   buildCartReadSet, cartBankUsage, cartReadSetFromCaptureFile, captureMetaFromFile,
@@ -29,6 +28,7 @@ import {
 import { encodeFileHeader, encodeCartRead, decodeFileHeader, decodeEventStream } from "../dist/trace/binary-format.js";
 import { validateExtraction } from "../dist/server-tools/validate-extraction.js";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -63,7 +63,7 @@ const file = new Uint8Array(header.length + off);
 file.set(header, 0);
 file.set(evbuf.subarray(0, off), header.length);
 
-const dir = mkdtempSync(join(tmpdir(), "cart-lens-"));
+const dir = testTmpDir("cart-lens-");
 const path = join(dir, "cap.c64retrace");
 let realExit = 0;
 try {

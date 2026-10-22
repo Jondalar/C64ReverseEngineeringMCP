@@ -8,9 +8,9 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let ProjectKnowledgeService, persistInspectEvidence;
 try {
@@ -31,7 +31,7 @@ const gate = (name, ok, detail) => {
 
 console.log("Spec 710.3/710.5 — inspect-evidence persistence gate");
 
-const root = mkdtempSync(join(tmpdir(), "c64re-710-persist-"));
+const root = testTmpDir("c64re-710-persist-");
 try {
   const service = new ProjectKnowledgeService(root);
 

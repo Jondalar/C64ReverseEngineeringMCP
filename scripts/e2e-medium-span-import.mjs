@@ -2,15 +2,15 @@
 // Deterministic, synthetic, copyright-free: build a disk + crt manifest, import
 // via the REAL importManifestKnowledge, assert the neutral Medium/Payload substrate.
 // NOT a disk-count test. Run: npm run e2e:medium-span-import (needs build:mcp).
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { importManifestKnowledge } from "../dist/project-knowledge/manifest-import.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-const tmp = mkdtempSync(join(tmpdir(), "c64re-mspan-"));
+const tmp = testTmpDir("c64re-mspan-");
 try {
   console.log("medium-span-import — Medium->Payload substrate from any representation\n");
 

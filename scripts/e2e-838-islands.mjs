@@ -24,10 +24,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:838-islands
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -99,11 +99,11 @@ put(0xc030, 0xa0, 0x00, 0x8c, 0x18, 0xd0, 0x60);
 put(0xc038, 0xa0, 0x05, 0x8c, 0x16, 0xd0, 0x60);
 for (let i = 0; i < 0x40; i += 1) image[0x40 + i] = 0x41 + (i % 26); // "ABCD..." — plainly data
 
-const dir1 = mkdtempSync(join(tmpdir(), "c64re-838-resident-"));
+const dir1 = testTmpDir("c64re-838-resident-");
 const prg1 = join(dir1, "resident.prg");
 writeFileSync(prg1, Buffer.from([F1 & 0xff, F1 >> 8, ...image]));
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-838-proj-"));
+const proj = testTmpDir("c64re-838-proj-");
 writeGraph(proj, {
   nodes: [
     // this owner's own rows — how the reader learns which space it lives in
@@ -178,7 +178,7 @@ check(/Code seeds/.test(asmOn), "the listing header carries the seed ledger");
 check(/overlay_b/.test(asmOn), "…including the address the graph handed to a different owner");
 
 console.log("\nDoctrine rule 1 — an absent graph is a NAMED reason, never a silent zero\n");
-const nowhere = analyze(prg1, join(dir1, "nograph.json"), { projectDir: mkdtempSync(join(tmpdir(), "c64re-838-empty-")) });
+const nowhere = analyze(prg1, join(dir1, "nograph.json"), { projectDir: testTmpDir("c64re-838-empty-") });
 check(nowhere.codeSeedReport?.status === "absent", "with no graph the seed pass reports `absent`");
 check(/graph\.sqlite/.test(nowhere.codeSeedReport?.reason ?? ""), "…and the reason names the file it looked for");
 const asmNone = render(prg1, join(dir1, "nograph.json"), join(dir1, "nograph.asm"));
@@ -224,7 +224,7 @@ put3(0xc000, 0x20, 0x10, 0xc0, 0x60);
 put3(0xc004, 0xad, 0x01);      // `lda $A901` — its high byte IS $C006's opcode
 put3(0xc006, 0xa9, 0x01, 0x60);
 put3(0xc010, 0x4c, 0x04, 0xc0);
-const dir3 = mkdtempSync(join(tmpdir(), "c64re-838-conflict-"));
+const dir3 = testTmpDir("c64re-838-conflict-");
 const prg3 = join(dir3, "conflict.prg");
 writeFileSync(prg3, Buffer.from([F3 & 0xff, F3 >> 8, ...img3]));
 const conflict = analyze(prg3, join(dir3, "conflict.json"), { entries: ["c000", "c006"], noSeeds: true });
@@ -271,7 +271,7 @@ put2(0xc100,
 );
 put2(0xc180, 0x20, 0x00, 0xc1); // `jsr $C100` sitting in data — an inbound reference nothing executes
 
-const dir2 = mkdtempSync(join(tmpdir(), "c64re-838-island-"));
+const dir2 = testTmpDir("c64re-838-island-");
 const prg2 = join(dir2, "island.prg");
 writeFileSync(prg2, Buffer.from([F2 & 0xff, F2 >> 8, ...img2]));
 

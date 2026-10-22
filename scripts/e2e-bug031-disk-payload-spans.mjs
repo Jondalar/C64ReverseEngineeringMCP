@@ -5,10 +5,10 @@
 //   • no span.mediumRef            → UNSCOPED: shown on every disk image, flagged
 //     `unscoped` so the UI badges it (never silently fanned-as-confirmed).
 // Same artifact on multiple images = multiple spans. CBM-cell overlaps deduped.
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -16,7 +16,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-031 / Spec 750.1 — disk-layout overlays payload medium_spans, scoped per image\n");
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug031-"));
+const projectDir = testTmpDir("c64re-bug031-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "BUG-031" });

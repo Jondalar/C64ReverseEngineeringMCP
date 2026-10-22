@@ -2,10 +2,10 @@
 // FAITHFUL port of the pipeline algorithm (same segmentation), correctly
 // OVERRIDE an already-covered range (the resolve-pc append-bug), and load
 // _analysis.json + _annotations.json non-destructively.
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -69,7 +69,7 @@ for (const c of CASES) {
 
 // --- Loader: reads _analysis.json + sibling _annotations.json (hex strings),
 //     applies overlay, leaves _analysis.json untouched. ---
-const dir = mkdtempSync(join(tmpdir(), "c64re-751-"));
+const dir = testTmpDir("c64re-751-");
 const analysisPath = join(dir, "foo_analysis.json");
 const annPath = join(dir, "foo_annotations.json");
 const analysisJson = { segments: [{ kind: "code", start: 0x1000, end: 0x10ff, length: 0x100, score: { confidence: 0.5 } }] };
@@ -86,7 +86,7 @@ const onDisk = JSON.parse(readFileSync(analysisPath, "utf8"));
 ok(onDisk.segments[0].kind === "code", "NON-DESTRUCTIVE: _analysis.json on disk unchanged (still code)", `disk=${onDisk.segments[0].kind}`);
 
 // No annotations sibling → identity.
-const dir2 = mkdtempSync(join(tmpdir(), "c64re-751b-"));
+const dir2 = testTmpDir("c64re-751b-");
 const ap2 = join(dir2, "bar_analysis.json");
 writeFileSync(ap2, JSON.stringify({ segments: [{ kind: "code", start: 0x2000, end: 0x20ff }] }));
 const loaded2 = srv.loadEffectiveSegments(ap2);
@@ -102,7 +102,7 @@ console.log("\nSpec 751.7 — integration (memory-map + annotated-listing + find
 const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const { mapSegmentKindToEntityKind } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/analysis-import.js`).href);
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-751int-"));
+const projectDir = testTmpDir("c64re-751int-");
 const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "Spec 751", description: "BUG-034 effective-segments", tags: ["test"] });
 

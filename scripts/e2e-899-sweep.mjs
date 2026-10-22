@@ -11,11 +11,12 @@
 // older runtime it also proves the refusal. Locally:
 //   C64RE_RUNTIME_BIN=../TRX64/target/release/trx64-daemon npm run e2e:899-sweep
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { d011Prg, glitchPrg } from "./lib/899-prgs.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
@@ -51,7 +52,7 @@ let has901 = true;
   finally { await probeBox.close(); }
 }
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-899-"));
+const dir = testTmpDir("c64re-899-");
 const prg = (name, bytes) => { const p = join(dir, name); writeFileSync(p, bytes); return p; };
 const fault = prg("fault.prg", d011Prg("fault"));
 const heal = prg("heal.prg", d011Prg("heal"));

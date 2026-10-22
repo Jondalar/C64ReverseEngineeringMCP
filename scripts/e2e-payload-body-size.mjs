@@ -9,9 +9,10 @@
 // hand-written shape is the OLD one (`kind: prg, format: raw`) an earlier build left on
 // disk, so the repair can be shown to fix it.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { slotReport, payloadBodySize } = await import("../dist/slots/state.js");
@@ -60,7 +61,7 @@ async function session(projectDir, calls) {
 
 const dirs = [];
 function project(slug) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-bodysize-${slug}-`));
+  const dir = testTmpDir(`c64re-bodysize-${slug}-`);
   dirs.push(dir);
   new ProjectKnowledgeService(dir).initProject({ name: slug, description: `issue 82 ${slug}`, tags: ["gate"] });
   return dir;

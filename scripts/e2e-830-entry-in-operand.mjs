@@ -10,9 +10,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:830
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -58,7 +58,7 @@ const CODE = [
 ];
 const ENTRIES = { entry_a: 0x0816, entry_b: 0x0819, entry_c: 0x081c, entry_d: 0x081f, entry_e: 0x0821 };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-830-"));
+const dir = testTmpDir("c64re-830-");
 const prgPath = join(dir, "idiom.prg");
 writeFileSync(prgPath, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE]));
 
@@ -145,7 +145,7 @@ check(!/\.byte \$20\b/.test(asm), "the jsr the patch targets was not split into 
 //   0809  4C FF FF   jmp $FFFF         3 bytes, but the segment ends at $080A
 //   080C  A4 6E 1D   data
 const OVERRUN = [0x20, 0x07, 0x08, 0x4c, 0x04, 0x08, 0xa9, 0x01, 0x4c, 0xff, 0xff, 0xa4, 0x6e, 0x1d];
-const odir = mkdtempSync(join(tmpdir(), "c64re-830-overrun-"));
+const odir = testTmpDir("c64re-830-overrun-");
 const oPrg = join(odir, "overrun.prg");
 writeFileSync(oPrg, Buffer.from([LOAD & 0xff, LOAD >> 8, ...OVERRUN]));
 writeFileSync(join(odir, "overrun_annotations.json"), JSON.stringify({

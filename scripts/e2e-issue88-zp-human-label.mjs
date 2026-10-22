@@ -5,11 +5,11 @@
 // ($F7 is RIBUF, $FB is FREKZP on the platform). Both dialects, rebuilt byte-identical.
 // KickAssembler and 64tass rebuilds skip LOUDLY when the tool is missing (a skip is not a pass).
 //   npm run e2e:issue88-zp-human-label
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -21,7 +21,7 @@ const check = (name, cond, detail) => {
 
 const code = [0xa9, 0x00, 0x85, 0xf7, 0x85, 0xfb, 0xa5, 0xf7, 0xa5, 0xfb, 0x60];
 const prg = Buffer.from([0x01, 0x08, ...code]);
-const dir = mkdtempSync(join(tmpdir(), "c64re-88-"));
+const dir = testTmpDir("c64re-88-");
 try {
   const prgPath = join(dir, "zp.prg");
   const ann = join(dir, "zp_annotations.json");

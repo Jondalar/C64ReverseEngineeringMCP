@@ -18,9 +18,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:830-seed
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -35,7 +35,7 @@ const pipelineCli = join(ROOT, "dist/pipeline/cli.cjs");
 const graphCli = join(ROOT, "dist/cli.js");
 if (!existsSync(pipelineCli) || !existsSync(graphCli)) { console.error("not built — run npm run build"); process.exit(2); }
 
-const project = mkdtempSync(join(tmpdir(), "c64re-830-seed-"));
+const project = testTmpDir("c64re-830-seed-");
 const payloads = join(project, "analysis", "payloads");
 mkdirSync(payloads, { recursive: true });
 mkdirSync(join(project, "knowledge"), { recursive: true });
@@ -91,7 +91,7 @@ check(existsSync(graphFile), "the refusal left the previously seeded graph in pl
 
 // ------------------------------------- an owner stem outside [a-z0-9_.-]
 {
-  const pd = mkdtempSync(join(tmpdir(), "c64re-830-slug-"));
+  const pd = testTmpDir("c64re-830-slug-");
   const dir = join(pd, "analysis", "payloads");
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(pd, "knowledge"), { recursive: true });

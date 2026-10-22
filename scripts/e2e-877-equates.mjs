@@ -19,13 +19,13 @@
 //
 //   node scripts/e2e-877-equates.mjs          (needs `npm run build`)
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { startMcp } from "./lib/fixture-804.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -65,7 +65,7 @@ const prgBytes = (p) => Buffer.from([p.load & 0xff, p.load >> 8, ...p.bytes]);
 
 console.log("Spec 877 D5 — equates for the names the graph holds outside the image\n");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-877-"));
+const dir = testTmpDir("c64re-877-");
 const pay = join(dir, "payloads");
 let disasmAnswer = "";
 let relocAnswer = "";

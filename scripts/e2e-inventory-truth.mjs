@@ -14,10 +14,11 @@
 //     `project_inventory_sync` reported as 831 declared intentional. One project, two
 //     answers — the declaration was read by the sync tool and by nothing else.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -38,7 +39,7 @@ const { readInventoryDeclaration, howToDeclare, INVENTORY_PATTERNS_FILE, suggest
   await import(pathToFileURL(join(ROOT, "dist/project-knowledge/inventory-patterns.js")).href);
 
 const tmpProject = (prefix) => {
-  const p = mkdtempSync(join(tmpdir(), prefix));
+  const p = testTmpDir(prefix);
   mkdirSync(join(p, "knowledge"), { recursive: true });
   return p;
 };
@@ -788,7 +789,7 @@ const openVersionQuestions = (svc) =>
   const { registerToolKnowledge } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/integration.js")).href);
   const { insideProject } = await import(pathToFileURL(join(ROOT, "dist/lib/inside-project.js")).href);
   const proj = tmpProject("c64re-outside-proj-");
-  const elsewhere = mkdtempSync(join(tmpdir(), "c64re-outside-scratch-"));
+  const elsewhere = testTmpDir("c64re-outside-scratch-");
   write(proj, "artifacts/inside.gif", "GIF89a");
   writeFileSync(join(elsewhere, "outside.gif"), "GIF89a");
   const svc = new ProjectKnowledgeService(proj);

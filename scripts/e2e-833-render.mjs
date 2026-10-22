@@ -24,9 +24,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:833-render
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -102,7 +103,7 @@ const IN_IMAGE_NAMES = ["entry_a", "entry_b", "helper", "lonely_routine", "lonel
 const cli = join(ROOT, "dist/pipeline/cli.cjs");
 if (!existsSync(cli)) { console.error("pipeline not built — run npm run build"); process.exit(2); }
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-833-"));
+const dir = testTmpDir("c64re-833-");
 const prgPath = join(dir, "named.prg");
 writeFileSync(prgPath, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE, ...DATA]));
 writeFileSync(join(dir, "named_annotations.json"), JSON.stringify(ANNOTATIONS, null, 2));
@@ -111,7 +112,7 @@ writeFileSync(join(dir, "named_annotations.json"), JSON.stringify(ANNOTATIONS, n
 // `<stem>_analysis.json` next to the PRG, so leaving it there would silently
 // make the "without analysis_json" run an analysis-path run — the mode this gate
 // exists for would never be exercised.
-const analysisDir = mkdtempSync(join(tmpdir(), "c64re-833-analysis-"));
+const analysisDir = testTmpDir("c64re-833-analysis-");
 const analysisPath = join(analysisDir, "named_analysis.json");
 execFileSync(process.execPath, [cli, "analyze-prg", prgPath, analysisPath, "0801", "--no-register"], { stdio: "pipe" });
 
@@ -206,7 +207,7 @@ check(!(legacyClaimsApplied && legacyNames.length === 0),
 
 // ------------------------------------------------- a header for the empty case
 {
-  const emptyDir = mkdtempSync(join(tmpdir(), "c64re-833-empty-"));
+  const emptyDir = testTmpDir("c64re-833-empty-");
   const emptyPrg = join(emptyDir, "empty.prg");
   writeFileSync(emptyPrg, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE]));
   writeFileSync(join(emptyDir, "empty_annotations.json"), JSON.stringify({ segments: [], labels: [], routines: [] }));
@@ -216,7 +217,7 @@ check(!(legacyClaimsApplied && legacyNames.length === 0),
   check(/found but NOT applied/.test(header),
     `D1a: an annotations file with nothing in it is reported as found and not applied — "${header.replace(/^\/\/\s+/, "")}"`);
 
-  const bareDir = mkdtempSync(join(tmpdir(), "c64re-833-bare-"));
+  const bareDir = testTmpDir("c64re-833-bare-");
   const barePrg = join(bareDir, "bare.prg");
   writeFileSync(barePrg, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE]));
   const bareAsm = join(bareDir, "bare.asm");
@@ -296,7 +297,7 @@ const mcpCli = join(ROOT, "dist/cli.js");
 if (!existsSync(mcpCli)) {
   fail("dist/cli.js missing — run `npm run build` (the D3 half drives the real MCP server)");
 } else {
-  const projectDir = mkdtempSync(join(tmpdir(), "c64re-833-project-"));
+  const projectDir = testTmpDir("c64re-833-project-");
   const proc = spawn(process.execPath, [mcpCli], {
     cwd: tmpdir(),
     env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },
@@ -378,7 +379,7 @@ if (!existsSync(mcpCli)) {
 //     rebuild failed with nothing saying why. usedLabels guarded routines and
 //     segments and never guarded explicit labels.
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-833-dup-"));
+  const dir = testTmpDir("c64re-833-dup-");
   const LOAD = 0x0801;
   //  0801 A9 01  lda #$01   0803 A9 02  lda #$02   0805 60  rts
   writeFileSync(join(dir, "dup.prg"), Buffer.from([LOAD & 0xff, LOAD >> 8, 0xa9, 0x01, 0xa9, 0x02, 0x60]));

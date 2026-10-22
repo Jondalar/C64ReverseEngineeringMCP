@@ -24,8 +24,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createSocket } from "node:dgram";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
@@ -33,6 +32,7 @@ import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 import { AudioGen, VideoGen, col, udpSender } from "./lib/stream-datagrams.mjs";
 import { bridgeHandle, reapBridges } from "./lib/bridge-harness.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -50,7 +50,7 @@ const freeUdp = () => new Promise((res, rej) => { const s = createSocket("udp4")
 const udpFree = (port) => new Promise((res) => { const s = createSocket("udp4"); s.once("error", () => res(false)); s.bind(port, "0.0.0.0", () => s.close(() => res(true))); });
 
 // The sandbox: everything the server may write lives under here.
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-889ui-"));
+const SANDBOX = testTmpDir("c64re-889ui-");
 for (const d of ["proj", "home", "tmp", "cwd"]) mkdirSync(join(SANDBOX, d), { recursive: true });
 const PROJ = join(SANDBOX, "proj");
 

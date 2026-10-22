@@ -12,8 +12,8 @@
 import { pathToFileURL } from "node:url";
 import { resolve as resolvePath } from "node:path";
 import { mkdirSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 
@@ -141,8 +141,7 @@ test(
 // ------------------------------------------------------------------
 // Test 7: Config save/load round-trip
 // ------------------------------------------------------------------
-const tmpDir = join(tmpdir(), "c64re-smoke-264");
-mkdirSync(tmpDir, { recursive: true });
+const tmpDir = testTmpDir("c64re-smoke-264-");
 const tmpCfg = join(tmpDir, "joystick.json");
 
 const original = defaultInputConfig();

@@ -4,9 +4,9 @@
 // The four claims below are Ultima VI's actual false negatives, reworded only as far as
 // the test fixture needs. Each one cost that project a rebuild, and each is refutable
 // against its own graph — which is the whole bet this spec makes.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
@@ -25,7 +25,7 @@ const check = (name, cond, detail) => {
 
 const SLUG = "testgame";
 function newProject() {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-846-"));
+  const dir = testTmpDir("c64re-846-");
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
   return dir;

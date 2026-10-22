@@ -16,9 +16,9 @@
 // are asserted explicitly and not left to a comment.
 //
 // Run: node scripts/e2e-877-teeth.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { saveContract } = await import("../dist/contract/contract.js");
 const { checkContractTeeth, PUBLISHING_DOORS, RELEASE_ROLES, isReleaseRole, closesAPhase } =
@@ -39,7 +39,7 @@ const check = (name, cond, detail) => {
 
 const SLUG = "testgame";
 function newProject(tag) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-877-${tag}-`));
+  const dir = testTmpDir(`c64re-877-${tag}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
   return dir;

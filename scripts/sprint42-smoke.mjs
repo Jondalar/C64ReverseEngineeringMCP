@@ -1,14 +1,14 @@
 // Spec 049 (Sprint 42) — phase-gate smoke. Tests the
 // phaseGatedHandler wrapper in isolation against a fixture project.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { phaseGatedHandler } from "../dist/server-tools/phase-gate-handler.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint42-smoke-"));
+const root = testTmpDir("c64re-sprint42-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

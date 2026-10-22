@@ -12,10 +12,10 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:849-standing
 
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { standingFooter, resetStanding, WRITE_TOOLS, SUMMARY_TOOLS } from "../dist/contract/standing.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, failCount = 0;
 const ok = (m) => { pass += 1; console.log(`  PASS  ${m}`); };
@@ -27,7 +27,7 @@ console.log("Spec 849 §8 — the contract carried back on the write path\n");
 const SLUG = "standing";
 const dirs = [];
 function newProject(contract) {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-849s-"));
+  const dir = testTmpDir("c64re-849s-");
   dirs.push(dir);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }));

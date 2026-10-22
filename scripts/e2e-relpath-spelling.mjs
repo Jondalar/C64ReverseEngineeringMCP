@@ -14,10 +14,10 @@
 // Hermetic: a temp project, the built server and pipeline, no ROMs, no runtime.
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => pathToFileURL(join(ROOT, "dist", p)).href;
@@ -33,7 +33,7 @@ const check = (ok, what, detail) => {
 
 console.log(`Issue #28 — relativePath spelling  (platform: ${process.platform})\n`);
 
-const proj = realpathSync(mkdtempSync(join(tmpdir(), "c64re-relpath-")));
+const proj = testTmpDir("c64re-relpath-");
 process.on("exit", () => { try { rmSync(proj, { recursive: true, force: true }); } catch {} });
 mkdirSync(join(proj, "knowledge"), { recursive: true });
 writeFileSync(join(proj, "knowledge", "phase-plan.json"), "{}\n");

@@ -7,9 +7,9 @@
 // a gate that runs once.
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:843-inspect
-import { readFileSync, existsSync, mkdtempSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const TRX = resolve(ROOT, "..", "TRX64");
@@ -119,7 +119,7 @@ for (const t of ["runtime_rip_range", "runtime_inject_range"]) {
 
 // ── D8 — the projection, against a real (empty) project ──────────────────────
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-843-"));
+  const dir = testTmpDir("c64re-843-");
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   const { spawnSync } = await import("node:child_process");
   const gen = join(ROOT, "scripts/gen-annotations-from-graph.mjs");

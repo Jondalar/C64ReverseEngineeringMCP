@@ -19,9 +19,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
@@ -42,7 +42,7 @@ const setEq = (xs, ys) => xs.length === ys.length && [...xs].sort().every((x, i)
 
 // ---------------------------------------------------------------- fixture
 
-const project = mkdtempSync(join(tmpdir(), "c64re-826-"));
+const project = testTmpDir("c64re-826-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 mkdirSync(join(project, "analysis"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 826 fixture", slug: "s826", rootPath: project }));

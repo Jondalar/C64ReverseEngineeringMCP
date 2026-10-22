@@ -66,6 +66,7 @@
     "e2e:844-slots": "node scripts/e2e-844-slots.mjs",
     "e2e:845-model": "node scripts/e2e-845-model.mjs",
     "e2e:846-critic": "node scripts/e2e-846-critic.mjs",
+    "check:test-tmp": "node scripts/check-test-tmp.mjs",
     "e2e:issue91-sandbox-media-copy": "node scripts/ensure-built.mjs mcp && node scripts/e2e-issue91-sandbox-media-copy.mjs",
     "e2e:issue79-negative-claim-owner": "node scripts/ensure-built.mjs mcp && node scripts/e2e-issue79-negative-claim-owner.mjs",
     "e2e:issue84-negative-claim-edges": "node scripts/ensure-built.mjs mcp && node scripts/e2e-issue84-negative-claim-edges.mjs",

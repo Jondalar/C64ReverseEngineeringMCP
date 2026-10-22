@@ -24,12 +24,12 @@
 
 import { createSocket } from "node:dgram";
 import { createServer } from "node:http";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateSync } from "node:zlib";
 import vm from "node:vm";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const S = await import("../dist/runtime/c64u-streams/index.js");
@@ -571,7 +571,7 @@ section("7  loopback UDP on 127.0.0.1");
 section("8  UI: the player's stream rate");
 {
   const { build } = await import("esbuild");
-  const dir = mkdtempSync(join(tmpdir(), "smoke-889-"));
+  const dir = testTmpDir("smoke-889-");
   try {
     const out = await build({
       entryPoints: [join(ROOT, "ui/src/workbench/audio-player.ts")], bundle: true, format: "esm", platform: "node", write: false,

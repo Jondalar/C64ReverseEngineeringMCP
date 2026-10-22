@@ -14,10 +14,11 @@
 //
 // No emulator / runtime:proof. Pure product-surface workflow gate.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -28,7 +29,7 @@ console.log("Spec 730 §7 — e2e-mcp-artifact-best-version (live MCP stdio, def
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-bestver-"));
+const projectDir = testTmpDir("c64re-e2e-bestver-");
 ok(!projectDir.startsWith(ROOT), "0 project dir is outside the C64RE repo", projectDir);
 
 // ---- minimal stdio JSON-RPC MCP client ----

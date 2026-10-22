@@ -6,11 +6,12 @@
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -18,7 +19,7 @@ const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
 const PORT = 14772;
 // Its own project, init'd and onboarded: the repository root is no project, and a checkout nested in another project
 // (a worktree) would resolve C64RE_PROJECT_DIR=ROOT to that enclosing project, which this session never onboarded.
-const PROJ = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-e2e-744-2a-")));
+const PROJ = testTmpDir("c64re-e2e-744-2a-");
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

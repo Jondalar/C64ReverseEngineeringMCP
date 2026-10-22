@@ -7,9 +7,9 @@
 // asserted by a header line.
 //
 // Run: node scripts/e2e-844-teeth.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { checkRuntimeDiscipline } = await import("../dist/server-tools/discipline-gate.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
@@ -22,7 +22,7 @@ function check(name, cond, detail) {
 }
 
 function newProject(slug) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-844-${slug}-`));
+  const dir = testTmpDir(`c64re-844-${slug}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: slug, slug }, null, 2));
   return dir;

@@ -5,14 +5,14 @@
  * Runs against a throwaway project in a private temp directory whose "build" is a script that
  * counts its own runs, so it neither touches this tree's sources nor depends on tsc.
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tmp = mkdtempSync(join(tmpdir(), "c64re-ensure-built-"));
+const tmp = testTmpDir("c64re-ensure-built-");
 let failed = 0;
 const check = (ok, what) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${what}`);

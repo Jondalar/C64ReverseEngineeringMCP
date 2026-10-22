@@ -1,12 +1,12 @@
 // Spec 060 / Bug 30 — saveArtifact path-first dedup + dedupeArtifactRegistry smoke.
 
-import { mkdtempSync, writeFileSync, rmSync, renameSync } from "node:fs";
+import { writeFileSync, rmSync, renameSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint52-smoke-"));
+const root = testTmpDir("c64re-sprint52-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);
@@ -60,7 +60,7 @@ try {
   // semantics — only that we have a single record.
 
   // Negative half of the hash matcher: a COPY (original still on disk) is a second artifact, not a move.
-  const root2 = mkdtempSync(join(tmpdir(), "c64re-sprint52-copy-"));
+  const root2 = testTmpDir("c64re-sprint52-copy-");
   try {
     const svc2 = new ProjectKnowledgeService(root2);
     svc2.initProject({ name: "Bug 30 copy", description: "" });

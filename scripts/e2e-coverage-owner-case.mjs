@@ -10,9 +10,10 @@
 // (the control), a mixed-case stem and an upper-case stem. project_slots over the stdio MCP
 // server must count all three in full, with and without a contract scope naming them.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { slotReport } = await import("../dist/slots/state.js");
@@ -60,7 +61,7 @@ async function session(projectDir, calls) {
 const coverageOf = (text) => /Coverage: (\d+) \/ (\d+) bytes/.exec(text)?.slice(1, 3).map(Number) ?? [];
 
 const SLUG = "ownercase";
-const dir = mkdtempSync(join(tmpdir(), "c64re-ownercase-"));
+const dir = testTmpDir("c64re-ownercase-");
 try {
   const svc = new ProjectKnowledgeService(dir);
   svc.initProject({ name: SLUG, description: "coverage owner case", tags: ["gate"] });

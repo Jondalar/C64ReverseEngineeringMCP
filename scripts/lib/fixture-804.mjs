@@ -13,9 +13,9 @@
 // Used by smoke-804-resolver (no runtime) and smoke-804-monitor (a sandbox runtime).
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./neutral-tmp.mjs";
 
 export const PAYLOADS = {
   alpha: { load: 0x1000, bytes: [0x20, 0x10, 0x10, 0xee, 0x00, 0x04, 0x4c, 0x00, 0x10, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xea, 0xa9, 0x01, 0x8d, 0x20, 0xd0, 0x60] },
@@ -89,7 +89,7 @@ export function startMcp(root, env) {
 
 /** Build the fixture project. Returns its dir and the paths of the payloads. */
 export async function buildFixture804(root, log = () => {}) {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-804-"));
+  const dir = testTmpDir("c64re-804-");
   const mcp = startMcp(root, { C64RE_PROJECT_DIR: dir, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_AUTOSTART: "0" });
   try {
     await mcp.init();

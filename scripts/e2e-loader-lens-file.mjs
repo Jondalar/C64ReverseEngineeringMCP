@@ -4,11 +4,11 @@
 // DRIVE_HEAD 0x34 + BLOCK_READ 0x35 (and BLOCK_READ2 0x37, Spec 907) + $DD00 transfer reads), writes it to a temp
 // file, and reads it back via readSetFromCaptureFile + landingMapFromCaptureFile.
 // Run after build:mcp.
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { landingMapFromCaptureFile, landingMapWithNoteFromCaptureFile, readSetFromCaptureFile, readSetsFromCaptureFile } from "../dist/trace/loader-lens.js";
 import { encodeFileHeader, encodeMemAccess, encodeBlockRead, encodeBlockRead2, decodeEvent, TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -51,7 +51,7 @@ const file = new Uint8Array(header.length + off);
 file.set(header, 0);
 file.set(evbuf.subarray(0, off), header.length);
 
-const dir = mkdtempSync(join(tmpdir(), "lens-file-"));
+const dir = testTmpDir("lens-file-");
 const path = join(dir, "cap.c64retrace");
 try {
   writeFileSync(path, file);

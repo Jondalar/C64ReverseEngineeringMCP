@@ -16,10 +16,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:861-static
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -36,7 +37,7 @@ if (!existsSync(cli)) {
   process.exit(2);
 }
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-861s-"));
+const proj = testTmpDir("c64re-861s-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },

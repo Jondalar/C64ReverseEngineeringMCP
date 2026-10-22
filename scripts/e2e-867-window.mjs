@@ -25,10 +25,10 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:867-window
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -56,7 +56,7 @@ console.log("Spec 867 — the window a payload owns, and who is resident in it\n
 const { buildFixture, writeGraph, writePrg, analyze: analyzeImage, MODULES, WIDE, ENGINE, LOADER, ROUTINE, MOD_C_LOAD_CALL, SLUG } =
   await import("./lib/fixture-867.mjs");
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-867-proj-"));
+const proj = testTmpDir("c64re-867-proj-");
 const { nodes, edges } = buildFixture(proj, GRAPH_DDL);
 
 const analyze = (owner, prg, dir = proj) => analyzeImage(dir, owner, prg);
@@ -182,7 +182,7 @@ check(formatWindowResidency(neither).join("\n").includes("Ambiguous:"), "…and 
 console.log("\n§6.7 — a project with no recorded window behaves as before\n");
 // (a) the same graph with the `window` attribute stripped from every payload
 // record: derived from the load address and the extent, the answers are identical.
-const derivedProj = mkdtempSync(join(tmpdir(), "c64re-867-derived-"));
+const derivedProj = testTmpDir("c64re-867-derived-");
 mkdirSync(join(derivedProj, "analysis"), { recursive: true });
 writeGraph(derivedProj, {
   nodes: nodes.map((n) => {
@@ -201,7 +201,7 @@ derivedGraph.close();
 
 // (b) a project the window model knows nothing about: the Spec 838 subtraction
 // still decides, and nothing is dropped.
-const bare = mkdtempSync(join(tmpdir(), "c64re-867-bare-"));
+const bare = testTmpDir("c64re-867-bare-");
 mkdirSync(join(bare, "analysis"), { recursive: true });
 const bareOwner = "resident";
 writePrg(bare, bareOwner, 0xc000, 0xc07f, [ROUTINE(0xc000, 0x51), ROUTINE(0xc010, 0x52)]);

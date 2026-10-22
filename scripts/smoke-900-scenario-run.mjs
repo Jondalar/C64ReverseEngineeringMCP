@@ -10,11 +10,12 @@
 // Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly). Every machine is
 // a child of its run and gone when it returns.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:900");
 
@@ -25,7 +26,7 @@ if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run buil
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-900-"));
+const dir = testTmpDir("c64re-900-");
 const stub = [0x01, 0x08, 0x0b, 0x08, 0x0a, 0x00, 0x9e, 0x32, 0x30, 0x36, 0x31, 0x00, 0x00, 0x00];
 const code = [
   0x78,                   // $080D SEI — the KERNAL's key scan writes $DC00 and would fake a fire

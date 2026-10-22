@@ -18,10 +18,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:reloc-names
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/pipeline/cli.cjs");
@@ -105,7 +105,7 @@ const prg2 = Buffer.from([
 const ann2 = { routines: [{ address: "100B", name: "image_routine" }, { address: "1008", name: "image_pad" }] };
 const reloc2 = [{ fileStart: "101E", fileEnd: "102D", runtimeAddr: "1002" }];
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-reloc-names-"));
+const dir = testTmpDir("c64re-reloc-names-");
 const node = (...a) => execFileSync(process.execPath, [cli, ...a, "--no-register"], { stdio: "pipe", cwd: dir }).toString();
 const count = (text, re) => (text.match(re) ?? []).length;
 const defs = (text, name) =>

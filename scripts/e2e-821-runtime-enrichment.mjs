@@ -22,9 +22,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 // ---------------------------------------------------------------- no daemon, and a spy on the one DuckDB door
 process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
@@ -49,7 +49,7 @@ const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 const hex = (n) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
 
 // ---------------------------------------------------------------- project + the static side
-const project = mkdtempSync(join(tmpdir(), "c64re-821-"));
+const project = testTmpDir("c64re-821-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 821 fixture", slug: "s821", rootPath: project }));
 
@@ -264,7 +264,7 @@ check(traceReadCalls === 0, "runtimeDaemon.traceRead was never called (D4: the b
 
 // ---------------------------------------------------------------- stderr must be empty (a child process, so the warning filter is exercised)
 {
-  const child = mkdtempSync(join(tmpdir(), "c64re-821-child-"));
+  const child = testTmpDir("c64re-821-child-");
   mkdirSync(join(child, "knowledge"), { recursive: true });
   writeFileSync(join(child, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "c", name: "child", slug: "s821c", rootPath: child }));
   const script = `

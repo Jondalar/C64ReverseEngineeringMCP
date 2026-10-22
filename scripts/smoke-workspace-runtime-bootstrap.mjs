@@ -11,13 +11,12 @@
 //
 // No emulator-fidelity assertion, no VICE.
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -31,7 +30,7 @@ const HTTP_PORT = await freePortBlock(2); // a free pair, off the defaults
 // endpoint, and the proof is that the server hands exactly that one to the page — a page
 // that assumed :4312 attached to whatever held it, another workspace's runtime included.
 const WS_PORT = HTTP_PORT + 1;
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug010-"));
+const projectDir = testTmpDir("c64re-bug010-");
 
 function tcpUp(port, timeoutMs = 800) {
   return new Promise((resolve) => {

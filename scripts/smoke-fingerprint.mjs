@@ -16,10 +16,10 @@
 import { pathToFileURL } from "node:url";
 import { resolve as resolvePath, join } from "node:path";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const tmpDir = "/tmp/c64re-fingerprint-smoke";
-if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
+const tmpDir = testTmpDir("c64re-fingerprint-smoke-");
 
 let loadLibraries, loadLibrary, scanFingerprints, addFingerprintToLibrary,
     structuralHash, byteHash, findRoutineBoundaries;

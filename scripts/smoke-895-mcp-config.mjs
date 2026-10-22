@@ -14,10 +14,11 @@
 //      missing path; project_status and agent_onboard carry it
 //   6  describeLaunch: package install -> npx; checkout run from TypeScript keeps the loader flags
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -27,7 +28,7 @@ const M = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/mcp-conf
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${String(d).replace(/\s+/g, " ").slice(0, 240)})` : ""}`); };
 
-const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-895-")));
+const base = testTmpDir("c64re-895-");
 const scratch = (name) => { const d = join(base, name); mkdirSync(d, { recursive: true }); return d; };
 
 function cleanEnv(extra = {}) {

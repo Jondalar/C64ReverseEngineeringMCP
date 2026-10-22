@@ -9,12 +9,12 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:849-rules
 
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ensureProjectRules, shippedRulesDir, shippedRules, RULES_DIR } from "../dist/project-rules/provision.js";
 import { allRules, rulesForTool, parseRule } from "../dist/project-rules/rules.js";
 import { ruleFooterForTool, resetRuleDelivery } from "../dist/project-rules/deliver.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, failCount = 0;
 const ok = (m) => { pass += 1; console.log(`  PASS  ${m}`); };
@@ -23,7 +23,7 @@ const check = (c, m) => (c ? ok(m) : fail(m));
 
 console.log("Spec 849 — harness rule provisioning\n");
 
-const root = mkdtempSync(join(tmpdir(), "c64re-849-"));
+const root = testTmpDir("c64re-849-");
 mkdirSync(join(root, "knowledge"), { recursive: true });
 
 const assets = shippedRulesDir();
@@ -138,7 +138,7 @@ check(!!own && own.includes("MY OWN WORDING 4417"), "the project's own wording w
 }
 
 // 12 — a directory that is not a project is left alone entirely
-const notAProject = mkdtempSync(join(tmpdir(), "c64re-849-np-"));
+const notAProject = testTmpDir("c64re-849-np-");
 check(ruleFooterForTool(notAProject, "analyze_prg") === undefined, "no knowledge/ means no footer");
 rmSync(notAProject, { recursive: true, force: true });
 

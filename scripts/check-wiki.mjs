@@ -14,10 +14,10 @@
 //   node scripts/check-wiki.mjs --publish   # copy into a wiki clone (path in $C64RE_WIKI)
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WIKI = join(ROOT, "docs/wiki");
@@ -127,7 +127,7 @@ if (!wikiRemote) {
 } else {
   let clone;
   try {
-    clone = mkdtempSync(join(tmpdir(), "c64re-wiki-"));
+    clone = testTmpDir("c64re-wiki-");
     execFileSync("git", ["clone", "--depth", "1", "--quiet", wikiRemote, clone], { stdio: ["ignore", "ignore", "pipe"], timeout: 60_000 });
   } catch (e) {
     const why = e instanceof Error ? (e.stderr?.toString().trim() || e.message) : String(e);

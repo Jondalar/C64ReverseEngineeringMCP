@@ -36,10 +36,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:zp-pointer-halves
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0, skipped = 0;
@@ -56,7 +57,7 @@ if (!existsSync(cli) || !existsSync(join(ROOT, "dist/pipeline/cli.cjs"))) {
 const KICKASS = process.env.C64RE_KICKASS_JAR ?? "/Applications/KickAssembler/KickAss.jar";
 const HAVE_ASSEMBLER = existsSync(KICKASS);
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-zp-halves-"));
+const proj = testTmpDir("c64re-zp-halves-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },

@@ -19,6 +19,7 @@
 import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const dist = (p) => join(ROOT, "dist", p);
@@ -180,10 +181,9 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // broken but because nobody was ever told to fill it.
 {
   const { spawn } = await import("node:child_process");
-  const { mkdtempSync, writeFileSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { writeFileSync } = await import("node:fs");
 
-  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750-"));
+  const projectDir = testTmpDir("c64re-750-");
   const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
   new ProjectKnowledgeService(projectDir).initProject({ name: "750 gate" });
 
@@ -305,11 +305,10 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // now an index's bytes counted as unclaimed — the map called the best-understood
 // region on the medium "not yet understood").
 {
-  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { writeFileSync, mkdirSync } = await import("node:fs");
   const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
 
-  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750v-"));
+  const projectDir = testTmpDir("c64re-750v-");
   const svc = new ProjectKnowledgeService(projectDir);
   svc.initProject({ name: "750 view gate" });
 
@@ -370,11 +369,10 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // on the medium: patch the medium alone and the mutation may undo you, and a
 // byte-identical rebuild will not say a word about it.
 {
-  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { writeFileSync, mkdirSync } = await import("node:fs");
   const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
 
-  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750e-"));
+  const projectDir = testTmpDir("c64re-750e-");
   const svc = new ProjectKnowledgeService(projectDir);
   svc.initProject({ name: "750.3 gate" });
   mkdirSync(join(projectDir, "analysis"), { recursive: true });
@@ -720,8 +718,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
 // table is in RAM, and here is the payload it came from".
 try {
   const { payloadReader } = await import(pathToFileURL(dist("project-knowledge/lut-medium.js")).href);
-  const { writeFileSync, mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { writeFileSync, mkdirSync, rmSync } = await import("node:fs");
   if (typeof payloadReader !== "function") throw new Error("lut-medium exports no payloadReader");
 
   // A payload that RUNS at $0800: two header bytes, then the table at $0A00.
@@ -732,7 +729,7 @@ try {
   [0x01, 0x05, 0x09].forEach((v, i) => { payload[at(0x0A20) + i] = v; });   // sector
   payload[0] = 0x00; payload[1] = 0x08;            // the CBM load-address word
 
-  const dir = mkdtempSync(join(tmpdir(), "c64re-750-payload-"));
+  const dir = testTmpDir("c64re-750-payload-");
   mkdirSync(join(dir, "payloads"), { recursive: true });
   const prg = join(dir, "payloads", "index.prg");
   writeFileSync(prg, payload);
@@ -825,10 +822,9 @@ try {
 // ── 19. both halves, over the MCP surface ────────────────────────────────────
 {
   const { spawn } = await import("node:child_process");
-  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
+  const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
 
-  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750f-"));
+  const projectDir = testTmpDir("c64re-750f-");
   const { ProjectKnowledgeService } = await import(pathToFileURL(dist("project-knowledge/service.js")).href);
   new ProjectKnowledgeService(projectDir).initProject({ name: "750 framing" });
 

@@ -5,10 +5,11 @@
 // rebuilds the deterministic search index, and runs the §12 acceptance
 // queries. It never mutates the real project. If the fixture is absent it
 // PENDS (no fixture on this machine) rather than failing.
-import { mkdtempSync, mkdirSync, cpSync, existsSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, cpSync, existsSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -21,7 +22,7 @@ console.log("Spec 740.1 — project search/wiki Wasteland acceptance\n");
 // `$`, and saw none of them: every doc collapsed into one section, every comment vanished.
 {
   const { buildProjectSearchIndex: build } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-search.js")).href);
-  const p = mkdtempSync(join(tmpdir(), "c64re-740-crlf-"));
+  const p = testTmpDir("c64re-740-crlf-");
   mkdirSync(join(p, "knowledge"), { recursive: true });
   mkdirSync(join(p, "docs"), { recursive: true });
   mkdirSync(join(p, "artifacts"), { recursive: true });
@@ -50,7 +51,7 @@ const wiki = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/proje
 const { buildProjectSearchIndex, searchIndex, findRelated, writeIndexCache } = mod;
 
 // tmp project copy (knowledge + docs + views + CLAUDE.md). Skip analysis/ (huge).
-const proj = mkdtempSync(join(tmpdir(), "c64re-740-"));
+const proj = testTmpDir("c64re-740-");
 mkdirSync(join(proj, "knowledge"), { recursive: true });
 cpSync(join(WASTELAND, "knowledge"), join(proj, "knowledge"), { recursive: true });
 if (existsSync(join(WASTELAND, "docs"))) cpSync(join(WASTELAND, "docs"), join(proj, "docs"), { recursive: true });

@@ -2,13 +2,14 @@
 // the synthetic programs. Nothing here reaches :4312 — every daemon is spawned on a free port and every
 // MCP process is told its endpoint.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prgWithStub } from "./asm6502-mini.mjs";
 import { startMcp } from "./mcp-stdio.mjs";
+import { testTmpDir } from "./neutral-tmp.mjs";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -82,7 +83,7 @@ export function counterPrg(origin) {
 
 export class Harness {
   constructor(prefix) {
-    this.dir = mkdtempSync(join(tmpdir(), prefix));
+    this.dir = testTmpDir(prefix);
     this.state = join(this.dir, "state");
     this.traces = join(this.dir, "traces");
     this.cleanups = [];

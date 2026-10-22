@@ -14,9 +14,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
@@ -31,7 +31,7 @@ const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 
 // ---------------------------------------------------------------- project
 
-const project = mkdtempSync(join(tmpdir(), "c64re-818-"));
+const project = testTmpDir("c64re-818-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "project-x", name: "Spec 818 fixture", slug: "s818", rootPath: project }, null, 2));
 writeFileSync(join(project, "knowledge", "findings.json"), JSON.stringify({ items: [] }));

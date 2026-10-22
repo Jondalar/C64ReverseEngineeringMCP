@@ -8,11 +8,11 @@
 //
 //   node scripts/smoke-804-resolver.mjs          (needs `npm run build`)
 
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildFixture804, PAYLOADS } from "./lib/fixture-804.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
@@ -108,7 +108,7 @@ if (noAssembler) {
 }
 
 console.log("\n[ambiguity — two resident payloads, two names, one address]");
-const tmp = mkdtempSync(join(tmpdir(), "c64re-804-amb-"));
+const tmp = testTmpDir("c64re-804-amb-");
 const twin = (n) => { const p = join(tmp, `${n}.prg`); writeFileSync(p, readFileSync(paths.alpha)); return p; };
 const synthetic = new SymbolResolver(tmp, {
   entries: ["twin_a", "twin_b"].map((n) => ({ name: `${n}_main`, origin: "user", space: "c64", address: 0x1000, endAddress: null, kind: "routine", range: null, payload: { kind: "prg", path: twin(n) }, bank: null, source: n })),

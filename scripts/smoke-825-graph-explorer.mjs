@@ -17,10 +17,10 @@
 // Exit 0 = pass, 1 = fail.   npm run smoke:825
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tsImport } from "tsx/esm/api";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -114,7 +114,7 @@ check(!/flow-node-rect/.test(panel), "the lane SVG is retired — one renderer, 
 const cli = join(ROOT, "dist/cli.js");
 const pipeline = join(ROOT, "dist/pipeline/cli.cjs");
 if (!existsSync(cli) || !existsSync(pipeline)) { console.error("dist missing — run npm run build"); process.exit(2); }
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-825-ui-"));
+const projectDir = testTmpDir("c64re-825-ui-");
 mkdirSync(join(projectDir, "knowledge"), { recursive: true });
 mkdirSync(join(projectDir, "analysis"), { recursive: true });
 writeFileSync(join(projectDir, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p825u", name: "s825u", slug: "s825u", rootPath: projectDir, status: "active", createdAt: "2026-09-06T00:00:00.000Z", updatedAt: "2026-09-06T00:00:00.000Z" }));

@@ -20,12 +20,12 @@
 //
 //   npm run e2e:cartridge-bank
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -69,7 +69,7 @@ function crtImage(hardwareType, name) {
 
 const projects = [];
 async function openProject(name) {
-  const proj = mkdtempSync(join(tmpdir(), `c64re-cartbank-${name}-`));
+  const proj = testTmpDir(`c64re-cartbank-${name}-`);
   projects.push(proj);
   const mcp = startMcp({ root: ROOT, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0" } });
   await mcp.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-cartbank", version: "1" } });

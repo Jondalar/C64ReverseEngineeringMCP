@@ -17,12 +17,12 @@
 
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMcp } from "./lib/mcp-stdio.mjs";
 import { ioWindowPrg } from "./lib/908-prgs.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -47,7 +47,7 @@ const have64tass = spawnSync("64tass", ["--version"], { stdio: "ignore" }).statu
 
 const projects = [];
 async function openProject(name, env = {}) {
-  const proj = mkdtempSync(join(tmpdir(), `c64re-908-${name}-`));
+  const proj = testTmpDir(`c64re-908-${name}-`);
   projects.push(proj);
   const mcp = startMcp({ root: ROOT, pairDialects: true, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1", ...env } });
   await mcp.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-908", version: "1" } });

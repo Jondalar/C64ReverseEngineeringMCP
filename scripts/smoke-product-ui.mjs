@@ -8,13 +8,13 @@
 //   - the scoped Live CSS is bundled and carries NO v3 global resets.
 //   - the runtime backend dependency is actionable + a Live session exists.
 import { spawn } from "node:child_process";
-import { mkdtempSync, existsSync, readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { findDaemon } from "./lib/e2e-906-harness.mjs";
 import { freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -65,7 +65,7 @@ if (!daemonBin) {
 process.env.C64RE_RUNTIME_BIN = daemonBin;
 const PORT = await freePortBlock(2);
 const WS_PORT = PORT + 1;
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-prod-"));
+const projectDir = testTmpDir("c64re-prod-");
 const srv = spawn("node", [join(ROOT, "scripts/workspace.mjs"), "--project", projectDir, "--port", String(PORT)],
   { cwd: ROOT, env: { ...process.env, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${WS_PORT}` }, stdio: ["ignore", "pipe", "pipe"] });
 let log = ""; srv.stdout.on("data", (b) => log += b); srv.stderr.on("data", (b) => log += b);

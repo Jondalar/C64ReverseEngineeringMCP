@@ -32,10 +32,10 @@
 // that half SKIPS LOUDLY when it is absent, never silently.
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:838-harvest
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let passCount = 0;
@@ -63,7 +63,7 @@ const { registerSandboxDepackTool } = await load("dist/server-tools/sandbox-depa
 // ── A tool harness. Capture (name, description, shape, handler) off the same
 //    register* call the real server makes, so the door under test is the door
 //    that ships — no stdio, no daemon, no project on disk. ───────────────────
-const scratch = mkdtempSync(join(tmpdir(), "c64re-838-"));
+const scratch = testTmpDir("c64re-838-");
 const tools = new Map();
 const fakeServer = {
   tool(name, description, shape, handler) {

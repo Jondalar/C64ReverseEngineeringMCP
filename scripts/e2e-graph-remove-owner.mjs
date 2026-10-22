@@ -19,11 +19,12 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:graph-remove-owner
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const cli = join(ROOT, "dist/cli.js");
@@ -37,7 +38,7 @@ const check = (ok, what, detail) => {
 
 console.log("graph_remove_owner + disasm preview\n");
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-remove-owner-"));
+const proj = testTmpDir("c64re-remove-owner-");
 process.on("exit", () => { try { rmSync(proj, { recursive: true, force: true }); } catch { /* temp */ } });
 
 // ── the session ─────────────────────────────────────────────────────────────

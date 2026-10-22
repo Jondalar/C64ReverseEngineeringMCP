@@ -27,10 +27,11 @@
 //   npm run e2e:060-slot-title
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -45,7 +46,7 @@ if (!existsSync(cli)) { console.error("dist/ is not built — run npm run build"
 
 console.log("slot_record — the title cap, said where it can be acted on\n");
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-slottitle-"));
+const proj = testTmpDir("c64re-slottitle-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },

@@ -32,10 +32,10 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const require = createRequire(import.meta.url);
@@ -68,7 +68,7 @@ const DIRECT = new Set(["zp", "zp,x", "zp,y", "abs", "abs,x", "abs,y"]);
 const ADDED_TYPES = new Set(["read", "write", "read-indirect", "write-indirect", "data"]);
 
 function makeProject(name, withProjectJson = true) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-820-2-${name}-`));
+  const dir = testTmpDir(`c64re-820-2-${name}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   mkdirSync(join(dir, "analysis"), { recursive: true });
   if (withProjectJson) writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: name, name, slug: `s8202${name}`, rootPath: dir }));

@@ -16,10 +16,11 @@
 //   8  agent_onboard on a project outside a work tree -> first line exact, git not run;
 //      no git -> refused; uncommitted knowledge/ files -> one counted line
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -30,7 +31,7 @@ const LINE = "PLEASE USE GIT TO AVOID LOSS OF DATA!";
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${String(d).replace(/\s+/g, " ").slice(0, 200)})` : ""}`); };
 
-const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-893-")));
+const base = testTmpDir("c64re-893-");
 const scratch = (name) => { const d = join(base, name); mkdirSync(d, { recursive: true }); return d; };
 
 // The environment of every spawned process: nothing of the caller's C64RE_* or repository

@@ -16,11 +16,12 @@
 // Exit 0 = pass, 1 = fail, 0 with SKIPPED when there is no daemon.   npm run e2e:889-pass
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -36,7 +37,7 @@ let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-889p-"));
+const dir = testTmpDir("c64re-889p-");
 // the machine-wide state (shared runtime selection, bridge registry) lives in this run's directory
 process.env.C64RE_STATE_DIR = join(dir, "state");
 const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);

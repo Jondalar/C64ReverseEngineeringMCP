@@ -32,16 +32,17 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:834-scene-reel
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Before anything else: the two fallbacks this tool used to lean on are removed.
 delete process.env.C64RE_PROJECT_DIR;
-const neutralCwd = mkdtempSync(join(tmpdir(), "c64re-834-cwd-"));
+const neutralCwd = testTmpDir("c64re-834-cwd-");
 process.chdir(neutralCwd);
 
 let pass = 0;
@@ -64,7 +65,7 @@ const { pathParamsOf } = await import(pathToFileURL(join(ROOT, "scripts/lib/sche
 // happens strictly before the runtime is asked for anything at all.
 const STEPLESS = ["Scenario: paperwork only", "  Given a bare machine", "  Then the reel has at least 5 screens", ""].join("\n");
 
-const project = mkdtempSync(join(tmpdir(), "c64re-834-proj-"));
+const project = testTmpDir("c64re-834-proj-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "phase-plan.json"), JSON.stringify({ phases: [] }));
 mkdirSync(join(project, "scenarios"), { recursive: true });
@@ -76,7 +77,7 @@ const inProjectFeature = join(project, "scenarios", "reel.feature");
 const inProjectMedia = join(project, "media", "side1.g64");
 
 // A second, LOOSE directory inside no project at all — the negative control.
-const loose = mkdtempSync(join(tmpdir(), "c64re-834-loose-"));
+const loose = testTmpDir("c64re-834-loose-");
 writeFileSync(join(loose, "stray.feature"), STEPLESS, "utf8");
 writeFileSync(join(loose, "stray.g64"), Buffer.from([0x47, 0x43, 0x52]));
 const looseFeature = join(loose, "stray.feature");

@@ -2,10 +2,10 @@
 // Spec 759 P1 — project address-knowledge index gate.
 // A 2-artifact fixture (engine + caller): the index resolves a cross-file
 // address to the OWNING artifact + its label/kind, surfaces overlap, and caches.
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0; const fail = [];
@@ -17,7 +17,7 @@ const { buildAddressIndex, resolveCrossArtifact, loadAddressIndex, resolveXrefs,
 
 console.log("Spec 759 — project address-knowledge index\n");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-759-"));
+const dir = testTmpDir("c64re-759-");
 const seg = (kind, start, end, label) => ({ kind, start, end, label });
 // Engine: API table $0200-$04FF + body. Caller (game): block at $7E00.
 mkdirSync(join(dir, "engine"), { recursive: true });

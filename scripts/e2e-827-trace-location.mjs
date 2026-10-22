@@ -9,9 +9,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:827
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join, resolve, isAbsolute } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const {
@@ -61,7 +61,7 @@ check(projectKey("/tmp/a b/c!d").split("-")[0] === "c_d", "punctuation in a fold
 
 // ---------------------------------------------------------------- D1 the default output
 
-const project = mkdtempSync(join(tmpdir(), "c64re-827-"));
+const project = testTmpDir("c64re-827-");
 const out = defaultTraceOut(project, "live_test", macEnv, "darwin");
 check(isAbsolute(out), `the default output is absolute (${out})`);
 check(out.endsWith("live_test.duckdb"), "the default output is a .duckdb");
@@ -113,7 +113,7 @@ check(p3 !== undefined && doc3.traces.length === 1 && doc3.traces[0].runId === "
 check(existsSync(`${tracePointerPath(project)}.corrupt`), "the corrupt content is kept beside it, not thrown away");
 
 // a read-only project must not fail a capture (soft-fail by contract)
-const ro = mkdtempSync(join(tmpdir(), "c64re-827-ro-"));
+const ro = testTmpDir("c64re-827-ro-");
 let threw = false;
 try { chmodSync(ro, 0o500); recordTracePointer(ro, { duckdbPath: "/x.duckdb", startedAt: "now" }); } catch { threw = true; } finally { try { chmodSync(ro, 0o700); } catch { /* ignore */ } }
 check(!threw, "a read-only project directory does not throw — the pointer is soft-fail");

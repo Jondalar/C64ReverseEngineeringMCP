@@ -8,8 +8,7 @@
 // report still says which cycle they fired on.
 //
 // Run after build:mcp.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFeature, classifyCriterion } from "../dist/project-knowledge/scenario-gherkin.js";
 import {
@@ -18,6 +17,7 @@ import {
 } from "../dist/project-knowledge/region.js";
 import { runScenario } from "../dist/reel/run-scenario.js";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:813");
 
@@ -143,7 +143,7 @@ ok(classifyCriterion('the screen shows "GAME OVER"').kind === "byte-exact", "31 
 ok(classifyCriterion("the intro plays").kind === "verbal", "32 and prose is still verbal");
 
 // ── behavioural: a real machine, a real predicate ────────────────────────────
-const dir = mkdtempSync(join(tmpdir(), "spec813-"));
+const dir = testTmpDir("spec813-");
 try {
   const feature = [
     "Scenario: boot to READY, anchored on the state",

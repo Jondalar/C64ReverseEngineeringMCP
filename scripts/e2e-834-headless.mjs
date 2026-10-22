@@ -27,16 +27,17 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:834-headless
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Before anything else: the two fallbacks these tools leaned on are removed.
 delete process.env.C64RE_PROJECT_DIR;
-const neutralCwd = mkdtempSync(join(tmpdir(), "c64re-834-cwd-"));
+const neutralCwd = testTmpDir("c64re-834-cwd-");
 process.chdir(neutralCwd);
 
 let pass = 0;
@@ -54,7 +55,7 @@ const { emulatorDaemon: runtimeDaemon } = await import(pathToFileURL(join(ROOT, 
 const { DEFAULT_TOOLS } = await import(pathToFileURL(join(ROOT, "dist/server-tools/tier-tools.js")).href);
 
 // ------------------------------------------------------------ the temp project
-const project = mkdtempSync(join(tmpdir(), "c64re-834-proj-"));
+const project = testTmpDir("c64re-834-proj-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "phase-plan.json"), JSON.stringify({ phases: [] }));
 mkdirSync(join(project, "media"), { recursive: true });
@@ -68,7 +69,7 @@ writeFileSync(join(project, "payloads", "x.prg"), Buffer.from([0x01, 0x08, 0x00]
 writeFileSync(join(project, "captures", "run.c64retrace"), Buffer.alloc(16));
 
 // A second, LOOSE directory inside no project at all — the negative control.
-const loose = mkdtempSync(join(tmpdir(), "c64re-834-loose-"));
+const loose = testTmpDir("c64re-834-loose-");
 writeFileSync(join(loose, "stray.d64"), Buffer.alloc(16));
 writeFileSync(join(loose, "stray.prg"), Buffer.from([0x01, 0x08, 0x00]));
 writeFileSync(join(loose, "stray.c64retrace"), Buffer.alloc(16));

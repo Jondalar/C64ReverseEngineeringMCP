@@ -20,9 +20,9 @@
 // Exit 0 = pass, 1 = fail.   node scripts/e2e-826-runtime-args.mjs   (after npm run build:mcp)
 
 import { pathToFileURL } from "node:url";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
 process.env.C64RE_RUNTIME_AUTOSTART = "0";
@@ -46,7 +46,7 @@ const canon = (v) => (Array.isArray(v) ? v.map(canon) : v && typeof v === "objec
 const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
 // ---------------------------------------------------------------- project + the static side (819-shaped, seeded directly)
-const project = mkdtempSync(join(tmpdir(), "c64re-826-"));
+const project = testTmpDir("c64re-826-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 826 runtime-args fixture", slug: "s826", rootPath: project }));
 

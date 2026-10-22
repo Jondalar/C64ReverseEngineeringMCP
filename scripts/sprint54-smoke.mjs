@@ -2,13 +2,13 @@
 // (a) range-form parser, (b) segment-confirmation coverage,
 // (c) per-artifact strict intersect.
 
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint54-smoke-"));
+const root = testTmpDir("c64re-sprint54-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

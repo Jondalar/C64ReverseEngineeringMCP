@@ -30,10 +30,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:one-store-writer
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -54,7 +55,7 @@ if (!existsSync(mcpCli) || !existsSync(pipelineCli)) {
 
 // ───────────────────────────────── helpers
 
-const tmpDir = (prefix) => realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+const tmpDir = (prefix) => testTmpDir(prefix);
 
 const write = (root, rel, body) => {
   mkdirSync(join(root, dirname(rel)), { recursive: true });
@@ -300,7 +301,7 @@ function writeCartBanks(proj, analysisRel) {
 
 {
   const proj = tmpDir("c64re-1w-mcp-");
-  const log = join(tmpdir(), `c64re-1w-signatures-${process.pid}.tsv`);
+  const log = join(testTmpDir("c64re-1w-signatures-"), "signatures.tsv");
   rmSync(log, { force: true });
   const { proc, call } = startServer(proj, log);
 

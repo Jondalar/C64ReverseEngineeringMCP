@@ -14,13 +14,13 @@
 //   (needs `npm run build`)
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DAEMON = await daemonOrSkip("smoke:867");
@@ -45,7 +45,7 @@ console.log(`Spec 867 §6.4 — residency, against a real machine  (runtime: ${D
 const cleanups = [];
 const budget = setTimeout(() => { console.log("FAIL  smoke budget (300 s) exhausted"); for (const c of cleanups) try { c(); } catch {} process.exit(1); }, 300_000);
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-867-smoke-"));
+const proj = testTmpDir("c64re-867-smoke-");
 cleanups.push(() => rmSync(proj, { recursive: true, force: true }));
 buildFixture(proj, GRAPH_DDL);
 for (const m of MODULES) analyze(proj, m.owner, m.prg);

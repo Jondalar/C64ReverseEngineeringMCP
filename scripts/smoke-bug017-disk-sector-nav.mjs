@@ -6,11 +6,11 @@
 // This smoke proves the data path end-to-end (real D64 over the HTTP API) and
 // asserts the UI wiring at the source level (no DOM runner in this repo).
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -47,7 +47,7 @@ const gtc = g64.slice(g64.indexOf("getTrackCount()"), g64.indexOf("getHalfTrackC
 ok(/trackOffsets/.test(gtc) && /falsified by copy protection/.test(gtc), "5h G64 track count tolerates a lying header (scans real track offsets)", "");
 
 // ---- backend data-path E2E: real D64 over the HTTP API ----
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug017-"));
+const projectDir = testTmpDir("c64re-bug017-");
 mkdirSync(join(projectDir, "input", "disk"), { recursive: true });
 // a blank but valid-size .d64 (35 tracks = 683 sectors * 256). getSector reads
 // raw offsets, so even zero-filled data yields a 256-byte sector.

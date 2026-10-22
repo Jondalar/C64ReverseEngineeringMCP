@@ -18,9 +18,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-annotations
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -79,7 +79,7 @@ const NAMES = {
   tbl_head: { address: 0x0827, referenced: false },
 };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-832-"));
+const dir = testTmpDir("c64re-832-");
 const prgPath = join(dir, "named.prg");
 writeFileSync(prgPath, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE, ...DATA]));
 

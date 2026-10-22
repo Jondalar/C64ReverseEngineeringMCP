@@ -1,11 +1,11 @@
 // Spec 784 GAP 2 — extract_disk emits a Spec-784 manifest for the stock-DOS layer,
 // and the documented custom-extractor manifest shape validates. Run after build:mcp.
-import { rmSync, mkdtempSync, existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildDiskSpec784Manifest, writeDiskSpec784Manifest } from "../dist/server-tools/disk-spec784-manifest.js";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
 import { extractDiskImage } from "../dist/disk-extractor.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -53,7 +53,7 @@ ok(built.payloads[0].format === "prg" && built.payloads[1].format === "raw", "fo
 // --- 2. Real motm.g64 extract → manifest.spec784.json written + valid ---
 const SAMPLE = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples/motm.g64";
 if (existsSync(SAMPLE)) {
-  const dir = mkdtempSync(join(tmpdir(), "s784-"));
+  const dir = testTmpDir("s784-");
   try {
     const outDir = join(dir, "analysis", "disk", "motm");
     const extracted = extractDiskImage(SAMPLE, outDir);
@@ -102,7 +102,7 @@ ok(!bad.ok, "derivedBy not matching a loaderModels[].id is rejected");
 //        LoaderModel (payloadLoaderModelId), so the service can create the record. ---
 const { importManifestKnowledge } = await import("../dist/project-knowledge/manifest-import.js");
 const { writeFileSync } = await import("node:fs");
-const idir = mkdtempSync(join(tmpdir(), "s784-imp-"));
+const idir = testTmpDir("s784-imp-");
 try {
   const legacyPath = join(idir, "manifest.json");
   writeFileSync(legacyPath, JSON.stringify({

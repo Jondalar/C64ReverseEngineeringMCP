@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { buildWorkerPrompt, isToolAllowedInPhase, phaseForTool } from "../dist/agent-orchestrator/phase-tools.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint-34-35-smoke-"));
+const root = testTmpDir("c64re-sprint-34-35-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

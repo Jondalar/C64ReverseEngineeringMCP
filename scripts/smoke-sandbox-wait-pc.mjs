@@ -12,11 +12,12 @@
 // Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly).
 //
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:sandbox-wait-pc");
 
@@ -28,7 +29,7 @@ let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-sbx-pc-"));
+const proj = testTmpDir("c64re-sbx-pc-");
 
 const server = spawn(process.execPath, [cli], {
   cwd: tmpdir(),

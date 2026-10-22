@@ -23,7 +23,7 @@
 //   npm run e2e:902
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,6 +31,7 @@ import { request } from "node:http";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
 import { processes } from "./lib/processes.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const IS_WIN = process.platform === "win32";
@@ -46,7 +47,7 @@ const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
 if (!existsSync(join(ROOT, "dist/cli.js"))) { console.log("FAIL  dist is not built (npm run build)"); process.exit(1); }
 
 // ── the sandbox of this run ────────────────────────────────────────────────────────────────────
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-902-"));
+const SANDBOX = testTmpDir("c64re-902-");
 const PROJ = join(SANDBOX, "proj");
 const PROJ2 = join(SANDBOX, "proj2");
 mkdirSync(PROJ, { recursive: true });

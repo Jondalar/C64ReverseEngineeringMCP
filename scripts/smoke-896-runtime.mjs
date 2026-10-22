@@ -17,12 +17,13 @@
 //   7   sandbox_6502_run with $01=$37: stores to $D000-$DFFF are I/O, not RAM — named in an
 //       "I/O stores" line and absent from output_path; with $01=$34 they are plain RAM
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import WebSocket from "ws";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -36,7 +37,7 @@ const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PAS
 const skip = (m) => { skipped++; console.log(`  SKIP  ${m}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-896-")));
+const base = testTmpDir("c64re-896-");
 const scratch = (n) => { const d = join(base, n); mkdirSync(d, { recursive: true }); return d; };
 
 function cleanEnv(extra = {}) {

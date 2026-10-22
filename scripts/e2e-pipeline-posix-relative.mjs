@@ -12,8 +12,8 @@
 
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const MODULE_PATH = join(ROOT, "dist/pipeline/lib/fs-utils.cjs");
@@ -31,7 +31,7 @@ const check = (got, want, msg) => {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${msg}${ok ? "" : `  (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`}`);
 };
 
-const root = join(tmpdir(), "c64re-posix-relative", "project");
+const root = join(testTmpDir("c64re-posix-relative-"), "project");
 const analysis = join(root, "analysis");
 const menuFile = join(analysis, "cart", "menu_payload_exports", "0-intro", "0-1-intro-code_$2000-$3fff.bin");
 

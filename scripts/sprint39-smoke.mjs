@@ -1,14 +1,14 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, rmSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { runSetup } from "../dist/setup-cli.js";
 import { requiredPhasesFor, visiblePhasesFor } from "../dist/agent-orchestrator/workflows.js";
 import { nextStepError } from "../dist/server-tools/error-helpers.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint39-smoke-"));
+const root = testTmpDir("c64re-sprint39-smoke-");
 
 try {
   // Spec 046: workflow templates required-phase math

@@ -9,9 +9,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-ids
 
 import { pathToFileURL } from "node:url";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -27,7 +27,7 @@ const { scanRegistrationDelta, listCandidateFiles, toolOwnerOf } =
   await import(pathToFileURL(join(ROOT, "dist/lib/registration-delta.js")).href);
 const { auditProject } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/audit.js")).href);
 
-const project = mkdtempSync(join(tmpdir(), "c64re-832-"));
+const project = testTmpDir("c64re-832-");
 const service = new ProjectKnowledgeService(project);
 service.initProject({ name: "Spec 832 fixture", description: "D5 + D6", tags: ["e2e"] });
 

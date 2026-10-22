@@ -2,9 +2,9 @@
 // crashes, and a bad/mistyped entry is SKIPPED + recorded (not silently lost or fatal).
 // Run after `npm run build`. The pipeline is CommonJS, so require the .cjs.
 import { createRequire } from "node:module";
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 const require = createRequire(import.meta.url);
 const { buildAnnotationsIndex, loadAnnotations } = require("../dist/pipeline/lib/annotations.cjs");
 
@@ -50,7 +50,7 @@ const idx3 = buildAnnotationsIndex({ version: 1, binary: "x", segments: [], rout
 ok(idx3.labelsByAddress.has(0x840) && idx3.labelsByAddress.has(0x850), "hex parses with `$` and without");
 
 // 4. loadAnnotations normalizes a file that omits required arrays (no crash on index).
-const dir = mkdtempSync(join(tmpdir(), "annot-"));
+const dir = testTmpDir("annot-");
 try {
   const p = join(dir, "loader_annotations.json");
   writeFileSync(p, JSON.stringify({ version: 1, binary: "loader.prg", labels: [{ address: "1000", label: "ok" }] })); // no segments/routines

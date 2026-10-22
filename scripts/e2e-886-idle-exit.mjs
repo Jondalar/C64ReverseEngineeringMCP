@@ -11,13 +11,14 @@
 //      runtime_keep_alive forever is reported as kept alive.
 // Needs a TRX64 daemon that carries Spec 887.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("e2e:886-idle-exit");
 
@@ -35,7 +36,7 @@ const listener = () => listenerPids(PORT)[0] || 0;
 const killPort = () => { const p = listener(); if (p) try { process.kill(p, "SIGKILL"); } catch {} };
 const until = async (cond, ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await sleep(200); } return cond(); };
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-886-"));
+const proj = testTmpDir("c64re-886-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 new ProjectKnowledgeService(proj).initProject({ name: "886" });
 

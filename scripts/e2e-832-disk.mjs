@@ -9,9 +9,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-disk
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -82,7 +82,7 @@ check(prgBytes?.length === 254 && prgBytes[0] === 0x01 && prgBytes[1] === 0x08,
   "…and its bytes come back whole, header included (the caller did not ask for a strip)");
 
 // --------------------------------------------------- the manifest, imported whole
-const project = mkdtempSync(join(tmpdir(), "c64re-832-"));
+const project = testTmpDir("c64re-832-");
 try {
   const service = new ProjectKnowledgeService(project);
   service.initProject({ name: "832 fixture", description: "Spec 832 disk gate", tags: ["gate"] });
@@ -244,7 +244,7 @@ try {
     await import(pathToFileURL(join(ROOT, "dist/disk-custom-lut.js")).href);
   const { SECTORS_PER_TRACK } = await import(pathToFileURL(join(ROOT, "dist/disk/base.js")).href);
 
-  const dir = mkdtempSync(join(tmpdir(), "c64re-alloc-"));
+  const dir = testTmpDir("c64re-alloc-");
   try {
     // A real-shaped 35-track D64: 683 sectors of 256 bytes.
     let total = 0;

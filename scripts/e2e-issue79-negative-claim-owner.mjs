@@ -8,9 +8,9 @@
 //   * a claim citing nothing, shared address    -> flagged AMBIGUOUS (not blocking), never "refuted"
 //   * a caller edge in A, claim cites A         -> refuted
 // Hermetic: temp project, no daemon, no ROMs.   npm run e2e:issue79-negative-claim-owner
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { critique } = await import("../dist/critic/run.js");
@@ -26,7 +26,7 @@ const SLUG = "griffin";
 const rid = (owner, kind, addr) => `${SLUG}:ram/${owner}:${kind}:${addr.toString(16).padStart(4, "0")}`;
 const gen = (id, kind, name) => ({ id, kind, name, origin: "static", confidence: "certain" });
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-79-"));
+const dir = testTmpDir("c64re-79-");
 try {
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }));

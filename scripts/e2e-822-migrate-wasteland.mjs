@@ -20,9 +20,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const WASTELAND_REPO = process.env.C64RE_WASTELAND_EF ?? "/Users/alex/Development/C64/Cracking/Wasteland_EF";
@@ -53,7 +53,7 @@ if (!refOk) {
   process.exit(0);
 }
 // Export the pinned tree; nothing is read from the working directory after this.
-const WASTELAND = mkdtempSync(join(tmpdir(), "c64re-822-fixture-"));
+const WASTELAND = testTmpDir("c64re-822-fixture-");
 {
   const tar = join(WASTELAND, "..", `c64re-822-${Date.now()}.tar`);
   execFileSync("git", ["-C", WASTELAND_REPO, "archive", "--format=tar", "-o", tar, WASTELAND_REF]);
@@ -85,7 +85,7 @@ const eq = (actual, expected, what) => check(actual === expected, `${what} = ${a
 // ---------------------------------------------------------------- 0. the temp copy
 
 const t0 = process.hrtime.bigint();
-const project = mkdtempSync(join(tmpdir(), "c64re-822-"));
+const project = testTmpDir("c64re-822-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
   if (!f.endsWith(".json") && f !== "notes.md") continue;
@@ -360,7 +360,7 @@ store.close();
 // 400/400 (the JSON path this replaced lost 200 of 400 — recorded in §"Built").
 {
   const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
-  const cut = mkdtempSync(join(tmpdir(), "c64re-822-cut-"));
+  const cut = testTmpDir("c64re-822-cut-");
   mkdirSync(join(cut, "knowledge"), { recursive: true });
   for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
     if (!f.endsWith(".json") && f !== "notes.md") continue;

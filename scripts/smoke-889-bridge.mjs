@@ -25,8 +25,7 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { createSocket } from "node:dgram";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
@@ -35,6 +34,7 @@ import { startMcp } from "./lib/mcp-stdio.mjs";
 import { AudioGen, VideoGen, udpSender } from "./lib/stream-datagrams.mjs";
 import { distLoader, reapBridges } from "./lib/bridge-harness.mjs";
 import { commandLine } from "./lib/processes.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -50,7 +50,7 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
 
 if (!existsSync(join(ROOT, "dist/cli.js"))) { console.log("FAIL  dist is not built (npm run build:mcp)"); process.exit(1); }
 
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-889br-"));
+const SANDBOX = testTmpDir("c64re-889br-");
 const STATE = join(SANDBOX, "state");
 const PROJ = join(SANDBOX, "proj");
 const OTHER_PROJ = join(SANDBOX, "other");

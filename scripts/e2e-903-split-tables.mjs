@@ -24,12 +24,12 @@
 //   npm run e2e:903
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMcp } from "./lib/mcp-stdio.mjs";
 import { splitTablePrg, pairUsePrg } from "./lib/903-prgs.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -47,7 +47,7 @@ if (!existsSync(join(ROOT, "dist/cli.js")) || !existsSync(join(ROOT, "dist/pipel
 
 console.log("Spec 903 — split low/high tables are declared, and a found one must be decided\n");
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-903-"));
+const proj = testTmpDir("c64re-903-");
 const mcp = startMcp({ root: ROOT, pairDialects: true, env: { C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0", C64RE_FULL_TOOLS: "1" } });
 const call = mcp.call;
 

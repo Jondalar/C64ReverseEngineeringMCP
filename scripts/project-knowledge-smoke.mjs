@@ -1,13 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditProject, auditProjectCached } from "../dist/project-knowledge/audit.js";
 import { repairProject } from "../dist/project-knowledge/repair.js";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { resolveProjectDir } from "../dist/project-root.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-knowledge-smoke-"));
+const root = testTmpDir("c64re-knowledge-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);
@@ -165,7 +165,7 @@ try {
   assert.equal(repairSafe.executed.includes("built all workspace views"), true);
   assert.equal(repairSafe.after?.counts.staleViews, 0);
 
-  const fragmentRoot = mkdtempSync(join(tmpdir(), "c64re-knowledge-merge-"));
+  const fragmentRoot = testTmpDir("c64re-knowledge-merge-");
   try {
     const fragmentService = new ProjectKnowledgeService(fragmentRoot);
     fragmentService.initProject({ name: "Merge fixture", description: "merge-fragments smoke", tags: ["smoke"] });
@@ -236,7 +236,7 @@ try {
     rmSync(fragmentRoot, { recursive: true, force: true });
   }
 
-  const registerRoot = mkdtempSync(join(tmpdir(), "c64re-knowledge-register-"));
+  const registerRoot = testTmpDir("c64re-knowledge-register-");
   try {
     const registerService = new ProjectKnowledgeService(registerRoot);
     registerService.initProject({ name: "Register fixture", description: "register-artifacts smoke", tags: ["smoke"] });
@@ -257,7 +257,7 @@ try {
     rmSync(registerRoot, { recursive: true, force: true });
   }
 
-  const importRoot = mkdtempSync(join(tmpdir(), "c64re-knowledge-import-"));
+  const importRoot = testTmpDir("c64re-knowledge-import-");
   try {
     const importService = new ProjectKnowledgeService(importRoot);
     importService.initProject({ name: "Import fixture", description: "import-analysis smoke", tags: ["smoke"] });
@@ -294,7 +294,7 @@ try {
     rmSync(importRoot, { recursive: true, force: true });
   }
 
-  const cacheRoot = mkdtempSync(join(tmpdir(), "c64re-knowledge-cache-"));
+  const cacheRoot = testTmpDir("c64re-knowledge-cache-");
   try {
     const cacheService = new ProjectKnowledgeService(cacheRoot);
     cacheService.initProject({ name: "Cache fixture", description: "audit cache smoke", tags: ["smoke"] });

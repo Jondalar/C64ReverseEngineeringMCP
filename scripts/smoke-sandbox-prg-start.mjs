@@ -9,11 +9,12 @@
 // agrees with it. Needs a TRX64 daemon (C64RE_RUNTIME_BIN; without one the script SKIPS loudly);
 // the sandbox is a child of each call and gone when it returns.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:sandbox-prg-start");
 
@@ -24,7 +25,7 @@ if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run buil
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-sbx-prg-"));
+const proj = testTmpDir("c64re-sbx-prg-");
 
 // 10 SYS2061 — the line, the end-of-program link, then code at $080D.
 const basic = [0x01, 0x08, 0x0b, 0x08, 0x0a, 0x00, 0x9e, 0x32, 0x30, 0x36, 0x31, 0x00, 0x00, 0x00,

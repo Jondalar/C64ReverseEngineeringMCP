@@ -23,10 +23,11 @@
 //
 // Usage: node scripts/e2e-mcp-no-internal-recommendations.mjs
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -133,7 +134,7 @@ if (!existsSync(cli)) {
   process.exit(2);
 }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-730_5-"));
+const projectDir = testTmpDir("c64re-730_5-");
 mkdirSync(join(projectDir, "analysis", "disk", "tiny", "raw_sectors"), { recursive: true });
 // Write a minimal fixture manifest so project_audit detects something to import.
 writeFileSync(join(projectDir, "analysis", "disk", "tiny", "manifest.json"), JSON.stringify({

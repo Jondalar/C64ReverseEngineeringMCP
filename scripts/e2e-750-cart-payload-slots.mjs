@@ -5,10 +5,10 @@
 //   • no span.mediumRef            → UNSCOPED: shown on every cart image, flagged.
 // Same artifact on multiple carts = multiple spans. LUT-chunk cells deduped.
 // The cart twin of e2e-bug031-disk-payload-spans.mjs.
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -16,7 +16,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("Spec 750.1b — cartridge-layout overlays payload slot spans, scoped per image\n");
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-750cart-"));
+const projectDir = testTmpDir("c64re-750cart-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "750cart" });

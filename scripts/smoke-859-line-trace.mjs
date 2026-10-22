@@ -13,12 +13,12 @@
 //                                             release daemon with vic/line_trace)
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DAEMON = await daemonOrSkip("smoke:859");
@@ -31,7 +31,7 @@ const check = (cond, msg, detail = "") => {
   console.log(`  ${cond ? "PASS" : "FAIL"}  ${msg}${detail ? `  (${detail})` : ""}`);
 };
 
-const base = mkdtempSync(join(tmpdir(), "c64re-859-"));
+const base = testTmpDir("c64re-859-");
 
 const daemon = spawn(DAEMON, ["--project", base, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
