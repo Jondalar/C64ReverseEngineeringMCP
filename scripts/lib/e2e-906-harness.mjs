@@ -125,6 +125,14 @@ export class Harness {
     const call = async (method, params = {}) => { const r = await rpc(method, params); if (r.error) throw new Error(r.error.message ?? JSON.stringify(r.error)); return r.result; };
     return { rpc, call, close: () => ws.close() };
   }
+  /** A daemon free-runs, so "the shared machine did not move" is proved on a PAUSED stand-in: nothing but a run that reaches
+   *  it can change its cycle, its registers or its run state. Returns the state to compare and the comparison. */
+  async pinShared(ws) {
+    await ws.call("debug/pause", { source: "test" });
+    const look = async () => { const st = await ws.call("session/state"); return { cycle: st.c64Cycles, runState: st.runState, pc: st.cpu?.pc }; };
+    const before = await look();
+    return { before, async unchanged() { const after = await look(); return { ok: after.cycle === before.cycle && after.runState === "paused" && after.pc === before.pc, text: `${JSON.stringify(before)} -> ${JSON.stringify(after)}` }; } };
+  }
   /** An MCP session of this repo over stdio, in `projectDir`, with the state directory every process of the run shares. */
   async mcp(projectDir, { endpoint, env = {}, onboard = true } = {}) {
     const m = startMcp({

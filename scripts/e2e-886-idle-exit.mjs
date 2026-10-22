@@ -49,7 +49,7 @@ const startDaemon = (idle) => {
 };
 const connect = async () => {
   for (let i = 0; i < 100; i++) {
-    try { return await new Promise((res, rej) => { const w = new WebSocket(ENDPOINT); w.once("open", () => res(w)); w.once("error", rej); }); } catch { await sleep(150); }
+    try { return await new Promise((res, rej) => { const w = new WebSocket(`${ENDPOINT}/?av=0`); w.once("open", () => res(w)); w.once("error", rej); }); } catch { await sleep(150); }
   }
   throw new Error("daemon never answered");
 };

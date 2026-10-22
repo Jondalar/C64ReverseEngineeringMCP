@@ -116,8 +116,7 @@ try {
   // The stand-in for the shared session: a daemon of this run's own that the MCP is attached to. Its clock must not move.
   const shared = await H.daemon(DAEMON, proj);
   const sharedWs = await H.ws(shared.port);
-  const sharedCycle = async () => (await sharedWs.call("session/state")).c64Cycles;
-  const cycle0 = await sharedCycle();
+  const pin = await H.pinShared(sharedWs);
 
   const m = await H.mcp(proj, { endpoint: shared.endpoint, env: { C64RE_FULL_TOOLS: "1" } });
   const trip = await H.mcp(proj, { env: { C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_BIN: tripwire } });
@@ -325,8 +324,8 @@ try {
   check(/\[state_map\]/.test(search) && /rooms/.test(search), "project_search finds the map by its name", search.slice(0, 300));
   const entities = await m.call("list_entities", {}).catch(() => "");
   check(!/game_state|state_map/.test(entities), "the map's nodes are not listed as entities of the project");
-  const cycle1 = await sharedCycle();
-  check(cycle1 === cycle0, "the shared machine's cycle did not move during S2-S5", `${cycle0} -> ${cycle1}`);
+  const sharedNow = await pin.unchanged();
+  check(sharedNow.ok, "the shared machine (a paused stand-in) did not move during S2-S5: same cycle, same PC, still paused", sharedNow.text);
   const anchorList = await m.call("runtime_anchor_list", {});
   check(/solve\.goal/.test(anchorList), "the goal anchor is a project anchor like any other: runtime_anchor_list shows it", anchorList.slice(0, 200));
 

@@ -36,6 +36,8 @@ wss.on("connection", (ws) => {
     let m; try { m = JSON.parse(String(data)); } catch { return; }
     const reply = (o) => ws.send(JSON.stringify({ jsonrpc: "2.0", id: m.id, ...o }));
     if (m.method === "ping") return reply({ result: { runtime_version: "trx64-runtime/2", version: `stub-${mode}`, project, idleExit: { armedSeconds: 0, deadlineMs: null, holding: null, keptAliveUntilMs: null, keptForever: false } } });
+    // A sandbox refuses to start unless the runtime reports `noWriteback` (it was started with --scratch).
+    if (m.method === "session/state") return reply({ result: { noWriteback: process.argv.includes("--scratch"), runState: "running" } });
     if (m.method === "daemon/shutdown" && mode !== "old") {
       reply({ result: { ok: true, persisted: { cartridge: null, disks: [] }, trace: null, exitCode: 0 } });
       setTimeout(() => end("request"), 50);
