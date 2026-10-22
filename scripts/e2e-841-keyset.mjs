@@ -180,5 +180,32 @@ const sourceFor = (resolved, action) =>
     "…and not in TRX64's home — the daemon takes verbs and has no keyset");
 }
 
+// ── The tools: with no project, the cwd is not made one ──────────────────────
+{
+  const { startMcp } = await import("./lib/mcp-stdio.mjs");
+  const { readdirSync } = await import("node:fs");
+  const { neutralTmpRoot } = await import("./lib/neutral-tmp.mjs");
+  const ROOT = join(import.meta.dirname, "..");
+  const cwd = mkdtempSync(join(neutralTmpRoot(), "c64re-841-nocwd-"));
+  const home = mkdtempSync(join(neutralTmpRoot(), "c64re-841-home-"));
+  const m = startMcp({ root: ROOT, cwd, env: { C64RE_PROJECT_DIR: "", C64RE_FULL_TOOLS: "1", HOME: home } });
+  try {
+    await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-841", version: "1" } });
+    const saved = await m.call("runtime_input_save_config", { action: { kind: "joystick", port: 2, bit: "fire" }, code: "KeyM" });
+    check(/project/i.test(saved) && !/<- KeyM/.test(saved),
+      `scope=project with no project is refused  (${saved.slice(0, 160).replace(/\n/g, " ")})`);
+    check(readdirSync(cwd).length === 0, "…and nothing was written into the cwd");
+    const loaded = await m.call("runtime_input_load_config", {});
+    let parsed = null; try { parsed = JSON.parse(loaded); } catch { /* refused */ }
+    check(parsed && parsed.paths.project === null && parsed.bindings.length > 0,
+      `reading with no project gives the map without a project level  (${loaded.slice(0, 160).replace(/\n/g, " ")})`);
+    check(readdirSync(cwd).length === 0, "…and still nothing in the cwd");
+  } finally {
+    m.stop();
+    const { rmSync } = await import("node:fs");
+    for (const d of [cwd, home]) rmSync(d, { recursive: true, force: true });
+  }
+}
+
 console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 841 keyset: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount ? 1 : 0);

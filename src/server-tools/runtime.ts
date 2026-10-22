@@ -921,13 +921,17 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
     "runtime_input_load_config",
     "Read the resolved host-key → C64-action map for a project: which key on the HUMAN's keyboard drives which joystick direction or C64 key, merged from three levels (built-in default → the human's global ~/.config/c64re/input.json → <project>/runtime/input.json) with the SOURCE of each binding reported, so \"why is fire on M here\" is answerable without opening two files. Use it before driving input, or to explain a mapping. Note the runtime itself has no keyset — it takes actions (session/key_down, session/joystick_set), and the mapping belongs to each client; this is C64RE's. Not for changing one (use runtime_input_save_config). Inputs: optional project_dir. Returns: { bindings: [{action, code, source}], conflicts, swallowedByJoystick, paths }.",
     {
-      project_dir: z.string().optional().describe("Project whose overrides to apply. Omitted: C64RE_PROJECT_DIR, i.e. the project this server was started for."),
+      project_dir: z.string().optional().describe("Project whose overrides to apply. Omitted: C64RE_PROJECT_DIR, i.e. the project this server was started for; with no project at all, the map has no project level and paths.project is null."),
       vicerc_path: z.string().optional().describe("ADVANCED. Seed the global level from a legacy VICE `vicerc` keyset when no global file exists yet."),
     },
     safeHandler("runtime_input_load_config", async ({ project_dir, vicerc_path }) => {
       const { resolveKeyset, conflicts, swallowedByJoystick, globalKeysetPath, projectKeysetPath } =
         await import("../input/keyset.js");
-      const projectDir = project_dir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
+      // A named project is honoured or refused. With none named and none found, the map is read
+      // without a project level: the cwd is not a project.
+      let projectDir: string | undefined;
+      try { projectDir = context.projectDir({ projectDir: project_dir }); }
+      catch (e) { if (project_dir) throw e; }
       const bindings = resolveKeyset({ projectDir });
       const { loadInputConfig } = await import("../input/input-config.js");
       // The gamepad + keyboard-mode halves are still the Spec 264 config's, and stay
@@ -937,7 +941,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
         bindings,
         conflicts: conflicts(bindings),
         swallowedByJoystick: swallowedByJoystick(bindings),
-        paths: { global: globalKeysetPath(), project: projectKeysetPath(projectDir) },
+        paths: { global: globalKeysetPath(), project: projectDir ? projectKeysetPath(projectDir) : null },
         keyboardMode: legacy.keyboardMode,
         gamepad: legacy.gamepad,
       }, null, 2) }] };
@@ -956,7 +960,7 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
       }).describe("What the C64 should do — the binding is action ← key, so you start from what the GAME needs"),
       code: z.string().optional().describe("The host key, as a browser KeyboardEvent.code: \"KeyW\", \"Space\", \"Numpad8\", \"ArrowUp\". OMIT to clear this level's override so the action falls back to the level below."),
       scope: z.enum(["global", "project"]).default("project").describe("Where the binding lands: project = this game's mapping (default), global = the human's own across all projects"),
-      project_dir: z.string().optional().describe("Project to write to when scope=project. Omitted: C64RE_PROJECT_DIR."),
+      project_dir: z.string().optional().describe("Project to write to when scope=project. Omitted: C64RE_PROJECT_DIR. With no project, scope=project is refused and nothing is written."),
     },
     safeHandler("runtime_input_save_config", async ({ action, code, scope, project_dir }) => {
       const { setBinding, clearBinding, globalKeysetPath, projectKeysetPath, actionLabel } =
@@ -966,8 +970,9 @@ export function registerRuntimeTools(server: McpServer, context: ServerToolConte
         : { kind: "key" as const, matrix: action.matrix ?? "" };
       if (a.kind === "joystick" && !action.bit) throw new Error("action.bit required for a joystick binding (up|down|left|right|fire)");
       if (a.kind === "key" && !a.matrix) throw new Error("action.matrix required for a key binding (e.g. \"RUN_STOP\")");
-      const projectDir = project_dir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
-      const path = scope === "global" ? globalKeysetPath() : projectKeysetPath(projectDir);
+      // scope=project writes into a project, so it needs one: named, from C64RE_PROJECT_DIR, or
+      // the project the cwd lies in. None of those → refused; the cwd is never made one.
+      const path = scope === "global" ? globalKeysetPath() : projectKeysetPath(context.projectDir({ projectDir: project_dir }, true));
       const bindings = code ? setBinding(path, a, code) : clearBinding(path, a);
       const verb = code ? `${actionLabel(a)} <- ${code}` : `cleared ${actionLabel(a)}`;
       return { content: [{ type: "text", text: `${verb}\n${path}\n${JSON.stringify(bindings, null, 2)}` }] };
