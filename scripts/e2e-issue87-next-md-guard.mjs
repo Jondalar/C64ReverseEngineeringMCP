@@ -5,12 +5,12 @@
 //   no NEXT.md           : created
 //   generated NEXT.md    : rewritten
 // Hermetic: temp project, stdio MCP server, no daemon.   npm run e2e:issue87-next-md-guard
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { recordAgentStepFromCode, NEXT_MD_GENERATED_FOOTER } = await import("../dist/server-tools/agent-workflow.js");
@@ -23,7 +23,7 @@ const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${detail ? `\n        ${detail}` : ""}`);
 };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-87-"));
+const dir = testTmpDir("c64re-87-");
 const nextPath = join(dir, "knowledge", "NEXT.md");
 const statePath = join(dir, "knowledge", "agent-state.json");
 const history = () => JSON.parse(readFileSync(statePath, "utf8")).history.map((h) => h.step);

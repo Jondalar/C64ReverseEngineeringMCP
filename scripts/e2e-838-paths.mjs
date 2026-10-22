@@ -16,9 +16,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:838-paths
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const {
@@ -155,7 +155,7 @@ check(!/process\.platform/u.test(source), "src/lib/id-path.ts never reads proces
 check(!/\bwin32\b/u.test(source.replace(/^\s*\/\/.*$/gmu, "")), "…and does not branch on a platform name outside its comments");
 
 console.log("\n--- 5. a directory for an id, inside the project, never above it ---");
-const project = mkdtempSync(join(tmpdir(), "c64re-838-"));
+const project = testTmpDir("c64re-838-");
 for (const [label, id] of HOSTILE) {
   const dir = idDirIn(project, PAYLOAD_OUTPUT_BASE, id);
   const base = resolve(project, PAYLOAD_OUTPUT_BASE);
@@ -179,7 +179,7 @@ for (const [label, id] of HOSTILE) {
 check(true, "every hostile id in the table is mkdir-able on this host too");
 
 console.log("\n--- 7. a project written before Spec 838 is not orphaned ---");
-const legacyProject = mkdtempSync(join(tmpdir(), "c64re-838-legacy-"));
+const legacyProject = testTmpDir("c64re-838-legacy-");
 if (LEGACY_IMPOSSIBLE) {
   skip("a pre-existing directory under the raw id is recognised as legacy — a ':' directory cannot exist on win32, so no project here has one");
 } else {

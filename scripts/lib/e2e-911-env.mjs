@@ -1,18 +1,15 @@
 // Shared by the feature-run gates: a private TMPDIR that is removed on exit (sandbox scratch included),
 // the command line door, and the check that no daemon of the run outlives it.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ROOT, processesMatching } from "./e2e-906-harness.mjs";
+import { testTmpDir } from "./neutral-tmp.mjs";
 
 /** Point TMPDIR at a directory of this run's own; it and everything under it goes at exit. */
 export function privateTmp(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = testTmpDir(prefix);
   process.env.TMPDIR = dir;
-  const gone = () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* */ } };
-  process.on("exit", gone);
-  return { dir, gone };
+  return { dir };
 }
 
 /** `c64re scenario run …` as a child: its exit code and what it printed. */

@@ -7,10 +7,10 @@
 // absent. Layer 2 synthetic committed fixtures are a follow-up.
 //
 // Run: npm run test:mcp-workflow   (needs `npm run build:mcp` first)
-import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const CRACKING = process.env.C64RE_TEST_PROJECTS || "/Users/alex/Development/C64/Cracking";
 // Each fixture: the expectation is derived from the media it OWNS, not from which
@@ -24,7 +24,7 @@ let pass = 0, fail = 0, skip = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
 function withFixture(dir, fn) {
-  const tmp = mkdtempSync(join(tmpdir(), "c64re-fixture-"));
+  const tmp = testTmpDir("c64re-fixture-");
   try {
     cpSync(dir, join(tmp, "proj"), { recursive: true });
     return fn(join(tmp, "proj"));
@@ -120,7 +120,7 @@ const SUBSTRATE = [
 ];
 for (const fx of SUBSTRATE) {
   if (!existsSync(join(fx.dir, "knowledge", "artifacts.json"))) { skip++; console.log(`  SKIP  ${fx.name} absent\n`); continue; }
-  const tmp = mkdtempSync(join(tmpdir(), "c64re-substrate-"));
+  const tmp = testTmpDir("c64re-substrate-");
   try {
     cpSync(join(fx.dir, "knowledge"), join(tmp, "proj", "knowledge"), { recursive: true });
     const svc = new ProjectKnowledgeService(join(tmp, "proj"));

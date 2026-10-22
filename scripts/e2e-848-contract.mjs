@@ -5,9 +5,9 @@
 // below is that run's actual shape: 21 payloads, 2 sources, 0 annotations, 209 findings,
 // 9 of them ungrounded — every one of those nine written by slot_record while the agent
 // was CORRECTLY complying with Spec 844's data-geometry gate.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { loadContract, saveContract, KICKOFF_QUESTIONS, formatContract } = await import("../dist/contract/contract.js");
 const { slotReport, isMachineName } = await import("../dist/slots/state.js");
@@ -27,7 +27,7 @@ const check = (name, cond, detail) => {
 
 const SLUG = "testgame";
 function newProject() {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-848-"));
+  const dir = testTmpDir("c64re-848-");
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
   return dir;

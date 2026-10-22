@@ -5,10 +5,11 @@
 // and get a byte-exact rebuild, using ONLY the relocation proposal the tools
 // produced (no hand-authored relocation map). Synthetic fixture, no Wasteland.
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -19,7 +20,7 @@ console.log("Spec 741 — MCP E2E: analyze → propose → disasm(relocations) �
 const cli = join(ROOT, "dist/cli.js");
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build:mcp`"); process.exit(2); }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-741-e2e-"));
+const projectDir = testTmpDir("c64re-741-e2e-");
 // Synthetic copyloop PRG: $C000 entry, 2-page unrolled copy $C300→$FC00, then
 // 512 benign nops at $C300-$C4FF.
 const b = [

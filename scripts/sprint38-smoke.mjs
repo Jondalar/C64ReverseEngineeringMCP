@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint38-smoke-"));
+const root = testTmpDir("c64re-sprint38-smoke-");
 
 try {
   // Synthetic analysis JSON with one pointer table, one large unknown,

@@ -4,10 +4,11 @@
 // Hermetic: synthetic CRTs, temp project outside the repo, live MCP stdio.
 // Run: npm run e2e:crt-manifest-role (build:mcp first).
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -36,7 +37,7 @@ function makeCrt(name, loadAddr) {
   return crt;
 }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-crtmanifest-"));
+const projectDir = testTmpDir("c64re-e2e-crtmanifest-");
 ok(!projectDir.startsWith(ROOT), "project dir is outside the repo", projectDir);
 mkdirSync(join(projectDir, "media"), { recursive: true });
 writeFileSync(join(projectDir, "media", "one.crt"), makeCrt("ONE", 0x8000));

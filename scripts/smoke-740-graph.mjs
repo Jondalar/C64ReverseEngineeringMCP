@@ -14,10 +14,11 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run smoke:740-graph
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -36,7 +37,7 @@ if (!existsSync(cli) || !existsSync(join(ROOT, "dist/pipeline/cli.cjs"))) {
 const search = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/project-search.js")).href);
 const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-740g-"));
+const proj = testTmpDir("c64re-740g-");
 check(!proj.startsWith(ROOT), "the project lives outside the C64RE repo", proj);
 
 // ── MCP stdio ────────────────────────────────────────────────────────────────

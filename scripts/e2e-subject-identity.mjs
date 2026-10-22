@@ -24,10 +24,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:subject-identity
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -52,7 +53,7 @@ const {
   classifyTopRankTie, orderCandidatesBestFirst, rankCandidate, migrateSubjectIdentity,
 } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/artifact-versions.js")).href);
 
-const tmpProject = (prefix) => mkdtempSync(join(tmpdir(), prefix));
+const tmpProject = (prefix) => testTmpDir(prefix);
 const write = (root, rel, body) => {
   mkdirSync(join(root, dirname(rel)), { recursive: true });
   writeFileSync(join(root, rel), body);

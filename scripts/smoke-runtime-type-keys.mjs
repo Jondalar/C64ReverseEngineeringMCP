@@ -11,12 +11,13 @@
 // Needs a TRX64 daemon: C64RE_RUNTIME_BIN, or a LOUD skip.
 //
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
 import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -33,7 +34,7 @@ async function withDaemon(port, body) {
   let server;
   try {
     for (let i = 0; i < 50; i++) { try { (await open(`ws://127.0.0.1:${port}?av=0`)).close(); break; } catch { await sleep(200); } }
-    const proj = mkdtempSync(join(tmpdir(), "c64re-type-keys-"));
+    const proj = testTmpDir("c64re-type-keys-");
     server = spawn(process.execPath, [cli], {
       cwd: tmpdir(),
       env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${port}`, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },

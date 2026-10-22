@@ -19,10 +19,10 @@
 //
 // Run after `npm run build:mcp`.
 
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { buildD64 } = await import(pathToFileURL(join(ROOT, "dist/disk/d64-builder.js")).href);
@@ -97,7 +97,7 @@ const img = buildD64({ diskName: "CHAINGATE", diskId: "CG", files: FILES });
 // Neuromancer side 2 directory entries terminate exactly like this.
 { const o = rawOffset(21, 2); img[o] = 0; img[o + 1] = 0; }
 
-const dir = mkdtempSync(join(tmpdir(), "chain-spans-"));
+const dir = testTmpDir("chain-spans-");
 try {
   const imagePath = join(dir, "chaingate.d64");
   writeFileSync(imagePath, img);

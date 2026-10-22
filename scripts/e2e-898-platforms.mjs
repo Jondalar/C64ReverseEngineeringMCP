@@ -30,12 +30,13 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:898
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -119,8 +120,8 @@ head(2, "Spec 818 ids derive and resolve for the new tags");
 }
 
 // ── the server, one process, two projects ────────────────────────────────────
-const projA = mkdtempSync(join(tmpdir(), "c64re-898-a-"));
-const projB = mkdtempSync(join(tmpdir(), "c64re-898-b-"));
+const projA = testTmpDir("c64re-898-a-");
+const projB = testTmpDir("c64re-898-b-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: projA, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
@@ -394,7 +395,7 @@ try {
     const SLUG = "d7";
     // sites: [{ at, stores: [addr…], human?: name }]; the boundary asks for `want` over [start, end]
     async function scenario({ tag, owner, sites, start, end }) {
-      const d = mkdtempSync(join(tmpdir(), "c64re-898d7-"));
+      const d = testTmpDir("c64re-898d7-");
       mkdirSync(join(d, "knowledge"), { recursive: true });
       writeFileSync(join(d, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG, ...(tag === "c64" ? {} : { platform: tag }) }));
       const rid = (a) => `${SLUG}:ram/${owner}:routine:${a.toString(16).padStart(4, "0")}`;
@@ -574,7 +575,7 @@ function makeD64(files) {
   // ── 10 D8 the machine is asked for · D9 a raw cartridge is placed by its signature ──
   head(10, "D8: the machine is stated and asked for; D9: a raw cartridge image is placed by its signature");
   const mkProject = async (tag, platform) => {
-    const d = mkdtempSync(join(tmpdir(), `c64re-898-${tag}-`));
+    const d = testTmpDir(`c64re-898-${tag}-`);
     await call("project_init", { preferred_assembler: "kickass", project_dir: d, name: `platforms-${tag}`, ...(platform ? { platform } : {}) });
     await call("agent_onboard", { project_dir: d });
     return d;
@@ -703,7 +704,7 @@ function makeD64(files) {
     const { declareMachine } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/machine.js")).href);
     // D-A: a boundary with NO owner, in a project with NO default machine
     async function unowned({ edges, declared, human }) {
-      const d = mkdtempSync(join(tmpdir(), "c64re-898da-"));
+      const d = testTmpDir("c64re-898da-");
       mkdirSync(join(d, "knowledge"), { recursive: true });
       writeFileSync(join(d, "knowledge", "project.json"), JSON.stringify({ name: "da", slug: "da" }));
       const owner = "vic";
@@ -730,7 +731,7 @@ function makeD64(files) {
     check(/holds no routine, table or data segment to annotate/.test(a4 ?? ""), "D-A: mixed tags → the project default (c64), $9000 is RAM, as before", a4);
 
     // D-C / D-B / D-D / D-E on one VIC-20 file
-    const pd = mkdtempSync(join(tmpdir(), "c64re-898-acc-"));
+    const pd = testTmpDir("c64re-898-acc-");
     await call("project_init", { preferred_assembler: "kickass", project_dir: pd, name: "acc" });
     await call("agent_onboard", { project_dir: pd });
     // lda #1 ; sta $9600,x ; sta $9005 ; lda #$e ; sta $9110 ; jsr $FFD2 ; rts
@@ -764,7 +765,7 @@ function makeD64(files) {
     check(!/Platform store: no/.test(i4), "D-D: a range outside the I/O window gets no such note");
 
     // D-B on the c64: PHOENIX ($FF56) is a row whose name equals its symbol
-    const pc64 = mkdtempSync(join(tmpdir(), "c64re-898-b64-"));
+    const pc64 = testTmpDir("c64re-898-b64-");
     await call("project_init", { preferred_assembler: "kickass", project_dir: pc64, name: "b64" });
     await call("agent_onboard", { project_dir: pc64 });
     put(pc64, "b.prg", prgBytes(0x0801, [0x20, 0x56, 0xff, 0x60]));

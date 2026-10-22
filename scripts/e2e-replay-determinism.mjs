@@ -18,7 +18,7 @@
 //   C64RE_RUNTIME_BIN=/abs/path/to/trx64-daemon npm run e2e:replay-determinism
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -27,6 +27,7 @@ import { WebSocket } from "ws";
 import { prgWithStub } from "./lib/asm6502-mini.mjs";
 import { replayPrg } from "./lib/replay-prgs.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
@@ -68,7 +69,7 @@ if (plan.mode === "none") {
   if (!ok) { console.log("SKIPPED — this runtime predates cycle-exact input (TRX64 0.12.10 or later is needed)."); process.exit(0); }
 }
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-replay-"));
+const dir = testTmpDir("c64re-replay-");
 const cleanups = [];
 process.on("exit", () => { for (const f of cleanups.reverse()) { try { f(); } catch { /* gone */ } } try { rmSync(dir, { recursive: true, force: true }); } catch { /* */ } });
 const prgPath = join(dir, "replay.prg");

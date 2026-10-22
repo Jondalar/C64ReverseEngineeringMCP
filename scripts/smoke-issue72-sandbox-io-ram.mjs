@@ -13,10 +13,10 @@
 //    otherwise): the real routine, assembled with scripts/lib/asm6502-mini.mjs.
 //
 //   npm run smoke:issue72-sandbox-io-ram
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let failures = 0;
@@ -32,7 +32,7 @@ if (!existsSync(join(ROOT, "dist", "server-tools", "sandbox.js"))) {
 const { registerSandboxTools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/sandbox.js")).href);
 const { assemble } = await import(pathToFileURL(join(ROOT, "scripts/lib/asm6502-mini.mjs")).href);
 
-const scratch = mkdtempSync(join(tmpdir(), "c64re-72-"));
+const scratch = testTmpDir("c64re-72-");
 const tools = new Map();
 registerSandboxTools({ tool(name, description, shape, handler) { tools.set(name, { description, shape, handler }); return {}; } }, {
   projectDir: () => scratch,

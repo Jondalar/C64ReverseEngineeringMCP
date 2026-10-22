@@ -1,12 +1,12 @@
 // Spec 053 (Sprint 46) — Bug 20 phase-1 noise archive smoke.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint46-smoke-"));
+const root = testTmpDir("c64re-sprint46-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

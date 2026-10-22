@@ -14,8 +14,7 @@
 // relocations, once without — and compares.
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:842-graph
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 let pass = 0, failCount = 0;

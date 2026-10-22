@@ -9,10 +9,10 @@
 // Hermetic: the real run-cli.js + pipeline-build.js are copied into a throwaway package root next
 // to a stub pipeline, so "match" and "mismatch" are staged without touching this checkout's dist.
 //   npm run smoke:pipeline-version
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let failures = 0;
@@ -37,7 +37,7 @@ if (existsSync(join(ROOT, "dist", "pipeline", "cli.cjs"))) {
   console.log("SKIP  real dist/pipeline not built; the staged cases below still run");
 }
 
-const tmp = mkdtempSync(join(tmpdir(), "c64re-pipever-"));
+const tmp = testTmpDir("c64re-pipever-");
 try {
   const pkgRoot = join(tmp, "pkg");
   mkdirSync(join(pkgRoot, "dist", "pipeline"), { recursive: true });

@@ -24,10 +24,10 @@
 //
 // Run: npm run e2e:832-gcr
 
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -168,7 +168,7 @@ ok(walk.viceHeaderCount === viceHeaders.length, "the walk carries the other read
 
 // ------------------------------------------------------- through the tool ---
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-832-gcr-"));
+const projectDir = testTmpDir("c64re-832-gcr-");
 const imagePath = join(projectDir, "synthetic-832.g64");
 writeFileSync(imagePath, buildG64(TRACK, trackBytes));
 

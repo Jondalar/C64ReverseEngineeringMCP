@@ -27,10 +27,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:store-concurrency
 
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -112,7 +113,7 @@ function makeProject(label) {
   // realpath, because the child's cwd is canonical and the paths this test hands
   // it must be too — otherwise the row it writes is about a file "outside" the
   // project and the assertion below would be testing the test.
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), `c64re-conc-${label}-`)));
+  const dir = testTmpDir(`c64re-conc-${label}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   // registerCliArtifact keys "am I inside a project" on knowledge/phase-plan.json.
   writeFileSync(join(dir, "knowledge", "phase-plan.json"), JSON.stringify({ schemaVersion: 1, phases: [] }, null, 2));
@@ -249,7 +250,7 @@ const readStore = (dir) => {
 
 {
   head(4, "an MCP door says so too, before it says anything else");
-  const proj = realpathSync(mkdtempSync(join(tmpdir(), "c64re-conc-mcp-")));
+  const proj = testTmpDir("c64re-conc-mcp-");
   const proc = spawn(process.execPath, [mcpCli], {
     cwd: tmpdir(),
     env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
@@ -295,7 +296,7 @@ const readStore = (dir) => {
 
     // The image is copied out of the checkout: a checkout nested in another project (a worktree) would have its
     // samples refused as that project's file, and the case under test is the registration failure, not that guard.
-    const image = join(tmpdir(), `c64re-conc-img-${process.pid}.d64`);
+    const image = join(testTmpDir("c64re-conc-img-"), "img.d64");
     copyFileSync(join(ROOT, "samples/fixtures/load-fidelity/lf-002-5block.d64"), image);
     const answer = await call("extract_disk", { image_path: image });
     rmSync(image, { force: true });
@@ -337,7 +338,7 @@ const readStore = (dir) => {
   const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
 
   const makeGraphProject = (label) => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), `c64re-graph-${label}-`)));
+    const dir = testTmpDir(`c64re-graph-${label}-`);
     mkdirSync(join(dir, "knowledge"), { recursive: true });
     writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: "graphconc", slug: "gc" }));
     return dir;

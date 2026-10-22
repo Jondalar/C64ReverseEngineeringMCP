@@ -9,11 +9,11 @@
 //
 //   node scripts/smoke-804-naming.mjs     (needs `npm run build`)
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMcp } from "./lib/fixture-804.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
@@ -40,8 +40,8 @@ const writeAnnotations = (prg, name) => writeFileSync(prg.replace(/\.prg$/u, "_a
 }, null, 2));
 
 console.log("Spec 804 — names over 20 characters, new projects only\n");
-const fresh = mkdtempSync(join(tmpdir(), "c64re-804n-"));
-const legacy = mkdtempSync(join(tmpdir(), "c64re-804l-"));
+const fresh = testTmpDir("c64re-804n-");
+const legacy = testTmpDir("c64re-804l-");
 const mcps = [];
 try {
   const { KnowledgeRecords } = await dist("knowledge-graph/records.js");

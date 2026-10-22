@@ -8,10 +8,10 @@
 //   2  a short path still assembles byte-identical (the prefix is only added when needed)
 // Skips loudly when no 64tass is found (set C64RE_64TASS_BIN).
 //   npm run build && node scripts/e2e-issue118-64tass-long-path.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { find64tassBinary, assembleSource } = await import(pathToFileURL(join(ROOT, "dist/assemble-source.js")).href);
@@ -29,7 +29,7 @@ if (!find64tassBinary()) {
 
 const SOURCE = "* = $1000\nstart   lda #$01\n        rts\n";
 const BYTES = Buffer.from([0x00, 0x10, 0xa9, 0x01, 0x60]);
-const base = mkdtempSync(join(tmpdir(), "c64re-longpath-"));
+const base = testTmpDir("c64re-longpath-");
 try {
   const assemble = async (label, dir) => {
     mkdirSync(dir, { recursive: true });

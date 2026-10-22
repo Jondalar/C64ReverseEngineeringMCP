@@ -9,12 +9,13 @@
 // one the script SKIPS).
 //
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocket } from "ws";
 import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -34,7 +35,7 @@ async function scenario(port, withViewer) {
   try {
     for (let i = 0; i < 50; i++) { try { (await open(`ws://127.0.0.1:${port}?av=0`)).close(); break; } catch { await sleep(200); } }
     if (withViewer) { viewer = await open(`ws://127.0.0.1:${port}`); await sleep(300); }
-    const proj = mkdtempSync(join(tmpdir(), "c64re-run-adv-"));
+    const proj = testTmpDir("c64re-run-adv-");
     server = spawn(process.execPath, [cli], {
       cwd: tmpdir(),
       env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${port}`, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },

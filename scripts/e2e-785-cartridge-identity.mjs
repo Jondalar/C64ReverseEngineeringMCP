@@ -6,16 +6,16 @@
 // disk, one manifest pointing at the wrong one.
 // Run: npm run e2e:785-identity (build:mcp first).
 import { deriveCartridgeIdentity } from "../dist/project-knowledge/cartridge-identity.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
 console.log("Spec 785 A4 — cartridge identity + mismatch against the linked image\n");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-785-identity-"));
+const dir = testTmpDir("c64re-785-identity-");
 
 /** Minimal VICE .crt header followed by `padding` filler bytes. */
 function writeCrt(path, { hardwareType, name, totalBytes }) {

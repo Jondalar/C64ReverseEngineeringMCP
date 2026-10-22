@@ -20,16 +20,17 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:833-sandbox
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Before anything else: the two fallbacks this tool used to lean on are removed.
 delete process.env.C64RE_PROJECT_DIR;
-const neutralCwd = mkdtempSync(join(tmpdir(), "c64re-833-cwd-"));
+const neutralCwd = testTmpDir("c64re-833-cwd-");
 process.chdir(neutralCwd);
 
 let pass = 0;
@@ -47,7 +48,7 @@ const { collectToolInventory } = await import(pathToFileURL(join(ROOT, "dist/ser
 const { pathParamsOf } = await import(pathToFileURL(join(ROOT, "scripts/lib/schema-path-walk.mjs")).href);
 
 // ------------------------------------------------------------ the temp project
-const project = mkdtempSync(join(tmpdir(), "c64re-833-proj-"));
+const project = testTmpDir("c64re-833-proj-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "phase-plan.json"), JSON.stringify({ phases: [] }));
 mkdirSync(join(project, "payloads"), { recursive: true });
@@ -57,7 +58,7 @@ writeFileSync(join(project, "payloads", "blob.bin"), Buffer.from([0x00]));
 writeFileSync(join(project, "payloads", "blob.prg"), Buffer.from([0x00, 0x10, 0x00]));
 
 // A second, LOOSE directory that is inside no project at all — the negative control.
-const loose = mkdtempSync(join(tmpdir(), "c64re-833-loose-"));
+const loose = testTmpDir("c64re-833-loose-");
 writeFileSync(join(loose, "stray.bin"), Buffer.from([0x00]));
 
 check(!existsSync(join(neutralCwd, "knowledge")), "the cwd is inside no project", neutralCwd);

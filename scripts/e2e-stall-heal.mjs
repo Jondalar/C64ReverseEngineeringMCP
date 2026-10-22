@@ -5,12 +5,12 @@
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("e2e:stall-heal");
 
@@ -31,7 +31,7 @@ killPort();
 // Spec 902: only a process C64RE can vouch for is ended — one in the ledger, or a runtime daemon by
 // name. The fake below is a stalled daemon C64RE started, so it is recorded; a stalled listener
 // nobody recorded is somebody else's and is left alone (asserted at the end).
-process.env.C64RE_STATE_DIR = mkdtempSync(join(tmpdir(), "c64re-stall-"));
+process.env.C64RE_STATE_DIR = testTmpDir("c64re-stall-");
 const { registerProcess } = await import(pathToFileURL(join(ROOT, "dist/runtime/process-ledger.js")).href);
 
 let exit = 0;

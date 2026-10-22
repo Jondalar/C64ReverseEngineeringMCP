@@ -13,15 +13,15 @@
 // someone's project is a gate that runs once.
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:842-reloc-data
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cliCjs = join(here, "..", "dist", "pipeline", "cli.cjs");
-const work = mkdtempSync(join(tmpdir(), "c64re-842-"));
+const work = testTmpDir("c64re-842-");
 
 let pass = 0, failCount = 0;
 const ok = (m) => { pass += 1; console.log(`  PASS  ${m}`); };

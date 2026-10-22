@@ -24,10 +24,11 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0, skipped = 0;
@@ -50,7 +51,7 @@ const HAVE_ASSEMBLER = existsSync(KICKASS);
 console.log("Spec 865 — disassemble bytes at an address\n");
 
 // ── the MCP harness ─────────────────────────────────────────────────────────
-const proj = mkdtempSync(join(tmpdir(), "c64re-865-"));
+const proj = testTmpDir("c64re-865-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },

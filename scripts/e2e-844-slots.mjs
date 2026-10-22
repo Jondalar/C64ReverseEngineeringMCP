@@ -3,9 +3,9 @@
 //
 // Written to be able to FAIL. Every case below asserts a status or a refusal that the
 // code has to produce; none of it is a header line claiming the build works.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 // coverage counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
 function writeArtifactsJson(file, text) {
   writeFileSync(file, text);
@@ -31,7 +31,7 @@ const check = (name, cond, detail) => {
 };
 
 function newProject(slug) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-slots-${slug}-`));
+  const dir = testTmpDir(`c64re-slots-${slug}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: slug, slug }, null, 2));
   return dir;
@@ -280,7 +280,7 @@ try {
     const { GraphStore } = await import("../dist/knowledge-graph/store.js");
     const slug = "covgame";
     const mk = () => {
-      const dir = mkdtempSync(join(tmpdir(), "c64re-cov8-"));
+      const dir = testTmpDir("c64re-cov8-");
       mkdirSync(join(dir, "knowledge"), { recursive: true });
       writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: slug, slug }, null, 2));
       writeArtifactsJson(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [

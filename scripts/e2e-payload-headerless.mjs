@@ -15,21 +15,21 @@
 // Hermetic: synthetic CRT / D64 built here, a temp project outside the repo, MCP over stdio. No ROMs, no runtime.
 // The rebuild checks need KickAssembler / 64tass: without one they report "not verified" and skip loudly.
 // Run: npm run e2e:payload-headerless
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { Buffer } from "node:buffer";
 import { chipBytes, bankSwitchCode, HW_EASYFLASH, HW_GMOD2, makeCrt } from "./lib/cartridge-fixture-909.mjs";
 import { d64WithPrg } from "./lib/d64-fixture.mjs";
 import { makeChecker, load, ROOT } from "./lib/e2e-906-harness.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
 const T = makeChecker("e2e-payload-headerless");
 const { check, head } = T;
 console.log("Payloads are headerless unless they are PRG files\n");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-e2e-hdrless-"));
+const dir = testTmpDir("c64re-e2e-hdrless-");
 check(!dir.startsWith(ROOT), "project dir is outside the repo", dir);
 mkdirSync(join(dir, "media"), { recursive: true });
 // bank 0: lda #n / sta $DE00 / jmp $8000 — its first two bytes ($A9 $nn) would be the bogus origin $nnA9
@@ -106,7 +106,7 @@ try {
   check(diskListings.some((p) => origin(readFileSync(p, "utf8")) === "C000"), "H2.2 its origin is the file's own load address $C000", diskListings.map((p) => origin(readFileSync(p, "utf8"))).join(","));
 
   // a project of its own: register_payload is gated while a mapped project has empty required slots
-  dir2 = mkdtempSync(join(tmpdir(), "c64re-e2e-hdrless2-"));
+  dir2 = testTmpDir("c64re-e2e-hdrless2-");
   mkdirSync(join(dir2, "media"), { recursive: true });
   writeFileSync(join(dir2, "media", "blob.bin"), RAW);
   await call("project_init", { preferred_assembler: "kickass", project_dir: dir2, name: "hdrless-raw" });
@@ -121,7 +121,7 @@ try {
   const blobAsm = listingsUnder(join(dir2, "artifacts", "generated")).filter((p) => /blob/i.test(p));
   check(blobAsm.length > 0 && blobAsm.every((p) => origin(readFileSync(p, "utf8")) === "C100"), "H3.2 the raw payload's listing starts at its declared address $C100, not at its first two bytes ($05A9)", `${bid} ${blobAsm.map((p) => origin(readFileSync(p, "utf8"))).join(",")} ${wr.split("\n").slice(0, 4).join(" | ")}`);
   // unknown stays unknown: a raw block registered with no load address
-  dir2 = mkdtempSync(join(tmpdir(), "c64re-e2e-hdrless3-"));
+  dir2 = testTmpDir("c64re-e2e-hdrless3-");
   mkdirSync(join(dir2, "media"), { recursive: true });
   writeFileSync(join(dir2, "media", "blob.bin"), RAW);
   await call("project_init", { preferred_assembler: "kickass", project_dir: dir2, name: "hdrless-unknown" });

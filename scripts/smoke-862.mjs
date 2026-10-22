@@ -22,11 +22,12 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -52,7 +53,7 @@ const { opcodeTiming } = await load("dist/cost/cycles.js");
 const { resolveDaemonSpawn } = await load("dist/runtime/resolve-daemon-spawn.js");
 const { buildD64 } = await load("dist/disk/d64-builder.js");
 
-const work = mkdtempSync(join(tmpdir(), "c64re-862-"));
+const work = testTmpDir("c64re-862-");
 
 const plan = resolveDaemonSpawn({ repoRoot: ROOT, projectDir: work, port: "0" });
 if (plan.mode === "none") {
@@ -217,7 +218,7 @@ try {
   // ── §6 — the tool, over MCP, against the store this gate recorded ─────────
   console.log("\n§6 — the tool itself, against a real store");
   {
-    const proj = mkdtempSync(join(tmpdir(), "c64re-862m-"));
+    const proj = testTmpDir("c64re-862m-");
     mkdirSync(join(proj, "artifacts", "prg"), { recursive: true });
     const prg = join(proj, "artifacts", "prg", "cand.prg");
     writeFileSync(prg, Buffer.from([program.load & 0xff, program.load >> 8, ...program.bytes]));

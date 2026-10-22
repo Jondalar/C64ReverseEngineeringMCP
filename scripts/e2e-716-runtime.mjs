@@ -18,10 +18,10 @@
 // loudly when there is no sibling (a runner has none), which is the one thing a
 // correctness gate may not do silently.
 
-import { existsSync, readFileSync, mkdtempSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0, skip = 0;
@@ -105,7 +105,7 @@ check(installer.assetFor("sunos-sparc") === null,
 console.log("\n3. Finding a daemon without a checkout");
 
 const { resolveDaemonSpawn } = await built("dist/runtime/resolve-daemon-spawn.js");
-const work = mkdtempSync(join(tmpdir(), "c64re-716rt-"));
+const work = testTmpDir("c64re-716rt-");
 process.on("exit", () => { try { rmSync(work, { recursive: true, force: true }); } catch {} });
 
 const proj = join(work, "project");

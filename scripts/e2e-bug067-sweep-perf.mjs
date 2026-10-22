@@ -18,13 +18,13 @@
 // Hermetic: a temp project, a synthetic analysis JSON, no media, no runtime.
 // Exit 0 = pass, 1 = fail.   npm run e2e:bug067
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
 import { KnowledgeRecords } from "../dist/knowledge-graph/records.js";
 import { runAndFormatClosedLoopSweep } from "../dist/server-tools/closed-loop-sweep.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0;
 let failCount = 0;
@@ -45,7 +45,7 @@ count(ProjectKnowledgeService.prototype, "sweepQuestionResolutions", "sweepQuest
 const reset = () => { prepared.length = 0; for (const k of Object.keys(calls)) delete calls[k]; };
 const wholeLedgerReads = () => prepared.filter((s) => /FROM migration_log(?!\s+WHERE\s+legacy_store\s*=)/u.test(s) && /^\s*SELECT/iu.test(s)).length;
 
-const root = mkdtempSync(join(tmpdir(), "c64re-bug067-"));
+const root = testTmpDir("c64re-bug067-");
 try {
   const service = new ProjectKnowledgeService(root);
   service.initProject({ name: "BUG-067", description: "" });

@@ -23,10 +23,11 @@
 //
 // Path-portable: project lives in $TMPDIR, cwd is $TMPDIR, no repo fallback.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -77,7 +78,7 @@ const g64Bytes = buildG64({ d64 });
 // -------------------------------------------------------------------------------
 
 // temp project OUTSIDE the repo.
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-diskraw-"));
+const projectDir = testTmpDir("c64re-e2e-diskraw-");
 ok(!projectDir.startsWith(ROOT), "0 project dir is outside the C64RE repo", projectDir);
 
 // Write the G64 into a media subfolder of the project (never repo samples/).

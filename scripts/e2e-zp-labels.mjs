@@ -10,10 +10,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:zp-labels
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/pipeline/cli.cjs");
@@ -46,7 +46,7 @@ const annotations = { labels: [
   { address: "$101C", label: "absVar" },
 ] };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-zp-labels-"));
+const dir = testTmpDir("c64re-zp-labels-");
 const prg = join(dir, "t.prg");
 writeFileSync(prg, prgBytes);
 const annPath = join(dir, "ann.json");

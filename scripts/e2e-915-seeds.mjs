@@ -18,10 +18,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:915-seeds
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -44,11 +44,11 @@ const rid = (owner, kind, a) => `${SLUG}:ram/${owner}:${kind}:${a.toString(16).p
 
 // ---------------------------------------------------------------- fixture helpers
 function newProject(tag) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-915-${tag}-`));
+  const dir = testTmpDir(`c64re-915-${tag}-`);
   mkdirSync(join(dir, "analysis"), { recursive: true });
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 915 fixture", slug: SLUG, rootPath: dir }));
-  const scratch = mkdtempSync(join(tmpdir(), `c64re-915-${tag}-out-`));
+  const scratch = testTmpDir(`c64re-915-${tag}-out-`);
   return { dir, scratch };
 }
 

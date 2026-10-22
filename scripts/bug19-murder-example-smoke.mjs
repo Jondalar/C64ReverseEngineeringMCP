@@ -7,13 +7,13 @@
 // This smoke recreates that exact shape and asserts the new
 // validatePrgInput in pipeline/src/analysis/prg.ts rejects it.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPrg } from "../dist/pipeline/analysis/prg.cjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-bug19-smoke-"));
+const root = testTmpDir("c64re-bug19-smoke-");
 
 try {
   // 1) Replica of the Murder example — JSON manifest, 76971 bytes.

@@ -32,10 +32,11 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:tooling-defects
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0, skipped = 0;
@@ -123,7 +124,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   head(4, "a medium path resolves the way every other path argument does");
   const { readerForMedium, noMediumMessage, mediumSearchPaths } =
     await import("../dist/project-knowledge/lut-medium.js");
-  const proj = mkdtempSync(join(tmpdir(), "c64re-med-"));
+  const proj = testTmpDir("c64re-med-");
   mkdirSync(join(proj, "input", "disk"), { recursive: true });
   const img = join(proj, "input", "disk", "CRAZY1.D64");
   writeFileSync(img, Buffer.alloc(512, 0x41));
@@ -275,7 +276,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   check(/set_current_artifact_version/.test(src), "the version-tie hint names the tool, not the Inspector");
   const { readInventoryDeclaration, INVENTORY_PATTERNS_FILE } =
     await import("../dist/project-knowledge/inventory-patterns.js");
-  const proj = mkdtempSync(join(tmpdir(), "c64re-inv-"));
+  const proj = testTmpDir("c64re-inv-");
   mkdirSync(join(proj, "knowledge"), { recursive: true });
   check(readInventoryDeclaration(proj).patterns.length === 0, "a project with no declaration declares nothing");
   writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
@@ -316,7 +317,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
 {
   head("2b", "the note about a shifted analysis names both doors");
   const { execFileSync } = await import("node:child_process");
-  const d = mkdtempSync(join(tmpdir(), "c64re-note-"));
+  const d = testTmpDir("c64re-note-");
   const prg = join(d, "n.prg");
   writeFileSync(prg, Buffer.from([0x00, 0xc0, 0xa9, 0x01, 0x60]));
   const analysis = join(d, "n_analysis.json");
@@ -334,7 +335,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
 // ───────────────────────────────────────────────────────── live, through the server
 
 head("L", "live: the doors, over MCP");
-const proj = mkdtempSync(join(tmpdir(), "c64re-tool-"));
+const proj = testTmpDir("c64re-tool-");
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
   env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },

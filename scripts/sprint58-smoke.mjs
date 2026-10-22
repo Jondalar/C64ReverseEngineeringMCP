@@ -1,13 +1,13 @@
 // Bug 26 / Spec 058 follow-up — backfill_internal_flags + view-builder
 // heuristic-fallback smoke.
 
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint58-smoke-"));
+const root = testTmpDir("c64re-sprint58-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

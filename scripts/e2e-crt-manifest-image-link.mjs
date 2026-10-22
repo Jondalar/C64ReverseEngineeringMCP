@@ -5,11 +5,12 @@
 // Hermetic: synthetic CRTs, temp project outside the repo, live MCP stdio.
 // Run: npm run e2e:crt-manifest-image-link
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -40,7 +41,7 @@ function makeCrt(fill) {
   return crt;
 }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-crtimagelink-"));
+const projectDir = testTmpDir("c64re-e2e-crtimagelink-");
 ok(!projectDir.startsWith(ROOT), "project dir is outside the repo", projectDir);
 mkdirSync(join(projectDir, "media"), { recursive: true });
 writeFileSync(join(projectDir, "media", "one.crt"), makeCrt(0xea));

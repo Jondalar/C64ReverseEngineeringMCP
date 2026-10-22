@@ -12,8 +12,8 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const repoRoot = new URL("..", import.meta.url).pathname;
 const cruncher = await import(`${repoRoot}dist/byteboozer-cruncher.js`);
@@ -22,8 +22,7 @@ const lykiaDecoder = await import(`${repoRoot}dist/byteboozer-lykia-decoder.js`)
 const ct = await import(`${repoRoot}dist/compression-tools.js`);
 
 const B2_CLI = "/Users/alex/Development/C64/Tools/ByteBoozer2/b2/b2";
-const TMP = join(tmpdir(), "bb2-test-" + Date.now());
-mkdirSync(TMP, { recursive: true });
+const TMP = testTmpDir("bb2-test-");
 
 function makePrg(loadAddress, payload) {
   const buf = Buffer.alloc(2 + payload.length);

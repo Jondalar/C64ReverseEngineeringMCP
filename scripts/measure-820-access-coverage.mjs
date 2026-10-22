@@ -6,9 +6,9 @@
 //   node scripts/measure-820-access-coverage.mjs [--json <out>]
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
@@ -18,7 +18,7 @@ const corpus = join(ROOT, "analysis/tmp/spec-816");
 if (!existsSync(corpus)) { console.error("analysis/tmp/spec-816 absent — run npm run measure:816 first"); process.exit(2); }
 const files = readdirSync(corpus).filter((f) => f.endsWith("_analysis.json") || f.endsWith(".analysis.json")).map((f) => join(corpus, f)).sort();
 
-const project = mkdtempSync(join(tmpdir(), "c64re-820-measure-"));
+const project = testTmpDir("c64re-820-measure-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "m", name: "measure", slug: "m820", rootPath: project }));
 

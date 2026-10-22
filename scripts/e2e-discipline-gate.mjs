@@ -5,9 +5,9 @@ import { checkTraceDiscipline, checkRuntimeDiscipline } from "../dist/server-too
 import { checkSubstrateDiscipline } from "../dist/server-tools/substrate-gate.js";
 import { deriveSubstratePosture } from "../dist/project-knowledge/types.js";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -73,7 +73,7 @@ ok(deriveSubstratePosture(mkFile([["unknown"]])) === "unknown", "only unknown �
 console.log("\ndiscipline-gate — Tier 2 substrate gate (integration)\n");
 ok((await checkSubstrateDiscipline(undefined, { tool: "runtime_loader_lens" })).allowed, "no project → allowed (Tier 2 is project-scoped)");
 
-const dir1 = mkdtempSync(join(tmpdir(), "c64re-sub-"));
+const dir1 = testTmpDir("c64re-sub-");
 try {
   const svc = new ProjectKnowledgeService(dir1);
   svc.recordSubstrateVerdict("cybernoid.g64", { substrate: "standard-gcr", evidence: "standard DOS dir, 2 files", source: "auto", recordedBy: "inspect_disk", fileCount: 2 });
@@ -88,7 +88,7 @@ try {
   ok((await checkSubstrateDiscipline(dir1, { tool: "runtime_loader_lens" })).allowed, "auto does not clobber manual → still allowed");
 } finally { rmSync(dir1, { recursive: true, force: true }); }
 
-const dir2 = mkdtempSync(join(tmpdir(), "c64re-sub-"));
+const dir2 = testTmpDir("c64re-sub-");
 try {
   new ProjectKnowledgeService(dir2); // scaffold, no verdict recorded
   const g = await checkSubstrateDiscipline(dir2, { tool: "runtime_loader_lens" });

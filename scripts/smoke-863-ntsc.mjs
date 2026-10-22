@@ -19,13 +19,13 @@
 //   (needs `npm run build`)
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { resolveDaemonSpawn } = await import("../dist/runtime/resolve-daemon-spawn.js");
@@ -93,7 +93,7 @@ async function rpc(endpoint, deadlineMs = 20_000) {
 // is `scripts/e2e-863-model.mjs` (hermetic, in CI). This one needs a runtime.
 
 // ── a project remembers its model ─────────────────────────────────────────────────────
-const proj = mkdtempSync(join(tmpdir(), "c64re-863-proj-"));
+const proj = testTmpDir("c64re-863-proj-");
 cleanups.push(() => rmSync(proj, { recursive: true, force: true }));
 {
   console.log("the project's model:");

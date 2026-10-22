@@ -1,11 +1,11 @@
 // BUG-015 — project_init / init flow sorts loose root media into typed input/
 // folders, registers each at its canonical path with preserved provenance,
 // leaves the root clean (unknown types stay), and is idempotent.
-import { mkdtempSync, writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -13,7 +13,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-015 — project_init sorts media into typed input/ folders\n");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-bug015-"));
+const dir = testTmpDir("c64re-bug015-");
 // loose mixed media in the project root
 const files = {
   "game.d64": Buffer.from([0x01, 0x02]),

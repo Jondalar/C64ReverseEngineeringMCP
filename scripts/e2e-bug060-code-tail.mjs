@@ -40,10 +40,10 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:bug060-code-tail
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0, skipped = 0;
@@ -86,7 +86,7 @@ const CASES = [
 function render(tail) {
   const body = [...TRUNK, ...tail];
   const last = LOAD + body.length - 1;
-  const dir = mkdtempSync(join(tmpdir(), "c64re-bug060-tail-"));
+  const dir = testTmpDir("c64re-bug060-tail-");
   const raw = join(dir, "core_4300.bin");
   writeFileSync(raw, Buffer.from(body));
 

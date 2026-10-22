@@ -14,14 +14,14 @@
 // Without a trx64-daemon binary A–D SKIP LOUDLY (E still runs). Never touches :4312.
 //   C64RE_RUNTIME_BIN=<abs path> npm run smoke:905
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 import { prgWithStub } from "./lib/asm6502-mini.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -29,7 +29,7 @@ const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PAS
 const head = (t) => console.log(`\n── ${t}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((res, rej) => { const s = createServer(); s.once("error", rej); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-905ui-"));
+const SANDBOX = testTmpDir("c64re-905ui-");
 const cleanups = [];
 process.on("exit", () => { for (const f of cleanups.reverse()) { try { f(); } catch { /* gone */ } } try { rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* */ } });
 

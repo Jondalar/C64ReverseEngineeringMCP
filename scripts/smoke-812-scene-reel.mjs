@@ -7,11 +7,11 @@
 //
 //   node scripts/smoke-812-scene-reel.mjs
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0;
@@ -114,7 +114,7 @@ const server = {
     return { update() {}, remove() {}, enable() {}, disable() {} };
   },
 };
-const work = mkdtempSync(join(tmpdir(), "c64re-812-"));
+const work = testTmpDir("c64re-812-");
 registerSceneReelTool(server, {
   projectDir: () => work,
   toolsDir: () => join(ROOT, "pipeline"),

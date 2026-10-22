@@ -38,18 +38,19 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:834-trace-store
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
 // Before anything else: the two fallbacks this resolver used to lean on are gone.
 delete process.env.C64RE_PROJECT_DIR;
-const neutralCwd = mkdtempSync(join(tmpdir(), "c64re-834-cwd-"));
+const neutralCwd = testTmpDir("c64re-834-cwd-");
 process.chdir(neutralCwd);
 // The 827 per-user root, redirected into a temp dir for the duration.
-process.env.C64RE_TRACE_DIR = mkdtempSync(join(tmpdir(), "c64re-834-traceroot-"));
+process.env.C64RE_TRACE_DIR = testTmpDir("c64re-834-traceroot-");
 
 let pass = 0;
 let failCount = 0;
@@ -65,7 +66,7 @@ const { resolveProjectDir } = await import(pathToFileURL(join(ROOT, "dist/projec
 const { resolveStorePath, registerTraceStoreTools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/trace-store.js")).href);
 const { traceDirForProject, tracePointerPath, recordTracePointer } = await import(pathToFileURL(join(ROOT, "dist/trace/trace-location.js")).href);
 
-const project = mkdtempSync(join(tmpdir(), "c64re-834-project-"));
+const project = testTmpDir("c64re-834-project-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "phase-plan.json"), JSON.stringify({ phases: [] }));
 
@@ -82,7 +83,7 @@ const inProject = fakeStore(join(project, "traces", "mine.duckdb"));      // del
 const dirStore = fakeStore(join(project, "traces", "trace.duckdb"));      // the directory branch
 const orphan = join(traceDir, "orphan.duckdb");                          // missing index …
 const orphanLog = fakeStore(join(traceDir, "orphan.c64retrace"));        // … beside its authority
-const elsewhere = mkdtempSync(join(tmpdir(), "c64re-834-elsewhere-"));   // a C64RE_TRACE_DIR that is no longer set
+const elsewhere = testTmpDir("c64re-834-elsewhere-");   // a C64RE_TRACE_DIR that is no longer set
 const faraway = fakeStore(join(elsewhere, "faraway.duckdb"));
 
 // THE DECOY: same file name, sitting in the cwd. The removed fallback resolved

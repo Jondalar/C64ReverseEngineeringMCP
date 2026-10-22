@@ -1,12 +1,12 @@
 // Spec 052 (Sprint 45) — auto-resolution smoke for Pfade A + B + C.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const root = mkdtempSync(join(tmpdir(), "c64re-sprint45-smoke-"));
+const root = testTmpDir("c64re-sprint45-smoke-");
 
 try {
   const service = new ProjectKnowledgeService(root);

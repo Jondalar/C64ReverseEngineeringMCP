@@ -15,7 +15,7 @@
 //   Locally:  C64RE_RUNTIME_BIN=../TRX64/target/release/trx64-daemon npm run e2e:905
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 import { prgWithStub } from "./lib/asm6502-mini.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
@@ -45,7 +46,7 @@ const store = await load("candidates/store.js");
 const anchorsGraph = await load("anchors/graph.js");
 const { resolveDaemonSpawn: resolveDaemonSpawnFor905 } = await load("runtime/resolve-daemon-spawn.js");
 
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-905-"));
+const SANDBOX = testTmpDir("c64re-905-");
 const cleanups = [];
 process.on("exit", () => { for (const f of cleanups.reverse()) { try { f(); } catch { /* gone */ } } try { rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* */ } });
 

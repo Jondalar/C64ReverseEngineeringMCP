@@ -12,10 +12,11 @@
 
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+// @ts-expect-error plain .mjs helper without declarations
+import { testTmpDir } from "../../scripts/lib/neutral-tmp.mjs";
 import {
   genericSandboxDepack,
   resolveTrx64Cli,
@@ -72,9 +73,9 @@ test("real core reads real KERNAL ROM at $E000 under $37", () => {
 
   // Real core, --io $37 (KERNAL visible): LDA $E000 reads the ROM byte.
   const cli = resolveTrx64Cli();
-  const tmp = mkdtempSync(join(tmpdir(), "c64re-cap-"));
+  const tmp: string = testTmpDir("c64re-cap-");
   let realByte: number;
-  try {
+  {
     const routineFile = join(tmp, "romread.bin");
     writeFileSync(routineFile, routine);
     const stdout = execFileSync(cli, [
@@ -88,8 +89,6 @@ test("real core reads real KERNAL ROM at $E000 under $37", () => {
     const j = JSON.parse(stdout) as { stopReason: string; harvest: { hex: string } };
     assert.equal(j.stopReason, "sentinel_rts");
     realByte = parseInt(j.harvest.hex.slice(0, 2), 16);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
   }
 
   // The real core sees the actual KERNAL byte at $E000 (the deleted flat shadow

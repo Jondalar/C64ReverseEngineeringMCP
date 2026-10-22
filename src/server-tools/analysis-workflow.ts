@@ -1,6 +1,6 @@
 import { basename, dirname, resolve, join } from "node:path";
 import { artifactHasLoadHeader } from "../project-knowledge/artifact-header.js";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -738,7 +738,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       loadAbiIndex(pd);
     } catch { /* the index is an enhancement; the render proceeds without it */ }
 
-    const result = await runCli(reading.kind === "raw" ? "disasm-raw" : "disasm-prg", cliArgs, { projectDir: pd });
+    // The two argument files are the renderer's input and nothing else's: gone once it has run, however it ended.
+    let result: Awaited<ReturnType<typeof runCli>>;
+    try {
+      result = await runCli(reading.kind === "raw" ? "disasm-raw" : "disasm-prg", cliArgs, { projectDir: pd });
+    } finally {
+      for (const f of [relocationsFile, calleeCatalogFile]) if (f) rmSync(f, { force: true });
+    }
     if (result.exitCode !== 0) {
       const failed = context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
       failed.content[0]!.text = `${reading.line}\n\n${failed.content[0]!.text}`;

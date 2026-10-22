@@ -5,7 +5,6 @@
 // reports first divergence at expected ts/field.
 
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -14,9 +13,9 @@ import {
   firstSnapshotDivergence,
   firstChannelDivergence,
 } from "./lib/trace-diff.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
-const tmp = join(tmpdir(), `c64re-difftrace-smoke-${process.pid}`);
-mkdirSync(tmp, { recursive: true });
+const tmp = testTmpDir("c64re-difftrace-smoke-");
 
 let pass = 0;
 let fail = 0;

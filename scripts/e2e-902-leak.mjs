@@ -3,10 +3,11 @@
 // fails the step, which names the smoke; what it left is ended afterwards. All in a state directory
 // and on ports of this run's own.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -14,7 +15,7 @@ const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PAS
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
 
-const SANDBOX = mkdtempSync(join(tmpdir(), "c64re-902leak-"));
+const SANDBOX = testTmpDir("c64re-902leak-");
 const PROJ = join(SANDBOX, "proj"); mkdirSync(PROJ);
 const state = join(SANDBOX, "state"); mkdirSync(state);
 const env = { ...process.env, C64RE_STATE_DIR: state, C64RE_STARTED_BY: "smoke", C64RE_RUNTIME_BIN: join(ROOT, "scripts/lib/stub-daemon-902.mjs"), C64RE_RUNTIME_IDLE_EXIT: "0" };

@@ -6,12 +6,12 @@
 //   3  address $9FFF                     the same 2
 //   4  address $A000                     Payloads: 0 (of 2)
 // Hermetic: temp project, stdio MCP server, no daemon.   npm run e2e:issue123-payload-address-filter
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0, passes = 0;
@@ -47,7 +47,7 @@ const { ownerOfEntityId } = await import("../dist/symbols/window-residency.js");
 check("a cartridge chip id names no owner", ownerOfEntityId("synth2:crt/synth2/00:chip:8000") === undefined);
 check("a ram id still names its owner", ownerOfEntityId("wl:ram/eng:payload:1000") === "eng");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-123-"));
+const dir = testTmpDir("c64re-123-");
 let client;
 try {
   mkdirSync(dir, { recursive: true });

@@ -23,7 +23,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run smoke:889
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,6 +31,7 @@ import { createHash } from "node:crypto";
 import { WebSocket } from "ws";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 import { bridgeHandle, reapBridges } from "./lib/bridge-harness.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 // The backend now starts the device's picture and sound on select; this smoke is about the REST/RPC
 // side, so the UDP ports are the OS's choice (the fixed defaults would collide between runs).
@@ -38,7 +39,7 @@ process.env.C64RE_C64U_VIDEO_PORT = "0";
 process.env.C64RE_C64U_AUDIO_PORT = "0";
 // The machine-wide state (the shared runtime selection, the bridge registry) lives in a directory of this run.
 const stateDirs = [];
-const freshState = () => { const d = mkdtempSync(join(tmpdir(), "c64re-889-state-")); stateDirs.push(d); process.env.C64RE_STATE_DIR = d; return d; };
+const freshState = () => { const d = testTmpDir("c64re-889-state-"); stateDirs.push(d); process.env.C64RE_STATE_DIR = d; return d; };
 freshState();
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,7 +68,7 @@ const sims = [];
 const fake = async (o) => { const s = await startFakeUltimate(o); sims.push(s); return s; };
 const mk = (sim, extra = {}) => bridgeHandle(dist, sim, extra);
 const rpcMethods = (sim) => sim.rpcLog.map((r) => r.method);
-const proj = mkdtempSync(join(tmpdir(), "c64re-889-"));
+const proj = testTmpDir("c64re-889-");
 new ProjectKnowledgeService(proj).initProject({ name: "889" });
 mkdirSync(join(proj, "media"), { recursive: true });
 const PRG = Buffer.from([0x01, 0x08, 0x0b, 0x08, 0x0a, 0x00, 0x9e, 0x32, 0x30, 0x36, 0x31, 0x00, 0x00, 0x00, 0x60]);
@@ -495,7 +496,7 @@ try {
     const b2 = mk(sim2);
     process.env.C64RE_PROJECT_DIR = "";
     await b2.connect();
-    const lonely = join(tmpdir(), `c64re-889-lonely-${process.pid}.prg`);
+    const lonely = join(testTmpDir("c64re-889-lonely-"), "lonely.prg");
     writeFileSync(lonely, PRG);
     const e3 = await rejects(b2.call("session/load_prg", { prg_path: lonely }));
     delete process.env.C64RE_PROJECT_DIR;

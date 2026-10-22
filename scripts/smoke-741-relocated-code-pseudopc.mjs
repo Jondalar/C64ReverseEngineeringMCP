@@ -20,11 +20,11 @@
 //
 // Byte-exactness is verified with the real KickAssembler + 64tass via the
 // product `assembleSource` path. Missing assemblers → PENDING, not fail.
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -44,7 +44,7 @@ try {
   process.exit(2);
 }
 
-const work = mkdtempSync(join(tmpdir(), "c64re-741-"));
+const work = testTmpDir("c64re-741-");
 
 function writePrg(name, loadAddr, bytes) {
   const buf = Buffer.from([loadAddr & 0xff, (loadAddr >> 8) & 0xff, ...bytes]);

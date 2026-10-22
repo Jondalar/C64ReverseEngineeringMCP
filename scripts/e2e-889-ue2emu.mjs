@@ -33,12 +33,12 @@
 //
 //   UE2EMU_DIR=/path/to/u64-emulator node scripts/e2e-889-ue2emu.mjs
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { WebSocket } from "ws";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EMU = process.env.UE2EMU_DIR ?? "/Users/alex/Development/u64-emulator";
@@ -63,7 +63,7 @@ const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
 const { startMcp } = await import(pathToFileURL(join(ROOT, "scripts/lib/mcp-stdio.mjs")).href);
 const { reapBridges } = await import(pathToFileURL(join(ROOT, "scripts/lib/bridge-harness.mjs")).href);
 
-const work = mkdtempSync(join(tmpdir(), "c64re-889-ue2-"));
+const work = testTmpDir("c64re-889-ue2-");
 // the machine-wide state (selection, bridge registry) lives in this run's directory
 process.env.C64RE_STATE_DIR = join(work, "state");
 delete process.env.C64RE_RUNTIME_BACKEND;
@@ -82,6 +82,9 @@ process.env.C64RE_C64U_AUDIO_PORT = String(audioUdp);
 
 console.log("Spec 889 — the C64U backend against the UE2 emulator\n");
 console.log(`  emulator: ${bin}\n  forwards: REST 127.0.0.1:${restPort}→80, app :${rpcPort}→4312, ident udp :${udpPort}→64\n  work dir: ${work}`);
+// the emulator makes temp directories of its own (ue2emu-e2e-*, cart-erase-*) in $TMPDIR and does not remove them
+const emuTmp = join(work, "emu-tmp");
+mkdirSync(emuTmp);
 const log = [];
 const emu = spawn(bin, [
   "run", "--headless", "--board", "c64u", "--trx-io", "--firmware", elf, "--roms", roms,
@@ -90,7 +93,7 @@ const emu = spawn(bin, [
   "--net", "user", "--web-port", "0",
   "--hostfwd", `tcp:127.0.0.1:${restPort}:80,tcp:127.0.0.1:${rpcPort}:4312,udp:127.0.0.1:${udpPort}:64`,
   "--monitor-dir", work, "--max-seconds", "600",
-], { cwd: work, stdio: ["ignore", "pipe", "pipe"] });
+], { cwd: work, env: { ...process.env, TMPDIR: emuTmp }, stdio: ["ignore", "pipe", "pipe"] });
 emu.stdout.on("data", (d) => log.push(d.toString()));
 emu.stderr.on("data", (d) => log.push(d.toString()));
 const stopEmu = async () => { try { emu.kill("SIGTERM"); } catch { /* gone */ } await sleep(500); try { emu.kill("SIGKILL"); } catch { /* gone */ } };

@@ -23,9 +23,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
@@ -49,7 +49,7 @@ const dirs = [];
  * and the analyses are already on disk from an earlier session.
  */
 function legacyProject(label, owners) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-822seed-${label}-`));
+  const dir = testTmpDir(`c64re-822seed-${label}-`);
   dirs.push(dir);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   mkdirSync(join(dir, "session"), { recursive: true });

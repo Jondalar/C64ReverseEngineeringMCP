@@ -1,11 +1,11 @@
 // Spec 729 E2E-H — path portability. Proves the default surface makes no
 // repo-root / cwd / samples assumption: every default tool is path-portable, and
 // the workspace project resolver has no silent process.cwd()/samples fallback.
-import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 import { pathParamsOf } from "./lib/schema-path-walk.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -69,7 +69,7 @@ const resolverTs = join(ROOT, "src/workspace-ui/resolve-project-dir.ts");
 ok(existsSync(resolverTs), "4 shared project resolver exists (resolve-project-dir.ts)", existsSync(resolverTs) ? "present" : "MISSING");
 
 // 5. an LLM can hand a path from ANY directory: simulate a temp project outside the repo.
-const tmp = mkdtempSync(join(tmpdir(), "c64re-e2e-"));
+const tmp = testTmpDir("c64re-e2e-");
 writeFileSync(join(tmp, "game.d64"), Buffer.alloc(16, 0));
 const outsideRepo = !tmp.startsWith(ROOT);
 ok(outsideRepo, "5 temp project dir is outside the C64RE repo", tmp);

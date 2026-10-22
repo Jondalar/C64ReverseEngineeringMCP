@@ -15,12 +15,13 @@
 //                                                    TRX64 release daemon with project/set)
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { daemonOrSkip, freePortBlock } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DAEMON = await daemonOrSkip("smoke:858");
@@ -33,7 +34,7 @@ const check = (cond, msg, detail = "") => {
   console.log(`  ${cond ? "PASS" : "FAIL"}  ${msg}${detail ? `  (${detail})` : ""}`);
 };
 
-const base = mkdtempSync(join(tmpdir(), "c64re-858-"));
+const base = testTmpDir("c64re-858-");
 const A = join(base, "alpha"), B = join(base, "beta");
 mkdirSync(A); mkdirSync(B);
 writeFileSync(join(A, "alpha.d64"), Buffer.alloc(174_848));

@@ -18,10 +18,11 @@
 // tree. Expect it to take a minute: it installs real dependencies, including a native one.
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -48,7 +49,7 @@ const check = (ok, what, detail) => {
 
 console.log("Spec 716.2 — the package gate: a tarball, an empty directory, a running server\n");
 
-const work = mkdtempSync(join(tmpdir(), "c64re-716-"));
+const work = testTmpDir("c64re-716-");
 const cleanup = () => { try { rmSync(work, { recursive: true, force: true }); } catch {} };
 process.on("exit", cleanup);
 

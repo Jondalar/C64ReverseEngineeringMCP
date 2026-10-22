@@ -9,9 +9,10 @@
 // The human kind must win the way the human name does; a human `unknown` must still be
 // unknown (the rule above claimsItsBytes: a blanket `unknown` is never coverage).
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { slotReport } = await import("../dist/slots/state.js");
@@ -60,7 +61,7 @@ const unknownOf = (text) => Number(/not counted: (\d+) byte\(s\) in ranges decla
 const SLUG = "segkind";
 const OWNER = "blk";
 const BASE = 0x9000;
-const dir = mkdtempSync(join(tmpdir(), "c64re-segkind-"));
+const dir = testTmpDir("c64re-segkind-");
 try {
   const svc = new ProjectKnowledgeService(dir);
   svc.initProject({ name: SLUG, description: "coverage human segment kind", tags: ["gate"] });

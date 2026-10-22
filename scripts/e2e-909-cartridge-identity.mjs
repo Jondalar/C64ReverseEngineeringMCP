@@ -17,13 +17,13 @@
 //
 // Hermetic: synthetic CRTs generated here, a temp project outside the repo, MCP over stdio. No ROMs, no runtime.
 // S5 (the runtime) is its own gate: e2e:909-runtime.   Run: npm run e2e:909
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { chipBytes, bankSwitchCode, HW_EASYFLASH, HW_GMOD2, makeCrt } from "./lib/cartridge-fixture-909.mjs";
 import { makeChecker, load, ROOT } from "./lib/e2e-906-harness.mjs";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 if (!existsSync(join(ROOT, "dist/server.js"))) { console.error("dist missing — run `npm run build:mcp`"); process.exit(2); }
 const T = makeChecker("e2e-909");
@@ -45,7 +45,7 @@ const B = makeCrt({ name: "B", hardwareType: HW_EASYFLASH, banks: [{ bank: 0, co
 const B2 = makeCrt({ name: "B", hardwareType: HW_EASYFLASH, banks: [{ bank: 0, code: bankSwitchCode(3), fill: 0x61 }, { bank: 1, code: [0xa9, 0x05, 0x60], fill: 0x60, at: 0x10 }] });
 
 function project(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = testTmpDir(prefix);
   mkdirSync(join(dir, "media"), { recursive: true });
   return dir;
 }

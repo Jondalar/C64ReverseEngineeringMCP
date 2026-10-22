@@ -9,10 +9,11 @@
 // exercised the way a real session meets them.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const cli = join(ROOT, "dist/cli.js");
@@ -25,7 +26,7 @@ const check = (ok, what, detail) => {
 
 console.log("Spec 881 — the graph before the listing\n");
 
-const proj = mkdtempSync(join(tmpdir(), "c64re-881-"));
+const proj = testTmpDir("c64re-881-");
 process.on("exit", () => { try { rmSync(proj, { recursive: true, force: true }); } catch {} });
 
 function session() {

@@ -15,9 +15,9 @@
 // Exit 0 = pass (or skipped), 1 = fail.   npm run e2e:821-real
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
 process.env.C64RE_RUNTIME_AUTOSTART = "0";
@@ -55,7 +55,7 @@ const ok = (name, cond, detail = "") => {
 };
 const mb = (b) => (b / 1048576).toFixed(1);
 
-const project = mkdtempSync(join(tmpdir(), "c64re-821-real-"));
+const project = testTmpDir("c64re-821-real-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "r", name: "821 real", slug: "real821", rootPath: project }));
 
@@ -120,7 +120,7 @@ ok("importing the real capture twice yields an identical canonical dump", h1 ===
 // RSS must not scale with file size
 if (LARGE && existsSync(LARGE) && LARGE !== CAPTURE) {
   const lsize = statSync(LARGE).size;
-  const project2 = mkdtempSync(join(tmpdir(), "c64re-821-real-large-"));
+  const project2 = testTmpDir("c64re-821-real-large-");
   mkdirSync(join(project2, "knowledge"), { recursive: true });
   writeFileSync(join(project2, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "l", name: "821 large", slug: "real821l", rootPath: project2 }));
   const rl = importRuntimeTrace({ projectDir: project2, tracePath: LARGE });

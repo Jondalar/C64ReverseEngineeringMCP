@@ -18,9 +18,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
@@ -37,7 +37,7 @@ const BRANCHES = new Set(["bcc", "bcs", "beq", "bne", "bmi", "bpl", "bvc", "bvs"
 
 // ---------------------------------------------------------------- fixture
 
-const project = mkdtempSync(join(tmpdir(), "c64re-819-"));
+const project = testTmpDir("c64re-819-");
 mkdirSync(join(project, "knowledge"), { recursive: true });
 mkdirSync(join(project, "analysis"), { recursive: true });
 writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 819 fixture", slug: "s819", rootPath: project }));
@@ -212,7 +212,7 @@ graph.close();
 const corpus = join(ROOT, "analysis/tmp/spec-816");
 if (existsSync(corpus)) {
   const files = readdirSync(corpus).filter((f) => f.endsWith(".analysis.json") || f.endsWith("_analysis.json")).map((f) => join(corpus, f));
-  const cproject = mkdtempSync(join(tmpdir(), "c64re-819-corpus-"));
+  const cproject = testTmpDir("c64re-819-corpus-");
   mkdirSync(join(cproject, "knowledge"), { recursive: true });
   writeFileSync(join(cproject, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "c", name: "corpus", slug: "corpus", rootPath: cproject }));
   let bad = 0;

@@ -6,10 +6,10 @@
 //   node scripts/e2e-onboarding-gate.mjs
 
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -20,7 +20,7 @@ const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" 
 
 console.log("onboarding gate — nothing works in a project until the session onboards\n");
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-onboard-gate-"));
+const projectDir = testTmpDir("c64re-onboard-gate-");
 
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),

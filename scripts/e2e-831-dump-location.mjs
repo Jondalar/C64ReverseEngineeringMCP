@@ -8,9 +8,9 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:831
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 let pass = 0;
@@ -24,7 +24,7 @@ console.log("Spec 831 — where a dump lands, and what the button says\n");
 const { dumpDirForProject, dumpTargetFor, ensureDumpDir, sanitizeDumpLabel } =
   await import(pathToFileURL(join(ROOT, "dist/runtime/dump-location.js")).href);
 
-const project = mkdtempSync(join(tmpdir(), "c64re-831-"));
+const project = testTmpDir("c64re-831-");
 
 // ------------------------------------------------------------ D1 the location
 const target = dumpTargetFor(project, "dump", 1788688201142, "ab12");

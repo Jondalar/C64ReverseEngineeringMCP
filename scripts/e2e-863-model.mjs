@@ -10,10 +10,11 @@
 //
 //   node scripts/e2e-863-model.mjs     (needs `npm run build:mcp`)
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mm = await import("../dist/runtime/machine-model.js");
@@ -193,7 +194,7 @@ const rows = [
 }
 
 // ── a project remembers its model, and the runtime is started as it ─────────────────
-const proj = mkdtempSync(join(tmpdir(), "c64re-863-e2e-"));
+const proj = testTmpDir("c64re-863-e2e-");
 try {
   const svc = new ProjectKnowledgeService(proj);
   svc.initProject({ name: "863" });

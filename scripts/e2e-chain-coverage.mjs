@@ -8,14 +8,14 @@
 // cover only 12541 — the block chain looks incomplete" on a chain that was complete, and
 // silenced it by declaring the first sector's span two bytes long than it is. The guard
 // has to know about the header the extractor itself wrote.
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { validateManifest, sectorSpanCoverage, chainCoverageWarning } from "../dist/server-tools/loader-manifest.js";
 import { registerManifestPayloads } from "../dist/server-tools/manifest-register.js";
 import { writeDiskSpec784Manifest } from "../dist/server-tools/disk-spec784-manifest.js";
 import { extractDiskImage } from "../dist/disk-extractor.js";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -39,7 +39,7 @@ const w = chainCoverageWarning("PAWN.PRG", 13000, [{ kind: "sector", length: 254
 ok(/13000 bytes/.test(w) && /254/.test(w) && /incomplete/.test(w), "warning names blob size, coverage, and 'incomplete'", w);
 
 // --- 3. registerManifestPayloads surfaces the warning (declared length path) ---
-const root = mkdtempSync(join(tmpdir(), "gap4-"));
+const root = testTmpDir("gap4-");
 try {
   const service = new ProjectKnowledgeService(root);
   service.initProject({ name: "Chain Coverage" });
@@ -66,7 +66,7 @@ try {
 // --- 4. NO false positive: correctly-chained real DOS files (extract_disk) don't warn ---
 const SAMPLE = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples/motm.g64";
 if (existsSync(SAMPLE)) {
-  const dir = mkdtempSync(join(tmpdir(), "gap4-motm-"));
+  const dir = testTmpDir("gap4-motm-");
   try {
     const extracted = extractDiskImage(SAMPLE, join(dir, "analysis", "disk", "motm"));
     const s784 = writeDiskSpec784Manifest(extracted, dir);
@@ -112,7 +112,7 @@ if (existsSync(SAMPLE)) {
     "…and the warning says the header is already allowed for, so nobody pads a span to cover it", startOnly);
 
   // End to end through the real registration door, with a real blob on disk.
-  const root = mkdtempSync(join(tmpdir(), "gap4-prghdr-"));
+  const root = testTmpDir("gap4-prghdr-");
   try {
     mkdirSync(join(root, "analysis", "carved"), { recursive: true });
     const blob = Buffer.alloc(dataBytes + 2);

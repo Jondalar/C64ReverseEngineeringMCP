@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0; const fail = [];
@@ -71,9 +72,8 @@ const reached = (res, addr) => res.instructions.some((i) => i.address === addr);
 // is present (rebuild-safe: standalone PRGs have no index → no change).
 {
   const { execFileSync } = await import("node:child_process");
-  const { mkdtempSync, mkdirSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
-  const { tmpdir } = await import("node:os");
-  const proj = mkdtempSync(join(tmpdir(), "c64re-758s4-"));
+  const { mkdirSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
+  const proj = testTmpDir("c64re-758s4-");
   mkdirSync(join(proj, "knowledge", ".cache"), { recursive: true });
   wf(join(proj, "knowledge", ".cache", "address-index.json"), JSON.stringify({ builtMs: 9e15, entries: [
     { owner: "eng", start: 0x2000, end: 0x2000, kind: "code", label: "r1" },

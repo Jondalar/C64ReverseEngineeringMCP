@@ -9,9 +9,9 @@
 // depends on what happens to be in `~/.config` is not a gate.
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:841-keyset
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const {
   resolveKeyset, defaultBindings, actionId, bindingIndex, conflicts,
@@ -90,7 +90,7 @@ const sourceFor = (resolved, action) =>
 
 // ── An invalid entry costs its line, not the file ─────────────────────────────
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-841-"));
+  const dir = testTmpDir("c64re-841-");
   const path = join(dir, "input.json");
   writeFileSync(path, JSON.stringify({
     version: 2,
@@ -115,7 +115,7 @@ const sourceFor = (resolved, action) =>
 
 // ── The legacy Spec 264 shape still loads ────────────────────────────────────
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-841-legacy-"));
+  const dir = testTmpDir("c64re-841-legacy-");
   const path = join(dir, "joystick.json");
   writeFileSync(path, JSON.stringify({
     version: 1, keyboardMode: "qwerty", joystickPort: 1,
@@ -134,7 +134,7 @@ const sourceFor = (resolved, action) =>
 
 // ── Writing: only the override lands in the file ─────────────────────────────
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-841-write-"));
+  const dir = testTmpDir("c64re-841-write-");
   const path = join(dir, "runtime", "input.json");
   setBinding(path, joy(2, "fire"), "KeyM");
   const onDisk = JSON.parse(readFileSync(path, "utf8"));
@@ -186,8 +186,8 @@ const sourceFor = (resolved, action) =>
   const { readdirSync } = await import("node:fs");
   const { neutralTmpRoot } = await import("./lib/neutral-tmp.mjs");
   const ROOT = join(import.meta.dirname, "..");
-  const cwd = mkdtempSync(join(neutralTmpRoot(), "c64re-841-nocwd-"));
-  const home = mkdtempSync(join(neutralTmpRoot(), "c64re-841-home-"));
+  const cwd = testTmpDir("c64re-841-nocwd-");
+  const home = testTmpDir("c64re-841-home-");
   const m = startMcp({ root: ROOT, cwd, env: { C64RE_PROJECT_DIR: "", C64RE_FULL_TOOLS: "1", HOME: home } });
   try {
     await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-841", version: "1" } });

@@ -3,17 +3,17 @@
 // span provenance derives from the LoaderModel kind; disk-sector AND cart-slot spans
 // register through the SAME core; re-run is idempotent (no dup). Real temp
 // ProjectKnowledgeService, no MCP harness. Run after build:mcp.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
 import { registerManifestPayloads } from "../dist/server-tools/manifest-register.js";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-const root = mkdtempSync(join(tmpdir(), "b2-manifest-"));
+const root = testTmpDir("b2-manifest-");
 console.log(`manifest-register B2 — full spans + derivedBy, disk+cart one path, idempotent\n  root: ${root}\n`);
 
 try {

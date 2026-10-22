@@ -26,10 +26,11 @@ import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { rssKiB } from "./lib/processes.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
-const PROJECT = "/tmp/c64re-leak-gate";
+const PROJECT = testTmpDir("c64re-leak-gate-");
 const PORT = 14778;
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 const DISK = join(ROOT, "samples/POLARBEAR.d64"); // disk-swap-mid-trace = the user trigger

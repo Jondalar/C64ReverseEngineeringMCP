@@ -6,13 +6,13 @@
 //   Part 2 — N MCPs starting simultaneously (eager warm-start) → exactly ONE
 //            listener on the port, and every MCP shares that one daemon.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("e2e:744-4c-race");
 
@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
 // A throwaway project, never the repo: the MCPs onboard into it, and the daemons serve it.
-const PROJECT = mkdtempSync(join(tmpdir(), "c64re-744-race-"));
+const PROJECT = testTmpDir("c64re-744-race-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 new ProjectKnowledgeService(PROJECT).initProject({ name: "744 race" });
 const PORT = 14748;

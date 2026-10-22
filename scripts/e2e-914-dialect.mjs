@@ -25,11 +25,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMcp } from "./lib/mcp-stdio.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -69,7 +69,7 @@ const PRG2 = prgOf(0xc100, [0xa9, 0x05, 0x8d, 0x21, 0xd0, 0x60]);
 
 const sha = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const tmp = [];
-const scratch = (name) => { const d = mkdtempSync(join(tmpdir(), `c64re-914-${name}-`)); tmp.push(d); return d; };
+const scratch = (name) => { const d = testTmpDir(`c64re-914-${name}-`); tmp.push(d); return d; };
 const filesUnder = (dir, re) => {
   const out = [];
   const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) { if (e.name !== "knowledge" && e.name !== ".git") walk(p); } else if (re.test(e.name)) out.push(p); } };

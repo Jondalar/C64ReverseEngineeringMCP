@@ -9,12 +9,13 @@
 //   3. runtime_scene_reel from the same .d81: a reel of the program's own screen.
 // Needs a TRX64 daemon and dos1581-318045-02.bin beside the C64 ROMs.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { d81WithPrg } from "./lib/d81-fixture.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:d81-drive");
 
@@ -25,7 +26,7 @@ if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run buil
 let pass = 0, fail = 0;
 const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-d81-"));
+const dir = testTmpDir("c64re-d81-");
 const prg = Uint8Array.from([0x01, 0x08, 0x0b, 0x08, 0x0a, 0x00, 0x9e, 0x32, 0x30, 0x36, 0x31, 0x00, 0x00, 0x00,
   0xa9, 0x42, 0x8d, 0x00, 0xc0, 0x4c, 0x12, 0x08]);
 const LOAD_AND_RUN = [

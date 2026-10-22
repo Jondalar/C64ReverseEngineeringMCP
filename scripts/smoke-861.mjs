@@ -27,11 +27,12 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -56,7 +57,7 @@ const { buildD64 } = await import(pathToFileURL(join(ROOT, "dist/disk/d64-builde
 const { Session, lineTraceFrame } = await import(pathToFileURL(join(ROOT, "scripts/lib/spec861-session.mjs")).href);
 const startSession = () => Session.start(work, { resolveDaemonSpawn, repoRoot: ROOT });
 
-const work = mkdtempSync(join(tmpdir(), "c64re-861-"));
+const work = testTmpDir("c64re-861-");
 
 /**
  * The program, on a disk, because that is the only way a machine of our own

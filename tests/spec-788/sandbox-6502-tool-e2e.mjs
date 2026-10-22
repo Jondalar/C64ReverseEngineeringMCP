@@ -9,10 +9,11 @@
 //   node tests/spec-788/sandbox-6502-tool-e2e.mjs
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve as resolvePath } from "node:path";
+import { testTmpDir } from "../../scripts/lib/neutral-tmp.mjs";
 
 const ROOT = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(ROOT, "dist", "cli.js");
@@ -27,7 +28,7 @@ console.log("Spec 788 tail — sandbox_6502_run tool e2e (live MCP stdio, real c
 if (!existsSync(cli)) { console.error("dist/cli.js missing — run `npm run build`"); process.exit(2); }
 if (!existsSync(trx64cli)) { console.log(`[skip] trx64cli not found at ${trx64cli} — build it in ../TRX64`); process.exit(0); }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-sandbox6502-"));
+const projectDir = testTmpDir("c64re-e2e-sandbox6502-");
 
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),

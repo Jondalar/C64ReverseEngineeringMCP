@@ -6,13 +6,13 @@
 //   2  B's ratchet is B/knowledge/runtime-ratchet.json and counts B's records; nothing is written into A
 //   3  the sixth call is refused by the ratchet; a second finding in B releases it (the substrate refusal answers instead)
 // Hermetic: two temp projects, stdio MCP server, no daemon.   npm run e2e:issue124-loader-lens-gate-project
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0, passes = 0;
@@ -41,7 +41,7 @@ const changes = (before, after) => {
   return c;
 };
 
-const base = mkdtempSync(join(tmpdir(), "c64re-124-"));
+const base = testTmpDir("c64re-124-");
 const A = join(base, "A"), B = join(base, "B");
 let client;
 try {

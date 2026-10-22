@@ -7,9 +7,8 @@
 // rule exists to prevent.
 //
 // Run after build:mcp.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseFeature, parseStep, holdIssues, stripTrailingComment, authorOfComment, decodeKeys }
   from "../dist/project-knowledge/scenario-gherkin.js";
@@ -20,6 +19,7 @@ import { runScenario } from "../dist/reel/run-scenario.js";
 import { runSandbox } from "../dist/reel/run-sandbox.js";
 import { SandboxSession } from "../dist/reel/sandbox-session.js";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 await daemonOrSkip("smoke:814");
 
@@ -316,7 +316,7 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
 // client: the file is what OTHER people will run, and the party that writes a file
 // is the party that has to be sure of it.
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-814-"));
+  const dir = testTmpDir("c64re-814-");
   const port = 4300 + Math.floor(Math.random() * 900);
   const srv = spawn(process.execPath, [
     "dist/workspace-ui/server.js", "--api-only", "--port", String(port), "--project", dir,
@@ -548,7 +548,7 @@ const BARE = { kind: "bare", why: "the smoke" };
 // the replay starts from the same machine at the same cycle; the replay arms the machine's
 // own journal, and the two journals are compared entry for entry, cycle for cycle.
 {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-814-rec-"));
+  const dir = testTmpDir("c64re-814-rec-");
   const snap = join(dir, "armed.c64re");
   const box = await SandboxSession.start({ model: "c64-pal", budgetMs: 300_000 });
   let jr, rows, fPal, fNtsc;

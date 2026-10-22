@@ -12,10 +12,11 @@
 //
 // No emulator / runtime:proof. Pure product-surface workflow gate.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -34,7 +35,7 @@ const FORBIDDEN_INTERNAL = [
 ];
 
 // temp project OUTSIDE the repo.
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-steploop-"));
+const projectDir = testTmpDir("c64re-e2e-steploop-");
 ok(!projectDir.startsWith(ROOT), "0 project dir is outside the C64RE repo", projectDir);
 
 const proc = spawn(process.execPath, [cli], {

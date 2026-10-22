@@ -8,18 +8,19 @@
 import { spawn, execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { WebSocket } from "ws";
 import { listenerPids, killPortListeners } from "./lib/port-listeners.mjs";
 import { daemonOrSkip } from "./lib/daemon-or-skip.mjs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
 // Its own project, init'd and onboarded (the repository root is no project; a nested checkout would resolve ROOT to the
 // enclosing one). The synthetic disk is generated into it, so the relative mount path resolves under the caller project.
-const PROJ = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "c64re-e2e-744-2b-")));
+const PROJ = testTmpDir("c64re-e2e-744-2b-");
 const DISK_ABS = join(PROJ, "samples/synthetic/1byte.g64");
 const PORT = 14774;
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;

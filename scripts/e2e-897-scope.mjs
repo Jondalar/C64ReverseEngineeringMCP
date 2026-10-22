@@ -4,9 +4,9 @@
 // The fixture is issue #39 in miniature: one loadable game that is well named and one
 // loadable reference that is not. Every number below is computed from the records, then
 // the same records are measured again under a scope.
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 // coverage counts the file on disk, so a fixture record needs its file: write each row's file at its fileSize.
 function writeArtifactsJson(file, text) {
   writeFileSync(file, text);
@@ -37,7 +37,7 @@ const check = (name, cond, detail) => {
 const SLUG = "scopegame";
 const dirs = [];
 function newProject() {
-  const dir = mkdtempSync(join(tmpdir(), "c64re-897-"));
+  const dir = testTmpDir("c64re-897-");
   dirs.push(dir);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
@@ -190,7 +190,7 @@ try {
   // ---- (D6/D7) The Magician's Curse in miniature: the file the tools read is not the stem
   // the names sit under, and the low-RAM block is a payload stored in it.
   {
-    const dir = mkdtempSync(join(tmpdir(), "c64re-897-mc-"));
+    const dir = testTmpDir("c64re-897-mc-");
     dirs.push(dir);
     mkdirSync(join(dir, "knowledge"), { recursive: true });
     writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));
@@ -263,7 +263,7 @@ try {
 
   // ---- (#59) a payload stored in the scoped file counts toward its coverage; a payload is a scope target
   {
-    const dir = mkdtempSync(join(tmpdir(), "c64re-897-pl-"));
+    const dir = testTmpDir("c64re-897-pl-");
     dirs.push(dir);
     mkdirSync(join(dir, "knowledge"), { recursive: true });
     writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }, null, 2));

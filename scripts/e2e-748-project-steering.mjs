@@ -5,8 +5,8 @@
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -16,7 +16,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("Spec 748 — project steering file + agent_onboard injection\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-748-"));
+const projectDir = testTmpDir("c64re-748-");
 const { ProjectKnowledgeService } = await import(pathToFileURL(`${ROOT}/dist/project-knowledge/service.js`).href);
 new ProjectKnowledgeService(projectDir).initProject({ name: "Steering Test" });
 

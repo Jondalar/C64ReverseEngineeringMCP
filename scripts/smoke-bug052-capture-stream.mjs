@@ -12,8 +12,7 @@
 process.env.C64RE_INDEX_WINDOW_BYTES = "65536"; // floor in capture-stream.ts
 process.env.C64RE_INDEX_HEADER_BYTES = "4096";
 
-import { writeFileSync, rmSync, mkdtempSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   landingMapFromCaptureFile, readSetFromCaptureFile, cartReadSetFromCaptureFile,
@@ -24,13 +23,14 @@ import {
   encodeFileHeader, encodeMemAccess, encodeBlockRead, decodeEventStream, decodeFileHeader,
   TraceOp, ACCESS_WRITE, ACCESS_READ,
 } from "../dist/trace/binary-format.js";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
 
 console.log("BUG-052 — the capture is a stream, not an allocation\n");
 
-const dir = mkdtempSync(join(tmpdir(), "bug052-"));
+const dir = testTmpDir("bug052-");
 const path = join(dir, "big.c64retrace");
 
 // ── build a capture: LANDINGS blocks, each a real block-read + a fed run ───────

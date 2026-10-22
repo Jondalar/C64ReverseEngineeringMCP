@@ -11,10 +11,11 @@
 //   4. The payload is rich: load addr + format + source + medium_spans + asm,
 //      so list_payloads, the memory map and the disk view all have what they need.
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
@@ -24,7 +25,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("BUG-024 — carved code-derived load registers as a first-class payload\n");
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-024-"));
+const projectDir = testTmpDir("c64re-024-");
 ok(!projectDir.startsWith(ROOT), "0 project dir is outside the repo", projectDir);
 
 const proc = spawn(process.execPath, [cli], {

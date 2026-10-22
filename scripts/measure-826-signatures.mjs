@@ -8,9 +8,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { Graph } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/query.js")).href);
@@ -23,7 +23,7 @@ async function buildFixture() {
   const { seedMemoryAccess } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/memory-access.js")).href);
   const { resolveAddresses } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/resolve.js")).href);
   const { seedSignatures } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/signatures.js")).href);
-  const project = mkdtempSync(join(tmpdir(), "c64re-826-measure-"));
+  const project = testTmpDir("c64re-826-measure-");
   mkdirSync(join(project, "knowledge"), { recursive: true });
   mkdirSync(join(project, "analysis"), { recursive: true });
   writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 826 fixture", slug: "s826", rootPath: project }));

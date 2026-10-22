@@ -20,9 +20,9 @@
 
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { seedControlFlow } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/producers/control-flow.js")).href);
@@ -37,7 +37,7 @@ const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
 const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 
 function makeProject(name) {
-  const dir = mkdtempSync(join(tmpdir(), `c64re-820-${name}-`));
+  const dir = testTmpDir(`c64re-820-${name}-`);
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   mkdirSync(join(dir, "analysis"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: name, name, slug: `s820${name}`, rootPath: dir }));

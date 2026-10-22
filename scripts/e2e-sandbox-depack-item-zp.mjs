@@ -14,10 +14,10 @@
 // Requires a built `trx64cli` in the sibling TRX64 checkout; skips loudly without one.
 
 import { pathToFileURL } from "node:url";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { z } from "zod";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { registerSandboxDepackTool } = await import(
@@ -41,7 +41,7 @@ const ok = (name, cond, detail = "") => {
 // Capture the handler and parse its arguments the way the MCP server does.
 let schema, handler;
 const server = { tool: (_name, _desc, s, h) => { schema = s; handler = h; } };
-const dir = mkdtempSync(join(tmpdir(), "c64re-item-zp-"));
+const dir = testTmpDir("c64re-item-zp-");
 registerSandboxDepackTool(server, { projectDir: () => dir });
 
 // A "depacker" that writes its two zero-page seeds to $4000/$4001, then RTS.

@@ -17,9 +17,9 @@ import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const load = (rel) => import(pathToFileURL(join(ROOT, rel)).href);
@@ -47,7 +47,7 @@ const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
 const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
 const head = (n, title) => console.log(`\n── ${n}. ${title}`);
 const dirs = [];
-const tmp = (label) => { const d = mkdtempSync(join(tmpdir(), `c64re-legacynames-${label}-`)); dirs.push(d); return d; };
+const tmp = (label) => { const d = testTmpDir(`c64re-legacynames-${label}-`); dirs.push(d); return d; };
 
 const stamp = "2026-01-01T00:00:00.000Z";
 const store = (items) => JSON.stringify({ schemaVersion: 1, items }, null, 2);

@@ -13,9 +13,9 @@
 //   $1100  routine with only a CONTAINS label and a read claim          -> "no reader" NOT refuted
 //   $1200  routine only entered by an IRQ vector (HANDLES_IRQ)          -> "no caller" refuted
 // Hermetic: temp project, no daemon, no ROMs.   npm run e2e:issue84-negative-claim-edges
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { critique } = await import("../dist/critic/run.js");
@@ -43,7 +43,7 @@ check("'no callers' is a caller claim, 'no readers' a read claim, 'no writers' a
   && parseNegativeClaim("$0C8F has no writers")?.verb === "write"
   && parseNegativeClaim("$0C8F has no references")?.verb === "any");
 
-const dir = mkdtempSync(join(tmpdir(), "c64re-84-"));
+const dir = testTmpDir("c64re-84-");
 try {
   mkdirSync(join(dir, "knowledge"), { recursive: true });
   writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: SLUG, slug: SLUG }));

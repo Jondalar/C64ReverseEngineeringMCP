@@ -14,10 +14,11 @@
 // CPU events. The point is the PRODUCT FLOW works end-to-end via the façade.
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
-import { mkdtempSync, writeFileSync, existsSync, copyFileSync, readFileSync, readdirSync } from "node:fs";
+import { writeFileSync, existsSync, copyFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
+import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -40,7 +41,7 @@ if (!existsSync(seed)) {
   process.exit(0);
 }
 
-const projectDir = mkdtempSync(join(tmpdir(), "c64re-e2e-trace-"));
+const projectDir = testTmpDir("c64re-e2e-trace-");
 ok(!projectDir.startsWith(ROOT), "0 project dir is outside the C64RE repo", projectDir);
 const diskPath = join(projectDir, "game.d64");
 copyFileSync(seed, diskPath);
