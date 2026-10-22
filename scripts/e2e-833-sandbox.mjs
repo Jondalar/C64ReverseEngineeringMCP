@@ -21,7 +21,7 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:833-sandbox
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { neutralTmpRoot as tmpdir } from "./lib/neutral-tmp.mjs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
