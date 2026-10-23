@@ -67,11 +67,12 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
       const { existsSync, readFileSync, statSync } = await import("node:fs");
       const path = feature_path === undefined ? undefined : isAbsolute(feature_path) ? feature_path : existsSync(resolve(projectDir, feature_path)) ? resolve(projectDir, feature_path) : resolve(feature_path);
       // A fix ALLOCATES memory in the game: the slot gate that guards every door that does guards this one.
+      // A test (`Then the baseline fails|passes`) is not a delivery: it checks bytes the build already placed.
       const { parseFeature } = await import("../project-knowledge/scenario-gherkin.js");
       const texts: string[] = [];
       if (feature !== undefined) texts.push(feature);
       else if (path && existsSync(path) && statSync(path).isFile()) texts.push(readFileSync(path, "utf8"));
-      const withFixes = texts.some((t) => parseFeature(t).scenarios.some((sc) => sc.variants.length > 0 && (!scenario || sc.name.toLowerCase().includes(scenario.toLowerCase()))));
+      const withFixes = texts.some((t) => parseFeature(t).scenarios.some((sc) => sc.variants.length > 0 && !sc.baselineExpect && (!scenario || sc.name.toLowerCase().includes(scenario.toLowerCase()))));
       if (withFixes) {
         const gate = await (await import("../slots/gate.js")).checkSlotGate("runtime_feature_run", projectDir);
         if (!gate.allowed) return text(gate.refusal!);

@@ -233,6 +233,18 @@ try {
   const viaTool = await m.call("runtime_feature_run", { feature_path: "scenarios/t1.feature", json: true });
   check(JSON.parse(viaTool.slice(viaTool.indexOf("{"))).results[0].mode === "test", "…the tool and the command line are one door: the same file gives mode test through runtime_feature_run");
 
+  // The slot gate guards a fix DELIVERY. A test checks bytes the build already placed, so an engaged project
+  // with an empty free-RAM slot refuses the trial and runs the test.
+  {
+    const { KnowledgeRecords } = await load("knowledge-graph/records.js");
+    new KnowledgeRecords(proj).saveFinding({ kind: "observation", title: "stage 1 at $0801", addressRange: { start: 0x0801, end: 0x08ff } });
+    const gated = await H.mcp(proj, { endpoint: shared.endpoint, env: { C64RE_FULL_TOOLS: "1" } });
+    const trialOut = await gated.call("runtime_feature_run", { feature_path: "scenarios/trial.feature" });
+    check(/slot/i.test(trialOut) && !/PASS/.test(trialOut), "S4: with the slot gate on, an engaged project refuses the trial (a fix delivery)", trialOut.split("\n")[0]);
+    const testOut = await gated.call("runtime_feature_run", { feature_path: "scenarios/t1.feature", json: true });
+    check(testOut.includes("{") && JSON.parse(testOut.slice(testOut.indexOf("{"))).results[0].mode === "test", "…and runs the test: a test is not a delivery", testOut.split("\n")[0]);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════════════════════
   head("S5  a suite");
   const tests = join(proj, "tests");

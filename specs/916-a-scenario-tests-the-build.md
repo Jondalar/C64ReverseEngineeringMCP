@@ -73,7 +73,8 @@ refused at parse time (there is nothing to compare). A scenario without the line
 trial verdict, unchanged.
 
 **D3 — A test is not a trial.** A test-mode scenario keeps no candidate record (nothing to choose);
-its JSON result carries `"mode": "test"` (a trial `"mode": "trial"`), and every run's verdict as
+the slot gate that guards a fix delivery (`runtime_feature_run`) does not apply to it, since a
+test checks bytes the build already placed and allocates nothing; its JSON result carries `"mode": "test"` (a trial `"mode": "trial"`), and every run's verdict as
 today.
 
 **D4 — The surface names the use.**
