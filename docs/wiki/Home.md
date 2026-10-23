@@ -23,6 +23,9 @@ edited and never published is caught instead of quietly drifting.
 - **[Trying a Fix](Trying-a-Fix)** — name the instant before a problem, write the fixes
   as files, and one scenario runs them all from there and tells you which works. The
   winner goes into your build, and the build is checked.
+- **[Testing a Build](Testing-a-Build)** — one scenario per behaviour, started from a
+  snapshot, the build's bytes loaded in, a verdict that fails when the build fails.
+  Run the whole folder after every build.
 - **[Mapping a Game](Mapping-a-Game)** — find every room or level a game has, how they
   connect, which moves crash it and the shortest way to a goal, from an anchor, with
   one call. The map is kept in the project, and the goal becomes the next anchor.

@@ -24,6 +24,8 @@ export interface VariantTarget {
   source: string;
   /** where the source was read from, relative to the project, when it came from a file */
   sourcePath?: string;
+  /** Built bytes loaded as they are (no source): the file they came from and the sha256 of the bytes put in. */
+  loaded?: { path: string; sha256: string };
   bytes: number[];
 }
 

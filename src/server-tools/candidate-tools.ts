@@ -44,11 +44,12 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
   server.tool(
     "runtime_feature_run",
     "Run a .feature file and judge it, with no stepping and no waiting on your side: the same function `c64re scenario run` calls, so a script and you get the same answer. "
-    + "A scenario starts from a mark (`Given the mark \"name\"` — the file runtime_anchor_set wrote into knowledge/anchors), a medium or a bare machine, plays its steps (joystick, keys, `I wait until … within N frames`) and decides its `Then` lines. "
-    + "Fixes to try are variant lines: `And variant \"fix1\" assembles \"fixes/fix1.tas\" at $0A20` (RAM) or `… at roml bank 3 $9100` (a cartridge bank); say the name again for a second place. The run without a fix (baseline) always runs beside the variants, each on a private machine of its own, up to 4 at once; the shared machine is not touched. "
-    + "The Then lines alone decide PASS/FAIL per run; the memory a variant changed besides is listed as a side effect and decides nothing. The run is kept as the project's candidate (runtime_candidate_list, then runtime_candidate_choose, runtime_candidate_derive_delta, runtime_candidate_verify_build). "
-    + "`And I set the anchor \"name\"` writes the machine as it stands to knowledge/anchors/name.c64re (an existing anchor is replaced only with replace_anchors). "
-    + "Use to try a fix: set the anchor, write the file with the fixes, run it, read the verdicts, write the next fix. Never build your own stepper or boot loop for this. Not a capture (use runtime_scene_reel) and not a one-off command (use runtime_sandbox_run). "
+    + "A scenario starts from a mark (`Given the mark \"name\"` — the file runtime_anchor_set wrote into knowledge/anchors), a snapshot or medium (`Given the snapshot \"state.c64re\"`, `Given the disk|cart \"x\"`) or a bare machine, plays its steps (joystick, keys, `I wait until … within N frames`) and decides its `Then` lines. "
+    + "TWO USES. (1) TEST A BUILD, after every build: start from a snapshot or mark, put the build's bytes in with `And variant \"build\" loads \"build/trainer.prg\"` (a PRG: its own address; `… loads \"build/x.prg\" at $0900` places it elsewhere; a headerless file needs `at`: `… loads \"build/patch.bin\" at $47A5` or `… at roml bank 3 $8000`; no address is ever guessed), play fixed inputs, state the facts as `Then` lines, and add `Then the baseline fails` (the start state's own code must NOT show the facts) or `Then the baseline passes`. A scenario with such a line is a test: PASS only when EVERY variant passes all its Then lines AND the baseline does what the line says; no candidate is kept; JSON `mode` is `test`. Run the WHOLE folder of tests after every build (feature_path = the folder); a change is proved by that, never by a hand-driven sandbox session. "
+    + "(2) TRY A FIX: variant lines `And variant \"fix1\" assembles \"fixes/fix1.tas\" at $0A20` (RAM) or `… at roml bank 3 $9100` (a cartridge bank); say the name again for a second place. Without a baseline line the scenario is a trial: PASS when any variant passes, `mode` `trial`, kept as the project's candidate (runtime_candidate_list, then runtime_candidate_choose, runtime_candidate_derive_delta, runtime_candidate_verify_build). "
+    + "The run without a fix (baseline) always runs beside the variants, each on a private machine of its own, up to 4 at once; the shared machine is not touched. The Then lines alone decide PASS/FAIL per run; the memory a variant changed besides is listed as a side effect and decides nothing. "
+    + "`And I set the anchor \"name\"` writes the machine as it stands to knowledge/anchors/name.c64re (an existing anchor is replaced only with replace_anchors); make the start state of a suite with a scenario that ends in it. "
+    + "Never build your own stepper or boot loop for this. Not a capture (use runtime_scene_reel) and not a one-off command (use runtime_sandbox_run). "
     + "Inputs: feature_path (a .feature file or a folder of them; relative to the project) or feature (the file's text), scenario? (only those whose name contains it), jobs? (machines at once, default min(4, CPUs)), replace_anchors?, json? (the document the command line prints with --json), project_dir?. Returns: one block per scenario — a PASS/FAIL/ERROR line per run, the side effects, the candidate id.",
     {
       feature_path: z.string().optional().describe("A .feature file or a folder, relative to the project or absolute"),
@@ -114,7 +115,7 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
       for (const v of c.variants) {
         const x = v.verdict;
         const r = v.result;
-        lines.push(`variant "${v.name}"${c.chosen === v.name ? "  <- chosen" : ""}: ${v.targets.map((t) => `${t.space === "ram" ? "ram" : `${t.space}/${t.bank ?? 0}`} ${hx(t.addr)} ${t.bytes.length}B${t.sourcePath ? ` from ${t.sourcePath}` : ""}`).join(", ")}`);
+        lines.push(`variant "${v.name}"${c.chosen === v.name ? "  <- chosen" : ""}: ${v.targets.map((t) => `${t.space === "ram" ? "ram" : `${t.space}/${t.bank ?? 0}`} ${hx(t.addr)} ${t.bytes.length}B${t.sourcePath ? ` from ${t.sourcePath}` : ""}${t.loaded ? ` loaded from ${t.loaded.path} (sha256 ${t.loaded.sha256.slice(0, 12)}…, no source)` : ""}`).join(", ")}`);
         if (r) {
           const bad = r.checks.filter((k) => !k.pass);
           lines.push(`  last run: ${r.verdict}${r.reason ? ` — ${r.reason}` : ""}${bad.length ? ` — ${bad.map((k) => `${k.text}: got ${k.actual}`).join(" | ")}` : ""}${r.sideEffects?.length ? `  (also changed: ${describeSideEffects(r.sideEffects)})` : ""} (${r.checks.length} checked, run ${r.ranAt})`);
@@ -169,6 +170,7 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
       const { resolve, join, relative } = await import("node:path");
       const { safeSegment } = await import("../lib/id-path.js");
       const outDir = out_dir ? resolve(projectDir, out_dir) : resolve(projectDir, `delta-${safeSegment(id)}`);
+      const loadedOnly = v.targets.filter((t) => t.loaded);
       const res = writeDelta({ id: cand.id, patches: v.targets.map((t) => ({ space: t.space, bank: t.bank ?? null, addr: t.addr, source: t.source, bytes: t.bytes })) }, outDir);
       const artifactIds: string[] = [];
       const notes: string[] = [];
@@ -185,6 +187,9 @@ export function registerCandidateTools(server: McpServer, context: ServerToolCon
           artifactIds.push(a.id);
         }
       } catch (e) { notes.push(`Not registered as artifacts: ${e instanceof Error ? e.message : String(e)}`); }
+      if (loadedOnly.length > 0) {
+        notes.push(`${loadedOnly.length === v.targets.length ? "Every" : `${loadedOnly.length} of ${v.targets.length}`} target(s) of "${cand.chosen}" were loaded as built bytes, so there is no source to hand over: ${loadedOnly.map((t) => `${t.loaded!.path} (sha256 ${t.loaded!.sha256})`).join(", ")} — the .asm files hold those bytes as .byte lines under the target's org.`);
+      }
       cand.delta = { outDir, files: res.files, artifactIds, derivedAt: new Date().toISOString() };
       cand.build = undefined;
       s.saveCandidate(projectDir, cand);

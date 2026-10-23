@@ -1179,6 +1179,16 @@
         },
         {
           "actor": "llm",
+          "action": "After every build, prove the change with TEST scenarios, not a hand-driven sandbox session: one file per behaviour, started from a snapshot or mark, the build's bytes put in with `And variant \"build\" loads \"build/x.prg\"` (a headerless file needs `at $ADDR`), the facts as Then lines, and `Then the baseline fails` (or `passes`). Run the whole folder; a test is PASS only when every variant passes and the baseline does what the line says.",
+          "tools": [
+            "runtime_feature_run"
+          ],
+          "persist": [
+            "test scenarios in the project"
+          ]
+        },
+        {
+          "actor": "llm",
           "action": "Judge, and write the next fix or choose: the variant that does what was intended becomes a delta, the delta goes into the build, and the build is proved to hold it.",
           "tools": [
             "runtime_candidate_list",
@@ -1201,6 +1211,7 @@
         "Change / Patch / Crack / Port for the real build."
       ],
       "forbiddenShortcuts": [
+        "Do not prove a change after a build by driving a sandbox by hand: write it as a test scenario and run the whole folder.",
         "Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it.",
         "Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not).",
         "Do not call a delta done before runtime_candidate_verify_build says the build holds it."
