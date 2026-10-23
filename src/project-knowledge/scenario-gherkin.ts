@@ -394,13 +394,16 @@ export type Predicate =
 /** Where a variant's code goes: RAM, or a window of one cartridge bank. */
 export type VariantSpace = "ram" | "roml" | "romh";
 
-/** One `And variant "<name>" assembles "<path>" at … $<addr>` line. */
+/** One `And variant "<name>" assembles "<path>" at … $<addr>` or `… loads "<path>" [at … $<addr>]` line. */
 export interface VariantTargetDecl {
+  /** `assembles`: a source file assembled here. `loads`: built bytes put in as they are. */
+  readonly kind: "assembles" | "loads";
   readonly space: VariantSpace;
   /** Cartridge bank; absent for RAM. */
   readonly bank?: number;
-  readonly address: number;
-  /** The source file, as written (resolved beside the .feature file, then in the project). */
+  /** Absent only for a `loads` of a `.prg` without `at`: the file's own load address. */
+  readonly address?: number;
+  /** The file, as written (resolved beside the .feature file, then in the project). */
   readonly path: string;
   readonly line: number;
 }
@@ -443,6 +446,11 @@ export interface Scenario {
    */
   readonly regions: readonly RegionDef[];
   readonly criteria: readonly Criterion[];
+  /**
+   * `Then the baseline fails` / `Then the baseline passes`: the scenario is a TEST of the build, not a trial of
+   * fixes. Absent: a trial.
+   */
+  readonly baselineExpect?: "fails" | "passes";
   /**
    * §3 — the exclusion mask belongs to the CRITERION, not the run. Cycle counters move,
    * the raster moves, TOD moves. Per-run masks mean no two tests are comparable and
@@ -952,6 +960,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
   let cur: {
     name: string; targets: string[]; mark?: string; branch?: string; frames?: number;
     origin?: Origin; steps: Step[]; stepLines: number[]; variants: VariantDecl[]; regions: RegionDef[];
+    baselineExpect?: "fails" | "passes"; baselineLine?: number;
     criteria: Criterion[]; mask: string[]; model?: string; line: number;
   } | null = null;
   let pendingTargets: string[] = [];
@@ -971,6 +980,11 @@ export function parseFeature(source: string, file?: string): ParseResult {
       });
     } else if (!cur.branch && cur.steps.length === 0) {
       issues.push({ line: cur.line, message: `scenario "${cur.name}": no When — nothing to run` });
+    } else if (cur.baselineExpect && cur.variants.length === 0) {
+      issues.push({
+        line: cur.baselineLine ?? cur.line,
+        message: `scenario "${cur.name}": "the baseline ${cur.baselineExpect === "fails" ? "fails" : "passes"}" makes it a test of a build, and a test with no variant has nothing to compare — add \`And variant "build" loads "<file>"\``,
+      });
     } else if (cur.criteria.length === 0) {
       issues.push({ line: cur.line, message: `scenario "${cur.name}": no Then — a scenario without a criterion cannot pass or fail` });
     } else {
@@ -978,7 +992,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
         name: cur.name, targets: cur.targets, origin,
         mark: cur.mark ?? "", branch: cur.branch ?? "",
         frames: cur.frames ?? 1, steps: cur.steps, variants: cur.variants, regions: cur.regions,
-        criteria: cur.criteria, mask: cur.mask, ...(cur.model ? { model: cur.model } : {}), file, line: cur.line,
+        criteria: cur.criteria, ...(cur.baselineExpect ? { baselineExpect: cur.baselineExpect } : {}), mask: cur.mask, ...(cur.model ? { model: cur.model } : {}), file, line: cur.line,
       });
     }
     cur = null;
@@ -1074,23 +1088,39 @@ export function parseFeature(source: string, file?: string): ParseResult {
       return;
     }
 
-    // `And variant "fix1" assembles "fixes/lift.tas" at [roml bank 3 ]$0A20` — a fix to try. The same
-    // name again adds another target to that variant.
-    const variantForm = '`And variant "fix1" assembles "fixes/fix1.tas" at $0A20` or, in a cartridge bank, `… at roml bank 3 $9100`';
+    // `And variant "fix1" assembles "fixes/lift.tas" at [roml bank 3 ]$0A20` — a fix to try;
+    // `And variant "build" loads "build/x.prg" [at [roml bank 3 ]$0900]` — built bytes put in as they are.
+    // The same name again adds another target to that variant.
+    const variantForm =
+      '`And variant "fix1" assembles "fixes/fix1.tas" at $0A20`, `And variant "build" loads "build/x.prg"` (a PRG: its own address), ' +
+      '`… loads "build/x.bin" at $0900` (raw bytes: the address is required) or, in a cartridge bank, `… at roml bank 3 $9100`';
     const variant = line.match(
-      /^(?:Given|And)\s+variant\s+"([^"]+)"\s+assembles\s+"([^"]+)"\s+at\s+(?:(roml|romh)\s+bank\s+(\d+)\s+)?(\$[0-9a-f]{1,4}|0x[0-9a-f]{1,4})\s*$/i,
+      /^(?:Given|And)\s+variant\s+"([^"]+)"\s+(assembles|loads)\s+"([^"]+)"(?:\s+at\s+(?:(roml|romh)\s+bank\s+(\d+)\s+)?(\$[0-9a-f]{1,4}|0x[0-9a-f]{1,4}))?\s*$/i,
     );
     if (variant) {
-      const [, vname, path, space, bank, addrText] = variant;
+      const [, vname, verb, path, space, bank, addrText] = variant;
+      const kind = verb.toLowerCase() as "assembles" | "loads";
       if (vname.toLowerCase() === BASELINE) {
         issues.push({ line: n, message: `"${line}": "${BASELINE}" is the run without a fix — name the variant something else` });
         return;
       }
-      const address = checkNumber(addrText)!;
+      if (kind === "assembles" && addrText === undefined) {
+        issues.push({ line: n, message: `"${line}": a variant is ${variantForm}` });
+        return;
+      }
+      if (kind === "loads" && addrText === undefined && !/\.prg$/i.test(path)) {
+        issues.push({
+          line: n,
+          message: `"${line}": "${path}" is not a .prg, so it has no load address of its own and none is guessed from the bytes — write \`at $<address>\` (or \`at roml bank N $<address>\`)`,
+        });
+        return;
+      }
       const target: VariantTargetDecl = {
+        kind,
         space: (space?.toLowerCase() ?? "ram") as VariantSpace,
         ...(bank === undefined ? {} : { bank: Number(bank) }),
-        address, path, line: n,
+        ...(addrText === undefined ? {} : { address: checkNumber(addrText)! }),
+        path, line: n,
       };
       const at = cur.variants.findIndex((v) => v.name === vname);
       if (at < 0) cur.variants.push({ name: vname, targets: [target], line: n });
@@ -1099,6 +1129,24 @@ export function parseFeature(source: string, file?: string): ParseResult {
     }
     if (/^(?:Given|And)\s+variant\b/i.test(line)) {
       issues.push({ line: n, message: `"${line}": a variant is ${variantForm}` });
+      return;
+    }
+
+    // `Then the baseline fails|passes` — this scenario is a test of a build, not a trial of fixes. It is a statement
+    // about the run without any fix, never a check in the machine, so it is not a criterion.
+    const baselineLine = line.match(/^(?:Then|And)\s+the\s+baseline\s+(fails|passes)\s*$/i);
+    if (baselineLine) {
+      const expect = baselineLine[1].toLowerCase() === "fails" ? "fails" : "passes";
+      if (cur.baselineExpect && cur.baselineExpect !== expect) {
+        issues.push({ line: n, message: `"${line}": the baseline cannot both fail and pass — line ${cur.baselineLine} already said "${cur.baselineExpect}"` });
+        return;
+      }
+      cur.baselineExpect = expect;
+      cur.baselineLine = n;
+      return;
+    }
+    if (/^(?:Then|And)\s+the\s+baseline\b/i.test(line)) {
+      issues.push({ line: n, message: `"${line}": the baseline line is \`Then the baseline fails\` or \`Then the baseline passes\`` });
       return;
     }
 

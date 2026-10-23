@@ -295,6 +295,18 @@ steer at once, so:
   and `runtime_overlay_run` move the shared machine, and both say so. The whole loop is in
   `docs/runtime-sandbox.md`.
 
+- **A change to prove after a build? A test scenario, run with the whole suite — never a hand-driven
+  sandbox session.** Every behaviour that must keep working is one `.feature` file: it starts
+  from a snapshot (`Given the snapshot "states/x.c64re"`) or a mark, puts the build's bytes in
+  with `And variant "build" loads "build/x.prg"` (a PRG brings its own address; a headerless file
+  needs `at $ADDR`, or `at roml bank N $ADDR`), plays fixed inputs and states the facts as `Then`
+  lines, plus `Then the baseline fails` (the start state's own code must NOT show them) or
+  `Then the baseline passes`. A scenario with that line is a test: PASS only when every variant
+  passes and the baseline does what the line says, and no candidate is kept. Run the whole folder
+  after every build (`c64re scenario run tests/`, or from a checkout `node <checkout>/dist/cli.js
+  scenario run tests/`). A feature checked once by hand is a feature that is lost without
+  anyone noticing. The wiki page *Testing a Build* has the walk-through.
+
 - **The game's structure? Map it; you do not walk it.** Which rooms, screens or levels exist, how
   they connect, how to get to the last one, what crashes and by which moves: that is one call,
   `runtime_state_map` (or `c64re state map <file.json>`, the same code). *You* read; *the tool* walks.

@@ -234,6 +234,7 @@
     "e2e:911-variants": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-variants.mjs",
     "e2e:911-door": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-door.mjs",
     "e2e:911-candidate": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-candidate.mjs",
+    "e2e:916-scenario-tests": "node scripts/ensure-built.mjs mcp && node scripts/e2e-916-scenario-tests.mjs",
     "e2e:912": "node scripts/ensure-built.mjs mcp && node scripts/e2e-912-state-map.mjs",
     "e2e:914": "node scripts/ensure-built.mjs all && node scripts/e2e-914-dialect.mjs",
     "e2e:cartridge-bank": "node scripts/ensure-built.mjs all && node scripts/e2e-cartridge-bank-listing.mjs",

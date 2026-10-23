@@ -35,6 +35,8 @@ export interface RunReport {
   readonly endCycle?: number;
   readonly pc?: number;
   readonly elapsedMs: number;
+  /** In a test: what the baseline was required to do (`Then the baseline fails|passes`). Only on the baseline run. */
+  readonly expected?: "fails" | "passes";
 }
 
 export interface ScenarioResult {
@@ -58,6 +60,8 @@ export interface ScenarioResult {
   readonly sweep?: Omit<SweepResult, "runs"> & { readonly runs: readonly { offset: number; verdict: string; error?: string; checks: readonly SandboxCheckResult[] }[] };
   /** `I set the anchor` steps of this run. */
   readonly anchors?: readonly { name: string; file: string; cycle: number; pc: number }[];
+  /** With variants: `test` when the scenario says what its baseline must do, else `trial` (a fix to choose between). */
+  readonly mode?: "test" | "trial";
   /** With variants: the baseline first, then each variant in the order written. */
   readonly runs?: readonly RunReport[];
   /** With variants: the candidate record this run is kept in. */
@@ -303,9 +307,14 @@ async function assembleVariants(
     for (const [i, t] of v.targets.entries()) {
       const beside = resolve(here, t.path);
       const source = isAbsolute(t.path) ? t.path : existsSync(beside) ? beside : resolve(projectDir, t.path);
-      if (!existsSync(source)) throw new Error(`variant "${v.name}" (line ${t.line}): no such source file: ${source}`);
+      if (!existsSync(source)) throw new Error(`variant "${v.name}" (line ${t.line}): no such file: ${source}`);
       try {
-        targets.push(await assembleTarget(projectDir, v.name, i, { addr: t.address, space: t.space, bank: t.bank, source_path: source }, scratch));
+        if (t.kind === "loads") {
+          const { loadTarget } = await import("../candidates/variant.js");
+          targets.push(loadTarget(projectDir, { addr: t.address, space: t.space, bank: t.bank, file: source }));
+        } else {
+          targets.push(await assembleTarget(projectDir, v.name, i, { addr: t.address!, space: t.space, bank: t.bank, source_path: source }, scratch));
+        }
       } catch (e) {
         throw new Error(`variant "${v.name}" (line ${t.line}): ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -462,9 +471,39 @@ async function finishVariants(p: Prepared, raws: Raw[]): Promise<ScenarioResult>
     };
   });
   const variantReports = reports.slice(1);
+  const firstRun = raws.find((r): r is { run: SandboxRunResult } => "run" in r);
+  const expect = p.scenario.baselineExpect;
+  if (expect) {
+    // A test of a build: every variant must pass AND the baseline must do what the scenario says. Nothing here is a
+    // choice between fixes, so no candidate is kept.
+    const problems: string[] = [];
+    let verdict: Verdict = "PASS";
+    const worse = (v: Verdict): void => { if (verdict === "PASS" || (verdict === "FAIL" && v === "ERROR")) verdict = v; };
+    const b = reports[0];
+    if (b.verdict === "ERROR") {
+      worse("ERROR");
+      problems.push(`the baseline did not run: ${b.reason ?? "?"}`);
+    } else if (expect === "fails" && b.verdict !== "FAIL") {
+      worse("FAIL");
+      problems.push(`baseline should fail but ${b.verdict === "PASS" ? "passed" : `came out ${b.verdict}`}: the start state already shows these facts, the test cannot see the change`);
+    } else if (expect === "passes" && b.verdict !== "PASS") {
+      worse("FAIL");
+      problems.push(`baseline should pass but ${b.verdict === "FAIL" ? "failed" : `came out ${b.verdict}`}: the start state does not show these facts, so the change would not be what made them true or false`);
+    }
+    for (const r of variantReports) {
+      if (r.verdict === "PASS") continue;
+      worse(r.verdict === "ERROR" ? "ERROR" : "FAIL");
+      const bad = r.checks.filter((c) => !c.pass);
+      problems.push(`${r.name} ${r.verdict === "ERROR" ? "did not run" : "failed"}: ${r.reason ?? (bad.length ? bad.map((c) => `line ${c.line ?? "?"}: ${c.text} — ${c.stopped ? "" : "got "}${c.actual}`).join(" | ") : r.verdict === "UNCHECKED" ? "no check in the scenario decides anything" : "?")}`);
+    }
+    const shown = reports.map((r, i) => (i === 0 ? { ...r, expected: expect } : r));
+    return {
+      ...base, verdict, checks: [], model: firstRun?.run.machine.model ?? p.model, elapsedMs: Date.now() - p.startedAt,
+      mode: "test", ...(problems.length ? { reason: problems.join("; ") } : {}), runs: shown,
+    };
+  }
   const verdict: Verdict = variantReports.some((r) => r.verdict === "PASS") ? "PASS"
     : reports.every((r) => r.verdict === "ERROR") ? "ERROR" : "FAIL";
-  const firstRun = raws.find((r): r is { run: SandboxRunResult } => "run" in r);
   let candidate: string | undefined;
   let candidateNote: string | undefined;
   try {
@@ -485,7 +524,7 @@ async function finishVariants(p: Prepared, raws: Raw[]): Promise<ScenarioResult>
   }
   return {
     ...base, verdict, checks: [], model: firstRun?.run.machine.model ?? p.model, elapsedMs: Date.now() - p.startedAt,
-    runs: reports, ...(candidate ? { candidate } : {}), ...(candidateNote ? { candidateNote } : {}),
+    mode: "trial", runs: reports, ...(candidate ? { candidate } : {}), ...(candidateNote ? { candidateNote } : {}),
   };
 }
 
@@ -596,11 +635,13 @@ export function renderScenario(r: ScenarioResult): string[] {
       const detail = x.verdict === "PASS" || x.verdict === "UNCHECKED"
         ? `${x.checks.length} checked${x.sideEffects && x.sideEffects.length ? `  (also changed: ${describeSideEffects(x.sideEffects)})` : ""}`
         : x.reason ?? (bad.length ? bad.map((c) => `line ${c.line ?? "?"}: ${c.text} — ${c.stopped ? "" : "got "}${c.actual}`).join(" | ") : "");
-      out.push(`${x.verdict.padEnd(5)} ${x.name.padEnd(width)}  ${detail}`.trimEnd());
+      const want = x.expected ? ` (required to ${x.expected === "fails" ? "fail" : "pass"})` : "";
+      out.push(`${x.verdict.padEnd(5)} ${x.name.padEnd(width)}  ${detail}${want}`.trimEnd());
       if (x.verdict === "FAIL" && x.sideEffects && x.sideEffects.length) {
         out.push(`      (also changed: ${describeSideEffects(x.sideEffects)})`);
       }
     }
+    if (r.mode === "test") out.push(`${r.verdict} ${r.verdict === "PASS" ? "test of the build" : r.reason ?? ""}`.trimEnd());
     if (r.candidate) out.push(`→ candidate ${r.candidate} (${where})`);
     if (r.candidateNote) out.push(`  ${r.candidateNote}`);
     for (const u of r.unchecked) out.push(`  ? line ${u.line ?? "?"}: ${u.text}`);

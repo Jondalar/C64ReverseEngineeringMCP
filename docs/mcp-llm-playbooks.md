@@ -480,7 +480,10 @@ inventory.
 4. _(llm)_ For a trainer: find the counters that decreased between two checkpoints, then prove one by freezing it in a variant and running the file.
    - tools: `runtime_find_cheat`, `runtime_feature_run`
    - persist: cheat candidates, confirmation
-5. _(llm)_ Judge, and write the next fix or choose: the variant that does what was intended becomes a delta, the delta goes into the build, and the build is proved to hold it.
+5. _(llm)_ After every build, prove the change with TEST scenarios, not a hand-driven sandbox session: one file per behaviour, started from a snapshot or mark, the build's bytes put in with `And variant "build" loads "build/x.prg"` (a headerless file needs `at $ADDR`), the facts as Then lines, and `Then the baseline fails` (or `passes`). Run the whole folder; a test is PASS only when every variant passes and the baseline does what the line says.
+   - tools: `runtime_feature_run`
+   - persist: test scenarios in the project
+6. _(llm)_ Judge, and write the next fix or choose: the variant that does what was intended becomes a delta, the delta goes into the build, and the build is proved to hold it.
    - tools: `runtime_candidate_list`, `runtime_candidate_choose`, `runtime_candidate_derive_delta`, `runtime_candidate_verify_build`, `runtime_candidate_delete`, `agent_record_step`
    - persist: delta files, build check
 
@@ -488,7 +491,7 @@ inventory.
 
 **Next:** Change / Patch / Crack / Port for the real build.
 
-**Do not:** Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it. Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
+**Do not:** Do not prove a change after a build by driving a sandbox by hand: write it as a test scenario and run the whole folder. Do not build your own stepper, boot-and-watch loop or trace parser to try a fix: the feature file is that loop, and the script runs it. Do not patch the shared session the human co-drives to test an idea (runtime_overlay_run moves it; a feature run does not). Do not call a delta done before runtime_candidate_verify_build says the build holds it.
 
 ## Map a Game by Its Moves
 
