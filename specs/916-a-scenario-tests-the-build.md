@@ -1,6 +1,6 @@
 # Spec 916 — A scenario tests the build: built bytes loaded into a start state, judged strictly
 
-**Status:** BUILT on branch `spec/916-scenario-tests` (2026-10-23), not merged. D1–D4 and S1–S6 green in `npm run e2e:916-scenario-tests` (60 checks); the 900 / 911 / 912 / 810 / 813 / 814 smokes and `check:mcp-product-surface`'s playbook probe stay green. Decisions D1–D4 taken by the owner's "mach die Spec, bauen, dann testen".
+**Status:** BUILT and merged (2026-10-23). D1–D4 and S1–S6 green in `npm run e2e:916-scenario-tests` (62 checks, on the pinned TRX64 0.14.4, red on the tree without it); the 900 / 911 / 912 / 810 / 813 / 814 smokes stay green. A test (`Then the baseline fails|passes`) is not a fix delivery and passes the slot gate. Nothing open.
 **Repo:** C64RE (scenario parser, feature runner, `runtime_feature_run`, CLI help, agent doctrine, wiki). TRX64 untouched.
 **Number:** 916 (registry: `specs/README.md`).
 **Origin:** a reporter's project lost two working features (a packed boot, a trainer) without anyone
