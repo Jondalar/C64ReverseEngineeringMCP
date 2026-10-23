@@ -86,6 +86,17 @@ const rows = [
 
   const s = parseFeature("# model: c64-ntsc\nScenario: s\n  Given a bare machine\n  When I wait 10 frames\n  And I wait 500 cycles\n  Then ok\n").scenarios[0];
   check(s?.model === "c64-ntsc", "a `# model:` header before the scenario is read");
+  // #144 — a header belongs to its own scenario: above it, or directly under `Scenario:`
+  // (the recorder's form). After the steps it is the next scenario's head, never the last's.
+  const body = "  Given a bare machine\n  When I wait 1 frames\n  Then $02A6 is $00\n";
+  const many = parseFeature(
+    `Feature: f\n# model: c64-ntsc\nScenario: a\n${body}\n# model: c64-pal\n# mask: raster\nScenario: b\n${body}` +
+    `Scenario: c\n  # model: c64-ntsc\n${body}Scenario: d\n${body}`).scenarios;
+  check(many.map((x) => x.model ?? "-").join(",") === "c64-ntsc,c64-pal,c64-ntsc,-",
+    "#144 each scenario gets the `# model:` above or directly under it, not the next one's", many.map((x) => x.model ?? "-").join(","));
+  check(many[0].mask.length === 0 && many[1].mask.join() === "raster", "  `# mask:` follows the same rule");
+  const top = parseFeature(`# model: c64-ntsc\nFeature: f\nScenario: a\n${body}Scenario: b\n${body}`).scenarios;
+  check(top[0].model === "c64-ntsc" && top[1].model === undefined, "  a model line at the top heads the first scenario only — there is no file default");
   const [w1, w2] = s.steps;
   check(waitCycles(w1, NTSC) === 10 * NTSC && waitCycles(w1, PAL) === 10 * PAL && waitCycles(w2, NTSC) === 500,
     "`I wait N frames` is N frames of whichever machine runs it; cycles are cycles");

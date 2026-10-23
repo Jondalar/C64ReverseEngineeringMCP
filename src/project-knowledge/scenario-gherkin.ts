@@ -966,6 +966,11 @@ export function parseFeature(source: string, file?: string): ParseResult {
   let pendingTargets: string[] = [];
   let pendingMask: string[] = [];
   let pendingModel: string | undefined;
+  // A header line (`# targets:` / `# mask:` / `# model:`) belongs to the scenario whose
+  // `Scenario:` line it sits directly under — before that scenario's first step, as the
+  // recorder writes it. Once the steps have begun, it is the head of the next scenario.
+  let bodyStarted = false;
+  const header = () => cur !== null && !bodyStarted;
 
   const flush = (at: number) => {
     if (!cur) return;
@@ -1014,20 +1019,20 @@ export function parseFeature(source: string, file?: string): ParseResult {
       const t = line.match(/^#\s*targets:\s*(.+)$/i);
       if (t) {
         const list = t[1].split(",").map((x) => x.trim()).filter(Boolean);
-        if (cur) cur.targets.push(...list);
+        if (header()) cur!.targets.push(...list);
         else pendingTargets.push(...list);
       }
       const m = line.match(/^#\s*mask:\s*(.+)$/i);
       if (m) {
         const list = m[1].split(",").map((x) => x.trim()).filter(Boolean);
-        if (cur) cur.mask.push(...list);
+        if (header()) cur!.mask.push(...list);
         else pendingMask.push(...list);
       }
       // Spec 863 — `# model: c64-ntsc`: the machine it was recorded on. The word after
       // the colon is the model; anything after it is a comment.
       const mm = line.match(/^#\s*model:\s*([A-Za-z0-9][A-Za-z0-9-]*)/i);
       if (mm) {
-        if (cur) cur.model = mm[1];
+        if (header()) cur!.model = mm[1];
         else pendingModel = mm[1];
       }
       return;
@@ -1047,6 +1052,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
       pendingTargets = [];
       pendingMask = [];
       pendingModel = undefined;
+      bodyStarted = false;
       return;
     }
 
@@ -1054,6 +1060,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
       issues.push({ line: n, message: `"${line}" is outside any Scenario` });
       return;
     }
+    bodyStarted = true;
 
     // Spec 813 §5 — `Given the region "score" covers 30,1 to 37,1` (local, this file
     // only) or `Given the region "lives"` (resolved from the project store). A region

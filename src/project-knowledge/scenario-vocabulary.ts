@@ -63,7 +63,7 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     section: "header",
     form: "# model: <c64-pal | c64-ntsc | …>",
     sample: "# model: c64-pal",
-    doc: "The machine this was recorded on. Its frames and cycles are that machine's, so a run on another model is refused, naming both. The recorder writes it.",
+    doc: "The machine this scenario was recorded on. Its frames and cycles are that machine's, so a run on another model is refused, naming both. The recorder writes it. It heads one scenario: write it directly above its `Scenario:` line or directly under it, before the first step; each scenario of a file needs its own — there is no file-wide default. `# mask:` and `# targets:` follow the same rule.",
   },
   {
     section: "header",

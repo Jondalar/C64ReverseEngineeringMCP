@@ -57,9 +57,15 @@ frames. It is written where it happened —
 ```
 
 — and a replay switches there too, at the next frame boundary, the running program
-keeping its state. Every frame counted after it is the new model's. The file still
+keeping its state. Every frame counted after it is the new model's. The scenario still
 starts with `# model:` naming the model the recording began on, and is refused on a
 machine that starts as another one.
+
+`# model:` belongs to one scenario, not to the file: write it directly above that
+scenario's `Scenario:` line or directly under it, before the first step. A file with
+several scenarios gives each its own; one that has none runs on the project's model.
+There is no file-wide default — a model line at the top of a file heads its first
+scenario only. `# mask:` and `# targets:` follow the same rule.
 
 Shots you take while recording become `I capture` steps. Shots taken outside the
 recording do not.
