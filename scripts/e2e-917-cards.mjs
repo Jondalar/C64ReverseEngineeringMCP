@@ -158,6 +158,34 @@ try {
   r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "nothere" });
   check(has(/There is no card "nothere"/, r), "a worker cannot be bound to a card that does not exist", r);
 
+  // S6: a re-planned card supersedes the one that came back, so the package can close
+  {
+    const reg = { kind: "registration", text: "nothing unregistered" };
+    await m.call("agent_set_role", { role: "analyst", position: "architect" });
+    await m.call("plan", { action: "set", packages: [{ id: "p9", title: "re-plan", doneWhen: [reg] }] });
+    const sb = { action: "issue", package: "p9", role: "analyst", goal: "g", doneWhen: [reg] };
+    await m.call("card", { ...sb, id: "s1", title: "first try" });
+    await m.call("agent_record_step", { step: "s1 stopped", card: "s1", result: "STOPPED", report: "tool refused" });
+    r = await m.call("plan", { action: "close", package: "p9" });
+    check(has(/cannot close/, r) && has(/s1 \(STOPPED\)/, r), "a STOPPED card holds the package open", r);
+    r = await m.call("card", { ...sb, id: "sx", title: "bad", supersedes: ["c4"] });
+    check(has(/cannot supersede/, r) && has(/c4 belongs to package p1/, r), "a card cannot supersede one of another package", r);
+    r = await m.call("card", { ...sb, id: "s2", title: "second try", supersedes: ["s1"] });
+    check(has(/supersedes s1/, r), "the re-plan is issued with supersedes", r);
+    r = await m.call("card", { action: "show", card: "s1" });
+    check(has(/SUPERSEDED/, r) && has(/tool refused/, r), "the old card is SUPERSEDED and keeps its report in the history", r);
+    r = await m.call("card", { ...sb, id: "s3", title: "after", requires: ["s1"] });
+    check(has(/not issued/, r) && has(/s1 \(ISSUED\)/, r), "requires on a superseded card means its replacement (s2, still ISSUED)", r);
+    await m.call("agent_record_step", { step: "s2", card: "s2", result: "DONE", report: "ok" });
+    r = await m.call("card", { ...sb, id: "s3", title: "after", requires: ["s1"] });
+    check(has(/issued/, r) && !has(/not issued/, r), "  and once the replacement is KEPT it is satisfied", r);
+    await m.call("agent_record_step", { step: "s3", card: "s3", result: "DONE", report: "ok" });
+    r = await m.call("plan", { action: "close", package: "p9" });
+    check(has(/Package "p9" closed/, r), "the package closes: the superseded card no longer counts", r);
+    r = await m.call("card", { action: "supersede", card: "s2", replacement: "s3" });
+    check(has(/cannot supersede/, r) && has(/only a STOPPED or NOT KEPT card/, r), "a KEPT card is not superseded", r);
+  }
+
   // ═══ D1 / D5 / P5 / S0: next step reads the plan, the card is the briefing, change-validate is handed out
   head("D1  next step reads the plan; D5 the card is the briefing; P5 change-validate");
   {

@@ -10,7 +10,7 @@ import { safeHandler } from "../server-tools/safe-handler.js";
 import type { ServerToolContext } from "../server-tools/types.js";
 import { evaluateChecks, parseChecks, renderResults, unstatedPromises, verdictOf, type Check, type CheckResult, type VerdictValue } from "./checks.js";
 import {
-  claimOf, dropClaim, getCard, getPackage, listCards, listPackages, nameProblem, normName, putClaim, recordVerdict, removePackage,
+  claimOf, currentCard, dropClaim, getCard, getPackage, listCards, listPackages, nameProblem, normName, putClaim, recordVerdict, removePackage,
   savePackage, saveCard, setCardState, type CardRec, type CardState, type GateAttrs, type PackageRec, type ReportAttrs, type VerdictAttrs,
 } from "./store.js";
 
@@ -19,7 +19,7 @@ export type Reply = { ok: boolean; text: string };
 const no = (text: string): Reply => ({ ok: false, text });
 const yes = (text: string): Reply => ({ ok: true, text });
 
-const STATE_LABEL: Record<CardState, string> = { issued: "ISSUED", stopped: "STOPPED", kept: "KEPT", not_kept: "NOT KEPT", waiting: "WAITING (human gate)" };
+const STATE_LABEL: Record<CardState, string> = { issued: "ISSUED", stopped: "STOPPED", kept: "KEPT", not_kept: "NOT KEPT", waiting: "WAITING (human gate)", superseded: "SUPERSEDED" };
 const VERDICT_STATE: Record<VerdictValue, CardState> = { KEPT: "kept", NOT_KEPT: "not_kept", WAITING: "waiting" };
 const VERDICT_LABEL: Record<VerdictValue, string> = { KEPT: "KEPT", NOT_KEPT: "NOT KEPT", WAITING: "WAITING (human gate)" };
 
@@ -95,20 +95,21 @@ function renderPlan(projectRoot: string): string {
     out.push(`${p.order}. ${p.name} - ${p.title} [${p.state}] (${p.doneWhen.length} done-when line(s))`);
     for (const c of cards.filter((k) => k.package === p.name)) {
       const v = lastVerdict(projectRoot, c);
-      out.push(`     card ${c.name} - ${c.title} [${STATE_LABEL[c.state]}]${c.requires.length ? ` requires ${c.requires.join(", ")}` : ""}${v ? ` last verdict ${VERDICT_LABEL[v]}` : ""}`);
+      out.push(`     card ${c.name} - ${c.title} [${STATE_LABEL[c.state]}${c.supersededBy ? ` by ${c.supersededBy}` : ""}]${c.requires.length ? ` requires ${c.requires.join(", ")}` : ""}${v ? ` last verdict ${VERDICT_LABEL[v]}` : ""}`);
     }
   }
   const openP = pkgs.filter((p) => p.state === "open");
   const notKept = cards.filter((c) => c.state === "not_kept");
   const stopped = cards.filter((c) => c.state === "stopped");
   const waiting = cards.filter((c) => c.state === "waiting");
-  const blocked = cards.filter((c) => c.state !== "kept" && c.requires.some((r) => byName.get(r)?.state !== "kept"));
+  const standing = (r: string) => currentCard(projectRoot, r) ?? byName.get(r);
+  const blocked = cards.filter((c) => c.state !== "kept" && c.state !== "superseded" && c.requires.some((r) => standing(r)?.state !== "kept"));
   out.push("");
   out.push(`Open packages: ${openP.length ? openP.map((p) => p.name).join(", ") : "none"}`);
   out.push(`Cards NOT KEPT: ${notKept.length ? notKept.map((c) => c.name).join(", ") : "none"}`);
   out.push(`Cards STOPPED (back to the architect): ${stopped.length ? stopped.map((c) => c.name).join(", ") : "none"}`);
   out.push(`Cards WAITING (human gate): ${waiting.length ? waiting.map((c) => c.name).join(", ") : "none"}`);
-  out.push(`Cards blocked by an unkept requires: ${blocked.length ? blocked.map((c) => `${c.name} (needs ${c.requires.filter((r) => byName.get(r)?.state !== "kept").join(", ")})`).join("; ") : "none"}`);
+  out.push(`Cards blocked by an unkept requires: ${blocked.length ? blocked.map((c) => `${c.name} (needs ${c.requires.filter((r) => standing(r)?.state !== "kept").join(", ")})`).join("; ") : "none"}`);
   return out.join("\n");
 }
 
@@ -121,7 +122,8 @@ export async function planClose(projectRoot: string, input: { package: string; b
   const pkg = getPackage(projectRoot, name);
   if (!pkg) return no(`there is no package "${name}". plan(action="show") lists them.`);
   if (pkg.state === "closed") return no(`package "${name}" is already closed.`);
-  const open = listCards(projectRoot).filter((c) => c.package === name && c.state !== "kept");
+  // A superseded card is history: its replacement answers for it.
+  const open = listCards(projectRoot).filter((c) => c.package === name && c.state !== "kept" && c.state !== "superseded");
   if (open.length > 0) return no(`package "${name}" cannot close: card(s) not KEPT: ${open.map((c) => `${c.name} (${STATE_LABEL[c.state]})`).join(", ")}. Get each card KEPT first.`);
   const { verdict, results } = await evaluateChecks(projectRoot, pkg.doneWhen);
   if (verdict === "NOT_KEPT") return no(`package "${name}" cannot close: its done-when does not hold.\n${renderResults(results).join("\n")}`);
@@ -136,7 +138,21 @@ export async function planClose(projectRoot: string, input: { package: string; b
 
 export interface CardInput {
   id: string; title: string; package: string; role: string; goal: string; context?: string; read?: string[]; change?: string;
-  do?: string; doneWhen: unknown; not?: string[]; stopIf?: string[]; requires?: string[];
+  do?: string; doneWhen: unknown; not?: string[]; stopIf?: string[]; requires?: string[]; supersedes?: string[];
+}
+
+/** Why `old` cannot be replaced by a card in `pkg`, or undefined. Only a card that came back (STOPPED, NOT KEPT) is replaced. */
+function supersedeProblem(projectRoot: string, oldName: string, pkg: string): string | undefined {
+  const old = getCard(projectRoot, oldName);
+  if (!old) return `${oldName} does not exist`;
+  if (old.package !== pkg) return `${oldName} belongs to package ${old.package}, not ${pkg}`;
+  if (old.state !== "stopped" && old.state !== "not_kept") return `${oldName} is ${STATE_LABEL[old.state]}; only a STOPPED or NOT KEPT card is replaced`;
+  return undefined;
+}
+
+function markSuperseded(projectRoot: string, oldName: string, by: string): void {
+  const old = getCard(projectRoot, oldName)!;
+  saveCard(projectRoot, { ...setCardState(projectRoot, old, "superseded", "superseded", positionLine(projectRoot), `by ${by}`), supersededBy: by });
 }
 
 export async function cardIssue(projectRoot: string, input: CardInput): Promise<Reply> {
@@ -155,10 +171,13 @@ export async function cardIssue(projectRoot: string, input: CardInput): Promise<
   if (checks.checks.length === 0) return no(`card "${name}" has an empty doneWhen. A step without a checkable done-when is not a card; add at least one check.`);
   const unstated = await unstatedPromises(projectRoot, checks.checks);
   if (unstated) return no(`card "${name}": ${unstated}. Name a stated promise, or add it with contract_set.`);
+  const supersedes = [...new Set((input.supersedes ?? []).map(normName))];
+  const cannot = supersedes.map((o) => supersedeProblem(projectRoot, o, pkgName)).filter((x): x is string => !!x);
+  if (cannot.length > 0) return no(`card "${name}" is not issued: it cannot supersede: ${cannot.join("; ")}.`);
   const requires = [...new Set((input.requires ?? []).map(normName))];
   const notKept: string[] = [];
   for (const r of requires) {
-    const req = getCard(projectRoot, r);
+    const req = currentCard(projectRoot, r);
     if (!req) notKept.push(`${r} (does not exist)`);
     else if (req.state !== "kept") notKept.push(`${r} (${STATE_LABEL[req.state]})`);
   }
@@ -168,9 +187,25 @@ export async function cardIssue(projectRoot: string, input: CardInput): Promise<
     name, title: input.title.trim(), package: pkgName, role: input.role, goal: input.goal.trim(), context: input.context ?? "",
     read: input.read ?? [], change: input.change ?? "none", ...(input.do ? { do: input.do } : {}), doneWhen: checks.checks,
     not: input.not ?? [], stopIf: input.stopIf ?? [], requires, issuedBy: positionLine(projectRoot), issuedAt: at, state: "issued",
-    history: [{ at, event: "issued", by: positionLine(projectRoot) }],
+    history: [{ at, event: "issued", by: positionLine(projectRoot) }], ...(supersedes.length ? { supersedes } : {}),
   });
-  return yes(`Card "${name}" issued in package "${pkgName}" (${checks.checks.length} done-when line(s)${requires.length ? `, requires ${requires.join(", ")}` : ""}).`);
+  for (const o of supersedes) markSuperseded(projectRoot, o, name);
+  return yes(`Card "${name}" issued in package "${pkgName}" (${checks.checks.length} done-when line(s)${requires.length ? `, requires ${requires.join(", ")}` : ""}${supersedes.length ? `, supersedes ${supersedes.join(", ")}` : ""}).`);
+}
+
+/** Record that an existing card replaces one that came back — for a re-plan issued before it said so. */
+export function cardSupersede(projectRoot: string, input: { card: string; replacement: string }): Reply {
+  const refuse = requireArchitect(projectRoot, "superseding a card");
+  if (refuse) return refuse;
+  const oldName = normName(input.card), newName = normName(input.replacement);
+  const repl = getCard(projectRoot, newName);
+  if (!repl) return no(`replacement "${newName}" does not exist. Issue it first, or issue it with supersedes.`);
+  if (oldName === newName) return no(`a card cannot supersede itself.`);
+  const problem = supersedeProblem(projectRoot, oldName, repl.package);
+  if (problem) return no(`card "${newName}" cannot supersede: ${problem}.`);
+  saveCard(projectRoot, { ...repl, supersedes: [...new Set([...(repl.supersedes ?? []), oldName])] });
+  markSuperseded(projectRoot, oldName, newName);
+  return yes(`Card "${oldName}" is SUPERSEDED by "${newName}". It stays in the history with its report; the package no longer waits for it.`);
 }
 
 export function cardShow(projectRoot: string, rawName: string): Reply {
@@ -286,25 +321,28 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
   );
   server.tool(
     "card",
-    "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[]; show/check: card; judge: card, kept, by, why. Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT.",
+    "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge|supersede; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[], supersedes[] (the STOPPED / NOT KEPT cards it re-plans); show/check: card; judge: card, kept, by, why; supersede: card (the old one), replacement. Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT (a requires on a superseded card means its replacement).",
     {
       project_dir: z.string().optional(),
-      action: z.enum(["issue", "show", "check", "judge"]),
+      action: z.enum(["issue", "show", "check", "judge", "supersede"]),
       card: z.string().optional().describe("show/check/judge: the card id."),
       id: z.string().optional().describe("issue: the card id (lowercase [a-z0-9_.-])."),
       title: z.string().optional(), package: z.string().optional(), role: AgentRoleSchema.optional().describe("issue: the worker's domain role."),
       goal: z.string().optional(), context: z.string().optional(), read: z.array(z.string()).optional(), change: z.string().optional(), do: z.string().optional(),
       doneWhen: z.array(CHECK).optional(), not: z.array(z.string()).optional(), stopIf: z.array(z.string()).optional(), requires: z.array(z.string()).optional(),
+      supersedes: z.array(z.string()).optional().describe("issue: the STOPPED or NOT KEPT card(s) this card re-plans; they become SUPERSEDED."),
+      replacement: z.string().optional().describe("supersede: the card that replaces `card`."),
       kept: z.boolean().optional().describe("judge: the human's decision."), by: z.string().optional(), why: z.string().optional(),
     },
-    safeHandler("card", async (a: { project_dir?: string; action: "issue" | "show" | "check" | "judge"; card?: string; id?: string } & Partial<CardInput> & { kept?: boolean; by?: string; why?: string }) => {
+    safeHandler("card", async (a: { project_dir?: string; action: "issue" | "show" | "check" | "judge" | "supersede"; card?: string; id?: string; replacement?: string } & Partial<CardInput> & { kept?: boolean; by?: string; why?: string }) => {
       const root = ctx.projectDir({ projectDir: a.project_dir });
       if (a.action === "issue") {
-        return text(await cardIssue(root, { id: a.id ?? "", title: a.title ?? "", package: a.package ?? "", role: a.role ?? "", goal: a.goal ?? "", context: a.context, read: a.read, change: a.change, do: a.do, doneWhen: a.doneWhen ?? [], not: a.not, stopIf: a.stopIf, requires: a.requires }));
+        return text(await cardIssue(root, { id: a.id ?? "", title: a.title ?? "", package: a.package ?? "", role: a.role ?? "", goal: a.goal ?? "", context: a.context, read: a.read, change: a.change, do: a.do, doneWhen: a.doneWhen ?? [], not: a.not, stopIf: a.stopIf, requires: a.requires, supersedes: a.supersedes }));
       }
       if (!a.card) return text(no(`card ${a.action} needs the card id.`));
       if (a.action === "show") return text(cardShow(root, a.card));
       if (a.action === "check") return text(await cardCheck(root, a.card));
+      if (a.action === "supersede") return text(cardSupersede(root, { card: a.card, replacement: a.replacement ?? "" }));
       if (a.kept === undefined) return text(no("card judge needs kept (true or false)."));
       return text(cardJudge(root, { card: a.card, kept: a.kept, by: a.by ?? "", why: a.why ?? "" }));
     }),

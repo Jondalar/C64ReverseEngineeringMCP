@@ -772,7 +772,7 @@ export class KnowledgeRecords {
 
   listRelations(filters?: RelationFilters): RelationRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES') ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
+      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES','SUPERSEDES') ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'edges' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -1224,7 +1224,7 @@ export class KnowledgeRecords {
       return {
         entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state','plan_package','card')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
         findings: q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'") + q(`SELECT COUNT(*) AS n FROM claims WHERE ${NOT_WORK_CLAIM}`),
-        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES'))"),
+        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES','SUPERSEDES'))"),
         openQuestions: q("SELECT COUNT(*) AS n FROM questions"),
       };
     }, { entities: 0, findings: 0, relations: 0, openQuestions: 0 });

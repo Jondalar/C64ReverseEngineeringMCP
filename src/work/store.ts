@@ -9,7 +9,7 @@ import { WORK_PLAN_PRODUCER } from "../knowledge-graph/producer-ids.js";
 import { GraphStore, graphPath, readProjectSlug } from "../knowledge-graph/store.js";
 import type { Check, CheckResult, VerdictValue } from "./checks.js";
 
-export type CardState = "issued" | "stopped" | "kept" | "not_kept" | "waiting";
+export type CardState = "issued" | "stopped" | "kept" | "not_kept" | "waiting" | "superseded";
 export interface HistoryEntry { at: string; event: string; by?: string; detail?: string }
 
 export interface PackageRec {
@@ -41,6 +41,10 @@ export interface CardRec {
   issuedAt: string;
   state: CardState;
   history: HistoryEntry[];
+  /** The cards this one replaces (a STOPPED or NOT KEPT card re-planned). */
+  supersedes?: string[];
+  /** Set on a replaced card: the card that took its place. */
+  supersededBy?: string;
 }
 
 export interface Claim<A> { value: string; attrs: A; updatedAt: string }
@@ -145,7 +149,16 @@ export function saveCard(projectRoot: string, c: Omit<CardRec, "id">): void {
     st.upsertHuman({ id, kind: "card", name: c.title, origin: "user", confidence: "user_asserted", attrs: attrs as unknown as Record<string, unknown> }, WORK_PLAN_PRODUCER);
     edge(st, id, "PART_OF", planNodeId(projectRoot, c.package));
     for (const r of c.requires) edge(st, id, "REQUIRES", cardNodeId(projectRoot, r));
+    for (const o of c.supersedes ?? []) edge(st, id, "SUPERSEDES", cardNodeId(projectRoot, o));
   });
+}
+
+/** A card as its replacements left it: follows supersededBy to the card that stands now. */
+export function currentCard(projectRoot: string, name: string): CardRec | undefined {
+  let c = getCard(projectRoot, name);
+  const seen = new Set<string>();
+  while (c?.supersededBy && !seen.has(c.name)) { seen.add(c.name); c = getCard(projectRoot, c.supersededBy) ?? c; if (seen.has(c.name)) break; }
+  return c;
 }
 
 type ClaimKind = "verdict" | "worker_report" | "human_gate";

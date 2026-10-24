@@ -94,6 +94,10 @@ back NOT KEPT or STOPPED (re-plan it), an open package without a card (write the
 one), cards out with workers, or a package whose cards are all KEPT (close it with
 `plan`, action `close`). `plan` (action `show`) lists everything at a glance.
 
+A card that came back is re-planned with a new card that names it in `supersedes`.
+The old card becomes SUPERSEDED: it keeps its report in the history, the package no
+longer waits for it, and a `requires` on it now means its replacement.
+
 A package closes only when every card of it is KEPT and its own done-when holds. These
 two (an unkept `requires`, an unclosable package) are the only blocks. Reports,
 findings and `agent_record_step` always go through.
