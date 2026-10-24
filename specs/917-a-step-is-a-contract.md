@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** BUILT on branch spec/917-step-contract (2026-10-24), not merged. S0–S5 green in `e2e-917-cards` (81/0); S6 done on a copy of the owner's Newcomer project (P1 planned, worked by Sonnet workers, verdicts checked by hand, package closed); every S6 finding fixed with a test. Nothing open.
+**Status:** BUILT and merged (2026-10-24). S0–S5 green in `e2e-917-cards` (91/0); S6 done on a copy of the owner's Newcomer project (P1 planned, worked by Sonnet workers, verdicts checked by hand, package closed); every S6 finding fixed with a test. Nothing open.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
