@@ -176,7 +176,7 @@ function xrefsFromGraph(store: GraphStore, owner: string, stem: string): XrefEnt
     let target: number;
     try {
       const parsed = parseId(row.to_id);
-      if (parsed.form === "subsystem") continue;
+      if (parsed.form === "subsystem" || parsed.form === "plan" || parsed.form === "card") continue;
       target = parsed.address;
     } catch { continue; }
     const ev = JSON.parse(row.evidence) as Record<string, unknown>;

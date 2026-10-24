@@ -5,6 +5,8 @@
 //   platform-id   = platform ":" pkind ":" addr           c64:io:d018   c64:rom:ffd2   c64:zp:0031
 //   project-id    = slug ":" ctx ":" kind ":" addr        wasteland:ram/block2_engine_0200:routine:1dd2
 //   subsystem-id  = slug ":sub:" name                     wasteland:sub:disk-loader        (Spec 822)
+//   plan-id       = slug ":plan:" name                    wasteland:plan:fixes          (Spec 917 - a plan package)
+//   card-id       = slug ":card:" name                    wasteland:card:c-07           (Spec 917 - one step of one package)
 //   cartridge-id  = slug ":crt/" cart ":cartridge"        wasteland:crt/gmod2-orig:cartridge   (Spec 909 — the cartridge itself)
 //   ctx           = "ram" [ "/" owner ] | "crt/" cart "/" bank | "drv" [ "/" owner ]
 //                   (Spec 909: a bank lives inside a cartridge; `crt/<bank>` without one is refused, `crt-needs-cart`)
@@ -43,7 +45,10 @@ export type ParsedId =
   | { form: "project"; slug: string; ctx: Ctx; kind: string; address: number }
   | { form: "subsystem"; slug: string; name: string }
   /** Spec 909 — `<slug>:crt/<cart>:cartridge`. `kind` and `address` are fixed so a reader that wants only those need not branch. */
-  | { form: "cartridge"; slug: string; cart: string; kind: "cartridge"; address: 0 };
+  | { form: "cartridge"; slug: string; cart: string; kind: "cartridge"; address: 0 }
+  /** Spec 917 - `<slug>:plan:<name>` and `<slug>:card:<name>`: work nodes with no address; `kind` and `address` are fixed like the cartridge's. */
+  | { form: "plan"; slug: string; name: string; kind: "plan_package"; address: 0 }
+  | { form: "card"; slug: string; name: string; kind: "card"; address: 0 };
 
 const PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_TAGS);
 const PKINDS: ReadonlySet<string> = new Set(["zp", "ram", "io", "rom"]);
@@ -163,6 +168,23 @@ export function deriveSubsystemId(slug: string, name: string): string {
   return `${slug}:sub:${name}`;
 }
 
+/** Spec 917 - the name of a plan package or a card: the owner charset. */
+export function assertWorkName(name: string): void {
+  if (!OWNER.test(name)) throw new IdRuleError("work-name", `"${name}" must be lowercase [a-z0-9_.-]`);
+}
+
+export function derivePlanId(slug: string, name: string): string {
+  assertSlug(slug);
+  assertWorkName(name);
+  return `${slug}:plan:${name}`;
+}
+
+export function deriveCardId(slug: string, name: string): string {
+  assertSlug(slug);
+  assertWorkName(name);
+  return `${slug}:card:${name}`;
+}
+
 export function derivePlatformId(platform: PlatformTag, address: number): string {
   assertAddress(address);
   return `${platform}:${platformKindForAddress(platform, address)}:${formatAddr4(address)}`;
@@ -179,6 +201,13 @@ export function parseId(id: string): ParsedId {
   if (parts.length === 3 && parts[1] === "sub") {
     assertSlug(parts[0]!);
     return { form: "subsystem", slug: parts[0]!, name: parts[2]! };
+  }
+  if (parts.length === 3 && (parts[1] === "plan" || parts[1] === "card")) {
+    assertSlug(parts[0]!);
+    assertWorkName(parts[2]!);
+    return parts[1] === "plan"
+      ? { form: "plan", slug: parts[0]!, name: parts[2]!, kind: "plan_package", address: 0 }
+      : { form: "card", slug: parts[0]!, name: parts[2]!, kind: "card", address: 0 };
   }
   if (parts.length === 3 && parts[2] === "cartridge" && parts[1]!.startsWith("crt/")) {
     assertSlug(parts[0]!);
@@ -213,6 +242,7 @@ export function platformForCtx(ctx: Ctx): PlatformTag {
 export function spaceForParsed(parsed: ParsedId): string {
   if (parsed.form === "project") return parsed.ctx.space;
   if (parsed.form === "cartridge") return "crt";
+  if (parsed.form === "plan" || parsed.form === "card") return "work";
   if (parsed.form === "platform") return parsed.kind === "io" ? "io" : parsed.kind === "rom" ? "rom" : "ram";
   return "sub";
 }
