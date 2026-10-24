@@ -100,11 +100,13 @@ function renderPlan(projectRoot: string): string {
   }
   const openP = pkgs.filter((p) => p.state === "open");
   const notKept = cards.filter((c) => c.state === "not_kept");
+  const stopped = cards.filter((c) => c.state === "stopped");
   const waiting = cards.filter((c) => c.state === "waiting");
   const blocked = cards.filter((c) => c.state !== "kept" && c.requires.some((r) => byName.get(r)?.state !== "kept"));
   out.push("");
   out.push(`Open packages: ${openP.length ? openP.map((p) => p.name).join(", ") : "none"}`);
   out.push(`Cards NOT KEPT: ${notKept.length ? notKept.map((c) => c.name).join(", ") : "none"}`);
+  out.push(`Cards STOPPED (back to the architect): ${stopped.length ? stopped.map((c) => c.name).join(", ") : "none"}`);
   out.push(`Cards WAITING (human gate): ${waiting.length ? waiting.map((c) => c.name).join(", ") : "none"}`);
   out.push(`Cards blocked by an unkept requires: ${blocked.length ? blocked.map((c) => `${c.name} (needs ${c.requires.filter((r) => byName.get(r)?.state !== "kept").join(", ")})`).join("; ") : "none"}`);
   return out.join("\n");

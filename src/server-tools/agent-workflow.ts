@@ -524,6 +524,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(``);
       lines.push(`## Agent State`);
       lines.push(`Role: ${state.role}`);
+      lines.push(`Position: ${state.position ?? "unset"}${state.card ? ` (card ${state.card})` : ""}`);
       lines.push(`Current focus: ${state.currentFocus ?? "(unset)"}`);
       lines.push(`Last completed step: ${state.lastCompletedStep ?? "(none)"}`);
       lines.push(`Queued next action: ${state.nextAction ?? "(none)"}`);
