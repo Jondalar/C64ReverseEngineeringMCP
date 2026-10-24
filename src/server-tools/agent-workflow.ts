@@ -22,7 +22,7 @@ import {
 } from "../project-knowledge/project-git.js";
 
 import {
-  AgentRoleSchema, AgentStateSchema, HISTORY_LIMIT, HISTORY_RENDERED, agentStatePath, loadAgentState, nextMdPath, nowIso, persistState,
+  AgentPositionSchema, AgentRoleSchema, AgentStateSchema, HISTORY_LIMIT, HISTORY_RENDERED, agentStatePath, loadAgentState, nextMdPath, nowIso, persistState,
   recordAgentStepFromCode, NEXT_MD_GENERATED_FOOTER,
   type AgentRole, type AgentState,
 } from "../project-knowledge/agent-state.js";
@@ -613,18 +613,36 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Set the working role for this session — analyst, cartographer, implementer, archivist, cracker, or unset — which biases what agent_propose_next recommends (only analyst/cracker also change phase-gating/completion). Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
     {
       project_dir: z.string().optional(),
+      position: AgentPositionSchema.optional().describe("Spec 917: architect (plans, issues and closes cards) | worker (executes one card, bound to it) | unset. Beside the role, not instead of it."),
+      card: z.string().optional().describe("The card a worker is bound to; required with position=worker, and the card must exist."),
       role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
       focus: z.string().optional().describe("Optional one-line focus statement for this role assignment"),
       constraints: z.array(z.string()).optional().describe("Optional list of constraints active for this role/session"),
     },
-    async ({ project_dir, role, focus, constraints }) => {
+    async ({ project_dir, role, position, card, focus, constraints }) => {
       const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.getProjectStatus().project;
       const prev = loadAgentState(projectRoot);
+      // Spec 917 D3 - the position is the second axis; a worker is bound to one card that must exist.
+      let boundCard: string | undefined = prev.card;
+      if (card !== undefined && position !== "worker" && !(position === undefined && prev.position === "worker")) {
+        return textContent(`A card binds a worker only: give position="worker" with card, or drop card.`);
+      }
+      if (position === "worker") {
+        const { getCard, normName } = await import("../work/store.js");
+        if (!card) return textContent(`position="worker" needs the card it is bound to: agent_set_role(role, position="worker", card=<id>). plan(action="show") lists the cards.`);
+        const name = normName(card);
+        if (!getCard(projectRoot, name)) return textContent(`There is no card "${name}", so no worker can be bound to it. plan(action="show") lists the cards; the architect issues one with card(action="issue").`);
+        boundCard = name;
+      } else if (position !== undefined) {
+        boundCard = undefined;
+      }
       const next: AgentState = {
         ...prev,
         role,
+        position: position ?? prev.position,
+        card: boundCard,
         currentFocus: focus ?? prev.currentFocus,
         constraints: constraints ?? prev.constraints,
       };
@@ -633,6 +651,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         [
           `Agent role set.`,
           `Role: ${saved.role}`,
+          `Position: ${saved.position}${saved.card ? ` (card ${saved.card})` : ""}`,
           `Focus: ${saved.currentFocus ?? "(unset)"}`,
           `Constraints: ${saved.constraints.length === 0 ? "(none)" : saved.constraints.join("; ")}`,
           `NEXT.md: ${nextMdPath(projectRoot)}${saved.nextMdKept ? " (kept: hand-written)" : ""}`,
@@ -652,8 +671,11 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       role: AgentRoleSchema.optional().describe("Optional new role to switch into atomically with this step"),
       focus: z.string().optional().describe("Optional new current-focus statement"),
       constraints: z.array(z.string()).optional().describe("Optional replacement for the constraints list"),
+      card: z.string().optional().describe("Spec 917: the card this step reports on. C64RE judges the card's done-when itself; your claim is kept beside the verdict."),
+      result: z.enum(["DONE", "STOPPED"]).optional().describe("With card: DONE (C64RE runs the checks and answers KEPT / NOT KEPT / WAITING) or STOPPED (no checks; the card stays open)."),
+      report: z.string().optional().describe("With card: the worker's own words."),
     },
-    async ({ project_dir, step, next_action, note, role, focus, constraints }) => {
+    async ({ project_dir, step, next_action, note, role, focus, constraints, card, result, report }) => {
       const projectRoot = ctx.projectDir({ projectDir: project_dir });
       // Spec 877 D1 — a step that says a phase is CLOSED is a delivery claim. A step that
       // says what was done is not, and is recorded as always: this door is how a session
@@ -711,6 +733,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         out.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) registered but not imported into entities.`);
         out.push(`  Run project_inventory_sync to back-fill the knowledge layer.`);
       }
+      out.push(...await (await import("../work/tools.js")).attachReport(projectRoot, { card, result, report }));
       // Spec 034 reminder loop: every record_step ends pointing at
       // propose_next so the master agent stays in the orchestration
       // loop instead of free-form drifting.
