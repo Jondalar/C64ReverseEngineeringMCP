@@ -33,9 +33,11 @@ export class D64Parser implements DiskImage {
       D64_SIZE_40_ERRORS,
     ];
 
-    if (!validSizes.includes(data.length) && !(data.length > 170000 && data.length < 200000)) {
-      return false;
-    }
+    // A D64 is its size. The BAM is one resolver on top of the blocks (DOS's), not part of
+    // the format: a data disk read by its own loader has none, and is still a D64. Only an
+    // off-size file needs the BAM link as a second witness that it is a disk at all.
+    if (validSizes.includes(data.length)) return true;
+    if (!(data.length > 170000 && data.length < 200000)) return false;
 
     try {
       const bamOffset = D64Parser.getOffset(18, 0);

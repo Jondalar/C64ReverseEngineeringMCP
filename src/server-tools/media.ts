@@ -222,6 +222,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           `Format: ${manifest.format.toUpperCase()}`,
           `Disk: ${manifest.diskName} [${manifest.diskId}]`,
           ...(substrateNote ? [`Substrate: ${substrateNote}`] : []),
+          ...(manifest.noDos ? [`DOS directory: none (${manifest.noDos}). A data disk: its blocks are read by the game's own loader — extract_disk_custom_lut, disk_sector_allocation.`] : []),
           "",
           ...manifest.files.map((file) =>
             `${String(file.index + 1).padStart(2, "0")}. ${file.name} (${file.type}) - ${file.sizeSectors} blocks @ ${file.track}/${file.sector}`,

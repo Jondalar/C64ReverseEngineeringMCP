@@ -21,6 +21,8 @@ export interface DiskDirectory {
   name: string;
   id: string;
   files: DiskFileEntry[];
+  /** Set when the disk carries no DOS directory: what 18/0 holds instead. The blocks stay readable. */
+  noDos?: string;
 }
 
 export interface DiskImage {
@@ -176,8 +178,14 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
     // standard BAM at 18/0 — return an EMPTY directory instead of crashing the read.
     // The raw blocks stay readable via getSector; the custom loader (per-project
     // extractor / loader-lens) resolves payloads on top. NEVER throw here.
-    return { name: "UNTITLED", id: "", files: [] };
+    return { name: "UNTITLED", id: "", files: [], noDos: "18/0 does not decode" };
   }
+  // DOS reads the directory from 18/1 whatever 18/0 says, so a bent BAM link does not end the
+  // walk. But without the link, 18/1 may be plain data: then only an entry DOS could load
+  // counts (a file type, a track and sector that exist), and none at all means a data disk.
+  const noBamLink = bamSector[0] !== 18;
+  const plausible = (type: number, t: number, sec: number): boolean =>
+    (type & 0x0f) <= 4 && t >= 1 && t <= 42 && sec < (SECTORS_PER_TRACK[t] ?? 17);
 
   let diskName = "";
   for (let i = 0; i < 16; i++) {
@@ -215,6 +223,7 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
       const fileTrack = sector[offset + 3];
       const fileSector = sector[offset + 4];
       if (fileTrack === 0) continue;
+      if (noBamLink && !plausible(typeByte, fileTrack, fileSector)) continue;
 
       const nameBytes = sector.slice(offset + 5, offset + 21);
       const filename = extractFilename(nameBytes);
@@ -235,6 +244,12 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
     dirSector = sector[1];
   }
 
+  if (noBamLink) {
+    const hex = (v: number) => `$${v.toString(16).toUpperCase().padStart(2, "0")}`;
+    const link = `18/0 links ${hex(bamSector[0]!)}/${hex(bamSector[1]!)}, not the directory track`;
+    if (files.length === 0) return { name: "UNTITLED", id: "", files: [], noDos: link };
+    return { name: diskName || "UNTITLED", id: diskId, files, noDos: `${link}; DOS reads 18/1 regardless, and ${files.length} loadable entr${files.length === 1 ? "y is" : "ies are"} there` };
+  }
   return {
     name: diskName || "UNTITLED",
     id: diskId,

@@ -347,7 +347,8 @@
     "check:dist-reachable": "node scripts/check-dist-reachable.mjs",
     "e2e:crt-manifest-role": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-role.mjs",
     "e2e:crt-manifest-image-link": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-image-link.mjs",
-    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs"
+    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs",
+    "smoke:d64-no-bam": "node scripts/smoke-d64-no-bam.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
