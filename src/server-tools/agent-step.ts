@@ -335,8 +335,13 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
     };
   }
 
-  // 2. Inventory dirty → inventory-sync (outranks almost everything).
-  if (signals.unregisteredFiles > 0 || signals.unimportedManifests > 0 || signals.staleViews > 0) {
+  // 2. Inventory dirty → inventory-sync (outranks almost everything). Untracked files and
+  // unimported manifests make every count — and a card's [registration] check — wrong, so
+  // they come first. Stale views alone do not: every knowledge write makes them stale, and
+  // ranking them above the plan hid a STOPPED card behind a view rebuild (917 S6).
+  const planStep = planNextStep(projectDir);
+  const inventoryDirty = signals.unregisteredFiles > 0 || signals.unimportedManifests > 0;
+  if (inventoryDirty || (signals.staleViews > 0 && !planStep)) {
     const bits: string[] = [];
     if (signals.unregisteredFiles > 0) {
       const ex = signals.unregisteredExamples.length ? ` (e.g. ${signals.unregisteredExamples.join(", ")})` : "";
@@ -355,10 +360,10 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   }
 
   // 2b. Spec 917 D1 - a project with a plan takes its next step from the plan.
-  const planStep = planNextStep(projectDir);
   if (planStep) {
     if (planStep.humanQuestion) blockedBy.push({ id: "card-gate", prompt: planStep.humanQuestion });
-    return { primary: suggestStep(planStep.stepId, planStep.why, planStep.args), blockedBy };
+    const views = signals.staleViews > 0 ? ` (Also: ${signals.staleViews} project view(s) stale — project_inventory_sync rebuilds them.)` : "";
+    return { primary: suggestStep(planStep.stepId, planStep.why + views, planStep.args), blockedBy };
   }
 
   // 3. Media present but not extracted → media-inspect / media-extract.

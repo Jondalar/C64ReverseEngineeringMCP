@@ -237,6 +237,18 @@ try {
     await m2.call("agent_record_step", { step: "named", card: "a1", result: "DONE", report: "named" });
     j = jsonOf(await m2.call("agent_next_step", {}));
     check(j.step === "plan-replan" && j.primary_action.tool === "card" && j.primary_action.args.action === "show" && j.primary_action.args.card === "a1", "a card NOT KEPT -> plan-replan, card show", JSON.stringify(j.primary_action));
+    {
+      // S6: stale views alone must not hide the card; an untracked file still comes first
+      const { utimesSync, writeFileSync: wf, rmSync: rm, mkdirSync: md } = await import("node:fs");
+      const old = new Date(Date.now() - 3600_000);
+      utimesSync(join(q, "views", "project-dashboard.json"), old, old);
+      j = jsonOf(await m2.call("agent_next_step", {}));
+      check(j.step === "plan-replan" && /view\(s\) stale/.test(j.reason), "stale views do not outrank a NOT KEPT card; the step names them", `${j.step}: ${j.reason.slice(-90)}`);
+      md(join(q, "docs"), { recursive: true }); wf(join(q, "docs", "stray.md"), "# stray\n");
+      j = jsonOf(await m2.call("agent_next_step", {}));
+      check(j.step === "inventory-sync", "an untracked file still comes before the plan (it would make [registration] lie)", j.step);
+      rm(join(q, "docs", "stray.md"));
+    }
     nameNode(q, { parts: { slug: qslug, ctx: { space: "ram", owner: "main" }, kind: "routine", address: 0x0a20 }, kind: "routine", name: "lift_init" });
     await m2.call("agent_set_role", { role: "analyst", position: "architect" });
     r = await m2.call("card", { action: "check", card: "a1" });
