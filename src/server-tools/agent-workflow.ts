@@ -613,7 +613,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Set the working role for this session — analyst, cartographer, implementer, archivist, cracker, or unset — which biases what agent_propose_next recommends (only analyst/cracker also change phase-gating/completion). Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
     {
       project_dir: z.string().optional(),
-      position: AgentPositionSchema.optional().describe("Spec 917: architect (plans, issues and closes cards) | worker (executes one card, bound to it) | unset. Beside the role, not instead of it."),
+      position: AgentPositionSchema.optional().describe("architect (plans, issues and closes cards) | worker (executes one card, bound to it) | unset. Beside the role, not instead of it."),
       card: z.string().optional().describe("The card a worker is bound to; required with position=worker, and the card must exist."),
       role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
       focus: z.string().optional().describe("Optional one-line focus statement for this role assignment"),
@@ -671,7 +671,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       role: AgentRoleSchema.optional().describe("Optional new role to switch into atomically with this step"),
       focus: z.string().optional().describe("Optional new current-focus statement"),
       constraints: z.array(z.string()).optional().describe("Optional replacement for the constraints list"),
-      card: z.string().optional().describe("Spec 917: the card this step reports on. C64RE judges the card's done-when itself; your claim is kept beside the verdict."),
+      card: z.string().optional().describe("the card this step reports on. C64RE judges the card's done-when itself; your claim is kept beside the verdict."),
       result: z.enum(["DONE", "STOPPED"]).optional().describe("With card: DONE (C64RE runs the checks and answers KEPT / NOT KEPT / WAITING) or STOPPED (no checks; the card stays open)."),
       report: z.string().optional().describe("With card: the worker's own words."),
     },
