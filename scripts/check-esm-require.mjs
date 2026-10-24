@@ -42,6 +42,7 @@ for (const file of walk(ROOT)) {
     if (/^\s*(\/\/|\*)/.test(line)) return;          // a comment about require is not one
     if (!/\brequire\s*\(/.test(line)) return;
     if (/import\s*\(/.test(line)) return;
+    if (/\/\/ cjs-child\b/.test(line)) return;   // source of a CommonJS child process (`node -e`), not this bundle
     offenders.push({ file: file.replace(ROOT, "src"), line: i + 1, text: line.trim() });
   });
 }
