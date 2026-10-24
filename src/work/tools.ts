@@ -11,7 +11,7 @@ import type { ServerToolContext } from "../server-tools/types.js";
 import { evaluateChecks, parseChecks, renderResults, unstatedPromises, verdictOf, type Check, type CheckResult, type VerdictValue } from "./checks.js";
 import {
   claimOf, currentCard, dropClaim, getCard, getPackage, listCards, listPackages, nameProblem, normName, putClaim, recordVerdict, removePackage,
-  savePackage, saveCard, setCardState, type CardRec, type CardState, type GateAttrs, type PackageRec, type ReportAttrs, type VerdictAttrs,
+  savePackage, saveCard, setCardState, type CardRec, type CardState, type GateAttrs, type PackageRec, type ReportAttrs, type UsageEntry, type VerdictAttrs,
 } from "./store.js";
 
 const now = (): string => new Date().toISOString();
@@ -73,6 +73,7 @@ export async function planSet(projectRoot: string, input: { packages: PackageInp
     savePackage(projectRoot, {
       name: p.name, title: p.title, doneWhen: p.doneWhen, state: old?.state ?? "open",
       order: input.replace ? i + 1 : old ? old.order : nextOrder++,
+      ...(old?.closedAt ? { closedAt: old.closedAt } : {}), ...(old?.usage ? { usage: old.usage } : {}),
     });
   }
   return yes(`Plan set: ${parsed.length} package(s)${dropped.length ? `, ${dropped.length} removed` : ""}.\n${renderPlan(projectRoot)}`);
@@ -88,13 +89,17 @@ function renderPlan(projectRoot: string): string {
   if (pkgs.length === 0) return "No plan yet. The architect writes it with plan(action=\"set\").";
   const byName = new Map(cards.map((c) => [c.name, c]));
   const out: string[] = [];
+  let total = 0;
   for (const p of pkgs) {
-    out.push(`${p.order}. ${p.name} - ${p.title} [${p.state}] (${p.doneWhen.length} done-when line(s))`);
+    const u = packageUsage(p, cards);
+    total += u.tokens;
+    out.push(`${p.order}. ${p.name} - ${p.title} [${p.state}] (${p.doneWhen.length} done-when line(s))${u.tokens ? ` usage ${usageLine(u)}` : ""}`);
     for (const c of cards.filter((k) => k.package === p.name)) {
       const v = lastVerdict(projectRoot, c);
       out.push(`     card ${c.name} - ${c.title} [${STATE_LABEL[c.state]}${c.supersededBy ? ` by ${c.supersededBy}` : ""}]${c.requires.length ? ` requires ${c.requires.join(", ")}` : ""}${v ? ` last verdict ${VERDICT_LABEL[v]}` : ""}`);
     }
   }
+  if (total > 0) out.push("", `Usage so far: ${fmtTokens(total)} tokens (as the harness reported each run; superseded cards included, they cost too).`);
   const openP = pkgs.filter((p) => p.state === "open");
   const notKept = cards.filter((c) => c.state === "not_kept");
   const stopped = cards.filter((c) => c.state === "stopped");
@@ -132,6 +137,76 @@ export async function planClose(projectRoot: string, input: { package: string; b
 }
 
 // ------------------------------------------------------------------ card
+
+
+// ------------------------------------------------------------------ usage
+
+const fmtTokens = (n: number): string => n.toLocaleString("en-US");
+
+interface UsageSum { tokens: number; workers: number; architect: number; byModel: Record<string, number> }
+
+function packageUsage(p: PackageRec, cards: CardRec[]): UsageSum {
+  const sum: UsageSum = { tokens: 0, workers: 0, architect: 0, byModel: {} };
+  const add = (e: UsageEntry): void => {
+    sum.tokens += e.tokens;
+    if (e.who === "architect") sum.architect += e.tokens; else sum.workers += e.tokens;
+    sum.byModel[e.model] = (sum.byModel[e.model] ?? 0) + e.tokens;
+  };
+  for (const c of cards.filter((k) => k.package === p.name)) for (const e of c.usage ?? []) add(e);
+  for (const e of p.usage ?? []) add(e);
+  return sum;
+}
+
+function usageLine(u: UsageSum): string {
+  const models = Object.entries(u.byModel).map(([m, t]) => `${m} ${fmtTokens(t)}`).join(", ");
+  return `${fmtTokens(u.tokens)} tokens (workers ${fmtTokens(u.workers)}, architect ${fmtTokens(u.architect)}; ${models})`;
+}
+
+interface UsageInput { model?: string; tokens?: number; toolUses?: number; durationMs?: number }
+
+function usageEntry(input: UsageInput, who: UsageEntry["who"]): UsageEntry | string {
+  if (!input.model?.trim()) return "give the model the run used (e.g. sonnet, opus), as the harness reported it";
+  if (!Number.isInteger(input.tokens) || (input.tokens as number) <= 0) return "give tokens as a positive whole number, the subagent_tokens the harness reported";
+  for (const [k, v] of [["tool_uses", input.toolUses], ["duration_ms", input.durationMs]] as const) {
+    if (v !== undefined && (!Number.isInteger(v) || v < 0)) return `${k} must be a whole number >= 0`;
+  }
+  return { at: now(), who, model: input.model.trim(), tokens: input.tokens as number,
+    ...(input.toolUses !== undefined ? { toolUses: input.toolUses } : {}), ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}) };
+}
+
+/** The architect records what a worker's run on this card cost, from the harness notification. Any state: a run that came back cost as much. */
+export function cardUsage(projectRoot: string, rawName: string, input: UsageInput): Reply {
+  const refuse = requireArchitect(projectRoot, "recording a card's usage");
+  if (refuse) return refuse;
+  const name = normName(rawName);
+  const c = getCard(projectRoot, name);
+  if (!c) return no(`there is no card "${name}". plan(action="show") lists the cards.`);
+  const e = usageEntry(input, "worker");
+  if (typeof e === "string") return no(`card usage: ${e}.`);
+  saveCard(projectRoot, { ...c, usage: [...(c.usage ?? []), e] });
+  return yes(`Usage recorded on card "${name}": ${e.model} ${fmtTokens(e.tokens)} tokens.`);
+}
+
+/** The architect's own cost for a package (its reading, planning and checking), recorded by the architect's session. */
+export function planUsage(projectRoot: string, rawName: string, input: UsageInput): Reply {
+  const refuse = requireArchitect(projectRoot, "recording a package's usage");
+  if (refuse) return refuse;
+  const name = normName(rawName);
+  const p = getPackage(projectRoot, name);
+  if (!p) return no(`there is no package "${name}". plan(action="show") lists them.`);
+  const e = usageEntry(input, "architect");
+  if (typeof e === "string") return no(`plan usage: ${e}.`);
+  savePackage(projectRoot, { ...p, usage: [...(p.usage ?? []), e] });
+  return yes(`Architect usage recorded on package "${name}": ${e.model} ${fmtTokens(e.tokens)} tokens.`);
+}
+
+const USAGE_FIELDS = {
+  model: z.string().optional().describe("usage: the model of the run (sonnet, opus, ...)."),
+  tokens: z.number().int().optional().describe("usage: subagent_tokens from the harness notification."),
+  tool_uses: z.number().int().optional().describe("usage: tool_uses from the notification."),
+  duration_ms: z.number().int().optional().describe("usage: duration_ms from the notification."),
+};
+type UsageArgs = { model?: string; tokens?: number; tool_uses?: number; duration_ms?: number };
 
 export interface CardInput {
   id: string; title: string; package: string; role: string; goal: string; context?: string; read?: string[]; change?: string;
@@ -222,6 +297,7 @@ export function cardShow(projectRoot: string, rawName: string): Reply {
   if (v) l.push(`Verdict (C64RE, ${v.attrs.at}): ${VERDICT_LABEL[v.value as VerdictValue]}`, ...renderResults(v.attrs.checks));
   if (rep) l.push(`Worker's report (${rep.attrs.by}, ${rep.attrs.at}): ${rep.value}${rep.attrs.text ? ` - ${rep.attrs.text}` : ""}`);
   if (gate) l.push(`Human gate (${gate.attrs.by}, ${gate.attrs.at}): ${gate.value} - ${gate.attrs.why}`);
+  if (c.usage?.length) l.push("Usage:", ...c.usage.map((x) => `  ${x.at} ${x.model} ${fmtTokens(x.tokens)} tokens${x.toolUses !== undefined ? `, ${x.toolUses} tool calls` : ""}${x.durationMs !== undefined ? `, ${Math.round(x.durationMs / 1000)} s` : ""}`));
   l.push("History:", ...c.history.map((h) => `  ${h.at} ${h.event}${h.by ? ` by ${h.by}` : ""}${h.detail ? ` - ${h.detail}` : ""}`));
   return yes(l.join("\n"));
 }
@@ -295,30 +371,32 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
   const CHECK = z.any().describe("A check object, e.g. {kind:\"graph\", subject:\"node\", nodeKind:\"routine\", owner:\"main\", address:\"$0A20\", named:true, text:\"routine at $0A20 is named\"}. Kinds: graph (node|finding), rebuild, registration, scenario, contract, human. A bare string is refused.");
   server.tool(
     "plan",
-    "The project's plan: work packages in order, each with its own done-when. Use at kickoff to store the packages the human agreed (set), to see where the work stands (show: open packages, cards NOT KEPT, cards WAITING for a human, cards blocked by an unkept requires), and to close a package (close) once every card of it is KEPT and its own done-when holds. Not for one step of work (use card) or for recording progress (use agent_record_step). Inputs: action set|show|close; set: packages [{id, title, doneWhen: check[]}], replace; close: package (and by+why when only a [human] line is left). Returns: the plan, or a refusal naming what to do. set and close are the architect's (position architect; set also while unset).",
+    "The project's plan: work packages in order, each with its own done-when. Use at kickoff to store the packages the human agreed (set), to see where the work stands (show: open packages, cards NOT KEPT, cards WAITING for a human, cards blocked by an unkept requires), and to close a package (close) once every card of it is KEPT and its own done-when holds. Not for one step of work (use card) or for recording progress (use agent_record_step). Inputs: action set|show|close|usage; set: packages [{id, title, doneWhen: check[]}], replace; close: package (and by+why when only a [human] line is left); usage: package, model, tokens, tool_uses, duration_ms (the architect's own run on that package, as the harness reported it). show sums the usage per package. Returns: the plan, or a refusal naming what to do. set, close and usage are the architect's (position architect; set also while unset).",
     {
       project_dir: z.string().optional(),
-      action: z.enum(["set", "show", "close"]),
+      action: z.enum(["set", "show", "close", "usage"]),
       packages: z.array(z.object({ id: z.string(), title: z.string(), doneWhen: z.array(CHECK) })).optional().describe("set: the packages in order. Existing ids are updated; with replace=true the list is the whole plan (packages holding cards cannot be dropped)."),
       replace: z.boolean().optional(),
       package: z.string().optional().describe("close: the package id."),
       by: z.string().optional().describe("close: who the human is, when a [human] line is the last one."),
       why: z.string().optional().describe("close: the human's reason."),
+      ...USAGE_FIELDS,
     },
-    safeHandler("plan", async ({ project_dir, action, packages, replace, package: pkg, by, why }: { project_dir?: string; action: "set" | "show" | "close"; packages?: PackageInput[]; replace?: boolean; package?: string; by?: string; why?: string }) => {
+    safeHandler("plan", async ({ project_dir, action, packages, replace, package: pkg, by, why, model, tokens, tool_uses, duration_ms }: { project_dir?: string; action: "set" | "show" | "close" | "usage"; packages?: PackageInput[]; replace?: boolean; package?: string; by?: string; why?: string } & UsageArgs) => {
       const root = ctx.projectDir({ projectDir: project_dir });
       if (action === "show") return text(planShow(root));
       if (action === "set") return text(await planSet(root, { packages: packages ?? [], replace }));
-      if (!pkg) return text(no("plan close needs the package id."));
+      if (!pkg) return text(no(`plan ${action} needs the package id.`));
+      if (action === "usage") return text(planUsage(root, pkg, { model, tokens, toolUses: tool_uses, durationMs: duration_ms }));
       return text(await planClose(root, { package: pkg, by, why }));
     }),
   );
   server.tool(
     "card",
-    "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge|supersede; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[], supersedes[] (the STOPPED / NOT KEPT cards it re-plans); show/check: card; judge: card, kept, by, why; supersede: card (the old one), replacement. Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT (a requires on a superseded card means its replacement).",
+    "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge|supersede|usage; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[], supersedes[] (the STOPPED / NOT KEPT cards it re-plans); show/check: card; judge: card, kept, by, why; supersede: card (the old one), replacement; usage: card, model, tokens, tool_uses, duration_ms (what the worker's run cost, from the harness notification — the worker cannot see it). Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT (a requires on a superseded card means its replacement).",
     {
       project_dir: z.string().optional(),
-      action: z.enum(["issue", "show", "check", "judge", "supersede"]),
+      action: z.enum(["issue", "show", "check", "judge", "supersede", "usage"]),
       card: z.string().optional().describe("show/check/judge: the card id."),
       id: z.string().optional().describe("issue: the card id (lowercase [a-z0-9_.-])."),
       title: z.string().optional(), package: z.string().optional(), role: AgentRoleSchema.optional().describe("issue: the worker's domain role."),
@@ -326,9 +404,10 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
       doneWhen: z.array(CHECK).optional(), not: z.array(z.string()).optional(), stopIf: z.array(z.string()).optional(), requires: z.array(z.string()).optional(),
       supersedes: z.array(z.string()).optional().describe("issue: the STOPPED or NOT KEPT card(s) this card re-plans; they become SUPERSEDED."),
       replacement: z.string().optional().describe("supersede: the card that replaces `card`."),
+      ...USAGE_FIELDS,
       kept: z.boolean().optional().describe("judge: the human's decision."), by: z.string().optional(), why: z.string().optional(),
     },
-    safeHandler("card", async (a: { project_dir?: string; action: "issue" | "show" | "check" | "judge" | "supersede"; card?: string; id?: string; replacement?: string } & Partial<CardInput> & { kept?: boolean; by?: string; why?: string }) => {
+    safeHandler("card", async (a: { project_dir?: string; action: "issue" | "show" | "check" | "judge" | "supersede" | "usage"; card?: string; id?: string; replacement?: string } & Partial<CardInput> & { kept?: boolean; by?: string; why?: string } & UsageArgs) => {
       const root = ctx.projectDir({ projectDir: a.project_dir });
       if (a.action === "issue") {
         return text(await cardIssue(root, { id: a.id ?? "", title: a.title ?? "", package: a.package ?? "", role: a.role ?? "", goal: a.goal ?? "", context: a.context, read: a.read, change: a.change, do: a.do, doneWhen: a.doneWhen ?? [], not: a.not, stopIf: a.stopIf, requires: a.requires, supersedes: a.supersedes }));
@@ -337,6 +416,7 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
       if (a.action === "show") return text(cardShow(root, a.card));
       if (a.action === "check") return text(await cardCheck(root, a.card));
       if (a.action === "supersede") return text(cardSupersede(root, { card: a.card, replacement: a.replacement ?? "" }));
+      if (a.action === "usage") return text(cardUsage(root, a.card, { model: a.model, tokens: a.tokens, toolUses: a.tool_uses, durationMs: a.duration_ms }));
       if (a.kept === undefined) return text(no("card judge needs kept (true or false)."));
       return text(cardJudge(root, { card: a.card, kept: a.kept, by: a.by ?? "", why: a.why ?? "" }));
     }),

@@ -12,6 +12,17 @@ import type { Check, CheckResult, VerdictValue } from "./checks.js";
 export type CardState = "issued" | "stopped" | "kept" | "not_kept" | "waiting" | "superseded";
 export interface HistoryEntry { at: string; event: string; by?: string; detail?: string }
 
+/** What a run cost, as the harness reported it to the architect (a worker cannot see its own count). */
+export interface UsageEntry {
+  at: string;
+  /** "worker" on a card; "architect" on a package. */
+  who: "worker" | "architect";
+  model: string;
+  tokens: number;
+  toolUses?: number;
+  durationMs?: number;
+}
+
 export interface PackageRec {
   name: string;
   id: string;
@@ -20,6 +31,7 @@ export interface PackageRec {
   doneWhen: Check[];
   state: "open" | "closed";
   closedAt?: string;
+  usage?: UsageEntry[];
 }
 
 export interface CardRec {
@@ -45,6 +57,7 @@ export interface CardRec {
   supersedes?: string[];
   /** Set on a replaced card: the card that took its place. */
   supersededBy?: string;
+  usage?: UsageEntry[];
 }
 
 export interface Claim<A> { value: string; attrs: A; updatedAt: string }
@@ -87,7 +100,7 @@ interface Row { id: string; name: string | null; attrs: string }
 
 function packageOf(r: Row): PackageRec {
   const a = JSON.parse(r.attrs) as Omit<PackageRec, "name" | "id">;
-  return { name: tail(r.id), id: r.id, title: a.title, order: a.order, doneWhen: a.doneWhen, state: a.state, ...(a.closedAt ? { closedAt: a.closedAt } : {}) };
+  return { name: tail(r.id), id: r.id, title: a.title, order: a.order, doneWhen: a.doneWhen, state: a.state, ...(a.closedAt ? { closedAt: a.closedAt } : {}), ...(a.usage?.length ? { usage: a.usage } : {}) };
 }
 function cardOf(r: Row): CardRec {
   const a = JSON.parse(r.attrs) as Omit<CardRec, "name" | "id">;
@@ -122,7 +135,7 @@ export function savePackage(projectRoot: string, p: Omit<PackageRec, "id">): voi
   withStore(projectRoot, (st) => {
     st.upsertHuman({
       id, kind: "plan_package", name: p.title, origin: "user", confidence: "user_asserted",
-      attrs: { title: p.title, order: p.order, doneWhen: p.doneWhen, state: p.state, ...(p.closedAt ? { closedAt: p.closedAt } : {}) },
+      attrs: { title: p.title, order: p.order, doneWhen: p.doneWhen, state: p.state, ...(p.closedAt ? { closedAt: p.closedAt } : {}), ...(p.usage?.length ? { usage: p.usage } : {}) },
     }, WORK_PLAN_PRODUCER);
   });
 }

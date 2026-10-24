@@ -257,4 +257,9 @@ the card) follow; the stale `change-validate` block is gone.
   - outside 917: `list_artifacts` walked `analysis/` instead of reading the registry (no media, no ids, no
     `project_dir`); a D64 without a BAM was refused by every reader (only G64 had been made tolerant); a D64 data disk
     was judged a custom-GCR candidate; media in a subfolder such as `disk/` were invisible to init and the scan — the first `project_init` now moves media from the user's folders into `input/` (a re-run does not).
+- **Added after S6 (owner, 2026-10-24): usage per run.** The harness reports a subagent's tokens, tool calls and
+  duration to its parent only, so the architect records them: `card` action `usage` (worker run, any card state —
+  superseded runs cost too) and `plan` action `usage` (the architect's own run on a package). `plan show` sums per
+  package (worker / architect, by model) and in total; `card show` lists each run. S6 numbers: P1 279k (4 workers),
+  P2 1.44M (architect 310k Opus + 14 workers 1.13M Sonnet; re-plans 35 % of the worker total).
 - **D3 amended after S6:** no worker position (see D3). In S6 workers already reported by `card=` without one.

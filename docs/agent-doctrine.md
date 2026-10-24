@@ -620,7 +620,10 @@ in every report instead.
   and `requires` (cards that must be KEPT first). A card belongs to a package;
   a card outside every package is refused. The worker is briefed with the
   `c64re_worker_card(card_id)` prompt and reports with
-  `agent_record_step(card, result=DONE|STOPPED, report)`.
+  `agent_record_step(card, result=DONE|STOPPED, report)`. When the worker returns, the
+  architect records what the run cost from the harness notification (`card` action
+  `usage`: model, tokens, tool calls, duration), and its own cost per package (`plan`
+  action `usage`); `plan show` sums them.
 - **The check vocabulary.** A done-when line is one of: `graph` (a count or
   existence in the graph), `rebuild` (byte-identical), `registration` (0
   unregistered), `scenario` (a scenario's verdict, test mode included),

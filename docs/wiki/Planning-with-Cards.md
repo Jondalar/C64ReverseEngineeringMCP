@@ -96,6 +96,13 @@ back NOT KEPT or STOPPED (re-plan it), an open package without a card (write the
 one), cards out with workers, or a package whose cards are all KEPT (close it with
 `plan`, action `close`). `plan` (action `show`) lists everything at a glance.
 
+**What it cost.** A worker cannot see its own token count; the harness reports it to the
+architect when the worker finishes. The architect records it on the card
+(`card`, action `usage`: model, tokens, tool calls, duration) and its own reading and
+checking on the package (`plan`, action `usage`). `plan show` sums each package by
+worker and architect and by model, superseded cards included — a run that came back
+cost as much.
+
 A card that came back is re-planned with a new card that names it in `supersedes`.
 The old card becomes SUPERSEDED: it keeps its report in the history, the package no
 longer waits for it, and a `requires` on it now means its replacement.

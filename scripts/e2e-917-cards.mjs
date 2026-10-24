@@ -190,6 +190,23 @@ try {
     check(has(/Package "p9" closed/, r), "the package closes: the superseded card no longer counts", r);
     r = await m.call("card", { action: "supersede", card: "s2", replacement: "s3" });
     check(has(/cannot supersede/, r) && has(/only a STOPPED or NOT KEPT card/, r), "a KEPT card is not superseded", r);
+
+    // usage: the architect records what each run cost, from the harness notification
+    r = await m.call("card", { action: "usage", card: "s1", model: "sonnet", tokens: 71880, tool_uses: 7, duration_ms: 23056 });
+    check(has(/Usage recorded on card "s1": sonnet 71,880 tokens/, r), "usage is recorded on a superseded card too (the failed run cost as much)", r);
+    await m.call("card", { action: "usage", card: "s2", model: "sonnet", tokens: 73584 });
+    r = await m.call("card", { action: "usage", card: "s2", model: "sonnet", tokens: 0 });
+    check(has(/positive whole number/, r), "tokens must be a positive whole number", r);
+    r = await m.call("plan", { action: "usage", package: "p9", model: "opus", tokens: 309600, tool_uses: 133 });
+    check(has(/Architect usage recorded on package "p9": opus 309,600/, r), "the architect's own run is recorded on the package", r);
+    r = await m.call("plan", { action: "show" });
+    check(has(/p9 - re-plan \[closed\].*usage 455,064 tokens \(workers 145,464, architect 309,600; sonnet 145,464, opus 309,600\)/, r) && has(/Usage so far: 455,064 tokens/, r), "plan show sums usage per package, by worker/architect and by model", r.split("\n").filter((l) => /usage|Usage/.test(l)).join(" | "));
+    r = await m.call("card", { action: "show", card: "s1" });
+    check(has(/Usage:/, r) && has(/sonnet 71,880 tokens, 7 tool calls, 23 s/, r), "card show lists its runs' usage", r);
+    await m.call("agent_set_role", { role: "analyst", position: "unset" });
+    r = await m.call("card", { action: "usage", card: "s2", model: "sonnet", tokens: 1 });
+    check(has(/the architect's/, r), "only the architect records usage", r);
+    await m.call("agent_set_role", { role: "analyst", position: "architect" });
   }
 
   // ═══ D1 / D5 / P5 / S0: next step reads the plan, the card is the briefing, change-validate is handed out
