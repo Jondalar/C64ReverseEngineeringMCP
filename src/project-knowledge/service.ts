@@ -14,7 +14,7 @@ function checkedModelName(name: string): string {
   }
   return n;
 }
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
@@ -1024,11 +1024,10 @@ export class ProjectKnowledgeService {
     };
     // Loose files in the root, and media in any folder the user made (a `disk/` holding the
     // images is how a project usually arrives). Folders C64RE writes itself are not entered,
-    // and from the user's folders only media move — their notes and documents stay put.
+    // and from the user's folders only media are registered, in place — the folder is never touched.
     const MANAGED = new Set(["input", "analysis", "artifacts", "knowledge", "views", "session", "snapshots", "docs", "build", "tools", "src", "node_modules", "dist"]);
     const MEDIA = new Set([".d64", ".g64", ".crt", ".prg"]);
     const candidates: string[] = [];
-    const leftDirs: string[] = [];
     const walk = (relDir: string, depth: number): void => {
       let names: string[];
       try { names = readdirSync(resolve(root, relDir)); } catch { return; }
@@ -1039,7 +1038,7 @@ export class ProjectKnowledgeService {
         try { st = statSync(resolve(root, rel)); } catch { continue; }
         if (st.isDirectory()) {
           if (depth === 0 && MANAGED.has(n)) continue;
-          if (opts.subfolders && depth < 4) { leftDirs.push(rel); walk(rel, depth + 1); }
+          if (opts.subfolders && depth < 4) walk(rel, depth + 1);
         } else if (st.isFile() && (depth === 0 || MEDIA.has(extname(n).toLowerCase()))) {
           candidates.push(rel);
         }
@@ -1051,6 +1050,19 @@ export class ProjectKnowledgeService {
       const ext = extname(name).toLowerCase();
       const dest = route(ext);
       if (!dest) continue;                                       // unknown type — leave in root
+      // A file in the user's own folder is registered where it is: moving it breaks every path the
+      // user holds into that folder, copying it makes one file two artifacts. A loose root file
+      // moves into input/ (the root stays clean).
+      if (name.includes("/")) {
+        if (this.listArtifacts().some((x) => resolve(root, x.path) === abs)) continue;   // already registered there
+        const placed = this.saveArtifact({
+          kind: dest.kind, scope: dest.scope, title: basename(name), path: name.replace(/\\/g, "/"), producedByTool: "project_init",
+          description: `Registered in place by project_init (a folder of the user's; left where it is).`,
+          tags: ["input", "registered-in-place"],
+        });
+        sorted.push({ from: name, to: name, kind: dest.kind, artifactId: placed.id });
+        continue;
+      }
       const targetAbs = resolve(dest.dir, basename(name));
       if (existsSync(targetAbs)) {                               // never clobber an existing canonical file
         skipped.push({ file: name, reason: `target already exists at ${relative(root, targetAbs)}` });
@@ -1074,10 +1086,6 @@ export class ProjectKnowledgeService {
         tags: ["input", "auto-sorted"],
       });
       sorted.push({ from: name, to: canonicalRel, kind: dest.kind, artifactId: artifact.id });
-    }
-    // A user folder the sweep emptied is removed; one that still holds anything stays.
-    for (const d of leftDirs.sort((x, y) => y.length - x.length)) {
-      try { if (readdirSync(resolve(root, d)).length === 0) rmdirSync(resolve(root, d)); } catch { /* keep it */ }
     }
     if (sorted.length > 0) {
       this.appendTimelineEvent({

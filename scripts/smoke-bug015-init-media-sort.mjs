@@ -63,8 +63,8 @@ ok(res.sorted.length === 7, "10 result reports 7 sorted files", `sorted=${res.so
 const res2 = svc.sortLooseInputMedia();
 ok(res2.sorted.length === 0, "11 idempotent: second run sorts 0", `sorted=${res2.sorted.length}`);
 
-// 6. media in a folder the user made (a project often arrives as disk/*.d64) move too;
-//    the user's notes stay, an emptied folder goes, a folder still holding something stays
+// 6. media in a folder the user made (a project often arrives as disk/*.d64) are registered
+//    where they are: nothing moves, nothing is copied, every path into the folder stays
 {
   const { mkdirSync, rmSync } = await import("node:fs");
   const d2 = testTmpDir("c64re-bug015-sub-");
@@ -80,11 +80,14 @@ ok(res2.sorted.length === 0, "11 idempotent: second run sorts 0", `sorted=${res2
   // a re-run of init (no subfolders option) never looks into the user's folders
   ok(s2.sortLooseInputMedia().sorted.length === 0 && h2("disk/side-a.d64"), "12a without the first-init option a user folder is not entered");
   const r = s2.sortLooseInputMedia({ subfolders: true });
-  ok(h2("input/disk/side-a.d64") && h2("input/disk/side-b.d64") && h2("input/prg/trainer.prg"), "12 media in user subfolders (any depth) move to input/", r.sorted.map((x) => x.from).join(","));
+  const arts = s2.listArtifacts();
+  const at = (rel) => arts.find((x) => (x.path ?? "").replace(/\\/g, "/").endsWith(rel));
+  ok(!!at("disk/side-a.d64") && !!at("disk/side-b.d64") && !!at("extras/deep/trainer.prg") && at("disk/side-a.d64")?.kind === "d64", "12 media in user subfolders (any depth) are registered at their own path", r.sorted.map((x) => x.from).join(","));
+  ok(!h2("input/disk/side-a.d64") && !h2("input/prg/trainer.prg"), "12b nothing is copied into input/ (one file, one artifact)");
   ok(h2("extras/notes.md") && !h2("input/docs/notes.md"), "13 a user folder's notes stay where they are");
-  ok(!h2("disk") && h2("extras") && !h2("extras/deep"), "14 an emptied folder is removed, one still holding a file stays");
-  const art = s2.listArtifacts().find((x) => (x.path ?? "").endsWith("input/disk/side-a.d64"));
-  ok(!!art && /Original source: disk\/side-a\.d64/.test(art.description ?? ""), "15 provenance names the subfolder path", art?.description);
+  ok(h2("disk/side-a.d64") && h2("disk/side-b.d64") && h2("extras/deep/trainer.prg"), "14 the files stay where they were");
+  const art = at("disk/side-a.d64");
+  ok(!!art && /Registered in place/.test(art.description ?? ""), "15 the record says it was registered in place", art?.description);
   ok(s2.sortLooseInputMedia({ subfolders: true }).sorted.length === 0, "16 idempotent with subfolders");
   rmSync(d2, { recursive: true, force: true });
 }
@@ -100,7 +103,7 @@ ok(res2.sorted.length === 0, "11 idempotent: second run sorts 0", `sorted=${res2
     writeFileSync(join(d3, "disk", "boot.d64"), Buffer.from([1]));
     const m = await H.mcp(d3, { onboard: false });
     const r1 = await m.call("project_init", { project_dir: d3, name: "sub", preferred_assembler: "kickass" });
-    ok(existsSync(join(d3, "input", "disk", "boot.d64")) && /disk\/boot\.d64 → /.test(r1), "17 project_init takes disk/*.d64 into input/disk on the first init", (r1.match(/Input media sorted.*\n.*/) ?? [""])[0]);
+    ok(!existsSync(join(d3, "input", "disk", "boot.d64")) && existsSync(join(d3, "disk", "boot.d64")) && /disk\/boot\.d64 registered in place/.test(r1), "17 project_init registers disk/*.d64 in place on the first init", (r1.match(/Input media sorted.*\n.*/) ?? [""])[0]);
     mkdirSync(join(d3, "port"), { recursive: true });
     writeFileSync(join(d3, "port", "build.prg"), Buffer.from([1, 8, 0x60]));
     await m.call("project_init", { project_dir: d3, name: "sub", machine_model: "c64-ntsc" });
