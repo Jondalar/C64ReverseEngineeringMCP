@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — D1 decided; D2–D6 open, decided with the owner one question at a time.
+**Status:** DRAFT (2026-10-24) — D1, D2 decided; D3–D6 open, decided with the owner one question at a time.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -80,6 +80,12 @@ Scenario: the verdict is C64RE's, not the worker's
   Then  recording the card returns NOT KEPT with the failing check and its output
   And   the card stays open; the worker's claim is kept beside the verdict, not instead of it
 
+Scenario: a human gate waits for the human
+  Given a card whose machine lines hold and whose done-when has a [human] line
+  When  the worker reports DONE
+  Then  the card is WAITING (human gate), not KEPT
+  And   it becomes KEPT only when the human says so, recorded with who said it
+
 Scenario: a card can require what an earlier card established
   Given card A "measure the cause at $0A20" and card B "fix it", B requiring A
   When  B is handed out while A is open or not kept
@@ -90,7 +96,7 @@ Scenario: a card can require what an earlier card established
 |---|---|---|---|---|
 | S0 | P6 | the kickoff stores a plan; a card outside every package is refused | `e2e-917-cards` | by hand |
 | S1 | P1, P2 | card form + check vocabulary | `scripts/e2e-917-cards.mjs` | by hand (no gates) |
-| S2 | P1 | verdict by C64RE: kept / not kept, both ways | `e2e-917-cards` | by hand |
+| S2 | P1 | verdict by C64RE: kept / not kept, both ways; a human line waits for the human | `e2e-917-cards` | by hand |
 | S3 | P3 | only the architect issues and closes cards; a worker records against its own card only | `e2e-917-cards` | by hand |
 | S4 | P4 | `requires` refuses an unkept predecessor | `e2e-917-cards` | by hand |
 | S5 | P5 | `change-validate` is handed out, its card's done-when is a 916 test-mode scenario | `e2e-917-cards` + `e2e:916` | by hand, sandbox |
@@ -142,10 +148,18 @@ On DONE, C64RE runs the done-when lines itself and answers KEPT or NOT KEPT; C-0
 be issued while C-07 is not KEPT.
 
 ### Open
-- **D2 — The check vocabulary.** Which done-when checks C64RE evaluates itself. Candidates
-  that already exist as code: graph counts (`graph_find`), rebuild byte-identical
-  (`disasm_prg` stamp), registration (audit: 0 unregistered), scenario verdict (916 test
-  mode), contract standing (877). Is a free-text check allowed at all, marked "human"?
+- **D2 — decided (owner, 2026-10-24): a fixed check vocabulary, plus the human gate.**
+  A done-when line is one of:
+  - `[graph]` a count or existence in the graph (a routine named at $0A20, a finding
+    tagged `cause` with evidence) — `graph_find` / `graph_node`;
+  - `[rebuild]` byte-identical rebuild (the listing's stamp, `disasm_prg`);
+  - `[registration]` the audit reports 0 unregistered files for the scope;
+  - `[scenario]` a scenario's verdict, including 916's test mode (baseline fails, build passes);
+  - `[contract]` the contract standing reaches a threshold (877, e.g. named ratio ≥ 0.9);
+  - `[human]` free text, judged by the human only — the **human gate**. A card with a
+    human line is never KEPT by C64RE alone: when every machine line holds it is
+    `WAITING (human gate)` until the human says kept or not kept, and who said it is
+    recorded. Nothing else may be prose.
 - **D3 — Roles.** New roles `architect` / `worker`, or a second axis beside the domain role
   (an analyst can be either)? The domain role decides tools and gating today; the position
   would decide who may issue and close cards.
