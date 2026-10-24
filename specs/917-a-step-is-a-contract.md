@@ -190,7 +190,7 @@ be issued while C-07 is not KEPT.
     (`agent_record_step(card=…, result=DONE|STOPPED, …)`).
   - `c64re_worker_phase` and `buildWorkerPrompt` (`phase-tools.ts`) are removed, with their
     references: `agent_propose_next`'s "Spawn worker subagent for phase N" block, the setup
-    text (`setup-cli.ts`), `docs/windows-setup.md`. `agent_propose_next` no longer proposes
+    text (`setup-cli.ts`), `docs/re-phases.md`, and the smoke `scripts/sprint34-35-smoke.mjs`. `agent_propose_next` no longer proposes
     a worker without a card; with the position `unset` the session works the step itself.
   - Rejected: keeping the phase briefing beside it for the card-less mode — two ways to
     brief a worker, and the open one stays the convenient one.
