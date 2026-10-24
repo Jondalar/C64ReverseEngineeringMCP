@@ -95,6 +95,17 @@ const TOOL_OWNED_MANIFEST_NAMES = new Set([
   "session.json",
 ]);
 
+// What the rebuild verification of a listing leaves beside it: the scratch binary the listing
+// was assembled to (`rebuildCheckPath`) and the assembler's symbol file (`<listing stem>.sym`).
+// They are written by disasm / extract_disk's L2 chain, in the payload's own directory, and they
+// are the check's by-product, not an asset: registering the binary as a payload would add a
+// second copy of the source bytes to the coverage denominator, and nobody can act on either file.
+// So the scan neither counts them nor offers them for registration. A row an older sync already
+// registered stays what it is and is counted as registered.
+export function isRebuildByproduct(relPath: string): boolean {
+  return /_disasm_rebuild_check\.prg$/i.test(relPath) || /_disasm\.sym$/i.test(relPath);
+}
+
 export interface ToolOwnedDir {
   prefix: string;
   tool: string;
@@ -222,8 +233,9 @@ function walk(dir: string, sink: WalkSink, exts: ReadonlySet<string> = KNOWN_EXT
     if (dot < 0) continue;
     const ext = entry.name.slice(dot).toLowerCase();
     if (!exts.has(ext)) continue;
-    total += 1;
     const rel = storeSpelling(relative(sink.projectRoot, full));
+    if (!sink.registered.has(rel) && isRebuildByproduct(rel)) continue;
+    total += 1;
     if (sink.registered.has(rel)) {
       already += 1;
       continue;

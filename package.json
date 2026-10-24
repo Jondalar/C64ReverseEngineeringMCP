@@ -79,6 +79,7 @@
     "smoke:pipeline-version": "node scripts/ensure-built.mjs mcp && node scripts/smoke-pipeline-version.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
     "e2e:848-contract": "node scripts/e2e-848-contract.mjs",
+    "smoke:s6-extract-and-docs": "node scripts/ensure-built.mjs mcp && node scripts/smoke-s6-extract-and-docs.mjs",
     "e2e:897-scope": "node scripts/e2e-897-scope.mjs",
     "e2e:907-lens": "node scripts/e2e-loader-lens.mjs && node scripts/e2e-loader-lens-file.mjs",
     "e2e:907-validate": "node scripts/e2e-validate-extraction.mjs",
