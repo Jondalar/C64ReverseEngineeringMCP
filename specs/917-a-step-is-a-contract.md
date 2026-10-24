@@ -262,4 +262,14 @@ the card) follow; the stale `change-validate` block is gone.
   superseded runs cost too) and `plan` action `usage` (the architect's own run on a package). `plan show` sums per
   package (worker / architect, by model) and in total; `card show` lists each run. S6 numbers: P1 279k (4 workers),
   P2 1.44M (architect 310k Opus + 14 workers 1.13M Sonnet; re-plans 35 % of the worker total).
+- **P2 run (an Opus architect subagent, 14 Sonnet workers, 1.44M tokens; the owner closed P2 at the human gate).** Its
+  findings outside 917, each fixed with a test RED→GREEN: `extract_disk`'s rebuild by-products counted as unregistered
+  (now not debt, never payloads); a document demand only met through a boundary name (a document titled as the demand
+  answers it); a load over a KERNAL vector ($0302-$0333) now names the entry and the vector bytes are data; an alias onto
+  a generated routine no longer seeds the next analysis (it pinned a wrong decode and rejected the real entry); entry
+  points outside the load window are refused, naming the hex/decimal mix-up; a raw analysis file gave its payload a
+  second owner (`main_0801_0801`) and a render after `graph_remove_owner` did not re-seed control flow; the 1541 DOS ROM
+  table held 96 labels and seven invented rows (now 1108 from the source). Old projects keep a doubled owner until
+  `graph_remove_owner` on it. Left as decisions: `register_payload` waits for the data-geometry slot even for a boot
+  stage; the check vocabulary has no "no node at X".
 - **D3 amended after S6:** no worker position (see D3). In S6 workers already reported by `card=` without one.
