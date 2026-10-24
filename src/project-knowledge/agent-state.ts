@@ -11,6 +11,10 @@ const AGENT_STATE_SCHEMA_VERSION = 1;
 export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "archivist", "cracker", "unset"]);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
 
+// Spec 917 D3 - the second axis beside the domain role: who decides (architect) and who executes one card (worker).
+export const AgentPositionSchema = z.enum(["architect", "worker", "unset"]);
+export type AgentPosition = z.infer<typeof AgentPositionSchema>;
+
 const AgentHistoryEntrySchema = z.object({
   at: z.string().min(1),
   role: AgentRoleSchema,
@@ -22,6 +26,9 @@ export const AgentStateSchema = z.object({
   schemaVersion: z.literal(AGENT_STATE_SCHEMA_VERSION),
   updatedAt: z.string().min(1),
   role: AgentRoleSchema.default("unset"),
+  position: AgentPositionSchema.default("unset"),
+  /** Spec 917 - the card a worker is bound to (its short name, not the node id). */
+  card: z.string().optional(),
   currentFocus: z.string().optional(),
   lastCompletedStep: z.string().optional(),
   nextAction: z.string().optional(),
@@ -42,6 +49,7 @@ function emptyState(): AgentState {
     schemaVersion: AGENT_STATE_SCHEMA_VERSION,
     updatedAt: nowIso(),
     role: "unset",
+    position: "unset",
     constraints: [],
     history: [],
   };
@@ -91,6 +99,11 @@ function renderNextMd(projectRoot: string, projectName: string, state: AgentStat
   lines.push(`## Role`);
   lines.push(state.role);
   lines.push(``);
+  if (state.position !== "unset") {
+    lines.push(`## Position`);
+    lines.push(state.card ? `${state.position} (card ${state.card})` : state.position);
+    lines.push(``);
+  }
   lines.push(`## Current Focus`);
   lines.push(state.currentFocus?.trim() ? state.currentFocus : "_(not set)_");
   lines.push(``);
