@@ -256,5 +256,5 @@ the card) follow; the stale `change-validate` block is gone.
     human-gate branch with no card waiting;
   - outside 917: `list_artifacts` walked `analysis/` instead of reading the registry (no media, no ids, no
     `project_dir`); a D64 without a BAM was refused by every reader (only G64 had been made tolerant); a D64 data disk
-    was judged a custom-GCR candidate; media in a subfolder such as `disk/` are invisible to init and the scan (open).
+    was judged a custom-GCR candidate; media in a subfolder such as `disk/` were invisible to init and the scan — the first `project_init` now moves media from the user's folders into `input/` (a re-run does not).
 - **D3 amended after S6:** no worker position (see D3). In S6 workers already reported by `card=` without one.
