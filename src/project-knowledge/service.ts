@@ -2862,7 +2862,7 @@ export class ProjectKnowledgeService {
   private ownerStemForArtifact(artifactId: string): string | undefined {
     const artifact = this.getArtifactById(artifactId);
     if (!artifact) return undefined;
-    return normStem(basename(artifact.relativePath || artifact.path || artifact.title));
+    return normStem(artifact.relativePath || artifact.path || artifact.title);
   }
 
   // Spec 053 (Bug 20): mark a sprite/charset/bitmap segment as

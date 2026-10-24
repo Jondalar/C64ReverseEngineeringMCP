@@ -19,6 +19,7 @@ import type { ArtifactRecord } from "../project-knowledge/types.js";
 import { PLATFORM_TAGS, type PlatformTag } from "../platform-kb/schema.js";
 import { resolvePlatform } from "../project-knowledge/platform-default.js";
 import { cartridgeTypeFor, cartridgeTypeName, type CartridgeTypeHit } from "../project-knowledge/cartridge-type.js";
+import { hasNoControlFlow, seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
 import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
 import { cartOfArtifact, chooseCartridge } from "../knowledge-graph/cartridges.js";
 import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
@@ -917,10 +918,18 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     const usedAnnotations = /^Annotations used: (.+)$/m.exec(result.stdout)?.[1];
     const annotationsApplied = usedAnnotations !== undefined && usedAnnotations !== "none";
     let graphLine = "";
+    let reseedLine = "";
     if (!importGraph) {
       graphLine = `\nGraph: NOT imported — import_graph=false, a preview. The knowledge graph was not touched: no names, no closed-loop sweep, no payload link. Render again without import_graph=false to import.`;
     } else if (annotationsApplied) {
       try {
+        // The analysis' own rows (control flow, memory access) are written by the analysis door; after a
+        // graph_remove_owner nothing else brings them back, so a render that finds the owner bare seeds it.
+        if (choice.path && /_analysis\.json$/u.test(choice.path) && hasNoControlFlow(pd, choice.path)) {
+          const analysisArtifact = service.listArtifacts().find((x) => (x.path ? resolve(pd, x.path) : undefined) === choice.path);
+          const seeded = analysisArtifact ? seedControlFlowForArtifact(pd, analysisArtifact) : undefined;
+          if (seeded) reseedLine = `\nGraph: control flow re-seeded from ${basename(choice.path)}: ${seeded.routines} routines, ${Object.values(seeded.edges).reduce((n, m) => n + m, 0)} edges.`;
+        }
         const graphRelocations = normalizedRelocations.map((r) => ({
           fileStart: r.fileStart, fileEnd: r.fileEnd, runtimeAddr: r.runtimeAddr,
         }));
@@ -947,6 +956,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         graphLine = imported.changed
           ? `\nGraph: imported ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments into the knowledge graph (owner ${imported.owner}) — graph contents, not the listing.`
           : `\nGraph: unchanged since the last import; the graph holds ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments — graph contents, not the listing.`;
+        graphLine += reseedLine;
         if (sourceArtifactId ?? listingArtifactId) {
           graphLine += `\n${runAndFormatClosedLoopSweep(service, { artifactId: (sourceArtifactId ?? listingArtifactId)! })}`;
         }

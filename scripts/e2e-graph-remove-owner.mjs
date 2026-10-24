@@ -209,6 +209,25 @@ const again = await call("disasm_prg", { project_dir: proj, prg_path: "artifacts
 check(/Graph: imported 2 routines, 1 labels, 1 segments/u.test(again), "a later disasm of the same stem imports fresh", again.split("\n").find((l) => l.startsWith("Graph:")));
 check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND producer = 'knowledge-import' AND owner = 'draft1'") > 0, "draft1's imported rows are back");
 check(n("SELECT COUNT(*) AS n FROM meta WHERE key = 'owner_removed.draft1'") === 0, "importing it by name cleared the removal marker");
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND producer = 'control-flow' AND run_owner = 'draft1'") > 0
+  && n("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND producer = 'control-flow' AND owner = 'draft1'") > 0,
+  "…and the control-flow rows of its analysis are back too", again.split("\n").find((l) => /re-seeded/u.test(l)));
+
+// ── 7b headerless bytes: the bytes' file and their analysis file are one owner ──
+const raw = Buffer.from([0x20, 0x10, 0x08, 0x60, ...new Array(12).fill(0xea), 0xa9, 0x01, 0x8d, 0x20, 0xd0, 0x60]);
+writeFileSync(join(dir, "blob_0801.bin"), raw);
+writeFileSync(join(dir, "blob_0801_annotations.json"), JSON.stringify({ routines: [{ address: "0801", name: "b_main" }, { address: "0811", name: "b_border" }] }));
+await call("analyze", { project_dir: proj, path: "artifacts/prg/blob_0801.bin", load_address: "0801" });
+const rawOut = await call("disasm", { project_dir: proj, path: "artifacts/prg/blob_0801.bin", load_address: "0801" });
+check(/Graph: imported/u.test(rawOut), "blob_0801.bin: disasm imported its annotations", rawOut.split("\n").find((l) => l.startsWith("Graph:")));
+const blobOwners = q("SELECT DISTINCT owner AS o FROM nodes WHERE owner LIKE 'blob_0801%' UNION SELECT DISTINCT run_owner FROM nodes WHERE run_owner LIKE 'blob_0801%'").map((r) => r.o);
+check(blobOwners.length === 1 && blobOwners[0] === "blob_0801", "one payload, one owner: the load address its analysis file name carries is not part of it", blobOwners.join(","));
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND producer = 'control-flow' AND run_owner = 'blob_0801'") > 0 && n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND owner = 'blob_0801'") > 0,
+  "…the control-flow rows and the annotation rows are under it");
+await call("graph_remove_owner", { project_dir: proj, owner: "blob_0801" });
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE owner LIKE 'blob_0801%' OR run_owner LIKE 'blob_0801%'") === 0, "graph_remove_owner of that owner leaves nothing of the payload");
+await call("disasm", { project_dir: proj, path: "artifacts/prg/blob_0801.bin", load_address: "0801" });
+check(n("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated' AND producer = 'control-flow' AND run_owner = 'blob_0801'") > 0, "a later disasm of the bytes re-imports their control flow");
 
 // ── 8 the preview leaves the graph alone ────────────────────────────────────
 writeFileSync(join(dir, "keep_annotations.json"), JSON.stringify({

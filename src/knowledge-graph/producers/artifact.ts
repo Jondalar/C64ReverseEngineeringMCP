@@ -7,6 +7,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import { chooseCartridgeForArtifact } from "../cartridge-context.js";
+import { CONTROL_FLOW_PRODUCER } from "../producer-ids.js";
+import { GraphStore } from "../store.js";
 import { ownerFromAnalysisPath, seedControlFlow, type SeedControlFlowResult } from "./control-flow.js";
 import { contextForOwner, type OwnerContext } from "./machine.js";
 import { seedMemoryAccess, type SeedMemoryAccessResult } from "./memory-access.js";
@@ -37,4 +39,16 @@ export function seedControlFlowForArtifact(projectDir: string, artifact: Artifac
   const resolved = resolveAddresses(projectDir);
   const signatures = seedSignatures({ projectDir, analysisPath: path, owner: runOwner, ctx });
   return { ...controlFlow, memoryAccess, resolve: resolved, signatures, machine };
+}
+
+/** True when the graph holds no control-flow row for the owner of this analysis, in any space. */
+export function hasNoControlFlow(projectDir: string, analysisPath: string): boolean {
+  const owner = ownerFromAnalysisPath(analysisPath);
+  const store = GraphStore.open(projectDir, { readOnly: true });
+  try {
+    const row = store.db.prepare(
+      "SELECT 1 AS x FROM nodes WHERE producer = ? AND (run_owner = ? OR run_owner LIKE ? ESCAPE '\\') LIMIT 1",
+    ).get(CONTROL_FLOW_PRODUCER, owner, `%.${owner.replace(/[\\%_]/gu, "\\$&")}`);
+    return row === undefined;
+  } finally { store.close(); }
 }

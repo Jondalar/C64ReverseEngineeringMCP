@@ -89,11 +89,25 @@ export function classifyQuestion(question: Pick<OpenQuestionRecord, "source" | "
  * `ownerFromAnalysisPath` in the 819 producer for `<stem>_analysis.json`, so
  * a routine 819 seeds and the segment 822 migrates share the ctx token.
  */
+/** An analysis of headerless bytes lives in `analysis/raw-analysis/` and is named `<stem>[_<window>]_<LOAD ADDRESS>_analysis.json`. */
+export function isRawAnalysisPath(path: string): boolean {
+  return /(?:^|[\\/])raw-analysis[\\/]/u.test(path);
+}
+
+/** The stem of a raw analysis file without the load address its name appends: the bytes' own stem, which names their listing and annotations. */
+export function withoutLoadAddress(stem: string): string {
+  return stem.replace(/_[0-9a-f]{4}$/iu, "");
+}
+
 export function normStem(name: string): string {
+  const raw = isRawAnalysisPath(name);
   let s = name.toLowerCase().replace(/^.*\//u, "");
   s = s.replace(/\.(prg|bin|crt|d64|g64|json|asm|tas|tass|txt)$/u, "");
   s = s.replace(/_annotations$/u, "");
-  s = s.replace(/_analysis(?:_r\d+)?$/u, "");
+  if (/_analysis(?:_r\d+)?$/u.test(s)) {
+    s = s.replace(/_analysis(?:_r\d+)?$/u, "");
+    if (raw) s = withoutLoadAddress(s);
+  }
   s = s.replace(/_disasm$/u, "");
   s = s.replace(/_r\d+$/u, "");
   s = s.replace(/_re$/u, "");
