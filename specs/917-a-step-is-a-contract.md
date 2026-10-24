@@ -270,6 +270,7 @@ the card) follow; the stale `change-validate` block is gone.
   points outside the load window are refused, naming the hex/decimal mix-up; a raw analysis file gave its payload a
   second owner (`main_0801_0801`) and a render after `graph_remove_owner` did not re-seed control flow; the 1541 DOS ROM
   table held 96 labels and seven invented rows (now 1108 from the source). Old projects keep a doubled owner until
-  `graph_remove_owner` on it. Left as decisions: `register_payload` waits for the data-geometry slot even for a boot
-  stage; the check vocabulary had no "no node at X" — decided (owner): `max` beside `min` on graph lines, `max: 0` = none left.
+  `graph_remove_owner` on it. Decided after it (owner): a boot stage registers before data-geometry when its loader is
+  on record (`register_payload` `boot_stage`: loaded by the KERNAL = its span starts a directory file, or by a
+  boot-stage payload registered before it); game payloads still wait; the check vocabulary had no "no node at X" — decided (owner): `max` beside `min` on graph lines, `max: 0` = none left.
 - **D3 amended after S6:** no worker position (see D3). In S6 workers already reported by `card=` without one.

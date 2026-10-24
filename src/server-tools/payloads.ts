@@ -2,6 +2,7 @@ import { existsSync, statSync, readFileSync } from "node:fs";
 import { projectCartridges } from "../knowledge-graph/cartridge-context.js";
 import { cartOfArtifact } from "../knowledge-graph/cartridges.js";
 import { resolve, basename } from "node:path";
+import { readDiskDirectory } from "../disk-extractor.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
@@ -82,6 +83,29 @@ function makeImageResolver(service: ProjectKnowledgeService): (image?: string) =
   };
 }
 
+type SpanArg = { kind: string; track?: number; sector?: number; image?: string };
+
+/** Why `loadedBy` does not prove these spans a boot stage, or undefined when it does. */
+function bootStageProblem(service: ProjectKnowledgeService, loadedBy: string, spans: readonly SpanArg[]): string | undefined {
+  const first = spans.find((x) => x.kind === "sector");
+  if (loadedBy.trim().toLowerCase() === "kernal") {
+    if (!first || first.track === undefined || first.sector === undefined) return `loaded_by "kernal" needs medium_spans starting at the file's first sector`;
+    const disks = service.listArtifacts().filter((a) => a.kind === "d64" || a.kind === "g64")
+      .filter((a) => !first.image || basename(a.path).toLowerCase().includes(first.image.toLowerCase()) || a.id === first.image);
+    for (const d of disks) {
+      try {
+        const dir = readDiskDirectory(d.path);
+        if (dir.files.some((f) => f.track === first.track && f.sector === first.sector)) return undefined;
+      } catch { /* not readable: not a witness */ }
+    }
+    return `loaded_by "kernal": no directory entry on ${disks.length ? disks.map((d) => basename(d.path)).join(", ") : "any registered disk"} starts at ${first.track}/${first.sector}. A KERNAL load starts at a directory file; name the boot-stage payload that loads it instead`;
+  }
+  const loader = listPayloadEntities(service).find((e) => e.id === loadedBy || e.name === loadedBy);
+  if (!loader) return `loaded_by "${loadedBy}": no payload has that id or name. Register its loader first (with boot_stage), or say "kernal"`;
+  if (!(loader.tags ?? []).includes("boot-stage")) return `loaded_by "${loadedBy}" is not a boot stage itself. The chain starts at the KERNAL: register its loader with boot_stage first`;
+  return undefined;
+}
+
 export function registerPayloadTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "register_payload",
@@ -104,12 +128,25 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       bank: z.number().int().nonnegative().optional(),
       medium_spans: z.array(mediumSpanSchema).optional().describe("Where this payload lives on its source medium — the FULL sector chain, not just the start (a custom-fastloader chain has no auto-traversal; compute + pass every sector). Use sector{track,sector,length} for disk, slot{bank,slot,length} for cart. If the source blob has more bytes than the spans cover, a soft chain-coverage warning is emitted (start-only = the Pawn 168/1329 bug)."),
       tags: z.array(z.string()).optional(),
+      boot_stage: z.object({
+        loaded_by: z.string().describe("\"kernal\" when the stock DOS loads it (its first sector is a directory entry's start), or the id/name of the boot-stage payload whose code loads it."),
+        at: z.string().optional().describe("Where in that loader the load happens (e.g. \"$0205 M-E job READ 18/17\"), read from its listing."),
+      }).optional().describe("A boot stage: registered before the data-geometry slot is answered, because the boot chain is what that answer is read from. Proven by its loader: KERNAL (a directory file) or a boot-stage payload already registered. Payloads the game's own loader brings in still wait for data-geometry."),
     },
     safeHandler("register_payload", async (args) => {
       const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
-      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("register_payload", projectRoot);
-      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
+      // A boot stage is the chain data-geometry is read from, so it may come first — but only one
+      // whose loader is on record: the KERNAL (its first sector starts a directory file) or a
+      // boot-stage payload registered before it. Everything else keeps waiting for the slot.
+      if (args.boot_stage) {
+        const why = bootStageProblem(service, args.boot_stage.loaded_by, args.medium_spans ?? []);
+        if (why) return { content: [{ type: "text" as const, text: `register_payload refused: boot_stage ${why}` }] };
+        args.tags = [...new Set([...(args.tags ?? []), "boot-stage", `loaded-by:${args.boot_stage.loaded_by}`, ...(args.boot_stage.at ? [`loaded-at:${args.boot_stage.at}`] : [])])];
+      } else {
+        const slotGate = await (await import("../slots/gate.js")).checkSlotGate("register_payload", projectRoot);
+        if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
+      }
       const addressRange = args.address_start !== undefined && args.address_end !== undefined
         ? { start: args.address_start, end: args.address_end, bank: args.bank }
         : args.load_address !== undefined
