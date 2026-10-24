@@ -133,7 +133,11 @@ export async function planClose(projectRoot: string, input: { package: string; b
     if (!input.by?.trim() || !input.why?.trim()) return no(`package "${name}" is WAITING (human gate): its machine lines hold, a [human] line is left.\n${renderResults(results).join("\n")}\nThe human says so by calling plan(action="close", package, by, why).`);
   }
   savePackage(projectRoot, { ...pkg, state: "closed", closedAt: now() });
-  return yes(`Package "${name}" closed${verdict === "WAITING" ? ` (human gate: ${input.by}: ${input.why})` : ""}.\n${renderResults(results).join("\n")}`);
+  // The human's word settles the [human] lines it was asked for: shown as kept, by whom.
+  const shown = verdict === "WAITING"
+    ? results.map((r) => (r.kind === "human" ? { ...r, pass: true, detail: `kept by ${input.by!.trim()}` } : r))
+    : results;
+  return yes(`Package "${name}" closed${verdict === "WAITING" ? ` (human gate: ${input.by}: ${input.why})` : ""}.\n${renderResults(shown).join("\n")}`);
 }
 
 // ------------------------------------------------------------------ card

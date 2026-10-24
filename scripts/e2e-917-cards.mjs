@@ -207,6 +207,13 @@ try {
     r = await m.call("card", { action: "usage", card: "s2", model: "sonnet", tokens: 1 });
     check(has(/the architect's/, r), "only the architect records usage", r);
     await m.call("agent_set_role", { role: "analyst", position: "architect" });
+
+    // a package whose last line is [human]: the human closes it, and the line shows kept, by whom
+    await m.call("plan", { action: "set", packages: [{ id: "p10", title: "read the doc", doneWhen: [reg, { kind: "human", text: "owner read the doc" }] }] });
+    r = await m.call("plan", { action: "close", package: "p10" });
+    check(has(/WAITING \(human gate\)/, r) && !has(/closed/, r), "a package with a [human] line waits for the human's close", r);
+    r = await m.call("plan", { action: "close", package: "p10", by: "alex", why: "read it" });
+    check(has(/Package "p10" closed \(human gate: alex: read it\)/, r) && has(/PASS  \[human\] owner read the doc - kept by alex/, r) && !has(/WAITING/, r), "the human's close shows the [human] line as kept, by whom", r);
   }
 
   // ═══ D1 / D5 / P5 / S0: next step reads the plan, the card is the briefing, change-validate is handed out
