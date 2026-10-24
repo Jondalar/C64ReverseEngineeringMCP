@@ -28,7 +28,7 @@ function diskDefaultOutputDir(projectDir: string, imagePath: string): string {
 function recordDiskSubstrate(
   projectDir: string,
   imageAbs: string,
-  manifest: { diskName: string; diskId: string; files: readonly unknown[] },
+  manifest: { diskName: string; diskId: string; files: readonly unknown[]; format?: "d64" | "g64" },
   recordedBy: string,
   override?: "standard-gcr" | "custom-gcr" | "weak-bits" | "mixed" | "unknown",
 ): string | undefined {
@@ -48,18 +48,25 @@ function recordDiskSubstrate(
       return `${rec.substrate} (manual override)`;
     }
     const dosReadable = manifest.files.length > 0 && manifest.diskName !== "UNTITLED";
+    // A D64 is a sector image: whatever was on the disk is standard GCR by construction, and a
+    // data disk without a directory is read by its own loader from those same sectors — a static
+    // depack, never a custom-GCR candidate. Only a G64 can carry custom GCR.
+    const sectorImage = manifest.format === "d64";
+    const standard = dosReadable || sectorImage;
     const rec = svc.recordSubstrateVerdict(key, {
-      substrate: dosReadable ? "standard-gcr" : "custom-gcr",
+      substrate: standard ? "standard-gcr" : "custom-gcr",
       evidence: dosReadable
         ? `standard DOS directory parsed at 18/0 (${manifest.files.length} files)`
-        : `no standard BAM/directory at 18/0 (custom-GCR candidate)`,
+        : sectorImage
+          ? `D64 sector image without a DOS directory: a data disk read by its own loader from standard sectors`
+          : `no standard BAM/directory at 18/0 (custom-GCR candidate)`,
       source: "auto",
       recordedBy,
       diskId,
       fileCount: manifest.files.length,
     });
-    return dosReadable
-      ? `${rec.substrate} — DOS-readable (runtime payload-extraction locked; payloads are a static depack)`
+    return standard
+      ? `${rec.substrate} — ${dosReadable ? "DOS-readable" : "data disk, standard sectors"} (runtime payload-extraction locked; payloads are a static depack)`
       : `${rec.substrate} — no standard directory (runtime extraction available)`;
   } catch {
     return undefined;

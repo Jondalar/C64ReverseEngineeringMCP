@@ -68,6 +68,20 @@ try {
   // 5. an off-size file still needs the BAM link as the witness that it is a disk
   const odd = new Uint8Array(180000);
   check(createDiskParser(odd) === null, "an off-size file without a BAM link is not taken for a disk");
+
+  // 6. through the tool: inspect_disk reads the data disk, and a D64 is never a custom-GCR candidate
+  {
+    const { Harness } = await import("./lib/e2e-906-harness.mjs");
+    const H = new Harness("d64nobam-");
+    try {
+      const proj = await H.project("nobam");
+      writeFileSync(join(proj, "data40.d64"), data);
+      const m = await H.mcp(proj, {});
+      const r = await m.call("inspect_disk", { image_path: join(proj, "data40.d64") });
+      check(/DOS directory: none \(18\/0 links \$3F\/\$3F/.test(r), "inspect_disk reads a D64 without a BAM and says so", r.split("\n").slice(1, 5).join(" | "));
+      check(/Substrate: standard-gcr/.test(r) && !/custom-gcr/.test(r), "a D64 data disk is standard GCR (a static depack), never a custom-GCR candidate", (r.match(/Substrate: .*/) ?? [""])[0]);
+    } finally { H.cleanup(); }
+  }
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
