@@ -270,6 +270,15 @@ function recentArtifactSummary(service: ProjectKnowledgeService, projectRoot: st
   return artifacts.map((a) => `- ${a.scope}/${a.kind} | ${a.title} | ${relative(projectRoot, a.path) || a.relativePath}`);
 }
 
+/** An architect's issued cards, one line each, with the prompt that briefs the worker. */
+async function issuedCardLines(projectRoot: string): Promise<string[]> {
+  try {
+    const { listCards } = await import("../work/store.js");
+    return listCards(projectRoot).filter((c) => c.state === "issued")
+      .map((c) => `- card ${c.name} (${c.title}, package ${c.package}, role ${c.role}): Prompt c64re_worker_card(card_id="${c.name}")`);
+  } catch { return []; }
+}
+
 export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_onboard",
@@ -407,6 +416,19 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
           lines.push(``, `No contract yet. Ask the human these, then write the answers with \`contract_set\`:`);
           for (const q of KICKOFF_QUESTIONS) lines.push(`- **${q.field}** — ${q.ask}`);
           lines.push(`Every one asks for a DELIVERABLE. None asks what is true about the game — that is the work.`);
+        }
+        // Spec 917 D1/S0 - the plan is agreed after the contract: how the promise is kept, package by package.
+        if (present) {
+          const { hasPlan } = await import("../work/next.js");
+          const { planShow } = await import("../work/tools.js");
+          lines.push(``, `## ▶ The plan`);
+          if (!hasPlan(projectRoot)) {
+            lines.push(`No plan yet. Ask the human for the work packages, their order, and for each how "done" is checked, then write it with \`plan\` action \`set\` (packages: [{id, title, doneWhen: check[]}]).`);
+            lines.push(`A done-when line is one check from a fixed vocabulary: graph (a named routine, a finding with a tag), rebuild (byte-identical), registration (0 unregistered), scenario (a scenario's verdict, test mode included), contract (a standing threshold), or human (judged by the human only; the package or card then waits for a person).`);
+            lines.push(`Cards come from the plan: the architect issues them with \`card\`, workers get \`c64re_worker_card\`.`);
+          } else {
+            lines.push(planShow(projectRoot).text);
+          }
         }
         lines.push(``, `---`);
       } catch { /* a project without the contract layer onboards as before */ }
@@ -739,14 +761,14 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // loop instead of free-form drifting.
       out.push(``);
       out.push(`---`);
-      out.push(`Next step: call agent_propose_next to get the phase-aware action plan, then spawn a worker subagent via c64re_worker_phase if the next action is phase-bound.`);
+      out.push(`Next step: call agent_propose_next to get the phase-aware action plan (with a plan: agent_next_step names the open package and card).`);
       return textContent(out.join("\n"));
     },
   );
 
   server.tool(
     "c64re_whats_next",
-    "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, optional worker-spawn block, audit warnings, a short reminder.",
+    "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, an architect's cards out with workers, audit warnings, a short reminder.",
     {
       project_dir: z.string().optional(),
       conversation_summary: z.string().optional(),
@@ -814,14 +836,11 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         if (top.reason) lines.push(`  reason: ${top.reason}`);
         lines.push("");
       }
-      const focusArtifact = artifacts[0];
-      if (focusArtifact) {
-        const phase = focusArtifact.phase ?? 1;
-        lines.push(`## Worker spawn`);
+      const issuedCards = state.position === "architect" ? await issuedCardLines(projectRoot) : [];
+      if (issuedCards.length > 0) {
+        lines.push(`## Cards out with workers`);
         lines.push("");
-        lines.push("```");
-        lines.push(`Prompt: c64re_worker_phase(phase=${phase}, artifact_id="${focusArtifact.id}", role="${state.role ?? "analyst"}")`);
-        lines.push("```");
+        lines.push(...issuedCards);
         lines.push("");
       }
       if (audit.severity !== "low" && audit.findings.length > 0) {
@@ -873,7 +892,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "agent_propose_next",
-    "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact + optional worker-subagent suggestion. Does not mutate state.",
+    "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact; for an architect, the issued cards and the c64re_worker_card prompt to hand each to a worker. Does not mutate state.",
     {
       project_dir: z.string().optional(),
     },
@@ -896,38 +915,20 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`   reason: ${c.reason}`);
       }
 
-      // Spec 034 + 035: per-artifact phase-aware section.
-      const artifacts = service.listArtifacts();
-      const phaseSubjects = artifacts.filter((a) => {
-        if (a.phaseFrozen) return false;
-        return a.kind === "prg" || a.kind === "raw" || a.kind === "extract" || a.role === "source-prg";
-      });
-      if (phaseSubjects.length > 0) {
+      // Spec 917 D5: no worker without a card. An architect with a plan sees its issued cards; every other
+      // position works the step itself.
+      if (state.position === "architect") {
+        const issued = await issuedCardLines(projectRoot);
         lines.push(``);
-        lines.push(`## Per-Artifact Phase Actions`);
-        for (const subj of phaseSubjects.slice(0, 5)) {
-          const phase = subj.phase ?? 1;
-          lines.push(``);
-          lines.push(`### ${subj.title} (phase ${phase})`);
-          lines.push(``);
-          lines.push(`Spawn worker subagent for phase ${phase}:`);
-          lines.push("");
-          lines.push("```");
-          lines.push(`Prompt: c64re_worker_phase(phase=${phase}, artifact_id="${subj.id}", role="${state.role ?? "analyst"}")`);
-          lines.push(`Stop: when worker reports "Phase ${phase} done" or "Phase ${phase} blocked".`);
-          lines.push("```");
-          lines.push("");
-          lines.push(`After worker returns: agent_record_step(...result...) → agent_propose_next.`);
-        }
-        if (phaseSubjects.length > 5) {
-          lines.push(``);
-          lines.push(`... ${phaseSubjects.length - 5} more phase-bound artifacts not shown.`);
-        }
+        lines.push(`## Cards`);
+        lines.push(``);
+        if (issued.length > 0) lines.push(...issued);
+        else lines.push(`No card is out. Write the next one with card(action="issue", package, ...) (agent_next_step names the package); a worker then gets c64re_worker_card(card_id).`);
       }
 
       lines.push(``);
       lines.push(`---`);
-      lines.push(`Reminder: every cycle ends with agent_record_step → agent_propose_next. Master + Worker pattern: see c64re_re_phases prompt.`);
+      lines.push(`Reminder: every cycle ends with agent_record_step → agent_propose_next. Architect + worker: see the card tool and the c64re_worker_card prompt.`);
       return textContent(lines.join("\n"));
     },
   );

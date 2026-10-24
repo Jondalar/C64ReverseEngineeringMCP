@@ -11,7 +11,7 @@
 // are computed dynamically from project state.
 //
 // `defaultTool` is ALWAYS either a callable DEFAULT-surface tool name or
-// undefined (ask-human, and change-validate which is blocked until Spec 711).
+// undefined (ask-human).
 // It must never be an internal/advanced tool — those only appear in the
 // orchestrator's `doNotCall` leakage list.
 
@@ -26,8 +26,7 @@ export interface WorkflowStep {
   readonly actor: WorkflowActor;
   /**
    * The single callable DEFAULT-surface tool that performs this step, or
-   * undefined when the step is a human decision (`ask-human`) or is not yet
-   * implementable from the product surface (`change-validate`, blocked).
+   * undefined when the step is a human decision (`ask-human`).
    */
   readonly defaultTool: string | undefined;
   /** Human-readable title used in suggestions. */
@@ -37,9 +36,8 @@ export interface WorkflowStep {
   /** Valid iterative branch step ids reachable after this step. */
   readonly branches: readonly string[];
   /**
-   * Set when the step cannot be run from the product surface yet. The only
-   * blocked MVP step is `change-validate` (patch/validate loop), gated on
-   * Spec 711.
+   * Set when a step cannot be run from the product surface yet. No step is
+   * blocked today.
    */
   readonly blockedUntil?: string;
 }
@@ -184,11 +182,56 @@ export const C64RE_WORKFLOW_STEPS = [
     id: "change-validate",
     phase: "change-validation",
     actor: "llm",
-    defaultTool: undefined,
-    title: "Patch / change / validate loop",
+    defaultTool: "runtime_feature_run",
+    title: "Validate a fix with a scenario in test mode (the variant loads / assembles the build; Then the baseline fails)",
     completionChecks: ["change-validated"],
     branches: ["runtime-trace", "record-knowledge"],
-    blockedUntil: "the code-overlay loop ships",
+  },
+  // Spec 917 - the steps a plan hands out. Chosen only when the project has a plan.
+  {
+    id: "plan-gate",
+    phase: "plan",
+    actor: "human",
+    defaultTool: "card",
+    title: "A card waits for the human gate",
+    completionChecks: ["human-judged"],
+    branches: ["plan-replan"],
+  },
+  {
+    id: "plan-replan",
+    phase: "plan",
+    actor: "llm",
+    defaultTool: "card",
+    title: "Re-plan a card that came back NOT KEPT or STOPPED",
+    completionChecks: ["card-kept"],
+    branches: ["plan-gate"],
+  },
+  {
+    id: "plan-next-card",
+    phase: "plan",
+    actor: "llm",
+    defaultTool: "card",
+    title: "Write the next card of an open package",
+    completionChecks: ["card-issued"],
+    branches: ["plan-close"],
+  },
+  {
+    id: "plan-await-workers",
+    phase: "plan",
+    actor: "llm",
+    defaultTool: "card",
+    title: "Cards are out with workers",
+    completionChecks: ["cards-reported"],
+    branches: ["plan-next-card"],
+  },
+  {
+    id: "plan-close",
+    phase: "plan",
+    actor: "llm",
+    defaultTool: "plan",
+    title: "Close a package whose cards are all KEPT",
+    completionChecks: ["package-closed"],
+    branches: ["plan-next-card"],
   },
 ] as const;
 

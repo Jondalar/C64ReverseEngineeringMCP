@@ -158,6 +158,100 @@ try {
   r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "nothere" });
   check(has(/There is no card "nothere"/, r), "a worker cannot be bound to a card that does not exist", r);
 
+  // ═══ D1 / D5 / P5 / S0: next step reads the plan, the card is the briefing, change-validate is handed out
+  head("D1  next step reads the plan; D5 the card is the briefing; P5 change-validate");
+  {
+    const q = await H.project("q917");
+    const qslug = readProjectSlug(q);
+    const { saveContract } = await load("contract/contract.js");
+    const m2 = await H.mcp(q, {});
+    const stepOf = (t) => (t.match(/"step": "([^"]+)"/u) ?? [])[1];
+    const jsonOf = (t) => { const mm = t.match(/```json\n([\s\S]*?)\n```/u); return mm ? JSON.parse(mm[1]) : {}; };
+    await m2.call("project_inventory_sync", {});
+    const before = await m2.call("agent_next_step", {});
+    const baseStep = stepOf(before);
+    check(!!baseStep && !/^plan-/u.test(baseStep), "without a plan next step is today's ladder, not a plan step", String(baseStep));
+
+    // onboarding: the plan block when a contract exists and no plan does
+    r = await m2.call("agent_onboard", {});
+    check(!has(/## ▶ The plan/, r), "onboarding without a contract has no plan block (the contract comes first)");
+    saveContract(q, { goal: "name the lift", deliver: { slots: ["context"] } });
+    r = await m2.call("agent_onboard", {});
+    check(has(/## ▶ The plan/, r) && has(/No plan yet/, r) && has(/work packages, their order/, r) && has(/`plan` action `set`/, r), "onboarding with a contract and no plan asks for the plan and names plan set", r.slice(r.indexOf("## ▶ The plan"), r.indexOf("## ▶ The plan") + 400));
+
+    // change-validate is handed out
+    r = await m2.call("agent_run_step", { step_id: "change-validate" });
+    check(!has(/blocked until/i, r) && has(/runtime_feature_run/, r), "change-validate is not blocked: agent_run_step names runtime_feature_run", r);
+    check(m2.tools.some((t) => t.name === "runtime_feature_run"), "runtime_feature_run is on the default surface");
+    {
+      const { workflowStep } = await load("agent-orchestrator/workflow-model.js");
+      const cv = workflowStep("change-validate");
+      check(cv.defaultTool === "runtime_feature_run" && cv.blockedUntil === undefined && /baseline fails/.test(cv.title), "change-validate: tool runtime_feature_run, no blockedUntil, title names the test-mode scenario", cv.title);
+    }
+
+    // the plan
+    r = await m2.call("plan", { action: "set", packages: [
+      { id: "p1", title: "Name the lift", doneWhen: [nodeCheck] },
+      { id: "p2", title: "Fix the lift", doneWhen: [{ kind: "registration", text: "nothing on disk is unregistered" }] },
+    ] });
+    check(has(/Plan set: 2 package/, r), "the plan is set (position unset may write it)", r);
+    r = await m2.call("agent_onboard", {});
+    check(has(/## ▶ The plan/, r) && has(/1\. p1 - Name the lift/, r) && !has(/No plan yet/, r), "onboarding with a plan prints the plan standing", r.slice(r.indexOf("## ▶ The plan"), r.indexOf("## ▶ The plan") + 300));
+    r = await m2.call("agent_next_step", {});
+    let j = jsonOf(r);
+    check(j.step === "plan-next-card" && j.primary_action.tool === "card" && j.primary_action.args.action === "issue" && j.primary_action.args.package === "p1", "open package without a card -> plan-next-card, tool card issue", r);
+    await m2.call("agent_set_role", { role: "analyst", position: "architect" });
+    r = await m2.call("card", { ...base, id: "a1", title: "name it", doneWhen: [nodeCheck] });
+    check(has(/Card "a1" issued/, r), "the architect issues a1", r);
+    j = jsonOf(await m2.call("agent_next_step", {}));
+    check(j.step === "plan-await-workers" && /a1/.test(j.reason), "a card issued and not reported -> plan-await-workers, naming it", j.reason);
+
+    // the briefing
+    {
+      const pr = await m2.rpc("prompts/get", { name: "c64re_worker_card", arguments: { card_id: "a1" } });
+      const t = pr.result?.messages?.[0]?.content?.text ?? JSON.stringify(pr);
+      check(has(/Worker briefing - card a1: name it/, t) && has(/\[graph\] the routine at \$0A20/, t) && has(/main_disasm\.tas:812-840/, t) && has(/the code differs/, t), "c64re_worker_card renders the card: fields and done-when with kind tags", t);
+      check(has(/Read only what the card lists/, t) && has(/Start no further subagents/, t) && has(/Stop on any Stop-if line/, t) && has(/agent_record_step\(card="a1", result="DONE"\|"STOPPED", report=<at most 10 lines>\)/, t) && has(/C64RE judges the done-when/, t), "…with the fixed worker rules and the record_step line", t);
+      const none = await m2.rpc("prompts/get", { name: "c64re_worker_card", arguments: { card_id: "zz" } });
+      check(has(/There is no card "zz"/, none.result?.messages?.[0]?.content?.text ?? ""), "an unknown card id answers with a sentence, not a crash");
+      const list = (await m2.rpc("prompts/list", {})).result?.prompts?.map((x) => x.name) ?? [];
+      check(list.includes("c64re_worker_card") && !list.includes("c64re_worker_phase"), "the prompt list has c64re_worker_card and no c64re_worker_phase", list.join(","));
+    }
+    r = await m2.call("agent_propose_next", {});
+    check(has(/## Cards/, r) && has(/c64re_worker_card\(card_id="a1"\)/, r) && !has(/worker_phase|Spawn worker subagent/, r), "agent_propose_next: the architect is pointed to c64re_worker_card for the issued card, no phase worker", r);
+    await m2.call("agent_set_role", { role: "analyst", position: "unset" });
+    r = await m2.call("agent_propose_next", {});
+    check(!has(/## Cards|worker_phase|Spawn worker subagent/, r), "agent_propose_next proposes no worker without a card (position unset)", r);
+
+    // NOT KEPT -> re-plan
+    await m2.call("agent_set_role", { role: "analyst", position: "worker", card: "a1" });
+    await m2.call("agent_record_step", { step: "named", card: "a1", result: "DONE", report: "named" });
+    j = jsonOf(await m2.call("agent_next_step", {}));
+    check(j.step === "plan-replan" && j.primary_action.tool === "card" && j.primary_action.args.action === "show" && j.primary_action.args.card === "a1", "a card NOT KEPT -> plan-replan, card show", JSON.stringify(j.primary_action));
+    nameNode(q, { parts: { slug: qslug, ctx: { space: "ram", owner: "main" }, kind: "routine", address: 0x0a20 }, kind: "routine", name: "lift_init" });
+    await m2.call("agent_set_role", { role: "analyst", position: "architect" });
+    r = await m2.call("card", { action: "check", card: "a1" });
+    check(has(/Card a1: KEPT/, r), "after the routine is named a re-check keeps a1", r);
+    j = jsonOf(await m2.call("agent_next_step", {}));
+    check(j.step === "plan-close" && j.primary_action.tool === "plan" && j.primary_action.args.package === "p1", "every card of the package KEPT, package open -> plan-close", JSON.stringify(j.primary_action));
+
+    // WAITING -> human question
+    r = await m2.call("card", { ...base, id: "a3", title: "feels right", doneWhen: [human] });
+    await m2.call("agent_set_role", { role: "analyst", position: "worker", card: "a3" });
+    await m2.call("agent_record_step", { step: "a3", card: "a3", result: "DONE" });
+    r = await m2.call("agent_next_step", {});
+    j = jsonOf(r);
+    check(j.step === "plan-gate" && /a3/.test(j.human_question ?? "") && /\[human\] the lift feels right in level 3/.test(j.human_question ?? "") && j.blocked_by.some((b) => b.id === "card-gate"), "a card WAITING -> human_question names the card and its [human] line", j.human_question);
+    await m2.call("agent_set_role", { role: "analyst", position: "architect" });
+    await m2.call("card", { action: "judge", card: "a3", kept: true, by: "alex", why: "ok" });
+    j = jsonOf(await m2.call("agent_next_step", {}));
+    check(j.step === "plan-close", "after the human gate the package is ready to close again", j.step);
+    r = await m2.call("plan", { action: "close", package: "p1" });
+    check(has(/Package "p1" closed/, r), "p1 closes", r);
+    j = jsonOf(await m2.call("agent_next_step", {}));
+    check(j.step === "plan-next-card" && j.primary_action.args.package === "p2", "next open package without a card -> plan-next-card for p2", JSON.stringify(j.primary_action));
+  }
+
   // ═══ S5
   head("S5  a scenario line, in a real sandbox");
   if (!DAEMON) {

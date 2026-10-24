@@ -337,7 +337,7 @@ function createServer(): McpServer {
   registerStateMapTools(server, toolContext);
   registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
-  registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
+  registerPromptTools(server, { readTextFile, repoRoot: repoDir(), projectDir });
   registerPayloadTools(server, toolContext);
   registerRegistrationTools(server, toolContext);
   registerInventorySyncTool(server, toolContext);
@@ -413,7 +413,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/state-map-tools.ts", () => registerStateMapTools(server, toolContext));
   group("server-tools/trace-store.ts", () => registerTraceStoreTools(server, toolContext));
   group("server-tools/reference.ts", () => registerReferenceTools(server, toolContext, repoDir()));
-  group("server-tools/prompts.ts", () => registerPromptTools(server, { readTextFile, repoRoot: repoDir() }));
+  group("server-tools/prompts.ts", () => registerPromptTools(server, { readTextFile, repoRoot: repoDir(), projectDir }));
   group("server-tools/payloads.ts", () => registerPayloadTools(server, toolContext));
   group("server-tools/registration.ts", () => registerRegistrationTools(server, toolContext));
   group("server-tools/inventory-sync.ts", () => registerInventorySyncTool(server, toolContext));

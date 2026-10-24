@@ -1,5 +1,5 @@
 {
-  "total": 307,
+  "total": 309,
   "specCount": 0,
   "advancedCandidate": 105,
   "byNamespace": {
@@ -47,6 +47,7 @@
     "archive": 1,
     "assemble": 1,
     "c64re": 1,
+    "card": 1,
     "change": 1,
     "close": 1,
     "code": 1,
@@ -60,6 +61,7 @@
     "export": 1,
     "merge": 1,
     "optimisation": 1,
+    "plan": 1,
     "pointer": 1,
     "ram": 1,
     "reconstruct": 1,
@@ -118,7 +120,7 @@
       "ns": "agent",
       "hasSpec": false,
       "firstSentence": "List ranked, phase-consistent next actions across artifacts, read-only.",
-      "desc": "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact + optional worker-subagent suggestion. Does not mutate state.",
+      "desc": "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact; for an architect, the issued cards and the c64re_worker_card prompt to hand each to a worker. Does not mutate state.",
       "tier": "default?"
     },
     {
@@ -397,7 +399,7 @@
       "ns": "c64re",
       "hasSpec": false,
       "firstSentence": "Return the single next required action for the active artifact, cheaply, to call every turn.",
-      "desc": "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, optional worker-spawn block, audit warnings, a short reminder.",
+      "desc": "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, an architect's cards out with workers, audit warnings, a short reminder.",
       "tier": "default?"
     },
     {
@@ -416,6 +418,15 @@
       "hasSpec": false,
       "firstSentence": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot.",
       "desc": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. For a VIC-20 or TED (C16/Plus/4) file pass platform (or prg_path / a project whose machine it is): the answer then comes from the platform store's rows for that machine, never the C64 snapshot, and says so when it has no row. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string, optional platform/prg_path/project_dir. Returns: matching ROM entries.",
+      "tier": "default?"
+    },
+    {
+      "name": "card",
+      "file": "work/tools.ts",
+      "ns": "card",
+      "hasSpec": false,
+      "firstSentence": "One step of one plan package, with a done-when C64RE judges itself.",
+      "desc": "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[]; show/check: card; judge: card, kept, by, why. Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT.",
       "tier": "default?"
     },
     {
@@ -1218,6 +1229,15 @@
       "firstSentence": "Compress a binary blob with the built-in custom C64 RLE loader format.",
       "desc": "Compress a binary blob with the built-in custom C64 RLE loader format.",
       "tier": "advanced?"
+    },
+    {
+      "name": "plan",
+      "file": "work/tools.ts",
+      "ns": "plan",
+      "hasSpec": false,
+      "firstSentence": "The project's plan: work packages in order, each with its own done-when.",
+      "desc": "The project's plan: work packages in order, each with its own done-when. Use at kickoff to store the packages the human agreed (set), to see where the work stands (show: open packages, cards NOT KEPT, cards WAITING for a human, cards blocked by an unkept requires), and to close a package (close) once every card of it is KEPT and its own done-when holds. Not for one step of work (use card) or for recording progress (use agent_record_step). Inputs: action set|show|close; set: packages [{id, title, doneWhen: check[]}], replace; close: package (and by+why when only a [human] line is left). Returns: the plan, or a refusal naming what to do. set and close are the architect's (position architect; set also while unset).",
+      "tier": "default?"
     },
     {
       "name": "pointer_report",

@@ -24,8 +24,8 @@ Session start checklist:
 2. Run \`agent_onboard\` to load persistent project state.
 3. From here, every cycle is:
    user turn → \`c64re_whats_next\` → execute the recommended action
-   (often via a Task subagent spawned with
-   \`c64re_worker_phase(phase, artifact_id, role)\`) →
+   (an architect hands a card to a worker with
+   \`c64re_worker_card(card_id)\`) →
    \`agent_record_step(...)\` → next turn.
 
 To try a fix: anchor, a .feature with variants, \`runtime_feature_run\`;
