@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** BUILT on branch spec/917-step-contract (2026-10-24), not merged. S0–S5 green in `e2e-917-cards`; S6 (one real project, by hand) is still open.
+**Status:** BUILT on branch spec/917-step-contract (2026-10-24), not merged. S0–S5 green in `e2e-917-cards` (81/0); S6 done on a copy of the owner's Newcomer project (P1 planned, worked by Sonnet workers, verdicts checked by hand, package closed); every S6 finding fixed with a test. Nothing open.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -247,12 +247,13 @@ the card) follow; the stale `change-validate` block is gone.
 - **S6 run (2026-10-24, a copy of the owner's Newcomer project, 15 D64).** Kickoff with the owner: contract + 7-package
   plan (EF3/EFXL port). P1: four cards (c1 register, c2 medium, c3 context, c2b re-plan), Sonnet workers, the architect
   checked each verdict by hand: c1 WAITING → KEPT by the owner's gate, c3 KEPT, c2 STOPPED on its stop line (correct),
-  c2b KEPT. `requires` refused c2 before c1 was KEPT. What the run found, each fixed with a test:
+  c2b KEPT, c2 superseded by c2b, P1 closed with all four package lines PASS. `requires` refused c2 before c1 was KEPT. What the run found, each fixed with a test:
   - a `[contract]` line naming an unstated promise passed forever — refused at plan set / card issue / evaluation;
   - stale views ranked above the plan and hid a STOPPED card — only untracked files / unimported manifests come first;
   - a re-planned card had no way to replace the STOPPED one, so the package could never close — `supersedes`
     (issue) and `card supersede`; the old card is SUPERSEDED, `requires` follows to its replacement;
-  - the plan standing omitted STOPPED cards, and onboarding omitted the position;
+  - the plan standing omitted STOPPED cards, onboarding omitted the position, and a re-plan step offered a
+    human-gate branch with no card waiting;
   - outside 917: `list_artifacts` walked `analysis/` instead of reading the registry (no media, no ids, no
     `project_dir`); a D64 without a BAM was refused by every reader (only G64 had been made tolerant); a D64 data disk
     was judged a custom-GCR candidate; media in a subfolder such as `disk/` are invisible to init and the scan (open).
