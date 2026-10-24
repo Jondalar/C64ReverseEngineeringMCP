@@ -278,7 +278,7 @@ export async function contractPromises(
     const { KnowledgeRecords: Records } = await import("../knowledge-graph/records.js");
     const declared = lintDocs(projectDir).docs
       .filter((x) => x.declared)
-      .map((x) => ({ covers: x.frontmatter?.covers ?? [] }));
+      .map((x) => ({ covers: x.frontmatter?.covers ?? [], title: x.frontmatter?.title, file: x.path }));
     const model = await modelReport(projectDir);
     let artifacts: Array<{ id: string; title?: string; path?: string; relativePath?: string; addressRange?: { start: number; end: number } }> = [];
     try { artifacts = new Records(projectDir).listArtifacts(); } catch { artifacts = []; }

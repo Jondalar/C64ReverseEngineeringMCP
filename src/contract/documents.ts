@@ -15,6 +15,12 @@
 //     produced by the checker.
 //
 // A document about a whole medium is a real deliverable. It is satisfiable as one here.
+//
+// A fourth way, and the one a human reaches for first: the demand NAMES the document —
+// "loader and boot chain" — and a registered document is titled exactly that. The title (or
+// the file name) is the document's own declaration of what it is, so it answers the demand
+// without a model boundary having to carry the phrase. Compared on a normal form, equal or
+// not equal: a substring rule would let any document that mentions the words answer for it.
 
 import { basename } from "node:path";
 import type { Coverage } from "../docs/frontmatter.js";
@@ -113,8 +119,30 @@ export function resolveDocumentDemand(
   return { kind: "unresolved", label: want };
 }
 
-/** Does any declared document cover what this demand asks for? */
-export function demandSatisfiedBy(demand: ResolvedDemand, declared: ReadonlyArray<{ covers: readonly Coverage[] }>): boolean {
+/** A name on its normal form: case, runs of space, `-` and `_` do not tell two names apart. */
+export function documentNameForm(name: string): string {
+  return name.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+}
+
+/** A declared document — the ranges and artifacts it covers, and the two names it goes by. */
+export interface DeclaredDocument {
+  covers: readonly Coverage[];
+  title?: string;
+  /** Project-relative path. */
+  file?: string;
+}
+
+/** Is this document named what the demand asks for — by its front-matter `title`, or by its file name? */
+function documentIsNamed(want: string, doc: DeclaredDocument): boolean {
+  const w = documentNameForm(want);
+  if (!w) return false;
+  if (doc.title !== undefined && documentNameForm(doc.title) === w) return true;
+  return doc.file !== undefined && documentNameForm(basename(doc.file).replace(/\.[^.]+$/, "")) === w;
+}
+
+/** Does any declared document cover what this demand asks for, or carry the name it asks for? */
+export function demandSatisfiedBy(demand: ResolvedDemand, declared: ReadonlyArray<DeclaredDocument>): boolean {
+  if (demand.kind !== "range" && demand.kind !== "artifact" && declared.some((doc) => documentIsNamed(demand.label, doc))) return true;
   if (demand.kind === "unresolved") return false;
   const wantNames = demand.kind === "artifact" ? demand.names : artifactNameForms(demand.label);
   return declared.some((doc) => doc.covers.some((c) => {
@@ -125,6 +153,9 @@ export function demandSatisfiedBy(demand: ResolvedDemand, declared: ReadonlyArra
   }));
 }
 
+const howADocumentAnswers = (label: string): string =>
+  `A document answers it by being titled exactly "${label}" (front-matter \`title:\`, or the file name; case and -/_ do not matter, nothing else is guessed at) or by a \`covers:\` entry on its range.`;
+
 /** The blocker, in the demand's own vocabulary, naming the door that settles it. */
 export function documentDemandBlocker(demand: ResolvedDemand, why?: string): string {
   const reason = why ? ` — ${why}` : "";
@@ -132,7 +163,7 @@ export function documentDemandBlocker(demand: ResolvedDemand, why?: string): str
     case "range":
       return `the contract asks for a document covering ${demand.label}${reason}, and none declares that range`;
     case "role":
-      return `the contract asks for a document covering "${demand.label}" (${demand.via})${reason}, and none declares that range`;
+      return `the contract asks for a document covering "${demand.label}" (${demand.via})${reason}, and none declares that range. ${howADocumentAnswers(demand.label)}`;
     case "artifact":
       return `the contract asks for a document covering the artifact "${demand.display}"`
         + `${demand.via ? ` (${demand.via})` : ""}${reason}, and no declared document names it. `
@@ -140,7 +171,7 @@ export function documentDemandBlocker(demand: ResolvedDemand, why?: string): str
         + `\`artifact:${demand.display}\` and register it with doc_register.`;
     case "unresolved":
       return `the contract asks for a document covering "${demand.label}"${reason}, and nothing answers to that name yet: `
-        + `no model boundary carries it (model_assert) and no registered artifact matches it (list_artifacts). `
-        + `Name a medium or file as \`artifact:<name>\` if that is what it is.`;
+        + `no registered document is titled that, no model boundary carries it (model_assert) and no registered artifact matches it (list_artifacts). `
+        + `${howADocumentAnswers(demand.label)} Name a medium or file as \`artifact:<name>\` if that is what it is.`;
   }
 }
