@@ -4,6 +4,7 @@ import { BitmapAnalyzer } from "./analyzers/bitmap-analyzer";
 import { CharsetAnalyzer } from "./analyzers/charset-analyzer";
 import { CodeAnalyzer } from "./analyzers/code-analyzer";
 import { PointerTableAnalyzer } from "./analyzers/pointer-table-analyzer";
+import { VectorOverwriteAnalyzer } from "./analyzers/vector-overwrite-analyzer";
 import { ProbableCodeAnalyzer } from "./analyzers/probable-code-analyzer";
 import { ScreenRamAnalyzer } from "./analyzers/screen-ram-analyzer";
 import { SidAnalyzer } from "./analyzers/sid-analyzer";
@@ -38,6 +39,7 @@ import { calculateStats, mergeSegments, formatAddress } from "./utils";
 function createDefaultAnalyzers(): SegmentAnalyzer[] {
   return [
     new CodeAnalyzer(),
+    new VectorOverwriteAnalyzer(),
     new ProbableCodeAnalyzer(),
     new TextAnalyzer(),
     new SpriteAnalyzer(),

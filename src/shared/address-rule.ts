@@ -22,7 +22,7 @@
 
 /** What every refusal says, so a caller is told the rule at the moment it bites. */
 export const ADDRESS_RULE =
-  "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" all mean $E800; a bare JSON number is taken as-is (not re-read as hex)";
+  "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" all mean $E800; a JSON number is its decimal value, never re-read as hex (7000 is $1B58, \"7000\" is $7000)";
 
 /** The same rule for a counted quantity, which is where it is easiest to misread. */
 export const COUNT_RULE =

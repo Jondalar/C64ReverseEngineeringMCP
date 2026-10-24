@@ -167,8 +167,9 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
 //   S2 cross_owner_call  CALLS / JUMPS_TO from a DIFFERENT owner onto an
 //      cross_owner_jump  `addr` node inside this image (Spec 915: from real code
 //                        only, into the payload that is in the window)
-//   S3 resolved_alias    a Spec 826.0 RESOLVES_TO alias pointing at a
-//                        routine/label of THIS owner
+//   S3 resolved_alias    a Spec 826.0 RESOLVES_TO alias pointing at a HUMAN
+//                        routine/label of THIS owner (a generated one is the
+//                        last run's own output and never seeds the next)
 //
 // And ONE subtraction, which is the graph's own answer rather than a guess: an
 // S2 address whose `addr` node RESOLVES_TO a routine/label owned by SOMEBODY
@@ -398,7 +399,11 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${useFrom} (${useTotal} site${useTotal === 1 ? "" : "s"})${how}`);
     }
 
-    // S3 — a Spec 826 alias that already points at something of mine.
+    // S3 — a Spec 826 alias that already points at something of mine a human put there.
+    // A generated routine or label of mine is the last analysis's own output (a heuristic decode, a
+    // fallback entry): seeding from it feeds the run its own previous guess, and a wrong one then
+    // pins itself in place — it decodes across the real entry, which is refused as inside an instruction.
+    const humanTarget = db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'human'");
     for (const [addrId, target] of resolvesTo) {
       if (ctxSpaceOfId(addrId) !== space) continue;
       const a = addressOfId(addrId);
@@ -406,6 +411,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       if (ownerOfId(target) !== owner) continue;
       const kind = target.split(":")[2] ?? "?";
       if (kind !== "routine" && kind !== "label") continue;
+      if (humanTarget.get(target) === undefined) continue;
       add(a.address, "resolved_alias", `RESOLVES_TO ${target}`);
     }
 
