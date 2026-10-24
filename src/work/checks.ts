@@ -100,6 +100,19 @@ export function parseCheck(raw: unknown, where: string): { ok: true; check: Chec
   }
 }
 
+/** A `[contract]` line that names a promise the contract does not make would pass forever: nothing is owed under a
+ *  name nobody asked for. The id must be one the contract states (met or not). */
+export async function unstatedPromises(projectRoot: string, checks: readonly Check[]): Promise<string | undefined> {
+  const named = checks.flatMap((c) => (c.kind === "contract" && c.promise ? [c.promise] : []));
+  if (named.length === 0) return undefined;
+  const { loadContract } = await import("../contract/contract.js");
+  const { statedPromiseIds } = await import("../contract/promises.js");
+  const stated = statedPromiseIds(loadContract(projectRoot).contract);
+  const bad = named.filter((id) => !stated.has(id));
+  return bad.length === 0 ? undefined
+    : `the contract states no promise ${bad.map((b) => `"${b}"`).join(", ")}; it states: ${[...stated].join(", ")}`;
+}
+
 export function parseChecks(raw: unknown, field = "doneWhen"): { ok: true; checks: Check[] } | { ok: false; error: string } {
   if (!Array.isArray(raw)) return { ok: false, error: `${field}: must be an array of checks. Allowed forms: ${ALLOWED_FORMS}.` };
   const checks: Check[] = [];
@@ -216,8 +229,10 @@ export async function evaluateCheck(projectRoot: string, c: Check): Promise<Chec
         const { contractPromises } = await import("../contract/promises.js");
         const owed = await contractPromises(projectRoot);
         if (c.promise) {
+          const unstated = await unstatedPromises(projectRoot, [c]);
+          if (unstated) return { ...base, pass: false, detail: unstated };
           const hit = owed.find((p) => p.id === c.promise);
-          return { ...base, pass: !hit, detail: hit ? `owed: ${hit.now}` : `promise ${c.promise} is not owed` };
+          return { ...base, pass: !hit, detail: hit ? `owed: ${hit.now}` : `promise ${c.promise} is met (or does not apply yet)` };
         }
         return { ...base, pass: owed.length === 0, detail: owed.length === 0 ? "nothing owed" : `owed: ${owed.map((p) => p.id).join(", ")}` };
       }

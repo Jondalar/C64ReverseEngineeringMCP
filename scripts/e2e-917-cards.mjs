@@ -189,6 +189,15 @@ try {
       check(cv.defaultTool === "runtime_feature_run" && cv.blockedUntil === undefined && /baseline fails/.test(cv.title), "change-validate: tool runtime_feature_run, no blockedUntil, title names the test-mode scenario", cv.title);
     }
 
+    // a [contract] line must name a promise the contract makes — a typo would pass forever
+    r = await m2.call("plan", { action: "set", packages: [{ id: "px", title: "typo", doneWhen: [{ kind: "contract", promise: "contxt", text: "slot context" }] }] });
+    check(has(/states no promise "contxt"/, r) && has(/context/, r) && !has(/Plan set/, r), "plan set refuses a [contract] line naming an unstated promise, listing the stated ones", r);
+    {
+      const { evaluateChecks } = await load("work/checks.js");
+      const { results: [res] } = await evaluateChecks(q, [{ kind: "contract", promise: "contxt", text: "slot context" }]);
+      check(res.pass === false && /states no promise/.test(res.detail), "  and evaluation fails it too (a contract changed after the card was issued)", res.detail);
+    }
+
     // the plan
     r = await m2.call("plan", { action: "set", packages: [
       { id: "p1", title: "Name the lift", doneWhen: [nodeCheck] },

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { AgentRoleSchema, loadAgentState } from "../project-knowledge/agent-state.js";
 import { safeHandler } from "../server-tools/safe-handler.js";
 import type { ServerToolContext } from "../server-tools/types.js";
-import { evaluateChecks, parseChecks, renderResults, verdictOf, type Check, type CheckResult, type VerdictValue } from "./checks.js";
+import { evaluateChecks, parseChecks, renderResults, unstatedPromises, verdictOf, type Check, type CheckResult, type VerdictValue } from "./checks.js";
 import {
   claimOf, dropClaim, getCard, getPackage, listCards, listPackages, nameProblem, normName, putClaim, recordVerdict, removePackage,
   savePackage, saveCard, setCardState, type CardRec, type CardState, type GateAttrs, type PackageRec, type ReportAttrs, type VerdictAttrs,
@@ -38,7 +38,7 @@ function requireArchitect(projectRoot: string, what: string, allowUnset = false)
 
 export interface PackageInput { id: string; title: string; doneWhen: unknown }
 
-export function planSet(projectRoot: string, input: { packages: PackageInput[]; replace?: boolean }): Reply {
+export async function planSet(projectRoot: string, input: { packages: PackageInput[]; replace?: boolean }): Promise<Reply> {
   const refuse = requireArchitect(projectRoot, "writing the plan", true);
   if (refuse) return refuse;
   if (input.packages.length === 0) return no("plan set got no packages. Give at least one {id, title, doneWhen}.");
@@ -54,6 +54,8 @@ export function planSet(projectRoot: string, input: { packages: PackageInput[]; 
     const checks = parseChecks(p.doneWhen, `packages[${i}].doneWhen`);
     if (!checks.ok) return no(checks.error);
     if (checks.checks.length === 0) return no(`packages[${i}] "${name}" has an empty doneWhen. A package without a done-when cannot close; add at least one check.`);
+    const unstated = await unstatedPromises(projectRoot, checks.checks);
+    if (unstated) return no(`packages[${i}] "${name}": ${unstated}. Name a stated promise, or add it with contract_set.`);
     parsed.push({ name, title: p.title.trim(), doneWhen: checks.checks });
   }
   const existing = listPackages(projectRoot);
@@ -135,7 +137,7 @@ export interface CardInput {
   do?: string; doneWhen: unknown; not?: string[]; stopIf?: string[]; requires?: string[];
 }
 
-export function cardIssue(projectRoot: string, input: CardInput): Reply {
+export async function cardIssue(projectRoot: string, input: CardInput): Promise<Reply> {
   const refuse = requireArchitect(projectRoot, "issuing a card");
   if (refuse) return refuse;
   const name = normName(input.id ?? "");
@@ -149,6 +151,8 @@ export function cardIssue(projectRoot: string, input: CardInput): Reply {
   const checks = parseChecks(input.doneWhen, "doneWhen");
   if (!checks.ok) return no(checks.error);
   if (checks.checks.length === 0) return no(`card "${name}" has an empty doneWhen. A step without a checkable done-when is not a card; add at least one check.`);
+  const unstated = await unstatedPromises(projectRoot, checks.checks);
+  if (unstated) return no(`card "${name}": ${unstated}. Name a stated promise, or add it with contract_set.`);
   const requires = [...new Set((input.requires ?? []).map(normName))];
   const notKept: string[] = [];
   for (const r of requires) {
@@ -273,7 +277,7 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
     safeHandler("plan", async ({ project_dir, action, packages, replace, package: pkg, by, why }: { project_dir?: string; action: "set" | "show" | "close"; packages?: PackageInput[]; replace?: boolean; package?: string; by?: string; why?: string }) => {
       const root = ctx.projectDir({ projectDir: project_dir });
       if (action === "show") return text(planShow(root));
-      if (action === "set") return text(planSet(root, { packages: packages ?? [], replace }));
+      if (action === "set") return text(await planSet(root, { packages: packages ?? [], replace }));
       if (!pkg) return text(no("plan close needs the package id."));
       return text(await planClose(root, { package: pkg, by, why }));
     }),
@@ -294,7 +298,7 @@ export function registerWorkTools(server: McpServer, ctx: ServerToolContext): vo
     safeHandler("card", async (a: { project_dir?: string; action: "issue" | "show" | "check" | "judge"; card?: string; id?: string } & Partial<CardInput> & { kept?: boolean; by?: string; why?: string }) => {
       const root = ctx.projectDir({ projectDir: a.project_dir });
       if (a.action === "issue") {
-        return text(cardIssue(root, { id: a.id ?? "", title: a.title ?? "", package: a.package ?? "", role: a.role ?? "", goal: a.goal ?? "", context: a.context, read: a.read, change: a.change, do: a.do, doneWhen: a.doneWhen ?? [], not: a.not, stopIf: a.stopIf, requires: a.requires }));
+        return text(await cardIssue(root, { id: a.id ?? "", title: a.title ?? "", package: a.package ?? "", role: a.role ?? "", goal: a.goal ?? "", context: a.context, read: a.read, change: a.change, do: a.do, doneWhen: a.doneWhen ?? [], not: a.not, stopIf: a.stopIf, requires: a.requires }));
       }
       if (!a.card) return text(no(`card ${a.action} needs the card id.`));
       if (a.action === "show") return text(cardShow(root, a.card));
