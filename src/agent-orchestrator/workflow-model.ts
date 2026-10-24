@@ -195,7 +195,8 @@ export const C64RE_WORKFLOW_STEPS = [
     defaultTool: "card",
     title: "A card waits for the human gate",
     completionChecks: ["human-judged"],
-    branches: ["plan-replan"],
+    // Its sibling is offered only when the plan has one; a static branch named a card that does not exist (917 S6).
+    branches: [],
   },
   {
     id: "plan-replan",
@@ -204,7 +205,8 @@ export const C64RE_WORKFLOW_STEPS = [
     defaultTool: "card",
     title: "Re-plan a card that came back NOT KEPT or STOPPED",
     completionChecks: ["card-kept"],
-    branches: ["plan-gate"],
+    // Its sibling is offered only when the plan has one; a static branch named a card that does not exist (917 S6).
+    branches: [],
   },
   {
     id: "plan-next-card",

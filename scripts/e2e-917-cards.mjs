@@ -270,6 +270,7 @@ try {
     await m2.call("agent_record_step", { step: "named", card: "a1", result: "DONE", report: "named" });
     j = jsonOf(await m2.call("agent_next_step", {}));
     check(j.step === "plan-replan" && j.primary_action.tool === "card" && j.primary_action.args.action === "show" && j.primary_action.args.card === "a1", "a card NOT KEPT -> plan-replan, card show", JSON.stringify(j.primary_action));
+    check(!(j.secondary_actions ?? []).some((x) => x.step === "plan-gate"), "no human-gate branch is offered when no card waits", JSON.stringify((j.secondary_actions ?? []).map((x) => x.step)));
     {
       // S6: stale views alone must not hide the card; an untracked file still comes first
       const { utimesSync, writeFileSync: wf, rmSync: rm, mkdirSync: md } = await import("node:fs");
