@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — D1, D2 decided; D3–D6 open, decided with the owner one question at a time.
+**Status:** DRAFT (2026-10-24) — D1–D3 decided; D4–D6 open, decided with the owner one question at a time.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -160,9 +160,17 @@ be issued while C-07 is not KEPT.
     human line is never KEPT by C64RE alone: when every machine line holds it is
     `WAITING (human gate)` until the human says kept or not kept, and who said it is
     recorded. Nothing else may be prose.
-- **D3 — Roles.** New roles `architect` / `worker`, or a second axis beside the domain role
-  (an analyst can be either)? The domain role decides tools and gating today; the position
-  would decide who may issue and close cards.
+- **D3 — decided (owner, 2026-10-24): a second axis, the position, beside the domain role.**
+  - The domain role stays as it is (`AgentRoleSchema`: analyst, cartographer, implementer,
+    archivist, cracker) and keeps deciding which tools are proposed and which phase gates
+    apply.
+  - The **position** is new: `architect` | `worker` | `unset`. It decides who may write
+    the plan's cards, issue and close them (the architect), and who records against one
+    card only (a worker, bound to that card's id).
+  - A card names both: `worker (cracker)`. `agent_set_role` takes the position beside the
+    role. `unset` is today's behaviour: no cards required, nothing refused.
+  - Rejected: `architect` / `worker` as two more domain roles — a worker would lose its
+    domain, and a card could not ask for an analyst worker.
 - **D4 — Where a card lives.** A graph node (claims, evidence, `requires` as an edge, the
   history for free) or a file under `knowledge/`. Spec 822: the graph is the authority.
 - **D5 — The worker briefing.** `c64re_worker_phase` becomes the card renderer, or stays
