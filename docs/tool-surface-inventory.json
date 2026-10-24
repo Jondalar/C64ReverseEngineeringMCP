@@ -947,8 +947,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List analysis artifacts (PRG, ASM/TAS listings, JSON, SYM, MD) in the project.",
-      "desc": "List analysis artifacts (PRG, ASM/TAS listings, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
+      "firstSentence": "List the project's registered artifacts — media (D64/G64/CRT/PRG), extracted payloads, listings, analysis JSON, documents — one line each with its id, kind/role and path.",
+      "desc": "List the project's registered artifacts — media (D64/G64/CRT/PRG), extracted payloads, listings, analysis JSON, documents — one line each with its id, kind/role and path. Use to see what the project holds and to get an artifact id before reading or linking one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional project_dir, subdir (a path prefix; '.' or omitted = all), kind, include_internal. Returns: id, kind/role, path, size per artifact, and how many files on disk are not registered yet.",
       "tier": "default?"
     },
     {

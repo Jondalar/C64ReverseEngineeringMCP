@@ -216,6 +216,15 @@ try {
   })();
   ok(storedRel.some((p) => p.endsWith("file01_semantic.tass")), "10f semantic source is a tracked artifact in the knowledge store", "");
   ok(storedRel.some((p) => p.endsWith("file01_disasm.asm")), "10g generated disasm source is a tracked artifact", "");
+  // list_artifacts answers from the registry, for the project it is given, with ids — not a walk of analysis/.
+  {
+    const store = JSON.parse(readFileSync(join(projectDir, "knowledge", "artifacts.json"), "utf8"));
+    const sem = (store.items || []).find((a) => (a.relativePath || a.path || "").endsWith("file01_semantic.tass"));
+    const listed = textOf(await callTool("list_artifacts", { project_dir: projectDir, include_internal: true }));
+    ok(!!sem && listed.includes(sem.id) && /file01_semantic\.tass/.test(listed), "10g2 list_artifacts lists a registered artifact with its id, for the given project_dir", listed.split("\n").slice(0, 4).join(" | "));
+    const scoped = textOf(await callTool("list_artifacts", { project_dir: projectDir, subdir: "analysis/disk", include_internal: true }));
+    ok(/file01_semantic\.tass/.test(scoped) && !/(^|\s)input\//m.test(scoped), "10g3 subdir filters by path prefix", scoped.split("\n")[0]);
+  }
 
   // 10h. idempotency — a second sync registers nothing new and does not fail.
   const sync2 = await callTool("project_inventory_sync", { project_dir: projectDir });
