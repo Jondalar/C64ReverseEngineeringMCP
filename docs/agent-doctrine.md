@@ -388,6 +388,7 @@ At initialization, after context loss, or when entering a new project:
    - a resumed project
    - a partially imported project
    - a project with stale views
+8. Agree the plan after the contract (see 2.5 and the Architect and worker section in 3): when the contract is there and no plan is, ask the human for the work packages, their order and how "done" is checked in each, then write it with `plan` action `set`.
 
 **Never write `.mcp.json` by hand — not for a new project, not by copying your own server entry.** `project_init` writes it (this server's own launch, serialised by code) and `c64re mcp-config --project <dir>` writes it for a project that already exists. A hand-copied Windows path loses its JSON escaping, the file stops parsing, and Claude Code drops the `c64-re` server without an error: the next session has no c64-re tools. `project_status` and `agent_onboard` report a broken one; the fix is the command, not an edit.
 
@@ -599,6 +600,36 @@ back to `analyst` for the completion math. Source of truth:
 `src/project-knowledge/types.ts` (`defaultRole`),
 `src/agent-orchestrator/workflows.ts` (`requiredPhasesFor`).
 
+### Architect and worker
+
+The **position** is a second axis beside the role above: `architect`, `worker` or
+`unset` (`agent_set_role(role, position)`). The role says which domain a session
+works in; the position says who decides and who executes. `unset` is the
+ordinary session that works every step itself: no cards, nothing refused.
+
+- **The plan** comes from the kickoff. After the contract the architect and the
+  human agree the work packages, their order, and for each a done-when
+  (`plan` action `set`). `agent_next_step` then takes its next step from the plan:
+  a card waiting for the human, a card that came back, a package without a card,
+  cards out with workers, a package ready to close.
+- **Cards.** The architect writes one card per step with `card` action `issue`:
+  goal, what to read, what to change, a done-when, what not to do, when to stop,
+  and `requires` (cards that must be KEPT first). A card belongs to a package;
+  a card outside every package is refused. The worker is briefed with the
+  `c64re_worker_card(card_id)` prompt and reports with
+  `agent_record_step(card, result=DONE|STOPPED, report)`.
+- **The check vocabulary.** A done-when line is one of: `graph` (a count or
+  existence in the graph), `rebuild` (byte-identical), `registration` (0
+  unregistered), `scenario` (a scenario's verdict, test mode included),
+  `contract` (a standing threshold), or `human`. Nothing else may be prose.
+- **The verdict is C64RE's.** On DONE it runs the done-when itself: KEPT,
+  NOT KEPT, or WAITING when only a `human` line is left. The worker's report is
+  kept beside the verdict, never instead of it. A WAITING card becomes KEPT or
+  NOT KEPT when the human says so (`card` action `judge`, with who and why).
+- **Two blocks only.** A card whose `requires` is not KEPT is not issued, and a
+  package closes only when all its cards are KEPT and its own done-when holds.
+  Reports, findings and `agent_record_step` always go through.
+
 ---
 
 ## 4. Artifact Discipline
@@ -734,7 +765,7 @@ Two loops coexist — use either:
   Judgment-led.
 - **Deterministic step orchestrator**: `agent_next_step` returns the ONE
   next step (id, actor, tool, branches, `blockedBy`, `doNotCall`, machine-readable JSON)
-  from the typed **15-step** table in `src/agent-orchestrator/workflow-model.ts`
+  from the typed step table in `src/agent-orchestrator/workflow-model.ts`
   (`C64RE_WORKFLOW_STEPS`; actors `mcp | llm | human | runtime`; `project-init` …
   `change-validate`). `agent_run_step` executes the in-process MCP steps (e.g.
   inventory-sync) and otherwise directs you to the product tool. `workflow-model.ts`

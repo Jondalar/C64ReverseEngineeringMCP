@@ -31,3 +31,6 @@ edited and never published is caught instead of quietly drifting.
   one call. The map is kept in the project, and the goal becomes the next anchor.
 - **[Scenario Goals and Acceptance](Scenario-Goals-and-Acceptance)** — state what a
   run has to achieve, in the same `.feature` files. Partly built.
+- **[Planning with Cards](Planning-with-Cards)** — agree the work packages and what
+  "done" means for each, let one session hand out small closed tasks, and let the tool,
+  not the worker, say whether each was kept. You are asked only where only you can judge.

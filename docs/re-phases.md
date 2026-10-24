@@ -157,18 +157,24 @@ surfaces (`src/agent-orchestrator/workflows.ts` — `requiredPhasesFor` /
 The template only changes which phases are *required* / *surfaced*; the PHASE_TOOLS
 allow-lists are unchanged.
 
-## Master + Worker Pattern
+## Architect + Worker Pattern
 
-Strongly recommended:
+When a project has a plan, the work goes out as cards:
 
-1. The master agent (your main Claude Code session) reads
-   `agent_propose_next` and decides the next phase task.
-2. The master spawns a Task subagent with the
-   `c64re_worker_phase(phase, artifact_id, role)` prompt.
-3. The worker has only the phase's allowed tools and stops when
-   its hand-off contract is met.
-4. The master collects the worker report, calls
-   `agent_record_step`, and loops.
+1. The architect (your main Claude Code session, position `architect`)
+   reads `agent_next_step`, which names the open package, and writes
+   the next card with `card` (action `issue`): goal, what to read,
+   what to change, a done-when C64RE can check, what not to do, when
+   to stop.
+2. The architect spawns a Task subagent with the
+   `c64re_worker_card(card_id)` prompt. The worker reads only what the
+   card lists, changes only what it lists, and stops on its stop lines.
+3. The worker reports with `agent_record_step(card, result, report)`.
+   C64RE runs the card's done-when and answers KEPT, NOT KEPT or
+   WAITING (a human gate); the worker's report is kept beside the
+   verdict.
+4. The architect reads the verdict, re-plans or issues the next card,
+   and closes the package with `plan` (action `close`).
 
-This keeps the master's context clean and prevents drift inside the
-worker.
+Without a card there is no worker: a session in position `unset` does
+the step itself. See `docs/wiki/Planning-with-Cards.md`.

@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** PROPOSED (2026-10-24) — D1–D6 decided with the owner; ready to build.
+**Status:** BUILT on branch spec/917-step-contract (2026-10-24), not merged. S0–S5 green in `e2e-917-cards`; S6 (one real project, by hand) is still open.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -212,3 +212,30 @@ owner's own skill; C64RE neither knows the model nor pays the tokens.
 
 S0–S6 green; the kickoff (`agent_onboard`, the cockpit) asks for the plan; the board row and the doctrine (`docs/agent-doctrine.md`: architect / worker,
 the card) follow; the stale `change-validate` block is gone.
+
+## §5 As built (branch spec/917-step-contract, 2026-10-24)
+
+- **Part A.** `src/work/{store,checks,tools}.ts`: plan packages and cards as graph nodes (`plan_package`, `card`,
+  edges PART_OF / REQUIRES), producer id `work-plan`; the MCP tools `plan` and `card`; card fields on
+  `agent_record_step`; `position` / `card` on the agent state via `agent_set_role`. Test `scripts/e2e-917-cards.mjs`.
+- **Part B.**
+  - D1: `pickPrimary` takes the plan's step after the project-init and inventory-sync rungs (`src/work/next.ts`):
+    `plan-gate` (WAITING, a `human_question` naming the card and its `[human]` lines), `plan-replan` (NOT KEPT or
+    STOPPED), `plan-next-card` (open package without a card), `plan-await-workers` (cards issued, not reported),
+    `plan-close` (every card of the open package KEPT). Steps are in `workflow-model.ts`; unmapped in the lifecycle
+    crosswalk like `ask-human`. Without a plan the ladder is unchanged.
+  - P5: `change-validate` is handed out with `runtime_feature_run`; `blockedUntil` is no longer set by any step and its
+    special cases in `agent-step.ts` are gone.
+  - D5: prompt `c64re_worker_card(card_id)` (`src/work/briefing.ts`); `c64re_worker_phase` and `buildWorkerPrompt` are
+    removed with their references; `agent_propose_next` and `c64re_whats_next` list issued cards for an architect and
+    propose no worker otherwise.
+  - S0: `agent_onboard` prints "No plan yet" with the check vocabulary when a contract exists and no plan does, and the
+    plan standing (`plan show`) when one does. `KICKOFF_QUESTIONS` is the contract_set field list, so the plan question
+    lives in onboarding only.
+  - Docs: `docs/agent-doctrine.md` (onboarding step 8, "Architect and worker"), `docs/re-phases.md`,
+    `docs/wiki/Planning-with-Cards.md`.
+- **Decisions the build made.** One verdict row per card (claim `verdict`), the history of verdicts in the card's
+  `history` attrs. `plan close` takes `by` + `why` when only a `[human]` package line is left. The position is stored in
+  the project's agent state (`knowledge/agent-state.json`). The next step looks at the lowest-order open package only; a
+  package with cards that are all KEPT is "close" (the architect may issue another card instead).
+- **Still open.** S6: one real project, the architect plans 3 cards, workers return, verdicts match a re-run by hand.
