@@ -24,6 +24,7 @@ import { basename } from "node:path";
 import { PlatformKb } from "../../platform-kb/read.js";
 import { platformKindForAddress, type PlatformTag } from "../../platform-kb/schema.js";
 import { addrCtx, deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
+import { isRawAnalysisPath, withoutLoadAddress } from "../migrate/classify.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { CONTROL_FLOW_PRODUCER } from "../producer-ids.js";
 
@@ -130,7 +131,8 @@ export function ownerSlug(stem: string): string {
 }
 
 export function ownerFromAnalysisPath(analysisPath: string): string {
-  return ownerSlug(basename(analysisPath).replace(/_analysis\.json$/u, ""));
+  const stem = basename(analysisPath).replace(/_analysis\.json$/u, "");
+  return ownerSlug(isRawAnalysisPath(analysisPath) ? withoutLoadAddress(stem) : stem);
 }
 
 export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlowResult {

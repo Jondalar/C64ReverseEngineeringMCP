@@ -87,7 +87,7 @@ function dangling(id: string): ResolvedNode {
     const p = parseId(id);
     if (p.form !== "subsystem") address = p.address;
     kind = p.form === "subsystem" ? "subsystem" : p.kind;
-    space = p.form === "project" ? p.ctx.space : p.form === "platform" ? p.kind : p.form === "cartridge" ? "crt" : "sub";
+    space = p.form === "project" ? p.ctx.space : p.form === "platform" ? p.kind : p.form === "cartridge" ? "crt" : p.form === "plan" || p.form === "card" ? "work" : "sub";
     if (p.form === "project" && p.ctx.cart !== undefined) cart = p.ctx.cart;
     else if (p.form === "cartridge") cart = p.cart;
   } catch { /* unparseable ids are still reported, as dangling */ }

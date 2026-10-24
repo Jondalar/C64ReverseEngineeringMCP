@@ -13,6 +13,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { isRawAnalysisPath, withoutLoadAddress } from "../knowledge-graph/migrate/classify.js";
 import { payloadKey, type PayloadRef } from "./types.js";
 
 export interface Relocation {
@@ -36,7 +37,8 @@ interface AnalysisDoc {
 }
 
 export function ownerOfAnalysisFile(path: string): string {
-  return basename(path).replace(/_analysis\.json$/u, "").toLowerCase();
+  const stem = basename(path).replace(/_analysis\.json$/u, "");
+  return (isRawAnalysisPath(path) ? withoutLoadAddress(stem) : stem).toLowerCase();
 }
 
 /** Every `*_analysis.json` under the project, by owner (the lowercased stem). */

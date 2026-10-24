@@ -229,15 +229,28 @@ interface VectorPair {
   low: number;
   high: number;
   label: string;
+  name: string;
+  /** A C64/VIC-20 KERNAL or BASIC RAM vector beyond CINV/CBINV/NMINV: only those two machines have it at this address. */
+  kernalOnly?: boolean;
 }
 
+// The RAM vectors the C64 KERNAL and BASIC read through, as the ROM defines them ($0302-$0333).
+// The VIC-20 keeps the same table at the same addresses.
+const KERNAL_VECTORS: Array<[number, string]> = [
+  [0x0302, "IMAIN"], [0x0304, "ICRNCH"], [0x0306, "IQPLOP"], [0x0308, "IGONE"], [0x030a, "IEVAL"],
+  [0x031a, "IOPEN"], [0x031c, "ICLOSE"], [0x031e, "ICHKIN"], [0x0320, "ICKOUT"], [0x0322, "ICLRCH"],
+  [0x0324, "IBASIN"], [0x0326, "IBSOUT"], [0x0328, "ISTOP"], [0x032a, "IGETIN"], [0x032c, "ICLALL"],
+  [0x032e, "USRCMD"], [0x0330, "ILOAD"], [0x0332, "ISAVE"],
+];
+
 const VECTOR_PAIRS: VectorPair[] = [
-  { low: 0x0314, high: 0x0315, label: "irq_vector_ram" },
-  { low: 0x0316, high: 0x0317, label: "brk_vector_ram" },
-  { low: 0x0318, high: 0x0319, label: "nmi_vector_ram" },
-  { low: 0xfffa, high: 0xfffb, label: "nmi_vector_rom" },
-  { low: 0xfffc, high: 0xfffd, label: "reset_vector_rom" },
-  { low: 0xfffe, high: 0xffff, label: "irq_brk_vector_rom" },
+  { low: 0x0314, high: 0x0315, label: "irq_vector_ram", name: "CINV" },
+  { low: 0x0316, high: 0x0317, label: "brk_vector_ram", name: "CBINV" },
+  { low: 0x0318, high: 0x0319, label: "nmi_vector_ram", name: "NMINV" },
+  ...KERNAL_VECTORS.map(([low, name]): VectorPair => ({ low, high: low + 1, label: `${name.toLowerCase()}_vector`, name, kernalOnly: true })),
+  { low: 0xfffa, high: 0xfffb, label: "nmi_vector_rom", name: "NMI" },
+  { low: 0xfffc, high: 0xfffd, label: "reset_vector_rom", name: "RESET" },
+  { low: 0xfffe, high: 0xffff, label: "irq_brk_vector_rom", name: "IRQ/BRK" },
 ];
 
 function toAddress(offset: number, mapping: MemoryMapping): number {
@@ -252,14 +265,16 @@ function mappedByte(address: number, buffer: Buffer, mapping: MemoryMapping): nu
 }
 
 /**
- * The RAM vectors CINV/CBINV/NMINV sit at $0314/$0316/$0318 on the C64 and the VIC-20 alike
- * (the platform store: c64 and vic20 rows at 788/790/792). The TED KERNAL keeps CINV and
- * CBINV there too, but its $0318 is IOPEN, a file-open vector — a store of a code address
- * to it is not an NMI handler, so the TED machines drop that pair. The 6502's own vectors
- * at $FFFA-$FFFF are the CPU's, the same everywhere.
+ * CINV/CBINV/NMINV sit at $0314/$0316/$0318 on the C64 and the VIC-20 alike (the platform store:
+ * c64 and vic20 rows at 788/790/792), and so does the rest of the KERNAL/BASIC table, IMAIN to
+ * ISAVE. The TED KERNAL keeps CINV and CBINV there too, but its $0318 is IOPEN, a file-open
+ * vector — a store of a code address to it is not an NMI handler, so the TED machines drop that
+ * pair; its other vectors are not these. The 1541's $03xx is drive RAM and keeps only the three
+ * pairs it always had. The 6502's own vectors at $FFFA-$FFFF are the CPU's, the same everywhere.
  */
-function vectorPairsFor(platform: PlatformTag): VectorPair[] {
-  return platform === "plus4" ? VECTOR_PAIRS.filter((pair) => pair.low !== 0x0318) : VECTOR_PAIRS;
+export function vectorPairsFor(platform: PlatformTag): VectorPair[] {
+  const hasKernalTable = platform === "c64" || platform === "vic20";
+  return VECTOR_PAIRS.filter((pair) => (hasKernalTable || !pair.kernalOnly) && !(platform === "plus4" && pair.low === 0x0318));
 }
 
 export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping, platform: PlatformTag = "c64"): EntryPoint[] {
@@ -316,7 +331,7 @@ export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping, plat
     entries.push({
       address: target,
       source: "vector",
-      reason: `Detected inline ${pair.label} value pointing to $${target.toString(16).toUpperCase().padStart(4, "0")}.`,
+      reason: `${pair.name} (${formatAddress(pair.low)}, ${pair.label}) overwritten by the load, pointing to ${formatAddress(target)}.`,
       symbol: `${pair.label}_target`,
     });
   }

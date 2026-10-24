@@ -5,6 +5,7 @@ import { z } from "zod";
 interface PromptContext {
   readTextFile(path: string, maxBytes?: number): string;
   repoRoot: string;
+  projectDir(hint?: { projectDir?: string }, requireWritable?: boolean): string;
 }
 
 function canonicalWorkflowSkillPath(repoRoot: string): string {
@@ -45,7 +46,7 @@ ${doctrineText}`,
     },
   );
 
-  // Spec 034 + 035: phase doctrine + parametrized worker prompt.
+  // Spec 034: phase doctrine.
   server.prompt(
     "c64re_re_phases",
     "Return the seven-phase reverse-engineering workflow doctrine. Read at session start so the agent knows which phase each tool belongs to and how the master + worker pattern is supposed to be used.",
@@ -62,33 +63,15 @@ ${doctrineText}`,
     },
   );
 
+  // Spec 917 D5: the worker's briefing is its card, rendered from the graph.
   server.prompt(
-    "c64re_worker_phase",
-    "Return a worker briefing for a single phase task on a single artifact. Hand the returned text to a Task subagent (or to a freshly spawned Claude Code subagent). The worker stops when its hand-off contract is met and returns control to the master.",
-    {
-      phase: z.string().describe("Phase number (1..7)."),
-      artifact_id: z.string().describe("Target artifact id."),
-      artifact_title: z.string().optional(),
-      role: z.enum(["analyst", "cracker"]).optional().describe("Active role; default analyst."),
-    },
-    async ({ phase, artifact_id, artifact_title, role }) => {
-      // Lazy import so the server-tools layer can stay light.
-      const { buildWorkerPrompt } = await import("../agent-orchestrator/phase-tools.js");
-      const phaseNum = Number(phase);
-      if (!Number.isInteger(phaseNum) || phaseNum < 1 || phaseNum > 7) {
-        return {
-          messages: [{ role: "user" as const, content: { type: "text" as const, text: `Invalid phase: ${phase}. Must be 1..7.` } }],
-        };
-      }
-      const text = buildWorkerPrompt({
-        phase: phaseNum as 1|2|3|4|5|6|7,
-        artifactId: artifact_id,
-        artifactTitle: artifact_title,
-        role,
-      });
-      return {
-        messages: [{ role: "user" as const, content: { type: "text" as const, text } }],
-      };
+    "c64re_worker_card",
+    "Return the briefing for one worker: its card (goal, what to read, what to change, done-when with kinds, what not to do, when to stop) and the rules every worker keeps. Hand the returned text to the subagent that executes the card; the architect issues the card with the card tool.",
+    { card_id: z.string().describe("The card id (plan action=show lists them).") },
+    async ({ card_id }) => {
+      const { buildCardBriefing } = await import("../work/briefing.js");
+      const text = buildCardBriefing(context.projectDir({}), card_id);
+      return { messages: [{ role: "user" as const, content: { type: "text" as const, text } }] };
     },
   );
 

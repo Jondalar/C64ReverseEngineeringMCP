@@ -79,6 +79,7 @@
     "smoke:pipeline-version": "node scripts/ensure-built.mjs mcp && node scripts/smoke-pipeline-version.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
     "e2e:848-contract": "node scripts/e2e-848-contract.mjs",
+    "smoke:s6-extract-and-docs": "node scripts/ensure-built.mjs mcp && node scripts/smoke-s6-extract-and-docs.mjs",
     "e2e:897-scope": "node scripts/e2e-897-scope.mjs",
     "e2e:907-lens": "node scripts/e2e-loader-lens.mjs && node scripts/e2e-loader-lens-file.mjs",
     "e2e:907-validate": "node scripts/e2e-validate-extraction.mjs",
@@ -193,6 +194,7 @@
     "smoke:740-graph": "node scripts/ensure-built.mjs all && node scripts/smoke-740-graph.mjs",
     "smoke:858": "node scripts/ensure-built.mjs mcp && node scripts/smoke-858-project-switch.mjs",
     "smoke:859": "node scripts/ensure-built.mjs mcp && node scripts/smoke-859-line-trace.mjs",
+    "smoke:s6-analysis-entries": "node scripts/ensure-built.mjs all && node scripts/smoke-s6-analysis-entries.mjs",
     "smoke:sandbox-prg-start": "node scripts/ensure-built.mjs mcp && node scripts/smoke-sandbox-prg-start.mjs",
     "smoke:d81-drive": "node scripts/ensure-built.mjs mcp && node scripts/smoke-d81-drive.mjs",
     "smoke:session-run-advance": "node scripts/ensure-built.mjs mcp && node scripts/smoke-session-run-advance.mjs",
@@ -234,6 +236,7 @@
     "e2e:911-variants": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-variants.mjs",
     "e2e:911-door": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-door.mjs",
     "e2e:911-candidate": "node scripts/ensure-built.mjs mcp && node scripts/e2e-911-candidate.mjs",
+    "e2e:917": "node scripts/ensure-built.mjs mcp && node scripts/e2e-917-cards.mjs",
     "e2e:916-scenario-tests": "node scripts/ensure-built.mjs mcp && node scripts/e2e-916-scenario-tests.mjs",
     "e2e:912": "node scripts/ensure-built.mjs mcp && node scripts/e2e-912-state-map.mjs",
     "e2e:914": "node scripts/ensure-built.mjs all && node scripts/e2e-914-dialect.mjs",
@@ -346,7 +349,9 @@
     "check:dist-reachable": "node scripts/check-dist-reachable.mjs",
     "e2e:crt-manifest-role": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-role.mjs",
     "e2e:crt-manifest-image-link": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-image-link.mjs",
-    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs"
+    "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs",
+    "smoke:d64-no-bam": "node scripts/smoke-d64-no-bam.mjs",
+    "smoke:boot-stage-payload": "node scripts/smoke-boot-stage-payload.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

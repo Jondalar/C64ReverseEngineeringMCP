@@ -63,5 +63,53 @@ ok(res.sorted.length === 7, "10 result reports 7 sorted files", `sorted=${res.so
 const res2 = svc.sortLooseInputMedia();
 ok(res2.sorted.length === 0, "11 idempotent: second run sorts 0", `sorted=${res2.sorted.length}`);
 
+// 6. media in a folder the user made (a project often arrives as disk/*.d64) are registered
+//    where they are: nothing moves, nothing is copied, every path into the folder stays
+{
+  const { mkdirSync, rmSync } = await import("node:fs");
+  const d2 = testTmpDir("c64re-bug015-sub-");
+  mkdirSync(join(d2, "disk"), { recursive: true });
+  mkdirSync(join(d2, "extras", "deep"), { recursive: true });
+  writeFileSync(join(d2, "disk", "side-a.d64"), Buffer.from([1]));
+  writeFileSync(join(d2, "disk", "side-b.d64"), Buffer.from([2]));
+  writeFileSync(join(d2, "extras", "deep", "trainer.prg"), Buffer.from([1, 8, 0x60]));
+  writeFileSync(join(d2, "extras", "notes.md"), "# mine");
+  const s2 = new ProjectKnowledgeService(d2);
+  s2.initProject({ name: "BUG-015 subfolders" });
+  const h2 = (p) => existsSync(join(d2, p));
+  // a re-run of init (no subfolders option) never looks into the user's folders
+  ok(s2.sortLooseInputMedia().sorted.length === 0 && h2("disk/side-a.d64"), "12a without the first-init option a user folder is not entered");
+  const r = s2.sortLooseInputMedia({ subfolders: true });
+  const arts = s2.listArtifacts();
+  const at = (rel) => arts.find((x) => (x.path ?? "").replace(/\\/g, "/").endsWith(rel));
+  ok(!!at("disk/side-a.d64") && !!at("disk/side-b.d64") && !!at("extras/deep/trainer.prg") && at("disk/side-a.d64")?.kind === "d64", "12 media in user subfolders (any depth) are registered at their own path", r.sorted.map((x) => x.from).join(","));
+  ok(!h2("input/disk/side-a.d64") && !h2("input/prg/trainer.prg"), "12b nothing is copied into input/ (one file, one artifact)");
+  ok(h2("extras/notes.md") && !h2("input/docs/notes.md"), "13 a user folder's notes stay where they are");
+  ok(h2("disk/side-a.d64") && h2("disk/side-b.d64") && h2("extras/deep/trainer.prg"), "14 the files stay where they were");
+  const art = at("disk/side-a.d64");
+  ok(!!art && /Registered in place/.test(art.description ?? ""), "15 the record says it was registered in place", art?.description);
+  ok(s2.sortLooseInputMedia({ subfolders: true }).sorted.length === 0, "16 idempotent with subfolders");
+  rmSync(d2, { recursive: true, force: true });
+}
+
+// 7. through project_init: the first init takes disk/*.d64; a re-run leaves a build folder alone
+{
+  const { mkdirSync, rmSync } = await import("node:fs");
+  const { Harness } = await import("./lib/e2e-906-harness.mjs");
+  const H = new Harness("bug015-");
+  const d3 = testTmpDir("c64re-bug015-mcp-");
+  try {
+    mkdirSync(join(d3, "disk"), { recursive: true });
+    writeFileSync(join(d3, "disk", "boot.d64"), Buffer.from([1]));
+    const m = await H.mcp(d3, { onboard: false });
+    const r1 = await m.call("project_init", { project_dir: d3, name: "sub", preferred_assembler: "kickass" });
+    ok(!existsSync(join(d3, "input", "disk", "boot.d64")) && existsSync(join(d3, "disk", "boot.d64")) && /disk\/boot\.d64 registered in place/.test(r1), "17 project_init registers disk/*.d64 in place on the first init", (r1.match(/Input media sorted.*\n.*/) ?? [""])[0]);
+    mkdirSync(join(d3, "port"), { recursive: true });
+    writeFileSync(join(d3, "port", "build.prg"), Buffer.from([1, 8, 0x60]));
+    await m.call("project_init", { project_dir: d3, name: "sub", machine_model: "c64-ntsc" });
+    ok(existsSync(join(d3, "port", "build.prg")) && !existsSync(join(d3, "input", "prg", "build.prg")), "18 a re-run of project_init leaves a build folder's PRG where it is");
+  } finally { H.cleanup(); rmSync(d3, { recursive: true, force: true }); }
+}
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} bug015: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

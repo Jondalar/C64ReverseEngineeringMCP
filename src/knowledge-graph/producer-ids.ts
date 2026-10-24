@@ -14,6 +14,8 @@ export const SIGNATURE_RESOLVE_PRODUCER = "signature-resolve";
 export const CARTRIDGE_PRODUCER_ID = "cartridge";
 export const DOCUMENT_PRODUCER = "document";
 export const BOUNDARY_MODEL_PRODUCER = "boundary-model";
+/** Spec 917 - the plan packages, cards, their edges and verdicts */
+export const WORK_PLAN_PRODUCER = "work-plan";
 
 /** Ids earlier releases wrote -> the id that replaces them. Reader-only: nothing writes a key of this table. */
 export const LEGACY_PRODUCER_IDS: ReadonlyMap<string, string> = new Map([

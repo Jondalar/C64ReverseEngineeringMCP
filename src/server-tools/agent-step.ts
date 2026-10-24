@@ -66,6 +66,7 @@ import {
   workflowStep,
   type WorkflowStep,
 } from "../agent-orchestrator/workflow-model.js";
+import { planNextStep } from "../work/next.js";
 import { runProjectInventorySync } from "./inventory-sync.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
@@ -293,7 +294,7 @@ function mkSuggestion(step: WorkflowStep, why: string, args?: Record<string, unk
   return {
     stepId: step.id,
     phase: step.phase,
-    tool: step.defaultTool, // always a default tool or undefined (ask-human/change-validate)
+    tool: step.defaultTool, // always a default tool or undefined (ask-human)
     args,
     label: step.title,
     why,
@@ -334,8 +335,13 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
     };
   }
 
-  // 2. Inventory dirty → inventory-sync (outranks almost everything).
-  if (signals.unregisteredFiles > 0 || signals.unimportedManifests > 0 || signals.staleViews > 0) {
+  // 2. Inventory dirty → inventory-sync (outranks almost everything). Untracked files and
+  // unimported manifests make every count — and a card's [registration] check — wrong, so
+  // they come first. Stale views alone do not: every knowledge write makes them stale, and
+  // ranking them above the plan hid a STOPPED card behind a view rebuild (917 S6).
+  const planStep = planNextStep(projectDir);
+  const inventoryDirty = signals.unregisteredFiles > 0 || signals.unimportedManifests > 0;
+  if (inventoryDirty || (signals.staleViews > 0 && !planStep)) {
     const bits: string[] = [];
     if (signals.unregisteredFiles > 0) {
       const ex = signals.unregisteredExamples.length ? ` (e.g. ${signals.unregisteredExamples.join(", ")})` : "";
@@ -351,6 +357,13 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
       ),
       blockedBy,
     };
+  }
+
+  // 2b. Spec 917 D1 - a project with a plan takes its next step from the plan.
+  if (planStep) {
+    if (planStep.humanQuestion) blockedBy.push({ id: "card-gate", prompt: planStep.humanQuestion });
+    const views = signals.staleViews > 0 ? ` (Also: ${signals.staleViews} project view(s) stale — project_inventory_sync rebuilds them.)` : "";
+    return { primary: suggestStep(planStep.stepId, planStep.why + views, planStep.args), blockedBy };
   }
 
   // 3. Media present but not extracted → media-inspect / media-extract.
@@ -540,7 +553,7 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   blockedBy.push({
     id: "next-objective",
     prompt: signals.findings > 0 || signals.sourceArtifacts > 0
-      ? "The linear pipeline has no obvious next product step. Decide the next objective (deeper disassembly, a runtime trace, a visual check, or a change/validate task once that lands)."
+      ? "The linear pipeline has no obvious next product step. Decide the next objective (deeper disassembly, a runtime trace, a visual check, or a change/validate task: a fix is validated by a scenario in test mode)."
       : "No media, payloads, or analysis to advance. Add input media (.d64/.g64/.crt/.prg) under the project, or state the objective.",
   });
   return {
@@ -550,8 +563,8 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
 }
 
 // Build the explicit branch list from the primary step's model branches,
-// resolving each to a suggestion with a generic (state-aware) why. ask-human and
-// change-validate branches carry no tool (change-validate is blocked).
+// resolving each to a suggestion with a generic (state-aware) why. ask-human
+// branches carry no tool.
 function buildBranches(primary: AgentStepSuggestion, signals: ProjectSignals, projectDir: string): AgentStepSuggestion[] {
   const step = workflowStep(primary.stepId);
   if (!step) return [];
@@ -567,9 +580,7 @@ function buildBranches(primary: AgentStepSuggestion, signals: ProjectSignals, pr
       continue;
     }
     let why: string;
-    if (b.blockedUntil) {
-      why = `Iterative alternative — blocked until ${b.blockedUntil} (patch/validate loop not yet available from the product surface).`;
-    } else if (b.id === "ask-human") {
+    if (b.id === "ask-human") {
       why = `Iterative alternative — escalate to the operator for a decision.`;
     } else {
       why = `Iterative alternative after ${primary.label.toLowerCase()}.`;
@@ -792,14 +803,6 @@ export async function runStep(service: ProjectKnowledgeService, projectRoot: str
       "project-init", "blocked",
       `Project initialization is performed by the project_init tool, not the step runner.`,
       `Run project_init(project_dir="${projectRoot}", name="<project name>"), then call agent_next_step again.`,
-    );
-  }
-
-  if (step.blockedUntil) {
-    return blockedRun(
-      stepId, "blocked",
-      `This step is blocked until ${step.blockedUntil} (the patch/change/validate loop is not yet available from the product surface).`,
-      `Pick an available step from agent_next_step (e.g. runtime-trace or record-knowledge).`,
     );
   }
 

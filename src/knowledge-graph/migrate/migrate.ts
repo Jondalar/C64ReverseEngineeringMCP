@@ -817,6 +817,7 @@ export function applyLegacyRecords(ctx: MigrationContext, input: Omit<LegacyInpu
       const p = parseId(id);
       if (p.form === "project") return { id, kind: p.kind, ctx: p.ctx, address: p.address, endAddress: null };
       if (p.form === "subsystem") return { id, kind: "subsystem", ctx: { space: "ram" }, address: 0, endAddress: null };
+      if (p.form === "plan" || p.form === "card") return { id, kind: p.kind, ctx: { space: "ram" }, address: 0, endAddress: null };
       return { id, kind: p.kind, ctx: { space: "ram" }, address: p.address, endAddress: null };
     } catch { return undefined; }
   };

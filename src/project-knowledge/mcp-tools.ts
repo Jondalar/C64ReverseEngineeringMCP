@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { resolveProjectDir } from "../project-root.js";
+import { hasProjectMarker, resolveProjectDir } from "../project-root.js";
 import { auditProject, renderProjectAudit } from "./audit.js";
 import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
 import { safeHandler } from "../server-tools/safe-handler.js";
@@ -169,7 +169,7 @@ function cartridgeStatusLines(root: string): string[] {
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, preferred_assembler (kickass | 64tass — required the first time: the human chooses the dialect the project's listings are written in), optional description/tags/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, preferred_assembler (kickass | 64tass — required the first time: the human chooses the dialect the project's listings are written in), optional description/tags/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. The first init moves loose media from the root into input/ and registers media (D64/G64/CRT/PRG) in any folder you made, such as disk/, where they are — nothing in your folder moves; a re-run does not look into your folders. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
@@ -196,12 +196,16 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           `Then call project_init again with preferred_assembler="kickass" or "64tass". Sources in the other dialect can still be mixed in later (assemble_source units).`,
         ].join("\n"));
       }
+      // Only a project's first init looks into the user's folders: a re-run (to change the model)
+      // must not pull a build directory's PRGs or a reference CRT into input/. Asked before the
+      // service exists: constructing it already writes the project's markers.
+      const firstInit = !hasProjectMarker(projectRoot);
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model, ...(platform ? { platform } : {}) });
       // BUG-015 — sort any loose media in the project root into the canonical
       // typed input/ folders (.d64/.g64→disk, .crt→crt, .prg→prg, docs→docs)
       // and register each at its canonical path. Idempotent.
-      const mediaSort = service.sortLooseInputMedia();
+      const mediaSort = service.sortLooseInputMedia({ subfolders: firstInit });
       // Spec 740.1 — scaffold the project wiki skeleton (docs/index.md +
       // knowledge/activity-log.md) so the search/wiki layer has a home.
       const wikiScaffold = ensureWikiSkeleton(projectRoot);
@@ -258,7 +262,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Harness rules: ${summariseProjectRules(projectRules) ?? "already current"}`,
         `UI starters for double-click: project_launchers`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,
-        ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
+        ...mediaSort.sorted.map((s) => (s.from === s.to ? `  ${s.from} registered in place (${s.kind})` : `  ${s.from} → ${s.to} (${s.kind})`)),
         ...(mediaSort.skipped.length > 0
           ? [`Skipped: ${mediaSort.skipped.length}`, ...mediaSort.skipped.map((s) => `  ${s.file}: ${s.reason}`)]
           : []),

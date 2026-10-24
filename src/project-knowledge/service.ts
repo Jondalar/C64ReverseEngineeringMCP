@@ -999,12 +999,12 @@ export class ProjectKnowledgeService {
   }
 
   // BUG-015 — canonical input layout. After init (or on demand), sweep loose
-  // media sitting in the project root into the typed input/ subfolders and
+  // media sitting in the project root or in a folder the user made into the typed input/ subfolders and
   // register each as an artifact pointing at the canonical path. The file is
   // MOVED (root stays clean) but its original root-relative name is preserved
   // as provenance in the artifact description. Idempotent: a second run finds
   // nothing loose. No repo-samples fallback — only the project's own root.
-  sortLooseInputMedia(): SortLooseInputMediaResult {
+  sortLooseInputMedia(opts: { subfolders?: boolean } = {}): SortLooseInputMediaResult {
     this.storage.ensureProjectStructure();
     const root = this.storage.paths.root;
     const sorted: SortedMediaEntry[] = [];
@@ -1022,21 +1022,47 @@ export class ProjectKnowledgeService {
         default: return null;
       }
     };
-    let entries: string[];
-    try {
-      entries = readdirSync(root);
-    } catch {
-      return { sorted, skipped };
-    }
-    for (const name of entries) {
-      if (name.startsWith(".")) continue;                       // dotfiles / markers
+    // Loose files in the root, and media in any folder the user made (a `disk/` holding the
+    // images is how a project usually arrives). Folders C64RE writes itself are not entered,
+    // and from the user's folders only media are registered, in place — the folder is never touched.
+    const MANAGED = new Set(["input", "analysis", "artifacts", "knowledge", "views", "session", "snapshots", "docs", "build", "tools", "src", "node_modules", "dist"]);
+    const MEDIA = new Set([".d64", ".g64", ".crt", ".prg"]);
+    const candidates: string[] = [];
+    const walk = (relDir: string, depth: number): void => {
+      let names: string[];
+      try { names = readdirSync(resolve(root, relDir)); } catch { return; }
+      for (const n of names) {
+        if (n.startsWith(".")) continue;                         // dotfiles / markers
+        const rel = relDir ? `${relDir}/${n}` : n;
+        let st;
+        try { st = statSync(resolve(root, rel)); } catch { continue; }
+        if (st.isDirectory()) {
+          if (depth === 0 && MANAGED.has(n)) continue;
+          if (opts.subfolders && depth < 4) walk(rel, depth + 1);
+        } else if (st.isFile() && (depth === 0 || MEDIA.has(extname(n).toLowerCase()))) {
+          candidates.push(rel);
+        }
+      }
+    };
+    walk("", 0);
+    for (const name of candidates) {
       const abs = resolve(root, name);
-      let st;
-      try { st = statSync(abs); } catch { continue; }
-      if (!st.isFile()) continue;                                // only top-level files
       const ext = extname(name).toLowerCase();
       const dest = route(ext);
       if (!dest) continue;                                       // unknown type — leave in root
+      // A file in the user's own folder is registered where it is: moving it breaks every path the
+      // user holds into that folder, copying it makes one file two artifacts. A loose root file
+      // moves into input/ (the root stays clean).
+      if (name.includes("/")) {
+        if (this.listArtifacts().some((x) => resolve(root, x.path) === abs)) continue;   // already registered there
+        const placed = this.saveArtifact({
+          kind: dest.kind, scope: dest.scope, title: basename(name), path: name.replace(/\\/g, "/"), producedByTool: "project_init",
+          description: `Registered in place by project_init (a folder of the user's; left where it is).`,
+          tags: ["input", "registered-in-place"],
+        });
+        sorted.push({ from: name, to: name, kind: dest.kind, artifactId: placed.id });
+        continue;
+      }
       const targetAbs = resolve(dest.dir, basename(name));
       if (existsSync(targetAbs)) {                               // never clobber an existing canonical file
         skipped.push({ file: name, reason: `target already exists at ${relative(root, targetAbs)}` });
@@ -1056,7 +1082,7 @@ export class ProjectKnowledgeService {
         title: basename(name),
         path: canonicalRel,
         producedByTool: "project_init",
-        description: `Sorted into input/ by project_init. Original source: ${name} (project root).`,
+        description: `Sorted into input/ by project_init. Original source: ${name} (relative to the project root).`,
         tags: ["input", "auto-sorted"],
       });
       sorted.push({ from: name, to: canonicalRel, kind: dest.kind, artifactId: artifact.id });
@@ -2844,7 +2870,7 @@ export class ProjectKnowledgeService {
   private ownerStemForArtifact(artifactId: string): string | undefined {
     const artifact = this.getArtifactById(artifactId);
     if (!artifact) return undefined;
-    return normStem(basename(artifact.relativePath || artifact.path || artifact.title));
+    return normStem(artifact.relativePath || artifact.path || artifact.title);
   }
 
   // Spec 053 (Bug 20): mark a sprite/charset/bitmap segment as

@@ -57,8 +57,8 @@ const KEEPER_GRACE_MS = 5_000;
  * and its scratch removed once its owner is gone.
  */
 const KEEPER = `
-const { spawn } = require("node:child_process");
-const { rmSync } = require("node:fs");
+const { spawn } = require("node:child_process"); // cjs-child
+const { rmSync } = require("node:fs"); // cjs-child
 const [parent, budget, scratch, endUrl, cmd, ...args] = JSON.parse(process.argv[1]);
 const record = process.env.C64RE_KEEPER_RECORD;
 const port = process.env.C64RE_KEEPER_PORT;

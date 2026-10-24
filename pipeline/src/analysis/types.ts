@@ -132,7 +132,7 @@ export type CodeSeedOrigin =
   | "cross_owner_call"
   /** a JUMPS_TO edge from a DIFFERENT owner (jump table, rts-dispatch — Spec 826 D5) */
   | "cross_owner_jump"
-  /** a Spec 826.0 RESOLVES_TO alias that points at a routine/label of THIS owner */
+  /** a Spec 826.0 RESOLVES_TO alias that points at a human routine/label of THIS owner */
   | "resolved_alias";
 
 /**

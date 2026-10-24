@@ -109,7 +109,7 @@ export async function critique(projectDir: string): Promise<CriticReport> {
   const ownerByArtifact = new Map<string, string>();
   for (const a of rec.listArtifacts()) {
     const path = a.relativePath ?? a.path ?? a.title;
-    if (path) ownerByArtifact.set(a.id, normStem(basename(path)));
+    if (path) ownerByArtifact.set(a.id, normStem(path));
   }
   const subjectOwners = (f: { artifactIds?: string[]; entityIds?: string[] }): Set<string> => {
     const out = new Set<string>();

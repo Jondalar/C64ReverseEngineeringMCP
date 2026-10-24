@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
-import { buildWorkerPrompt, isToolAllowedInPhase, phaseForTool } from "../dist/agent-orchestrator/phase-tools.js";
+import { isToolAllowedInPhase, phaseForTool } from "../dist/agent-orchestrator/phase-tools.js";
 import { testTmpDir } from "./lib/neutral-tmp.mjs";
 
 const root = testTmpDir("c64re-sprint-34-35-smoke-");
@@ -38,12 +38,9 @@ try {
   assert.equal(frozen.phaseFrozen, true);
   assert.equal(frozen.phaseFrozenReason, "level data");
 
-  // Worker prompt builder.
-  const prompt = buildWorkerPrompt({ phase: 4, artifactId: a.id, artifactTitle: "T1" });
-  assert.match(prompt, /Phase 4/);
-  assert.match(prompt, /Segment Analysis/);
-  assert.match(prompt, /inspect_address_range/);
-  assert.match(prompt, /Hand-off contract/);
+  // The phase worker briefing is gone: the worker's briefing is its card (c64re_worker_card, e2e-917-cards).
+  const phaseTools = await import("../dist/agent-orchestrator/phase-tools.js");
+  assert.equal(phaseTools.buildWorkerPrompt, undefined, "buildWorkerPrompt is removed");
 
   // phaseForTool + isToolAllowedInPhase.
   // analyze/disasm are first-class in phase 2 (Discovery) since 61912c99 "loader RE is a Discovery activity";

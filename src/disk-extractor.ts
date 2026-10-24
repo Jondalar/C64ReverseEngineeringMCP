@@ -71,6 +71,8 @@ export interface ExtractedDiskManifest {
   outputDir: string;
   manifestPath: string;
   files: ExtractedDiskFile[];
+  /** No DOS directory on this disk (a data disk): what 18/0 holds instead. */
+  noDos?: string;
 }
 
 function sanitizeName(value: string): string {
@@ -111,6 +113,7 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
     format,
     diskName: directory.name,
     diskId: directory.id,
+    ...(directory.noDos ? { noDos: directory.noDos } : {}),
     outputDir: "",
     manifestPath: "",
     files: directory.files.map((entry, index): ExtractedDiskFile => {

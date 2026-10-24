@@ -23,6 +23,7 @@ import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
 import { registerGraphTools } from "./server-tools/graph-tools.js";
+import { registerWorkTools } from "./work/tools.js";
 import { ORIENTATION_TOOLS, gateDisabled, isOnboarded, onboardingMessage, soleOnboardedProject } from "./server-tools/onboarding-gate.js";
 import { isProjectInitialised, nextStepError } from "./server-tools/error-helpers.js";
 import { registerCostTools } from "./server-tools/cost-tools.js";
@@ -325,6 +326,7 @@ function createServer(): McpServer {
   registerGraphicsRenderTools(server, toolContext);
   registerInspectRangeTools(server, toolContext);
   registerGraphTools(server, toolContext);
+  registerWorkTools(server, toolContext);
   registerCostTools(server, toolContext);
   registerOptimiseTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
@@ -335,7 +337,7 @@ function createServer(): McpServer {
   registerStateMapTools(server, toolContext);
   registerTraceStoreTools(server, toolContext);
   registerReferenceTools(server, toolContext, repoDir());
-  registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
+  registerPromptTools(server, { readTextFile, repoRoot: repoDir(), projectDir });
   registerPayloadTools(server, toolContext);
   registerRegistrationTools(server, toolContext);
   registerInventorySyncTool(server, toolContext);
@@ -400,6 +402,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/graphics-render.ts", () => registerGraphicsRenderTools(server, toolContext));
   group("server-tools/inspect-range.ts", () => registerInspectRangeTools(server, toolContext));
   group("server-tools/graph-tools.ts", () => registerGraphTools(server, toolContext));
+  group("work/tools.ts", () => registerWorkTools(server, toolContext));
   group("server-tools/cost-tools.ts", () => registerCostTools(server, toolContext));
   group("server-tools/optimise-tools.ts", () => registerOptimiseTools(server, toolContext));
   group("server-tools/disk-g64.ts", () => registerDiskG64Tools(server, toolContext));
@@ -410,7 +413,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/state-map-tools.ts", () => registerStateMapTools(server, toolContext));
   group("server-tools/trace-store.ts", () => registerTraceStoreTools(server, toolContext));
   group("server-tools/reference.ts", () => registerReferenceTools(server, toolContext, repoDir()));
-  group("server-tools/prompts.ts", () => registerPromptTools(server, { readTextFile, repoRoot: repoDir() }));
+  group("server-tools/prompts.ts", () => registerPromptTools(server, { readTextFile, repoRoot: repoDir(), projectDir }));
   group("server-tools/payloads.ts", () => registerPayloadTools(server, toolContext));
   group("server-tools/registration.ts", () => registerRegistrationTools(server, toolContext));
   group("server-tools/inventory-sync.ts", () => registerInventorySyncTool(server, toolContext));

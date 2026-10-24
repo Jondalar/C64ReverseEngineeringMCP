@@ -1,5 +1,5 @@
 {
-  "total": 307,
+  "total": 309,
   "specCount": 0,
   "advancedCandidate": 105,
   "byNamespace": {
@@ -47,6 +47,7 @@
     "archive": 1,
     "assemble": 1,
     "c64re": 1,
+    "card": 1,
     "change": 1,
     "close": 1,
     "code": 1,
@@ -60,6 +61,7 @@
     "export": 1,
     "merge": 1,
     "optimisation": 1,
+    "plan": 1,
     "pointer": 1,
     "ram": 1,
     "reconstruct": 1,
@@ -118,7 +120,7 @@
       "ns": "agent",
       "hasSpec": false,
       "firstSentence": "List ranked, phase-consistent next actions across artifacts, read-only.",
-      "desc": "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact + optional worker-subagent suggestion. Does not mutate state.",
+      "desc": "List ranked, phase-consistent next actions across artifacts, read-only. Use when you want to choose among options or see what each artifact needs. Not for the single routine next step (use c64re_whats_next) or full reload (use agent_onboard). Inputs: none. Returns: ranked actions per non-frozen artifact; for an architect, the issued cards and the c64re_worker_card prompt to hand each to a worker. Does not mutate state.",
       "tier": "default?"
     },
     {
@@ -397,7 +399,7 @@
       "ns": "c64re",
       "hasSpec": false,
       "firstSentence": "Return the single next required action for the active artifact, cheaply, to call every turn.",
-      "desc": "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, optional worker-spawn block, audit warnings, a short reminder.",
+      "desc": "Return the single next required action for the active artifact, cheaply, to call every turn. Use as the routine per-turn nudge. Not for full state reload (use agent_onboard) or ranked option lists (use agent_propose_next). Inputs: optional artifact id. Returns: current phase, the one next action, an architect's cards out with workers, audit warnings, a short reminder.",
       "tier": "default?"
     },
     {
@@ -416,6 +418,15 @@
       "hasSpec": false,
       "firstSentence": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot.",
       "desc": "Look up C64 BASIC/KERNAL ROM knowledge by address or search term from the local reference snapshot. Use to identify a ROM routine/vector while reading disassembly. For a VIC-20 or TED (C16/Plus/4) file pass platform (or prg_path / a project whose machine it is): the answer then comes from the platform store's rows for that machine, never the C64 snapshot, and says so when it has no row. Not for project-specific labels (use list_findings / list_entities). Inputs: address or query string, optional platform/prg_path/project_dir. Returns: matching ROM entries.",
+      "tier": "default?"
+    },
+    {
+      "name": "card",
+      "file": "work/tools.ts",
+      "ns": "card",
+      "hasSpec": false,
+      "firstSentence": "One step of one plan package, with a done-when C64RE judges itself.",
+      "desc": "One step of one plan package, with a done-when C64RE judges itself. Use to issue a card (the architect: goal, what to read, what to change, done-when as checks, what not to do, when to stop, requires), to read one (show), to re-run its checks (check), and to record a human gate's decision (judge). Not for the plan (use plan) or for the worker's report (agent_record_step with card and result). Inputs: action issue|show|check|judge|supersede|usage; issue: id, title, package, role, goal, context, read[], change, do, doneWhen: check[], not[], stopIf[], requires[], supersedes[] (the STOPPED / NOT KEPT cards it re-plans); show/check: card; judge: card, kept, by, why; supersede: card (the old one), replacement; usage: card, model, tokens, tool_uses, duration_ms (what the worker's run cost, from the harness notification — the worker cannot see it). Returns: the card or its verdict, or a refusal naming what to do. issue is refused outside a package, for an existing id, with an empty or invalid doneWhen, or when a requires card is not KEPT (a requires on a superseded card means its replacement).",
       "tier": "default?"
     },
     {
@@ -936,8 +947,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List analysis artifacts (PRG, ASM/TAS listings, JSON, SYM, MD) in the project.",
-      "desc": "List analysis artifacts (PRG, ASM/TAS listings, JSON, SYM, MD) in the project. Use to see what files exist before reading one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional subdir. Returns: artifact paths + types.",
+      "firstSentence": "List the project's registered artifacts — media (D64/G64/CRT/PRG), extracted payloads, listings, analysis JSON, documents — one line each with its id, kind/role and path.",
+      "desc": "List the project's registered artifacts — media (D64/G64/CRT/PRG), extracted payloads, listings, analysis JSON, documents — one line each with its id, kind/role and path. Use to see what the project holds and to get an artifact id before reading or linking one. Not for payload entities (use list_payloads) or knowledge records (use list_findings). Inputs: optional project_dir, subdir (a path prefix; '.' or omitted = all), kind, include_internal. Returns: id, kind/role, path, size per artifact, and how many files on disk are not registered yet.",
       "tier": "default?"
     },
     {
@@ -1220,6 +1231,15 @@
       "tier": "advanced?"
     },
     {
+      "name": "plan",
+      "file": "work/tools.ts",
+      "ns": "plan",
+      "hasSpec": false,
+      "firstSentence": "The project's plan: work packages in order, each with its own done-when.",
+      "desc": "The project's plan: work packages in order, each with its own done-when. Use at kickoff to store the packages the human agreed (set), to see where the work stands (show: open packages, cards NOT KEPT, cards WAITING for a human, cards blocked by an unkept requires), and to close a package (close) once every card of it is KEPT and its own done-when holds. Not for one step of work (use card) or for recording progress (use agent_record_step). Inputs: action set|show|close|usage; set: packages [{id, title, doneWhen: check[]}], replace; close: package (and by+why when only a [human] line is left); usage: package, model, tokens, tool_uses, duration_ms (the architect's own run on that package, as the harness reported it). show sums the usage per package. Returns: the plan, or a refusal naming what to do. set, close and usage are the architect's (position architect; set also while unset).",
+      "tier": "default?"
+    },
+    {
       "name": "pointer_report",
       "file": "server-tools/analysis-workflow.ts",
       "ns": "pointer",
@@ -1270,7 +1290,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
-      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, preferred_assembler (kickass | 64tass — required the first time: the human chooses the dialect the project's listings are written in), optional description/tags/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
+      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. The project also remembers which machine its CODE runs on (platform: c64 default, c1541, vic20 or plus4): a render, an analysis or a lookup that is not told one, and whose file's record names none, uses it. Inputs: project name, preferred_assembler (kickass | 64tass — required the first time: the human chooses the dialect the project's listings are written in), optional description/tags/machine_model/platform. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. The first init moves loose media from the root into input/ and registers media (D64/G64/CRT/PRG) in any folder you made, such as disk/, where they are — nothing in your folder moves; a re-run does not look into your folders. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
       "tier": "default?"
     },
     {

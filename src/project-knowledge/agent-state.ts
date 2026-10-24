@@ -11,6 +11,13 @@ const AGENT_STATE_SCHEMA_VERSION = 1;
 export const AgentRoleSchema = z.enum(["analyst", "cartographer", "implementer", "archivist", "cracker", "unset"]);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
 
+// Spec 917 D3 - the second axis beside the domain role: whether this session is the architect. Workers are
+// subagents of the same server, so a stored "worker" would overwrite the architect's position; a worker carries
+// no position and names its card in every report instead. A state written with the old "worker" reads as unset.
+export const AgentPositionSchema = z.enum(["architect", "unset"]);
+const StoredPositionSchema = z.preprocess((v) => (v === "worker" ? "unset" : v), AgentPositionSchema);
+export type AgentPosition = z.infer<typeof AgentPositionSchema>;
+
 const AgentHistoryEntrySchema = z.object({
   at: z.string().min(1),
   role: AgentRoleSchema,
@@ -22,6 +29,7 @@ export const AgentStateSchema = z.object({
   schemaVersion: z.literal(AGENT_STATE_SCHEMA_VERSION),
   updatedAt: z.string().min(1),
   role: AgentRoleSchema.default("unset"),
+  position: StoredPositionSchema.default("unset"),
   currentFocus: z.string().optional(),
   lastCompletedStep: z.string().optional(),
   nextAction: z.string().optional(),
@@ -42,6 +50,7 @@ function emptyState(): AgentState {
     schemaVersion: AGENT_STATE_SCHEMA_VERSION,
     updatedAt: nowIso(),
     role: "unset",
+    position: "unset",
     constraints: [],
     history: [],
   };
@@ -91,6 +100,11 @@ function renderNextMd(projectRoot: string, projectName: string, state: AgentStat
   lines.push(`## Role`);
   lines.push(state.role);
   lines.push(``);
+  if (state.position !== "unset") {
+    lines.push(`## Position`);
+    lines.push(state.position);
+    lines.push(``);
+  }
   lines.push(`## Current Focus`);
   lines.push(state.currentFocus?.trim() ? state.currentFocus : "_(not set)_");
   lines.push(``);

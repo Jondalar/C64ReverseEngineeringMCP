@@ -15,7 +15,10 @@ assert.equal(track?.kind, "zp");
 assert.match(track.name, /current track/, "c1541 knows current track");
 assert.match(platformNode("c1541", 0x1800)?.name ?? "", /VIA1 PRB/, "VIA1 PRB labelled");
 assert.equal(platformNode("c1541", 0x1800).kind, "io");
-assert.equal(platformNode("c1541", 0xa47c)?.symbol, "dos_search_header");
+// The DOS ROM is $C000-$FFFF: a symbol below it was invented (the old seed rows), and the table names the ROM.
+assert.equal(platformNode("c1541", 0xa47c), undefined, "no invented DOS symbol below the ROM");
+assert.equal(platformNode("c1541", 0xd586)?.symbol, "DOREAD", "DOREAD at $D586 (read job)");
+assert.equal(platformNode("c1541", 0xc100)?.symbol, "SETLDA", "SETLDA at $C100");
 assert.match(platformComment("c1541", 0x1800) ?? "", /VIA1 PRB/);
 
 console.log("sprint 41 smoke test passed");

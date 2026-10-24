@@ -1,6 +1,5 @@
 // Spec 034 + 035: per-phase tool allow-lists + helpers used by
-// agent_propose_next, the phase gate, and the c64re_worker_phase
-// prompt. The phase model is described in docs/re-phases.md.
+// agent_propose_next and the phase gate. The phase model is described in docs/re-phases.md.
 
 export type PhaseNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -152,64 +151,4 @@ export function isToolAllowedInPhase(toolName: string, currentPhase: PhaseNumber
     };
   }
   return { allowed: true };
-}
-
-export function buildWorkerPrompt(args: { phase: PhaseNumber; artifactId: string; artifactTitle?: string; role?: "analyst" | "cracker" }): string {
-  const role = args.role ?? "analyst";
-  const tools = PHASE_TOOLS[args.phase];
-  const lines: string[] = [];
-  lines.push(`# Worker Briefing — Phase ${args.phase}: ${PHASE_TITLES[args.phase]}`);
-  lines.push("");
-  lines.push(`Target artifact: \`${args.artifactId}\`${args.artifactTitle ? ` (${args.artifactTitle})` : ""}`);
-  lines.push(`Active role: ${role}`);
-  lines.push("");
-  lines.push(`## Your scope`);
-  lines.push("");
-  lines.push(PHASE_NARRATIVES[args.phase]);
-  lines.push("");
-  lines.push(`## Allowed tools`);
-  lines.push("");
-  for (const tool of tools) lines.push(`- \`${tool}\``);
-  lines.push("");
-  lines.push(`## Required outputs before stopping`);
-  lines.push("");
-  switch (args.phase) {
-    case 1:
-      lines.push("- Every payload visible on the medium is registered (audit reports 0 unregistered for this artifact's family).");
-      break;
-    case 2:
-      lines.push("- ≥1 loader entry point declared on the artifact (or explicit confirmation that KERNAL LOAD is the only loader).");
-      lines.push("- Load context recorded if runtime address differs from on-disk header.");
-      break;
-    case 3:
-      lines.push("- `<stem>_analysis.json` + the artifact's listing exist (the listing is found with the project's own lookup, whichever dialect it is written in).");
-      lines.push("- Rebuild verification attempted; the result is on the listing's record and stamped in its head.");
-      break;
-    case 4:
-      lines.push("- Every non-trivial segment in the listing has either a 1-line classification or an open-question id.");
-      break;
-    case 5:
-      lines.push("- Annotations file written; `disasm` re-run with annotations; rebuild verified byte-identical.");
-      lines.push("- Every split table the analysis found in confirmed code has a `splitTables` entry (declared, or rejected with a reason).");
-      lines.push("- ≥1 `save_finding` references the artifact.");
-      break;
-    case 6:
-      lines.push("- Cross-artifact relations or flows added that reference this artifact.");
-      lines.push("- Any refuted hypothesis recorded as `save_anti_pattern`.");
-      break;
-    case 7:
-      lines.push("- Per-artifact status checklist at 100% for the active role.");
-      lines.push("- `render_docs` run.");
-      break;
-  }
-  lines.push("");
-  lines.push(`## Hand-off contract`);
-  lines.push("");
-  lines.push("When you finish, return ONE Markdown report with:");
-  lines.push(`- A heading: \`Phase ${args.phase} done\` or \`Phase ${args.phase} blocked: <reason>\``);
-  lines.push("- A 1-line summary per tool call you made");
-  lines.push("- A `recommended_next` block the master will pass to `agent_record_step`.");
-  lines.push("");
-  lines.push("Do not spawn further subagents. Do not call `agent_advance_phase`. Do not edit artifacts outside your target. The master decides next steps.");
-  return lines.join("\n");
 }

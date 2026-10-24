@@ -62,6 +62,7 @@ export const STEP_TO_LIFECYCLE: Record<string, LifecyclePhase> = {
   "visual-inspect": "re",
   "record-knowledge": "re",
   "change-validate": "build",
+  // Spec 917 plan steps are cross-phase (the plan spans the lifecycle) - intentionally unmapped, like "ask-human".
   // "ask-human" is cross-phase — intentionally unmapped (falls back to caller's context).
 };
 

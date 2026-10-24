@@ -331,7 +331,7 @@ function loadOwner(store: GraphStore, analysisPath: string, options: SeedSignatu
     const ev = JSON.parse(w.evidence) as { source_address?: number; indexed?: boolean; via_zp?: number };
     if (ev.indexed === true && ev.via_zp === undefined) continue;
     let target: number;
-    try { const p = parseId(w.to_id); if (p.form === "subsystem") continue; target = p.address; } catch { continue; }
+    try { const p = parseId(w.to_id); if (p.form === "subsystem" || p.form === "plan" || p.form === "card") continue; target = p.address; } catch { continue; }
     if (!operandOwner.has(target) || typeof ev.source_address !== "number") continue;
     patchedOps.add(target);
     const list = extraDefs.get(ev.source_address) ?? [];

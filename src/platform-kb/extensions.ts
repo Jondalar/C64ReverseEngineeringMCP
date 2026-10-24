@@ -154,17 +154,6 @@ const C1541_IO: ExtensionEntry[] = [
   { platform: "c1541", address: 0x1c0c, symbol: "VIA2_PCR", name: "VIA2 PCR" },
 ];
 
-// Seed symbols that predate the cache; the cache overrides them by address.
-const C1541_ROM_SEED: ExtensionEntry[] = [
-  { platform: "c1541", address: 0xa47c, symbol: "dos_search_header", name: "dos_search_header" },
-  { platform: "c1541", address: 0xa51a, symbol: "dos_init_drive", name: "dos_init_drive" },
-  { platform: "c1541", address: 0xa7e4, symbol: "dos_seek", name: "dos_seek" },
-  { platform: "c1541", address: 0xa786, symbol: "dos_format_track", name: "dos_format_track" },
-  { platform: "c1541", address: 0xc100, symbol: "dos_command_listener", name: "dos_command_listener" },
-  { platform: "c1541", address: 0xeb22, symbol: "dos_send_byte", name: "dos_send_byte" },
-  { platform: "c1541", address: 0xfd31, symbol: "dos_irq_entry", name: "dos_irq_entry" },
-];
-
 function loadC1541RomCache(repoRoot: string): ExtensionEntry[] {
   const path = join(repoRoot, "tools", "data", "c1541-rom.json");
   if (!existsSync(path)) return [];
@@ -204,7 +193,7 @@ export function secondaryRows(platform: PlatformTag): SeedRow[] {
 /** Later entries win on (platform, address) — the cache overrides the seed. */
 export function loadExtensions(repoRoot: string): ExtensionEntry[] {
   const ordered = [
-    ...C64_BANKING, ...C64_CARTRIDGE_IO, ...C1541_ZP, ...C1541_IO, ...C1541_ROM_SEED, ...loadC1541RomCache(repoRoot),
+    ...C64_BANKING, ...C64_CARTRIDGE_IO, ...C1541_ZP, ...C1541_IO, ...loadC1541RomCache(repoRoot),
     ...fromSeed("vic20", VIC20_SECONDARY_ROWS), ...fromSeed("plus4", PLUS4_SECONDARY_ROWS),
     ...fromSeed("vic20", VIC20_ROWS), ...fromSeed("plus4", PLUS4_ROWS),
   ];

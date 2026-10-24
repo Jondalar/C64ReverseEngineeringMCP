@@ -174,7 +174,7 @@ export function annotations(graph: Graph, id: string): NodeAnnotations {
   const evidence = db.prepare(
     "SELECT * FROM evidence WHERE (target_table = 'nodes' AND target_key = ?) OR (target_table = 'claims' AND target_key LIKE ?) ORDER BY captured_at DESC, legacy_id",
   ).all(id, `${id}|%`) as unknown as EvidenceRow[];
-  const { docs, docsIndex } = node.dangling || node.kind === "subsystem" ? { docs: [], docsIndex: "absent" as const } : docSectionsAt(projectDirOf(graph), node.address);
+  const { docs, docsIndex } = node.dangling || node.kind === "subsystem" || node.kind === "plan_package" || node.kind === "card" ? { docs: [], docsIndex: "absent" as const } : docSectionsAt(projectDirOf(graph), node.address);
   return { node, annotations: rows, claims, evidence, docs, docsIndex };
 }
 

@@ -74,6 +74,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 848 — the human's expectations, stored. contract_show must be reachable at
   // session start (it is what the onboarding hands over) and contract_set at kickoff.
   "contract_show", "contract_set",
+  // Spec 917 - the plan and its cards: a step is a contract C64RE judges itself.
+  "plan", "card",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

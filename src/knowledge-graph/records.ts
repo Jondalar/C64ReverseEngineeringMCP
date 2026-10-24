@@ -31,6 +31,8 @@ import { canonicalJson } from "./json.js";
 import type { NodeRow } from "./schema.js";
 import { GraphStore, readProjectSlug } from "./store.js";
 import { canonicalTag } from "../slots/schema.js";
+// Spec 917 - the work layer keeps its verdicts, reports and gate decisions as claims; they are not findings.
+const NOT_WORK_CLAIM = "claim NOT IN ('verdict','worker_report','human_gate')";
 
 // ------------------------------------------------------------------ shapes
 
@@ -262,7 +264,7 @@ export class KnowledgeRecords {
 
   listEntities(filters?: EntityFilters): EntityRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
+      const rows = s.db.prepare("SELECT * FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state','plan_package','card') ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as NodeRow[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'nodes' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -391,7 +393,7 @@ export class KnowledgeRecords {
       if (!a) return undefined;
       return this.entityFromProse(s, a, s.db.prepare("SELECT * FROM evidence WHERE target_table = 'annotations' AND target_key = ? ORDER BY captured_at DESC").all(a.id) as unknown as EvidenceRow[]);
     }
-    const rows = s.db.prepare("SELECT * FROM nodes WHERE id = ? AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state') ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END").all(id) as unknown as NodeRow[];
+    const rows = s.db.prepare("SELECT * FROM nodes WHERE id = ? AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state','plan_package','card') ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END").all(id) as unknown as NodeRow[];
     if (rows.length === 0) return undefined;
     const evidence = s.db.prepare("SELECT * FROM evidence WHERE target_table = 'nodes' AND target_key = ? ORDER BY captured_at DESC, legacy_id").all(id) as unknown as EvidenceRow[];
     const summary = (s.db.prepare("SELECT body FROM annotations WHERE kind = 'entity' AND node_id = ? AND body IS NOT NULL ORDER BY CASE layer WHEN 'human' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1").get(id) as { body: string } | undefined)?.body;
@@ -565,7 +567,7 @@ export class KnowledgeRecords {
       for (const n of s.db.prepare("SELECT id, address, end_address, bank, space FROM nodes ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as Array<{ id: string; address: number; end_address: number | null; bank: number | null; space: string }>) {
         if (!nodes.has(n.id)) nodes.set(n.id, n);
       }
-      for (const c of s.db.prepare("SELECT * FROM claims ORDER BY updated_at DESC, node_id, claim").all() as unknown as ClaimRow[]) {
+      for (const c of s.db.prepare(`SELECT * FROM claims WHERE ${NOT_WORK_CLAIM} ORDER BY updated_at DESC, node_id, claim`).all() as unknown as ClaimRow[]) {
         out.push(this.findingFromClaim(s, c, evidence.get(`claims ${c.node_id}|${c.claim}`) ?? [], nodes.get(c.node_id)));
       }
       const entityId = filters?.entityId ? this.mapEntityId(s.alias, filters.entityId) : undefined;
@@ -770,7 +772,7 @@ export class KnowledgeRecords {
 
   listRelations(filters?: RelationFilters): RelationRecord[] {
     return this.read((s) => {
-      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
+      const rows = s.db.prepare("SELECT * FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES','SUPERSEDES') ORDER BY from_id, type, to_id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as unknown as EdgeRowLite[];
       const evidence = new Map<string, EvidenceRow[]>();
       for (const e of s.db.prepare("SELECT * FROM evidence WHERE target_table = 'edges' ORDER BY captured_at DESC, legacy_id").all() as unknown as EvidenceRow[]) {
         evidence.set(e.target_key, [...(evidence.get(e.target_key) ?? []), e]);
@@ -1194,7 +1196,7 @@ export class KnowledgeRecords {
       ensureSchema822(store.db);
       return withStore(store, (st) => {
         const rows = st.db.prepare(
-          "SELECT c.node_id, c.claim, n.address, n.end_address FROM claims c JOIN nodes n ON n.id = c.node_id WHERE c.validation = 'unvalidated' AND c.layer = 'generated' GROUP BY c.node_id, c.claim",
+          "SELECT c.node_id, c.claim, n.address, n.end_address FROM claims c JOIN nodes n ON n.id = c.node_id WHERE c.validation = 'unvalidated' AND c.layer = 'generated' AND c.claim NOT IN ('verdict','worker_report','human_gate') GROUP BY c.node_id, c.claim",
         ).all() as Array<{ node_id: string; claim: string; address: number; end_address: number | null }>;
         const upd = st.db.prepare("UPDATE claims SET validation = 'answered', validated_by = ?, updated_at = ? WHERE node_id = ? AND claim = ? AND validation = 'unvalidated'");
         const inScope = options.scopeArtifactId
@@ -1220,9 +1222,9 @@ export class KnowledgeRecords {
     return this.read((s) => {
       const q = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
       return {
-        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
-        findings: q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'") + q("SELECT COUNT(*) AS n FROM claims"),
-        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '')"),
+        entities: q("SELECT COUNT(DISTINCT id) AS n FROM nodes WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND kind NOT IN ('subsystem','run','anchor','candidate','cartridge','state_map','game_state','plan_package','card')") + q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'entity:%' AND node_id IS NULL"),
+        findings: q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'") + q(`SELECT COUNT(*) AS n FROM claims WHERE ${NOT_WORK_CLAIM}`),
+        relations: q("SELECT COUNT(*) AS n FROM (SELECT DISTINCT from_id, type, to_id FROM edges WHERE (producer IN ('knowledge-import','human') OR layer = 'human') AND evidence_key = '' AND type NOT IN ('PART_OF','REQUIRES','SUPERSEDES'))"),
         openQuestions: q("SELECT COUNT(*) AS n FROM questions"),
       };
     }, { entities: 0, findings: 0, relations: 0, openQuestions: 0 });
@@ -1238,9 +1240,9 @@ export class KnowledgeRecords {
     return this.read((s) => {
       const q = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
       return q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%' AND json_type(attrs, '$.address_range.start') IN ('integer','real')")
-        + q(`SELECT COUNT(*) AS n FROM claims c WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.id = c.node_id)
+        + q(`SELECT COUNT(*) AS n FROM claims c WHERE c.claim NOT IN ('verdict','worker_report','human_gate') AND (EXISTS (SELECT 1 FROM nodes n WHERE n.id = c.node_id)
              OR json_type((SELECT e.attrs FROM evidence e WHERE e.target_table = 'claims' AND e.target_key = c.node_id || '|' || c.claim
-                           ORDER BY e.captured_at DESC, e.legacy_id LIMIT 1), '$.address_range.start') IN ('integer','real')`);
+                           ORDER BY e.captured_at DESC, e.legacy_id LIMIT 1), '$.address_range.start') IN ('integer','real'))`);
     }, 0);
   }
 
