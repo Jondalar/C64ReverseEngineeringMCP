@@ -85,10 +85,12 @@ try {
 
   // ═══ S2
   head("S2  the verdict is C64RE's");
-  r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "c1" });
-  check(has(/Position: worker \(card c1\)/, r), "the worker is bound to its card", r);
+  // D3 as decided after S6: a worker is a subagent of the same server and sets no position; it names its card.
+  r = await m.call("agent_set_role", { role: "analyst", position: "worker" });
+  check(!has(/Agent role set/, r), "there is no worker position to set (a worker would overwrite the architect's)", r.slice(0, 160));
+  r = await m.call("agent_set_role", { role: "analyst", position: "unset" });
   r = await m.call("card", { ...base, id: "cx", title: "x", doneWhen: [human] });
-  check(has(/issuing a card is the architect's/, r) && has(/worker \(card c1\)/, r), "S3: a worker cannot issue a card", r);
+  check(has(/issuing a card is the architect's/, r) && has(/unset/, r), "S3: a session that is not the architect cannot issue a card", r);
   r = await m.call("agent_record_step", { step: "named it", card: "c1", result: "DONE", report: "named lift_init" });
   check(has(/Step recorded/, r) && has(/worker says DONE/, r) && has(/Verdict \(C64RE\): NOT KEPT/, r) && has(/FAIL  \[graph\] the routine at \$0A20 carries a human name/, r) && has(/0 routine owner main at \$0A20 with a human name/, r), "DONE with the graph line failing -> NOT KEPT, naming the failing line", r);
   r = await m.call("card", { action: "show", card: "c1" });
@@ -109,7 +111,6 @@ try {
   }
   r = await m.call("card", { action: "judge", card: "c2", kept: true, by: "alex", why: "feels right" });
   check(has(/not WAITING/, r), "judge is refused while the card is not WAITING", r);
-  r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "c2" });
   r = await m.call("agent_record_step", { step: "did c2", card: "c2", result: "DONE" });
   check(has(/Verdict \(C64RE\): WAITING \(human gate\)/, r) && has(/WAITING  \[human\]/, r), "machine lines hold and a [human] line is left -> WAITING (human gate)", r);
   r = await m.call("agent_set_role", { role: "analyst", position: "architect" });
@@ -138,25 +139,30 @@ try {
   r = await m.call("plan", { action: "show" });
   check(has(/Cards NOT KEPT: none/, r) && has(/Cards WAITING \(human gate\): none/, r) && has(/Open packages: p1, p2/, r), "plan show lists open packages, NOT KEPT and WAITING cards", r);
 
-  // S3 second half: a worker bound to c4 reports on c2
-  r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "c4" });
+  // S3 second half: a report on a KEPT card is not attached; a worker's report names its card as its author
   r = await m.call("agent_record_step", { step: "straying", card: "c2", result: "DONE", report: "i did it" });
-  check(has(/Step recorded/, r) && has(/report NOT attached/, r) && has(/bound to card "c4"/, r), "S3: a worker recording against another card: the step is recorded, the report is not attached", r);
-  r = await m.call("card", { action: "show", card: "c2" });
-  check(!has(/i did it/, r), "…and the other card does not carry that report", r);
+  check(has(/Step recorded/, r) && has(/already KEPT/, r), "S3: a report on a KEPT card: the step is recorded, the report is not attached", r);
   r = await m.call("agent_record_step", { step: "c4 done", card: "c4", result: "DONE", report: "ok" });
   check(has(/WAITING \(human gate\)/, r), "c4 (only a [human] line) waits for the human", r);
+  r = await m.call("card", { action: "show", card: "c4" });
+  check(has(/worker \(card c4\)/, r), "the worker's report is authored by the card it names", r);
   r = await m.call("agent_set_role", { role: "analyst", position: "architect" });
   r = await m.call("plan", { action: "close", package: "p1" });
   check(has(/cannot close/, r) && has(/c4 \(WAITING/, r), "a WAITING card holds the package open", r);
   await m.call("card", { action: "judge", card: "c4", kept: true, by: "alex", why: "ok" });
   r = await m.call("plan", { action: "close", package: "p1" });
   check(has(/Package "p1" closed/, r), "the package closes once every card is KEPT and its done-when holds", r);
-  r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "c1" });
+  r = await m.call("agent_set_role", { role: "analyst", position: "unset" });
   r = await m.call("plan", { action: "close", package: "p2" });
-  check(has(/closing a package is the architect's/, r), "S3: a worker cannot close a package", r);
-  r = await m.call("agent_set_role", { role: "analyst", position: "worker", card: "nothere" });
-  check(has(/There is no card "nothere"/, r), "a worker cannot be bound to a card that does not exist", r);
+  check(has(/closing a package is the architect's/, r), "S3: a session that is not the architect cannot close a package", r);
+  {
+    // an agent state written with the old "worker" position reads as unset, not as an error
+    const { readFileSync: rf, writeFileSync: wf } = await import("node:fs");
+    const sp = join(proj, "knowledge", "agent-state.json");
+    const st = JSON.parse(rf(sp, "utf8")); st.position = "worker"; st.card = "c1"; wf(sp, JSON.stringify(st));
+    r = await m.call("agent_set_role", { role: "analyst", position: "architect" });
+    check(has(/Position: architect/, r), "an old state with position worker loads (as unset) and can be set again", r);
+  }
 
   // S6: a re-planned card supersedes the one that came back, so the package can close
   {
@@ -261,7 +267,6 @@ try {
     check(!has(/## Cards|worker_phase|Spawn worker subagent/, r), "agent_propose_next proposes no worker without a card (position unset)", r);
 
     // NOT KEPT -> re-plan
-    await m2.call("agent_set_role", { role: "analyst", position: "worker", card: "a1" });
     await m2.call("agent_record_step", { step: "named", card: "a1", result: "DONE", report: "named" });
     j = jsonOf(await m2.call("agent_next_step", {}));
     check(j.step === "plan-replan" && j.primary_action.tool === "card" && j.primary_action.args.action === "show" && j.primary_action.args.card === "a1", "a card NOT KEPT -> plan-replan, card show", JSON.stringify(j.primary_action));
@@ -286,7 +291,6 @@ try {
 
     // WAITING -> human question
     r = await m2.call("card", { ...base, id: "a3", title: "feels right", doneWhen: [human] });
-    await m2.call("agent_set_role", { role: "analyst", position: "worker", card: "a3" });
     await m2.call("agent_record_step", { step: "a3", card: "a3", result: "DONE" });
     r = await m2.call("agent_next_step", {});
     j = jsonOf(r);

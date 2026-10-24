@@ -34,11 +34,13 @@ a package or card with one waits for you.
 Besides its domain role (analyst, cracker, ...), a session has a **position**:
 
 - `architect` writes cards, issues them and closes packages;
-- `worker` is bound to one card and records against that card only;
 - `unset` is the ordinary session that does every step itself. Nothing is required of
   it and nothing is refused.
 
-Set it with `agent_set_role` (`position`, and `card` for a worker).
+Set it with `agent_set_role` (`position`). A **worker** — the subagent that executes one
+card — sets no position. It works through the same server as the architect, so a
+position of its own would replace the architect's. It names its card in every report
+instead, and the report is recorded as that card's worker.
 
 ## 3. A card
 

@@ -524,7 +524,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(``);
       lines.push(`## Agent State`);
       lines.push(`Role: ${state.role}`);
-      lines.push(`Position: ${state.position ?? "unset"}${state.card ? ` (card ${state.card})` : ""}`);
+      lines.push(`Position: ${state.position ?? "unset"}`);
       lines.push(`Current focus: ${state.currentFocus ?? "(unset)"}`);
       lines.push(`Last completed step: ${state.lastCompletedStep ?? "(none)"}`);
       lines.push(`Queued next action: ${state.nextAction ?? "(none)"}`);
@@ -636,36 +636,20 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     "Set the working role for this session — analyst, cartographer, implementer, archivist, cracker, or unset — which biases what agent_propose_next recommends (only analyst/cracker also change phase-gating/completion). Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
     {
       project_dir: z.string().optional(),
-      position: AgentPositionSchema.optional().describe("architect (plans, issues and closes cards) | worker (executes one card, bound to it) | unset. Beside the role, not instead of it."),
-      card: z.string().optional().describe("The card a worker is bound to; required with position=worker, and the card must exist."),
+      position: AgentPositionSchema.optional().describe("architect (plans, issues and closes cards) | unset. Beside the role, not instead of it. A worker sets no position: it names its card in agent_record_step."),
       role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
       focus: z.string().optional().describe("Optional one-line focus statement for this role assignment"),
       constraints: z.array(z.string()).optional().describe("Optional list of constraints active for this role/session"),
     },
-    async ({ project_dir, role, position, card, focus, constraints }) => {
+    async ({ project_dir, role, position, focus, constraints }) => {
       const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.getProjectStatus().project;
       const prev = loadAgentState(projectRoot);
-      // Spec 917 D3 - the position is the second axis; a worker is bound to one card that must exist.
-      let boundCard: string | undefined = prev.card;
-      if (card !== undefined && position !== "worker" && !(position === undefined && prev.position === "worker")) {
-        return textContent(`A card binds a worker only: give position="worker" with card, or drop card.`);
-      }
-      if (position === "worker") {
-        const { getCard, normName } = await import("../work/store.js");
-        if (!card) return textContent(`position="worker" needs the card it is bound to: agent_set_role(role, position="worker", card=<id>). plan(action="show") lists the cards.`);
-        const name = normName(card);
-        if (!getCard(projectRoot, name)) return textContent(`There is no card "${name}", so no worker can be bound to it. plan(action="show") lists the cards; the architect issues one with card(action="issue").`);
-        boundCard = name;
-      } else if (position !== undefined) {
-        boundCard = undefined;
-      }
       const next: AgentState = {
         ...prev,
         role,
         position: position ?? prev.position,
-        card: boundCard,
         currentFocus: focus ?? prev.currentFocus,
         constraints: constraints ?? prev.constraints,
       };
@@ -674,7 +658,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         [
           `Agent role set.`,
           `Role: ${saved.role}`,
-          `Position: ${saved.position}${saved.card ? ` (card ${saved.card})` : ""}`,
+          `Position: ${saved.position}`,
           `Focus: ${saved.currentFocus ?? "(unset)"}`,
           `Constraints: ${saved.constraints.length === 0 ? "(none)" : saved.constraints.join("; ")}`,
           `NEXT.md: ${nextMdPath(projectRoot)}${saved.nextMdKept ? " (kept: hand-written)" : ""}`,

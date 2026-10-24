@@ -6,6 +6,7 @@ export const WORKER_RULES: readonly string[] = [
   "Read only what the card lists under Read. Nothing else.",
   "Change nothing outside what the card lists under Change. If Change is \"none\", change nothing.",
   "Start no further subagents.",
+  "Set no role or position (agent_set_role): that is the architect's. You are the card you name in agent_record_step.",
   "Stop on any Stop-if line, or when the code you find differs from what the card says. Report STOPPED.",
   "Finish with agent_record_step(card=\"<card id>\", result=\"DONE\"|\"STOPPED\", report=<at most 10 lines>).",
   "C64RE judges the done-when lines itself; your report is your claim, kept beside its verdict, never instead of it.",

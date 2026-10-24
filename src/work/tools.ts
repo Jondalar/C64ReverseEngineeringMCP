@@ -23,10 +23,7 @@ const STATE_LABEL: Record<CardState, string> = { issued: "ISSUED", stopped: "STO
 const VERDICT_STATE: Record<VerdictValue, CardState> = { KEPT: "kept", NOT_KEPT: "not_kept", WAITING: "waiting" };
 const VERDICT_LABEL: Record<VerdictValue, string> = { KEPT: "KEPT", NOT_KEPT: "NOT KEPT", WAITING: "WAITING (human gate)" };
 
-const positionLine = (projectRoot: string): string => {
-  const s = loadAgentState(projectRoot);
-  return s.position === "worker" && s.card ? `worker (card ${s.card})` : s.position;
-};
+const positionLine = (projectRoot: string): string => loadAgentState(projectRoot).position;
 
 function requireArchitect(projectRoot: string, what: string, allowUnset = false): Reply | undefined {
   const pos = loadAgentState(projectRoot).position;
@@ -268,15 +265,12 @@ export function cardJudge(projectRoot: string, input: { card: string; kept: bool
 export async function attachReport(projectRoot: string, input: { card?: string; result?: "DONE" | "STOPPED"; report?: string }): Promise<string[]> {
   if (input.card === undefined) return [];
   const name = normName(input.card);
-  const st = loadAgentState(projectRoot);
-  if (st.position === "worker" && st.card && normName(st.card) !== name) {
-    return [``, `Card report NOT attached: this session is bound to card "${st.card}", not "${name}". The step itself is recorded.`];
-  }
   const c = getCard(projectRoot, name);
   if (!c) return [``, `Card report NOT attached: there is no card "${name}". The step itself is recorded.`];
   if (!input.result) return [``, `Card report NOT attached: give result=DONE or result=STOPPED with card. The step itself is recorded.`];
   if (c.state === "kept") return [``, `Card "${name}" is already KEPT; the report is not attached. The step itself is recorded.`];
-  const by = positionLine(projectRoot);
+  // A worker carries no position (D3): the card it names is who it is.
+  const by = `worker (card ${name})`;
   putClaim(projectRoot, c.id, "worker_report", input.result, { at: now(), by, text: input.report ?? "" } satisfies ReportAttrs);
   if (input.result === "STOPPED") {
     setCardState(projectRoot, c, "stopped", "worker stopped", by, input.report);

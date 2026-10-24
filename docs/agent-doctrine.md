@@ -602,10 +602,13 @@ back to `analyst` for the completion math. Source of truth:
 
 ### Architect and worker
 
-The **position** is a second axis beside the role above: `architect`, `worker` or
-`unset` (`agent_set_role(role, position)`). The role says which domain a session
-works in; the position says who decides and who executes. `unset` is the
-ordinary session that works every step itself: no cards, nothing refused.
+The **position** is a second axis beside the role above: `architect` or `unset`
+(`agent_set_role(role, position)`). The role says which domain a session works in;
+the position says whether this session decides. `unset` is the ordinary session
+that works every step itself: no cards, nothing refused. A **worker** is a subagent
+that executes one card. It sets no role and no position — it runs through the same
+server as the architect and would overwrite the architect's — and names its card
+in every report instead.
 
 - **The plan** comes from the kickoff. After the contract the architect and the
   human agree the work packages, their order, and for each a done-when

@@ -164,13 +164,19 @@ be issued while C-07 is not KEPT.
   - The domain role stays as it is (`AgentRoleSchema`: analyst, cartographer, implementer,
     archivist, cracker) and keeps deciding which tools are proposed and which phase gates
     apply.
-  - The **position** is new: `architect` | `worker` | `unset`. It decides who may write
+  - The **position** is new: `architect` | `worker` | `unset` (as first decided; amended below). It decides who may write
     the plan's cards, issue and close them (the architect), and who records against one
     card only (a worker, bound to that card's id).
   - A card names both: `worker (cracker)`. `agent_set_role` takes the position beside the
     role. `unset` is today's behaviour: no cards required, nothing refused.
   - Rejected: `architect` / `worker` as two more domain roles — a worker would lose its
     domain, and a card could not ask for an analyst worker.
+  - **Amended after S6 (owner, 2026-10-24): no worker position.** Workers are subagents of
+    the same MCP server; the server cannot tell their calls from the architect's, and a
+    stored `worker` replaced the architect's position. The position is `architect` |
+    `unset`; a worker sets none and names its card in `agent_record_step(card=…)`, which
+    records the report as `worker (card <id>)`. The card binding is gone; an agent state
+    written with `worker` loads as `unset`.
 - **D4 — decided (owner, 2026-10-24): in the graph.**
   - Plan packages and cards are nodes; `requires` (card → card) and "belongs to" (card →
     package) are edges.
@@ -250,6 +256,4 @@ the card) follow; the stale `change-validate` block is gone.
   - outside 917: `list_artifacts` walked `analysis/` instead of reading the registry (no media, no ids, no
     `project_dir`); a D64 without a BAM was refused by every reader (only G64 had been made tolerant); a D64 data disk
     was judged a custom-GCR candidate; media in a subfolder such as `disk/` are invisible to init and the scan (open).
-- **Still open.** D3 as built stores the position project-wide; workers are subagents of the same MCP server, so a
-  worker setting its position overwrites the architect's. In S6 workers reported by `card=` without a position. Owner
-  decision pending.
+- **D3 amended after S6:** no worker position (see D3). In S6 workers already reported by `card=` without one.
