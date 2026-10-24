@@ -84,7 +84,7 @@ const writeGraph = (projectDir, { nodes, edges }) => {
 //   $C010  lda #$02 / sta $D021 / jsr $C020 / rts   called from overlay_a
 //   $C020  inx / rts                          reached only THROUGH $C010
 //   $C030  ldy #$00 / sty $D018 / rts         a human `routine` node
-//   $C038  ldy #$05 / sty $D016 / rts         a Spec 826 RESOLVES_TO alias
+//   $C038  ldy #$05 / sty $D016 / rts         a Spec 826 RESOLVES_TO alias onto a human label
 //   $C040  64 bytes of text — genuinely data; $C050 inside it is claimed by
 //          a DIFFERENT owner in the graph and must NOT be promoted
 //   filler is $02 (JAM) so no linear probe can start in it
@@ -108,7 +108,8 @@ writeGraph(proj, {
   nodes: [
     // this owner's own rows — how the reader learns which space it lives in
     { id: "fixture:ram/resident:routine:c000", layer: "generated", kind: "routine", space: "ram", owner: "resident", address: 0xc000, endAddress: 0xc005, name: "Wc000" },
-    { id: "fixture:ram/resident:routine:c038", layer: "generated", kind: "routine", space: "ram", owner: "resident", address: 0xc038, endAddress: 0xc03d, name: "Wc038" },
+    // a HUMAN label: an alias onto a generated row of this owner is its own last output and never seeds (s6)
+    { id: "fixture:ram/resident:label:c038", layer: "human", kind: "label", space: "ram", owner: "resident", address: 0xc038, name: "hud_color", origin: "user", confidence: "user_asserted", producer: "annotations" },
     // a human said there is a routine at $C030
     { id: "fixture:ram/resident:routine:c030", layer: "human", kind: "routine", space: "ram", owner: "resident", address: 0xc030, endAddress: 0xc035, name: "hud_setup", origin: "user", confidence: "user_asserted", producer: "annotations" },
     // the other overlay, and the ownerless addresses it reaches into this image
@@ -122,7 +123,7 @@ writeGraph(proj, {
   edges: [
     { from: "fixture:ram/overlay_a:routine:8000", type: "CALLS", to: "fixture:ram:addr:c010", key: "src:8003", owner: "overlay_a" },
     { from: "fixture:ram/overlay_a:routine:8000", type: "CALLS", to: "fixture:ram:addr:c050", key: "src:8006", owner: "overlay_a" },
-    { from: "fixture:ram:addr:c038", type: "RESOLVES_TO", to: "fixture:ram/resident:routine:c038", producer: "signature-resolve" },
+    { from: "fixture:ram:addr:c038", type: "RESOLVES_TO", to: "fixture:ram/resident:label:c038", producer: "signature-resolve" },
     { from: "fixture:ram:addr:c050", type: "RESOLVES_TO", to: "fixture:ram/overlay_b:routine:c050", producer: "signature-resolve" },
   ],
 });

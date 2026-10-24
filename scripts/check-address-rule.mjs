@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One address rule — proved to be one, not three.
 //
-// The rule ("an address is HEX; a JSON number is taken as-is") has been written down
+// The rule ("an address is HEX; a JSON number is its decimal value") has been written down
 // twice and has drifted twice. First between `entry_points` and the relocation loader,
 // which read one notation two ways. Then again when a new door was written against the
 // STATEMENT of the rule instead of against the function, while the pipeline half kept

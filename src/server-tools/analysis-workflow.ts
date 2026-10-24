@@ -226,6 +226,27 @@ export const parseAddressStrict = parseAddress;
 export const parseCountStrict = parseCount;
 
 /**
+ * An entry point is a runtime address inside the window the bytes run at. One outside it is refused,
+ * naming the window — and, when the other reading of the same digits (a string is hex, a JSON number
+ * is decimal) would land inside, saying that it is probably that mix-up.
+ */
+function entriesOutsideWindow(raw: Array<string | number>, seeds: number[], window: { loadAddress: number; lastAddress: number }): string | undefined {
+  const hx = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+  const inside = (value: number) => value >= window.loadAddress && value <= window.lastAddress;
+  const outside = seeds.map((seed, index) => ({ seed, given: raw[index]! })).filter((e) => !inside(e.seed));
+  if (outside.length === 0) return undefined;
+  const lines = outside.map(({ seed, given }) => {
+    const text = String(given).trim();
+    const other = typeof given === "number" ? Number.parseInt(text, 16) : /^\d+$/.test(text) ? Number.parseInt(text, 10) : undefined;
+    const hint = other !== undefined && Number.isFinite(other) && inside(other)
+      ? ` — read the other way (${typeof given === "number" ? "as a hex string" : "as a decimal JSON number"}) it is ${hx(other)}, inside the window, so probably a hex/decimal mix-up`
+      : "";
+    return `${JSON.stringify(given)} is ${hx(seed)}${hint}`;
+  });
+  return `entry_points lie outside ${hx(window.loadAddress)}-${hx(window.lastAddress)}, the span these bytes run at: ${lines.join("; ")}. An entry point is a RUNTIME address inside the window, not a file offset. ${ADDRESS_RULE}. Nothing was written.`;
+}
+
+/**
  * Does this analysis JSON describe the window it is about to be rendered over?
  *
  * The body lives in `byte-doors.ts`, beside the rule that decided the window in the
@@ -619,11 +640,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     } catch (e) {
       return refuse(e instanceof Error ? e.message : String(e));
     }
-    if (reading.kind === "raw") {
-      const outside = seeds.filter((seed) => seed < reading.loadAddress || seed > reading.lastAddress);
-      if (outside.length > 0) {
-        return refuse(`entry_points ${outside.map(hex).join(", ")} lie outside ${hex(reading.loadAddress)}-${hex(reading.lastAddress)}, the span these bytes run at. An entry point is a RUNTIME address inside the window, not a file offset. ${ADDRESS_RULE}.`);
-      }
+    {
+      const outside = entriesOutsideWindow(a.entry_points ?? [], seeds, reading);
+      if (outside) return refuse(outside);
     }
 
     // ── which machine ───────────────────────────────────────────────────────
@@ -1056,9 +1075,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
     let entries: string;
     try {
-      entries = (a.entry_points ?? [])
-        .map((e, i) => parseAddress(e, `entry_points[${i}]`).toString(16).toUpperCase().padStart(4, "0"))
-        .join(",");
+      const seeds = (a.entry_points ?? []).map((e, i) => parseAddress(e, `entry_points[${i}]`));
+      const outside = entriesOutsideWindow(a.entry_points ?? [], seeds, reading);
+      if (outside) return refuse(outside);
+      entries = seeds.map((seed) => seed.toString(16).toUpperCase().padStart(4, "0")).join(",");
     } catch (e) {
       return refuse(e instanceof Error ? e.message : String(e));
     }
@@ -1362,11 +1382,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     path: z.string().optional().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id OR paths. The extension is never consulted: a .bin may be a PRG and a .prg may be a raw block."),
     paths: z.array(z.string()).optional().describe("MANY files in ONE call, instead of one round trip each — an extract that produced 217 payloads is one call, not 217. Each path goes through exactly the body a single-path call goes through and gets its own default output; the other arguments here apply to all of them, so a batch is for files that are read the same way. A path that fails is NAMED with its reason and the rest keep going — one bad file never sinks the batch. The answer is one line per path, not the full per-path listing; re-run a single path with `path` when you want its whole answer. Use this OR path OR artifact_id, and leave the output-name argument out — one name cannot hold N results."),
     artifact_id: z.string().optional().describe("Id of an already-registered artifact holding the bytes. Use this OR path OR paths."),
-    load_address: z.union([z.string(), z.number()]).optional().describe("Where the FIRST byte runs. GIVEN: the bytes are raw and start there, and nothing at the front is treated as a header. OMITTED: the file must carry a 2-byte load header and its first two bytes are read as this address. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is taken as-is."),
+    load_address: z.union([z.string(), z.number()]).optional().describe("Where the FIRST byte runs. GIVEN: the bytes are raw and start there, and nothing at the front is treated as a header. OMITTED: the file must carry a 2-byte load header and its first two bytes are read as this address. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is its DECIMAL value (7000 is $1B58, \"7000\" is $7000)."),
     headed: z.boolean().optional().describe("Say outright whether these bytes carry a 2-byte load header. Normally unnecessary — load_address decides. Pass true with a load_address to have a disagreeing header refused by name; pass false to read a file the project store recorded as a PRG from offset 0 as raw."),
     offset: z.union([z.string(), z.number()]).optional().describe("Byte offset into the file where the block starts. Requires load_address: a window's first byte is not a load header. Default 0. Same rule as an address: a string is hex, a JSON number is taken as given."),
     length: z.union([z.string(), z.number()]).optional().describe("How many bytes. Default: to the end of the file. Same rule as offset."),
-    entry_points: z.array(z.union([z.string(), z.number()])).optional().describe("Runtime addresses where code is known to start. A seed that falls inside a decoded instruction breaks it: the bytes up to the seed render as data and the decode resumes at the seed — byte-exact either way. An entry_points list CONSTRAINS an analysis scan; it does not simply add to it, and the refused ones are named."),
+    entry_points: z.array(z.union([z.string(), z.number()])).optional().describe("Runtime addresses where code is known to start, inside the window the bytes run at (one outside is refused, nothing written). A string is hex (\"0331\"), a JSON number is decimal (817). A seed that falls inside a decoded instruction breaks it: the bytes up to the seed render as data and the decode resumes at the seed — byte-exact either way. An entry_points list CONSTRAINS an analysis scan; it does not simply add to it, and the refused ones are named."),
   } as const;
 
   server.tool(
@@ -1385,7 +1405,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       space: z.string().optional().describe("Which address space the names go into the graph under, and the listing's provenance: \"ram\", \"crt\" (also \"cart\"; needs bank) or \"drv\" (also \"drive\", the 1541). Default: what the analysis artifact and the project's machine say. Remembered with the import until you name another."),
       cart: z.string().optional().describe("The cartridge (its token, as graph_find / project_status name it) the bank belongs to. Default: the cartridge these bytes were extracted from, else the project's only cartridge; with several and none to tell, the call refuses and lists them. Needs bank."),
       relocations: z.array(z.object({
-        fileStart: z.union([z.string(), z.number()]).describe("Stored address of the region's first byte (inclusive). HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the span these bytes cover."),
+        fileStart: z.union([z.string(), z.number()]).describe("Stored address of the region's first byte (inclusive). HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is its DECIMAL value (7000 is $1B58, \"7000\" is $7000). Must lie inside the span these bytes cover."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored address of the region's last byte (inclusive). Same rule."),
         runtimeAddr: z.union([z.string(), z.number()]).describe("Logical execution PC that fileStart runs at. Same rule; unlike fileStart/fileEnd it may be anywhere in the 64K space."),
         label: z.string().optional().describe("Optional label/comment for the relocated region."),
@@ -1526,7 +1546,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       import_graph: z.boolean().optional().describe("false = a PREVIEW: render and rebuild-check the listing, but import nothing into the knowledge graph (no names, no closed-loop sweep, no payload link, no machine declaration, no machine recorded on the file) — the graph is left exactly as it was and so is the file's machine. Use for scratch or draft renders you do not mean to keep. Default true."),
       platform: z.enum(["c64", "c1541", "vic20", "plus4", "none"]).optional().describe("The machine the PRG runs on, for the ZP / IO / ROM symbol tables and the I/O window. Resolved in order: this argument, the file's artifact record, the project default, c64. c1541 is drive-side code, vic20 the VIC-20, plus4 the TED machines. Naming a machine RECORDS it for this file (not in a preview, import_graph=false). none renders code of any other machine without platform names; it sticks to the file until an explicit machine clears it."),
       relocations: z.array(z.object({
-        fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
+        fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is its DECIMAL value (7000 is $1B58, \"7000\" is $7000). Must lie inside the PRG."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),
         runtimeAddr: z.union([z.string(), z.number()]).describe("Logical execution PC that fileStart runs at. Same hex rule; unlike fileStart/fileEnd it may be anywhere in the 64K space."),
         label: z.string().optional().describe("Optional label/comment for the relocated region."),
@@ -1551,7 +1571,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
       path: z.string().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id.").optional(),
       artifact_id: z.string().optional().describe("Id of an already-registered artifact holding the bytes. Use this OR path."),
-      load_address: z.union([z.string(), z.number()]).describe("Where the FIRST byte of the window runs. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is taken as-is."),
+      load_address: z.union([z.string(), z.number()]).describe("Where the FIRST byte of the window runs. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is its DECIMAL value (7000 is $1B58, \"7000\" is $7000)."),
       offset: z.union([z.string(), z.number()]).optional().describe("Byte offset into the file where the block starts. Default 0. Same rule as an address: a string is hex, a JSON number is taken as given."),
       length: z.union([z.string(), z.number()]).optional().describe("How many bytes. Default: to the end of the file. Same rule as offset."),
       entry_points: z.array(z.union([z.string(), z.number()])).optional().describe("Runtime addresses inside the window where code is known to start. Without one the first byte is the only seed. A seed that falls inside a decoded instruction breaks it: the bytes up to the seed render as data and the decode resumes at the seed — byte-exact either way."),

@@ -194,6 +194,7 @@
     "smoke:740-graph": "node scripts/ensure-built.mjs all && node scripts/smoke-740-graph.mjs",
     "smoke:858": "node scripts/ensure-built.mjs mcp && node scripts/smoke-858-project-switch.mjs",
     "smoke:859": "node scripts/ensure-built.mjs mcp && node scripts/smoke-859-line-trace.mjs",
+    "smoke:s6-analysis-entries": "node scripts/ensure-built.mjs all && node scripts/smoke-s6-analysis-entries.mjs",
     "smoke:sandbox-prg-start": "node scripts/ensure-built.mjs mcp && node scripts/smoke-sandbox-prg-start.mjs",
     "smoke:d81-drive": "node scripts/ensure-built.mjs mcp && node scripts/smoke-d81-drive.mjs",
     "smoke:session-run-advance": "node scripts/ensure-built.mjs mcp && node scripts/smoke-session-run-advance.mjs",

@@ -75,8 +75,8 @@ for (const m of MODULES) {
   // Spec 915 replaces 867 section 2 for a cross-owner seed: the loader's jump into a window of six occupants is real code,
   // but nothing says WHICH occupant is resident, so it seeds none of them and the header names all six.
   const ns = notSeededAt(r, 0x1000);
-  check((seedAt(r, 0x1000) === undefined || seedAt(r, 0x1000).origin === "resolved_alias") && ns?.reason === "not_validated" && MODULES.every((x) => ns.detail.includes(x.owner)),
-    `${m.owner}: ${hex(0x1000)} is not seeded by the static call with six claimants (only mod_a's own resolved alias seeds, S3), and the report names all six (915)`);
+  check(seedAt(r, 0x1000) === undefined && ns?.reason === "not_validated" && MODULES.every((x) => ns.detail.includes(x.owner)),
+    `${m.owner}: ${hex(0x1000)} is not seeded by the static call with six claimants (not even mod_a's alias onto its own generated routine: that is its last run's output), and the report names all six (915)`);
 }
 const ownedByOther = MODULES.flatMap((m) => refusals(analysed[m.owner]).filter((x) => x.reason === "owned_by_other"));
 check(ownedByOther.length === 0, `not one of the six is refused as another's — owned_by_other = ${ownedByOther.length} (it was 6 before the window)`);
