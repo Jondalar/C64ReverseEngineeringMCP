@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — D1–D5 decided; D6 open, decided with the owner one question at a time.
+**Status:** PROPOSED (2026-10-24) — D1–D6 decided with the owner; ready to build.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -102,7 +102,7 @@ Scenario: a card can require what an earlier card established
 | S5 | P5 | `change-validate` is handed out, its card's done-when is a 916 test-mode scenario | `e2e-917-cards` + `e2e:916` | by hand, sandbox |
 | S6 | all | one real project: the architect plans 3 cards, workers return, verdicts match a re-run by hand | by hand, a copy in `/private/tmp` | — |
 
-## §3 Decisions
+## §3 Decisions — all decided (2026-10-24)
 
 Three levels, each checkable by C64RE: **contract** (what is owed, 848) → **plan** (how:
 packages, order, done-when per package) → **card** (one step of one package).
@@ -147,7 +147,7 @@ Not        no other test's expected values
 On DONE, C64RE runs the done-when lines itself and answers KEPT or NOT KEPT; C-08 cannot
 be issued while C-07 is not KEPT.
 
-### Open
+### The rest
 - **D2 — decided (owner, 2026-10-24): a fixed check vocabulary, plus the human gate.**
   A done-when line is one of:
   - `[graph]` a count or existence in the graph (a routine named at $0A20, a finding
@@ -194,8 +194,15 @@ be issued while C-07 is not KEPT.
     a worker without a card; with the position `unset` the session works the step itself.
   - Rejected: keeping the phase briefing beside it for the card-less mode — two ways to
     brief a worker, and the open one stays the convenient one.
-- **D6 — Teeth.** A NOT KEPT card: only reported (the architect decides), or does it also
-  block what requires it (S4) and the phase close (877's door)?
+- **D6 — decided (owner, 2026-10-24): a verdict blocks in exactly two places.**
+  - A card whose `requires` names a card that is not KEPT is not issued; the refusal names
+    the card and its state (S4).
+  - A plan package closes only when every card of it is KEPT and the package's own
+    done-when holds.
+  - Nothing else is blocked: a report, a finding, `agent_record_step` always go through
+    (877 D1 — a door that eats records destroys what the contract asks for).
+  - Rejected: reporting only — `requires` and the package would be hints, and the fix on
+    an unmeasured cause (P4) goes out again.
 
 **Out of scope, on purpose:** which model runs a worker, token budgets, how many run in
 parallel, git and worktrees, "stop after n tool calls". That is the harness and the
