@@ -1,6 +1,6 @@
-# Spec 917 — A step is a contract: the architect hands out cards, C64RE checks what comes back
+# Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — §3 open, decided with the owner one question at a time.
+**Status:** DRAFT (2026-10-24) — D1 decided; D2–D6 open, decided with the owner one question at a time.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -47,6 +47,11 @@ words.
   (a cause measured, a routine named, a test red on the old bytes) is not something the
   next step can require. Lesson from the same skill: a fix card went out on a cause read
   but not measured, fixed nothing, and broke a passed check.
+- **P6 — Nothing between the promise and the step.** The kickoff writes the contract
+  (`contract_set`, 848: goal, the slots owed, thresholds) — *what* is owed. Nobody agrees
+  with the human *how*: which work packages, in which order, each with its own "done".
+  So every step is chosen fresh from project state, and the human sees the plan only as
+  the trail of steps already taken.
 - **P5 — A stale block.** `change-validate` (`workflow-model.ts:184`) is
   `blockedUntil: "the code-overlay loop ships"`. It shipped: 911 (variants) and 916 (a
   scenario tests the build). The step that most needs a checkable "done" is the one the
@@ -55,6 +60,13 @@ words.
 ## §2 Scenarios — what proves it is solved
 
 ```gherkin
+Scenario: the kickoff agrees the plan, not only the promise
+  Given a project with a contract and no plan
+  When  the kickoff runs with the human
+  Then  a plan is stored: packages P1…Pn, their order, and for each a done-when
+        from the same check vocabulary as a card
+  And   the architect cannot issue a card that belongs to no package
+
 Scenario: a card states its done-when as checks C64RE can run
   Given a project with a listing whose routine at $0A20 is unnamed
   When  the architect asks for the next card
@@ -76,6 +88,7 @@ Scenario: a card can require what an earlier card established
 
 | # | Solves | Scenario | Test | Where it runs |
 |---|---|---|---|---|
+| S0 | P6 | the kickoff stores a plan; a card outside every package is refused | `e2e-917-cards` | by hand |
 | S1 | P1, P2 | card form + check vocabulary | `scripts/e2e-917-cards.mjs` | by hand (no gates) |
 | S2 | P1 | verdict by C64RE: kept / not kept, both ways | `e2e-917-cards` | by hand |
 | S3 | P3 | only the architect issues and closes cards; a worker records against its own card only | `e2e-917-cards` | by hand |
@@ -83,11 +96,52 @@ Scenario: a card can require what an earlier card established
 | S5 | P5 | `change-validate` is handed out, its card's done-when is a 916 test-mode scenario | `e2e-917-cards` + `e2e:916` | by hand, sandbox |
 | S6 | all | one real project: the architect plans 3 cards, workers return, verdicts match a re-run by hand | by hand, a copy in `/private/tmp` | — |
 
-## §3 Decisions — open
+## §3 Decisions
 
-- **D1 — Who writes the card.** (a) C64RE derives it from project state, the architect
-  takes it or edits it; (b) the architect writes it, C64RE stores and checks it; (c) both:
-  next step proposes, the architect owns the final text. Leaning (c).
+Three levels, each checkable by C64RE: **contract** (what is owed, 848) → **plan** (how:
+packages, order, done-when per package) → **card** (one step of one package).
+
+- **D1 — decided (owner, 2026-10-24): the architect writes the cards, from the plan.**
+  - The kickoff clarifies with the human the contract *and* the plan.
+  - The architect writes each card from a plan package. C64RE stores it, checks its form,
+    and later checks its done-when.
+  - `agent_next_step` no longer proposes steps of its own once a plan exists: it says which
+    package is open, which card is blocked (an unkept `requires`), which came back NOT KEPT.
+  - Rejected: C64RE deriving cards from project state (an open, generic brief again —
+    the state does not know the human's order or what "done" means for this game); next
+    step proposing and the architect editing (two authors of one card).
+
+### The card, worked example
+
+```
+Card C-07  "Lift bug: measure the cause"          plan: P2 Fixes / lift
+Role       worker (analyst)     issued by: architect    requires: C-05 KEPT
+Goal       Know why the lift sticks in level 3 at $0A20.
+Context    payload ram/main, listing main_disasm.tas:812-840;
+           hypothesis (read, not measured): $0A20 reads $47 before its init.
+Read       graph_node ram/main:routine:0A20, main_disasm.tas:812-840. Nothing else.
+Change     none (a measuring card)
+Do         scenario tests/lift-l3.feature from anchor "level3-start", observer on $47 to frame 600
+Done when  1 scenario lift-l3 ran, verdict recorded                 [scenario]
+           2 a finding tagged "cause" at $0A20 with trace evidence  [graph]
+Not        no fix, no other level, no NTSC, no reels
+Stop if    code at $0A20 differs from the listing · the anchor is missing
+Report     agent_record_step(card="C-07", result=DONE|STOPPED, …)
+
+Card C-08  "Lift bug: fix"                         plan: P2 Fixes / lift
+Role       worker (cracker)     requires: C-07 KEPT
+Goal       The lift in level 3 runs through.
+Read       the finding from C-07, main_disasm.tas:812-840
+Change     fixes/lift.tas: init $47 before $0A20 (the value: see the finding)
+Done when  1 tests/lift-l3.feature in test mode: baseline fails, build passes  [scenario]
+           2 rebuild V1 byte-identical outside the fix window                 [rebuild]
+Not        no other test's expected values
+```
+
+On DONE, C64RE runs the done-when lines itself and answers KEPT or NOT KEPT; C-08 cannot
+be issued while C-07 is not KEPT.
+
+### Open
 - **D2 — The check vocabulary.** Which done-when checks C64RE evaluates itself. Candidates
   that already exist as code: graph counts (`graph_find`), rebuild byte-identical
   (`disasm_prg` stamp), registration (audit: 0 unregistered), scenario verdict (916 test
@@ -108,5 +162,5 @@ owner's own skill; C64RE neither knows the model nor pays the tokens.
 
 ## §4 Acceptance
 
-S1–S6 green; the board row and the doctrine (`docs/agent-doctrine.md`: architect / worker,
+S0–S6 green; the kickoff (`agent_onboard`, the cockpit) asks for the plan; the board row and the doctrine (`docs/agent-doctrine.md`: architect / worker,
 the card) follow; the stale `change-validate` block is gone.
