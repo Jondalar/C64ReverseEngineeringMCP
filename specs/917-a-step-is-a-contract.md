@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — D1–D4 decided; D5–D6 open, decided with the owner one question at a time.
+**Status:** DRAFT (2026-10-24) — D1–D5 decided; D6 open, decided with the owner one question at a time.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -183,8 +183,17 @@ be issued while C-07 is not KEPT.
     like the other views; it is never the source.
   - Rejected: a file under `knowledge/` — a second store beside the graph, the shape 822
     dissolved.
-- **D5 — The worker briefing.** `c64re_worker_phase` becomes the card renderer, or stays
-  beside it for phase work and is retired later.
+- **D5 — decided (owner, 2026-10-24): the card briefing replaces the phase briefing.**
+  - A new prompt `c64re_worker_card(card_id)` renders the worker's card from the graph,
+    with the rules every worker keeps: read only what the card lists, change nothing
+    outside it, stop on the card's stop lines, report in the fixed form
+    (`agent_record_step(card=…, result=DONE|STOPPED, …)`).
+  - `c64re_worker_phase` and `buildWorkerPrompt` (`phase-tools.ts`) are removed, with their
+    references: `agent_propose_next`'s "Spawn worker subagent for phase N" block, the setup
+    text (`setup-cli.ts`), `docs/windows-setup.md`. `agent_propose_next` no longer proposes
+    a worker without a card; with the position `unset` the session works the step itself.
+  - Rejected: keeping the phase briefing beside it for the card-less mode — two ways to
+    brief a worker, and the open one stays the convenient one.
 - **D6 — Teeth.** A NOT KEPT card: only reported (the architect decides), or does it also
   block what requires it (S4) and the phase close (877's door)?
 
