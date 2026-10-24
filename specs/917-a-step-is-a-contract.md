@@ -1,6 +1,6 @@
 # Spec 917 — A step is a contract: the plan is agreed at kickoff, the architect writes cards from it, C64RE checks what comes back
 
-**Status:** DRAFT (2026-10-24) — D1–D3 decided; D4–D6 open, decided with the owner one question at a time.
+**Status:** DRAFT (2026-10-24) — D1–D4 decided; D5–D6 open, decided with the owner one question at a time.
 **Repo:** C64RE only (meaning and memory: what a step promises and whether it was kept).
 TRX64: no change.
 **Number:** 917 (registry: `specs/README.md`).
@@ -171,8 +171,18 @@ be issued while C-07 is not KEPT.
     role. `unset` is today's behaviour: no cards required, nothing refused.
   - Rejected: `architect` / `worker` as two more domain roles — a worker would lose its
     domain, and a card could not ask for an analyst worker.
-- **D4 — Where a card lives.** A graph node (claims, evidence, `requires` as an edge, the
-  history for free) or a file under `knowledge/`. Spec 822: the graph is the authority.
+- **D4 — decided (owner, 2026-10-24): in the graph.**
+  - Plan packages and cards are nodes; `requires` (card → card) and "belongs to" (card →
+    package) are edges.
+  - A verdict (KEPT / NOT KEPT / WAITING) is a claim with evidence: the scenario result,
+    the rebuild stamp, the graph query and its count, or the human who said it. The
+    worker's own report is kept beside it as the worker's claim, never as the verdict.
+  - The history (who issued, who reported, who judged, when) comes with the graph; the
+    graph tools and the explorer show plan and cards without a new reader.
+  - A human-readable view (the plan with each card's state) is rendered from the graph,
+    like the other views; it is never the source.
+  - Rejected: a file under `knowledge/` — a second store beside the graph, the shape 822
+    dissolved.
 - **D5 — The worker briefing.** `c64re_worker_phase` becomes the card renderer, or stays
   beside it for phase work and is retired later.
 - **D6 — Teeth.** A NOT KEPT card: only reported (the architect decides), or does it also
