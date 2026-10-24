@@ -311,6 +311,16 @@ try {
     await m2.call("agent_set_role", { role: "analyst", position: "architect" });
     r = await m2.call("card", { action: "check", card: "a1" });
     check(has(/Card a1: KEPT/, r), "after the routine is named a re-check keeps a1", r);
+    {
+      // "none left": max 0 (the S6 architect could not say "the phantom routine at $0326 is gone")
+      const { evaluateChecks, parseChecks } = await load("work/checks.js");
+      const gone = (addr) => ({ kind: "graph", subject: "node", nodeKind: "routine", owner: "main", address: addr, max: 0, text: `no routine at ${addr}` });
+      const p = parseChecks([gone("$0A20"), gone("$0B00")]);
+      const { results } = await evaluateChecks(q, p.checks);
+      check(results[0].pass === false && /need none/.test(results[0].detail) && results[1].pass === true, "max 0: fails while the routine is there, holds where none is", results.map((x) => x.detail).join(" | "));
+      const bad = parseChecks([{ kind: "graph", subject: "node", min: 2, max: 1, text: "x" }]);
+      check(!bad.ok && /above max/.test(bad.error), "min above max is refused", bad.error);
+    }
     j = jsonOf(await m2.call("agent_next_step", {}));
     check(j.step === "plan-close" && j.primary_action.tool === "plan" && j.primary_action.args.package === "p1", "every card of the package KEPT, package open -> plan-close", JSON.stringify(j.primary_action));
 

@@ -19,7 +19,7 @@ order and, for each, how you will know it is done. It writes them with the `plan
 
 | check | holds when |
 |---|---|
-| `graph` | a routine at an address carries a human name; a finding with a tag exists |
+| `graph` | a routine at an address carries a human name; a finding with a tag exists; with `max: 0`, that nothing is left there (a wrong routine removed) |
 | `rebuild` | the listing rebuilds byte-identical |
 | `registration` | nothing on disk is unregistered |
 | `scenario` | a scenario's verdict, including a test-mode run (the build passes, the baseline fails) |

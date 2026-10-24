@@ -10,8 +10,8 @@ import { isNodeNamed, humanNamedStarts } from "../slots/state.js";
 import { canonicalTag } from "../slots/schema.js";
 
 export type Check =
-  | { kind: "graph"; subject: "node"; nodeKind?: string; owner?: string; address?: number; named?: boolean; min: number; text: string }
-  | { kind: "graph"; subject: "finding"; tag: string; address?: number; min: number; text: string }
+  | { kind: "graph"; subject: "node"; nodeKind?: string; owner?: string; address?: number; named?: boolean; min: number; max?: number; text: string }
+  | { kind: "graph"; subject: "finding"; tag: string; address?: number; min: number; max?: number; text: string }
   | { kind: "rebuild"; listing: string; text: string }
   | { kind: "registration"; text: string }
   | { kind: "scenario"; file: string; scenario?: string; text: string }
@@ -29,8 +29,8 @@ export interface CheckResult {
 export type VerdictValue = "KEPT" | "NOT_KEPT" | "WAITING";
 
 export const ALLOWED_FORMS = [
-  `{kind:"graph", subject:"node", nodeKind?, owner?, address?, named?, min?, text}`,
-  `{kind:"graph", subject:"finding", tag, address?, min?, text}`,
+  `{kind:"graph", subject:"node", nodeKind?, owner?, address?, named?, min?, max?, text} (max: 0 = none left)`,
+  `{kind:"graph", subject:"finding", tag, address?, min?, max?, text}`,
   `{kind:"rebuild", listing, text}`,
   `{kind:"registration", text}`,
   `{kind:"scenario", file, scenario?, text}`,
@@ -59,13 +59,17 @@ export function parseCheck(raw: unknown, where: string): { ok: true; check: Chec
   const str = (k: string): string | undefined => (typeof o[k] === "string" && (o[k] as string).trim() !== "" ? (o[k] as string).trim() : undefined);
   switch (o.kind) {
     case "graph": {
-      const min = o.min === undefined ? 1 : o.min;
+      // "At least one" unless a ceiling is given: `max: 0` alone means "none left".
+      const max = o.max;
+      if (max !== undefined && (typeof max !== "number" || !Number.isInteger(max) || max < 0)) return refuse("max must be a whole number >= 0");
+      const min = o.min === undefined ? (max === undefined ? 1 : 0) : o.min;
       if (typeof min !== "number" || !Number.isInteger(min) || min < 0) return refuse("min must be a whole number >= 0");
+      if (max !== undefined && min > max) return refuse(`min ${min} is above max ${max}: no count can hold`);
       const address = parseAddress(o.address);
       if (address === "bad") return refuse(`address "${String(o.address)}" is not a 16-bit address ($0A20)`);
       if (o.subject === "node") {
         if (o.named !== undefined && typeof o.named !== "boolean") return refuse("named must be true or false");
-        const c: Check = { kind: "graph", subject: "node", min, text };
+        const c: Check = { kind: "graph", subject: "node", min, ...(max !== undefined ? { max } : {}), text };
         if (str("nodeKind")) c.nodeKind = str("nodeKind")!;
         if (str("owner")) c.owner = str("owner")!;
         if (address !== undefined) c.address = address;
@@ -75,7 +79,7 @@ export function parseCheck(raw: unknown, where: string): { ok: true; check: Chec
       if (o.subject === "finding") {
         const tag = str("tag");
         if (!tag) return refuse("a graph/finding check needs a tag");
-        return { ok: true, check: { kind: "graph", subject: "finding", tag, ...(address !== undefined ? { address } : {}), min, text } };
+        return { ok: true, check: { kind: "graph", subject: "finding", tag, ...(address !== undefined ? { address } : {}), min, ...(max !== undefined ? { max } : {}), text } };
       }
       return refuse(`graph subject must be "node" or "finding"`);
     }
@@ -141,7 +145,7 @@ function graphNodeCount(projectRoot: string, c: Extract<Check, { subject: "node"
     let hits = rows.filter((r) => (c.owner === undefined || r.owner === c.owner) && (c.address === undefined || r.address === c.address));
     if (c.named !== undefined) hits = hits.filter((r) => isNodeNamed(r, starts) === c.named);
     const what = [c.nodeKind ?? "node", c.owner ? `owner ${c.owner}` : "", c.address !== undefined ? `at ${hex4(c.address)}` : "", c.named === true ? "with a human name" : c.named === false ? "without a human name" : ""].filter(Boolean).join(" ");
-    return { count: hits.length, detail: `${hits.length} ${what} (need >= ${c.min})` };
+    return { count: hits.length, detail: `${hits.length} ${what}` };
   } finally { store.close(); }
 }
 
@@ -169,7 +173,7 @@ function graphFindingCount(projectRoot: string, c: Extract<Check, { subject: "fi
       }
       n++;
     }
-    return { count: n, detail: `${n} finding(s) tagged "${tag}"${c.address !== undefined ? ` covering ${hex4(c.address)}` : ""} (need >= ${c.min})` };
+    return { count: n, detail: `${n} finding(s) tagged "${tag}"${c.address !== undefined ? ` covering ${hex4(c.address)}` : ""}` };
   } finally { store.close(); }
 }
 
@@ -214,7 +218,8 @@ export async function evaluateCheck(projectRoot: string, c: Check): Promise<Chec
       case "graph": {
         const r = c.subject === "node" ? graphNodeCount(projectRoot, c) : graphFindingCount(projectRoot, c);
         const rr = r as { count: number; detail: string };
-        return { ...base, pass: rr.count >= c.min, detail: rr.detail };
+        const need = c.max === undefined ? `>= ${c.min}` : c.max === 0 ? "none" : c.min > 0 ? `${c.min}..${c.max}` : `<= ${c.max}`;
+        return { ...base, pass: rr.count >= c.min && (c.max === undefined || rr.count <= c.max), detail: `${rr.detail} (need ${need})` };
       }
       case "rebuild":
         return { ...base, ...(await rebuildCheck(projectRoot, c)) };

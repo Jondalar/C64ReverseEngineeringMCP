@@ -624,8 +624,8 @@ in every report instead.
   architect records what the run cost from the harness notification (`card` action
   `usage`: model, tokens, tool calls, duration), and its own cost per package (`plan`
   action `usage`); `plan show` sums them.
-- **The check vocabulary.** A done-when line is one of: `graph` (a count or
-  existence in the graph), `rebuild` (byte-identical), `registration` (0
+- **The check vocabulary.** A done-when line is one of: `graph` (a count in the
+  graph: at least `min`, at most `max`; `max: 0` = none left), `rebuild` (byte-identical), `registration` (0
   unregistered), `scenario` (a scenario's verdict, test mode included),
   `contract` (a standing threshold), or `human`. Nothing else may be prose.
 - **The verdict is C64RE's.** On DONE it runs the done-when itself: KEPT,
