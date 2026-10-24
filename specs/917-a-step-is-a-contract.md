@@ -147,7 +147,7 @@ Not        no other test's expected values
 On DONE, C64RE runs the done-when lines itself and answers KEPT or NOT KEPT; C-08 cannot
 be issued while C-07 is not KEPT.
 
-### The rest
+### D2–D6
 - **D2 — decided (owner, 2026-10-24): a fixed check vocabulary, plus the human gate.**
   A done-when line is one of:
   - `[graph]` a count or existence in the graph (a routine named at $0A20, a finding
