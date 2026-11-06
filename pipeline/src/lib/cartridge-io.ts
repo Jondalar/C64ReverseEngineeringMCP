@@ -37,6 +37,11 @@ function registerText(hardwareType: number, address: number): string | undefined
       return (address & 2) === 0
         ? "MegaByter bank register: bits 0-6 ROM bank"
         : "MegaByter mode register: bit 7 LED, bit 1 EXROM, bit 0 GAME";
+    case 89: // Protovision TwoMegabyter: A1 clear = bank, A1 set = mode
+      if (!inIo1) return undefined;
+      return (address & 2) === 0
+        ? "TwoMegabyter bank register: bits 0-6 ROM bank"
+        : "TwoMegabyter mode register: bit 0 EXROM, bit 1 GAME (0 = 16K, 1 = Ultimax, 2 = 8K, 3 = off)";
     default:
       return undefined;
   }
@@ -55,8 +60,8 @@ export interface CartridgeIoRegister {
  * the neutral `cart_io_deXX`, which claims nothing about the hardware.
  *
  * GMod2, Magic Desk and Ocean answer with one register for the whole IO1 page, so every address
- * there is that register plus its distance from $DE00. MegaByter decodes A1: clear is the bank
- * register, set the mode register, repeating every four bytes.
+ * there is that register plus its distance from $DE00. MegaByter and TwoMegabyter decode A1: clear
+ * is the bank register, set the mode register, repeating every four bytes.
  */
 export function cartridgeIoRegister(address: number, hardwareType: number | undefined): CartridgeIoRegister | undefined {
   if (address < 0xde00 || address > 0xdfff) return undefined;
@@ -77,6 +82,9 @@ export function cartridgeIoRegister(address: number, hardwareType: number | unde
     case 86:
       if (!inIo1) return neutral;
       return (address & 2) === 0 ? { name: "megabyter_bank", base: 0xde00 } : { name: "megabyter_mode", base: 0xde02 };
+    case 89:
+      if (!inIo1) return neutral;
+      return (address & 2) === 0 ? { name: "twomegabyter_bank", base: 0xde00 } : { name: "twomegabyter_mode", base: 0xde02 };
     default:
       return neutral;
   }
