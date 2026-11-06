@@ -313,6 +313,9 @@ head("S5. $DE00-$DFFF follow the cartridge type");
     const mb = await bank(86, "megabyter");
     check(/sta\s+megabyter_bank\b/.test(code(mb.asm)) && /sta\s+megabyter_mode\b/.test(code(mb.asm)) && /sta\s+megabyter_mode\+\$04\b/.test(code(mb.asm)),
       "S5 a MegaByter splits on A1: $DE00 is the bank, $DE02 and $DE06 the mode register", code(mb.asm).split("\n").filter((l) => /megabyter|\$DE/.test(l)).join("\n"));
+    const tmb = await bank(89, "twomegabyter");
+    check(/sta\s+twomegabyter_bank\b/.test(code(tmb.asm)) && /sta\s+twomegabyter_mode\b/.test(code(tmb.asm)) && /sta\s+twomegabyter_mode\+\$04\b/.test(code(tmb.asm)),
+      "S5 a TwoMegabyter splits on A1: $DE00 is the bank, $DE02 and $DE06 the mode register", code(tmb.asm).split("\n").filter((l) => /twomegabyter|\$DE/.test(l)).join("\n"));
   } finally { mcp.stop(); }
   // no cartridge known: the neutral name, never a hardware claim
   const none = await openProject("s5-none");

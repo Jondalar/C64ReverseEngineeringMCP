@@ -1370,6 +1370,9 @@ const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   // PRIVATE id, see the note above. TRX64 `cart.rs` C64MegaCartMapper: $DE00 bank
   // bits 0-7 + $DF00 bits 8-13 and mode; programs only in ultimax via $E000.
   88: { hardwareTypeName: "C64MegaCart",     slotsPerBank: 1, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true },
+  // PRIVATE id, see the note above. TRX64 `cart.rs` TwoMegabyterMapper: MX29F016, $DE00 bank
+  // (A1 clear) / $DE02 mode (A1 set), 128 banks of 16K = ROML + ROMH, boots in 16K.
+  89: { hardwareTypeName: "Protovision TwoMegabyter", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false, canFlash: true },
 };
 
 function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
