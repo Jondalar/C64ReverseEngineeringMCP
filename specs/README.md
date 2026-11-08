@@ -6,12 +6,13 @@ Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE
 A new spec starts from [`_TEMPLATE.md`](_TEMPLATE.md): the problem first, then the scenarios that prove it solved, each with its test.
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/internal/`) — one range, one registry.
-**Next free: 919.** (807 = TRX64's binary checkpoint ring, closed and archived there; 808 = TRX64's rewind
+**Next free: 920.** (807 = TRX64's binary checkpoint ring, closed and archived there; 808 = TRX64's rewind
 transport, 809 = TRX64's marks and branches — both tracked on the TRX64 board. 808 has a C64RE-side
 ribbon on the existing scrub UI; 810 is C64RE's and is listed below.)
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
+| 919 | `.c64re` format 2: TRX64 writes what the board writes (TRX64 `docs/internal/919-c64re-format-2.md`) | PROPOSED (2026-11-08), refined, ready to build | Binary section format from TRX64-Ultimate (U8/U9); reads 1 and 2, writes only 2. | 2026-11-08 |
 | 917 | A step is a contract: plan at kickoff, cards by the architect, checked by C64RE (`917-a-step-is-a-contract.md`) | BUILT and merged (2026-10-24), e2e-917-cards 91/0; S6 done on a real project | Built: plan + cards in the graph, `plan`/`card` tools, C64RE's verdict with the human gate, `supersedes`, position architect/unset (a worker names its card), next step reads the plan, `c64re_worker_card`, `change-validate` unblocked. S6 fixes outside 917: `list_artifacts` reads the registry, a D64 needs no BAM, a D64 data disk is standard GCR. The first `project_init` registers media in a user folder such as `disk/` in place. | 2026-10-24 |
 | 916 | A scenario tests the build: built bytes loaded into a start state, judged strictly (`916-a-scenario-tests-the-build.md`) | BUILT and merged (2026-10-23), e2e:916 62/0 on TRX64 0.14.4 | `variant … loads "x.prg"` / raw `at` (incl. cart bank); `Then the baseline fails/passes` = test mode (every variant must pass, baseline as stated, no candidate); surface names the test use (tool description, --help, doctrine, wiki). | 2026-10-23 |
 | 915 | A code seed crosses an owner boundary only from real code, into the payload that is in the window (`915-a-seed-crosses-only-into-the-resident-payload.md`) | BUILT and merged (2026-10-21), ships in C64RE 0.10.1; S1–S3 green (`e2e:915-seeds`); open: S4 (the reporter's retest on #140) | Issue #140: heuristic chip renders and co-occupants of a window seed false code. Built: never from heuristic code; the trace import writes the resident payload(s) onto each executed cross-window jsr/jmp/jmp (ind) (target id `ram/<owner>:addr:…`, matched by the bytes the trace retired, the 867 comparison), and seeds go to exactly those; static-only with several claimants = not seeded, named in the header (`not seeded:` block). | 2026-10-21 |
