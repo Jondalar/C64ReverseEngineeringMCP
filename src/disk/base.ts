@@ -185,7 +185,9 @@ function hex4(value: number): string {
   return value.toString(16).toUpperCase().padStart(4, "0");
 }
 
-export function getFileType(typeByte: number): DiskFileEntry["type"] {
+/** `maxType` is the highest type the drive's DOS knows: 4 on a 1541 (type 5 is not a 1541 file type
+ *  and stays DEL, as before), 5 on a 1581, whose type 5 is a CBM partition. */
+export function getFileType(typeByte: number, maxType = 4): DiskFileEntry["type"] {
   const type = typeByte & 0x07;
   switch (type) {
     case 0x01:
@@ -197,7 +199,7 @@ export function getFileType(typeByte: number): DiskFileEntry["type"] {
     case 0x04:
       return "REL";
     case 0x05:
-      return "CBM";
+      return maxType >= 5 ? "CBM" : "DEL";
     default:
       return "DEL";
   }
@@ -318,7 +320,7 @@ export function parseDirectory(
 
       files.push({
         name: filename,
-        type: getFileType(typeByte),
+        type: getFileType(typeByte, layout.maxType),
         size: sizeSectors,
         track: fileTrack,
         sector: fileSector,
