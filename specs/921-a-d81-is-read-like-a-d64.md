@@ -1,6 +1,6 @@
 # Spec 921 — A D81 is read like a D64: inspect, extract, register, and every sector accounted for
 
-**Status:** BUILT on `spec/921-d81-static` (2026-11-12); S1-S7 green in `scripts/smoke-921-d81.mjs`, S8 done 2026-11-12 on the 4 Metal Dust disks (see §5).
+**Status:** BUILT and merged (2026-11-12); S1-S7 green in `scripts/smoke-921-d81.mjs`, S8 done 2026-11-12 on the 4 Metal Dust disks (see §5).
 **Repo:** C64RE only (static media reading). TRX64: no change — its 1581 (Spec 872) already mounts D81.
 **Number:** 921 (registry: `specs/README.md`).
 **Origin:** the MetalDustUltimate session (a SuperCPU → C64 Ultimate port, 4 × D81), 2026-11-12;

@@ -17,7 +17,7 @@ live here. C64RE carries no emulator; it is a client.
 
 Bytes → structure → meaning, and the third step is the one that matters.
 
-1. **Extraction** — PRG / CRT / D64 / G64: banks, sectors, directory, xrefs, candidate
+1. **Extraction** — PRG / CRT / D64 / G64 / D81: banks, sectors, directory, xrefs, candidate
    segments, including disk and cartridge forensics.
 2. **Heuristic disassembly** — the full 6502 ISA including undocumented opcodes. Nine
    analyzers in parallel: code discovery, text, sprites, charsets, screen RAM, bitmaps,
