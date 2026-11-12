@@ -50,7 +50,7 @@ export const INVENTORY_PATTERNS_FILE = "knowledge/inventory-patterns.json";
 // tool can share one list without a cycle (registration → registration-delta →
 // inventory-patterns).
 export const INVENTORY_KIND_VALUES = [
-  "prg", "crt", "d64", "g64", "raw",
+  "prg", "crt", "d64", "g64", "d81", "raw",
   "analysis-run", "report", "generated-source",
   "manifest", "extract", "preview", "listing",
   "trace", "view-model", "checkpoint", "other",
@@ -288,6 +288,7 @@ const KIND_BY_EXT: Record<string, InventoryKind> = {
   crt: "crt",
   d64: "d64",
   g64: "g64",
+  d81: "d81",
   bin: "raw",
   asm: "generated-source",
   tas: "generated-source",
@@ -314,10 +315,10 @@ const ROLE_BY_EXT: Record<string, string> = {
   json: "report",
 };
 
-// The roles the default `input/` patterns (registration.ts DEFAULT_PATTERNS) give source media. .d81, .t64, .tap
+// The roles the default `input/` patterns (registration.ts DEFAULT_PATTERNS) give source media. .t64, .tap
 // and .bin have no source role anywhere in the project model, so an input file of those types gets none.
 const INPUT_ROLE_BY_EXT: Record<string, string> = {
-  prg: "source-prg", d64: "source-disk", g64: "source-disk", crt: "source-cart",
+  prg: "source-prg", d64: "source-disk", g64: "source-disk", d81: "source-disk", crt: "source-cart",
 };
 
 const FORMAT_BY_EXT: Record<string, string> = {

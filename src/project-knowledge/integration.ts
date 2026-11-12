@@ -35,6 +35,8 @@ function inferArtifactKind(path: string): ArtifactKind {
       return "d64";
     case ".g64":
       return "g64";
+    case ".d81":
+      return "d81";
     case ".asm":
     case ".tas":
     case ".tass":

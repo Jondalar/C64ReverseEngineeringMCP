@@ -214,7 +214,7 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
 
   const artifacts = service.listArtifacts();
   const isMedia = (a: { kind?: string; role?: string }) =>
-    a.kind === "d64" || a.kind === "g64" || a.kind === "crt" || a.kind === "prg" || a.role === "source-prg";
+    a.kind === "d64" || a.kind === "g64" || a.kind === "d81" || a.kind === "crt" || a.kind === "prg" || a.role === "source-prg";
   const mediaArtifacts = artifacts.filter(isMedia).length;
   const hasG64 = artifacts.some((a) => a.kind === "g64");
   const hasCrt = artifacts.some((a) => a.kind === "crt");

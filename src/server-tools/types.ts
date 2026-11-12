@@ -8,7 +8,7 @@ export interface ToolTextResult {
 export interface KnowledgeArtifactDescriptor {
   path: string;
   title?: string;
-  kind?: "prg" | "crt" | "d64" | "g64" | "raw" | "analysis-run" | "report" | "generated-source" | "manifest" | "extract" | "preview" | "listing" | "trace" | "view-model" | "checkpoint" | "other";
+  kind?: "prg" | "crt" | "d64" | "g64" | "d81" | "raw" | "analysis-run" | "report" | "generated-source" | "manifest" | "extract" | "preview" | "listing" | "trace" | "view-model" | "checkpoint" | "other";
   scope?: "input" | "generated" | "analysis" | "knowledge" | "view" | "session";
   role?: string;
   format?: string;

@@ -87,6 +87,7 @@ export const ArtifactKindSchema = z.enum([
   "crt",
   "d64",
   "g64",
+  "d81",
   "raw",
   "analysis-run",
   "report",

@@ -105,6 +105,8 @@ function inferKind(relPath: string): Parameters<ProjectKnowledgeService["saveArt
       return "d64";
     case ".g64":
       return "g64";
+    case ".d81":
+      return "d81";
     case ".bin":
     case ".raw":
       return "raw";

@@ -1014,6 +1014,7 @@ export class ProjectKnowledgeService {
       switch (ext) {
         case ".d64": return { dir: this.storage.paths.inputDisk, kind: "d64", scope: "input" };
         case ".g64": return { dir: this.storage.paths.inputDisk, kind: "g64", scope: "input" };
+        case ".d81": return { dir: this.storage.paths.inputDisk, kind: "d81", scope: "input" };
         case ".crt": return { dir: this.storage.paths.inputCrt, kind: "crt", scope: "input" };
         case ".prg": return { dir: this.storage.paths.inputPrg, kind: "prg", scope: "input" };
         case ".pdf":
@@ -1026,7 +1027,7 @@ export class ProjectKnowledgeService {
     // images is how a project usually arrives). Folders C64RE writes itself are not entered,
     // and from the user's folders only media are registered, in place — the folder is never touched.
     const MANAGED = new Set(["input", "analysis", "artifacts", "knowledge", "views", "session", "snapshots", "docs", "build", "tools", "src", "node_modules", "dist"]);
-    const MEDIA = new Set([".d64", ".g64", ".crt", ".prg"]);
+    const MEDIA = new Set([".d64", ".g64", ".d81", ".crt", ".prg"]);
     const candidates: string[] = [];
     const walk = (relDir: string, depth: number): void => {
       let names: string[];
