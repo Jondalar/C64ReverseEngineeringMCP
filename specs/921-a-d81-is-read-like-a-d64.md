@@ -1,6 +1,6 @@
 # Spec 921 — A D81 is read like a D64: inspect, extract, register, and every sector accounted for
 
-**Status:** BUILT on `spec/921-d81-static` (2026-11-12); S1-S7 green in `scripts/smoke-921-d81.mjs`, S8 (the 4 Metal Dust disks) is the owner's acceptance, by hand.
+**Status:** BUILT on `spec/921-d81-static` (2026-11-12); S1-S7 green in `scripts/smoke-921-d81.mjs`, S8 done 2026-11-12 on the 4 Metal Dust disks (see §5).
 **Repo:** C64RE only (static media reading). TRX64: no change — its 1581 (Spec 872) already mounts D81.
 **Number:** 921 (registry: `specs/README.md`).
 **Origin:** the MetalDustUltimate session (a SuperCPU → C64 Ultimate port, 4 × D81), 2026-11-12;
@@ -124,8 +124,9 @@ orphan ranges and never calls them free.
 - **D2** `parseDirectory(getSector, layout)` with `DirectoryLayout`; `D64_LAYOUT` is the old constants, so D64 output is unchanged. `DiskDirectory.dosType` carries "3D".
 - **D3** chain functions unchanged; `D81Parser.walkFile`/`extractFile` call them.
 - **D4** `src/disk/d81-parser.ts`, probed by size in `createDiskParser`/`isDiskImage`.
-- **D5** `getFileType` maps 5 to `CBM`; `partitionSectors`/`walkPartition`/`extractPartition` in `base.ts`; `D81Parser.getDirectory` expands subdirectory partitions as `PART/NAME` (depth 4, revisited-header guard); `.cbm` extension in `disk-extractor.ts`.
+- **D5** `getFileType` maps 5 to `CBM` on a 1581 only (`layout.maxType` 5); on a D64 type 5 stays `DEL` as before; `partitionSectors`/`walkPartition`/`extractPartition` in `base.ts`; `D81Parser.getDirectory` expands subdirectory partitions as `PART/NAME` (depth 4, revisited-header guard); `.cbm` extension in `disk-extractor.ts`.
 - **D6** kind `d81` in `ArtifactKindSchema`, `INVENTORY_KIND_VALUES`, `KIND_BY_EXT`, `INPUT_ROLE_BY_EXT`, `DEFAULT_PATTERNS` (`input/disk/*.d81` and the loose `input/*.d64|g64|d81`), `sortLooseInputMedia` route, `MediaType`, the kind lists in the MCP tools, `registration-delta`.
 - **D7** `recordDiskSubstrate`: a D81 is a sector image (standard, static depack), evidence names 40/0 and MFM.
 - **D8** `diskSectorAllocation` takes tracks, sectors and system cells from the parser; the answer prints "unexplained data" ranges (`formatOrphanRanges`), the legend and the owner of an unclaimed sector no longer say free.
 - Test: `scripts/smoke-921-d81.mjs` (`npm run smoke:921`), fixture builder `D81Image` in `scripts/lib/d81-fixture.mjs`.
+- **S8, 2026-11-12, by hand** (absolute paths, output in a scratch dir, deleted): all 4 disks `format d81`, DOS `3D`, 12 / 2 / 2 / 4 PRGs, every chain `complete`, 0 overlaps. The large data files (e.g. `level4.data`, 2 509 blocks) carry no C64 load address (`loadAddressRejection`: the body runs past $FFFF). Unexplained data: Disk1 38/2–38/4, a 3-sector chain (38/2→38/3→38/4, last sector 27 bytes) no directory entry reaches; Disk4 40/4–40/13, an old directory chain (entries such as `TITLE`, `LIB.EDIT`, `PRG.FILE`) not linked from 40/3. Neither is reported as free.
