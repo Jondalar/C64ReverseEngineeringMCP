@@ -8,7 +8,7 @@ import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "../disk-extractor.js";
 import { writeDiskSpec784Manifest } from "./disk-spec784-manifest.js";
-import { diskSectorAllocation, extractDiskCustomLut, formatSectorMap, formatSectorOwners, SECTOR_MAP_LEGEND, suggestDiskLutSector } from "../disk-custom-lut.js";
+import { diskSectorAllocation, extractDiskCustomLut, formatOrphanRanges, formatSectorMap, formatSectorOwners, SECTOR_MAP_LEGEND, suggestDiskLutSector } from "../disk-custom-lut.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain, linkExtractedPayloadFiles } from "../lib/extract-auto-chain.js";
 import { safeHandler } from "./safe-handler.js";
@@ -28,7 +28,7 @@ function diskDefaultOutputDir(projectDir: string, imagePath: string): string {
 function recordDiskSubstrate(
   projectDir: string,
   imageAbs: string,
-  manifest: { diskName: string; diskId: string; files: readonly unknown[]; format?: "d64" | "g64" },
+  manifest: { diskName: string; diskId: string; files: readonly unknown[]; format?: "d64" | "g64" | "d81" },
   recordedBy: string,
   override?: "standard-gcr" | "custom-gcr" | "weak-bits" | "mixed" | "unknown",
 ): string | undefined {
@@ -48,17 +48,18 @@ function recordDiskSubstrate(
       return `${rec.substrate} (manual override)`;
     }
     const dosReadable = manifest.files.length > 0 && manifest.diskName !== "UNTITLED";
-    // A D64 is a sector image: whatever was on the disk is standard GCR by construction, and a
-    // data disk without a directory is read by its own loader from those same sectors — a static
-    // depack, never a custom-GCR candidate. Only a G64 can carry custom GCR.
-    const sectorImage = manifest.format === "d64";
+    // A D64 or D81 is a sector image: a D64 is standard GCR by construction, a D81 has no GCR at
+    // all (MFM), and a data disk without a directory is read by its own loader from those same
+    // sectors — a static depack, never a custom-GCR candidate. Only a G64 can carry custom GCR.
+    const d81 = manifest.format === "d81";
+    const sectorImage = manifest.format === "d64" || d81;
     const standard = dosReadable || sectorImage;
     const rec = svc.recordSubstrateVerdict(key, {
       substrate: standard ? "standard-gcr" : "custom-gcr",
       evidence: dosReadable
-        ? `standard DOS directory parsed at 18/0 (${manifest.files.length} files)`
+        ? `standard DOS directory parsed at ${d81 ? "40/0 (1581 MFM sector image)" : "18/0"} (${manifest.files.length} files)`
         : sectorImage
-          ? `D64 sector image without a DOS directory: a data disk read by its own loader from standard sectors`
+          ? `${d81 ? "D81 (1581 MFM)" : "D64"} sector image without a DOS directory: a data disk read by its own loader from standard sectors`
           : `no standard BAM/directory at 18/0 (custom-GCR candidate)`,
       source: "auto",
       recordedBy,
@@ -208,10 +209,10 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "inspect_disk",
-    "List the directory of a D64/G64 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
+    "List the directory of a D64/G64/D81 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
-      image_path: z.string().describe("Path to the .d64 or .g64 image"),
+      image_path: z.string().describe("Path to the .d64, .g64 or .d81 image"),
       substrate_override: z.enum(["standard-gcr", "custom-gcr", "weak-bits", "mixed", "unknown"]).optional()
         .describe("Tier 2 runtime-discipline override: record the medium's true substrate after READING the drivecode (docs/runtime-discipline-gate-plan.md). Use when the auto-parse is wrong — e.g. a standard directory but the payload lives in custom-GCR tracks: pass 'custom-gcr' to unlock the loader-lens runtime door. A 'manual' verdict outranks the auto BAM-parse. Omit for a plain read-only peek."),
     },
@@ -220,6 +221,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         const pd = context.projectDir({ projectDir: project_dir, fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const manifest = readDiskDirectory(imageAbs);
+        const dosType = manifest.dosType;
         // Tier 2 substrate verdict — characterize-medium records whether the disk is
         // DOS-readable (standard-gcr) or a custom-GCR candidate, so the runtime
         // payload-extraction doors can refuse a static-depack-as-runtime. Soft: never breaks inspect.
@@ -227,7 +229,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         const lines = [
           `Image: ${imageAbs}`,
           `Format: ${manifest.format.toUpperCase()}`,
-          `Disk: ${manifest.diskName} [${manifest.diskId}]`,
+          `Disk: ${manifest.diskName} [${manifest.diskId}]${dosType ? ` DOS ${dosType}` : ""}`,
           ...(substrateNote ? [`Substrate: ${substrateNote}`] : []),
           ...(manifest.noDos ? [`DOS directory: none (${manifest.noDos}). A data disk: its blocks are read by the game's own loader — extract_disk_custom_lut, disk_sector_allocation.`] : []),
           "",
@@ -248,10 +250,10 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "extract_disk",
-    "Extract files from a D64/G64 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
+    "Extract files from a D64/G64/D81 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
-      image_path: z.string().describe("Path to the .d64 or .g64 image"),
+      image_path: z.string().describe("Path to the .d64, .g64 or .d81 image"),
       output_dir: z.string().optional().describe("Output directory (default: analysis/disk/<image-name>)"),
     },
     async ({ project_dir, image_path, output_dir }) => {
@@ -418,7 +420,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           lut_sector: args.lut_sector,
           payload_format: args.payload_format,
         },
-        inputs: [{ path: imageAbs, kind: "d64", scope: "input", role: "disk-image", producedByTool: "extract_disk_custom_lut" } as never],
+        inputs: [{ path: imageAbs, kind: /\.d81$/i.test(imageAbs) ? "d81" : /\.g64$/i.test(imageAbs) ? "g64" : "d64", scope: "input", role: "disk-image", producedByTool: "extract_disk_custom_lut" } as never],
         outputs: [{ path: result.manifestPath, kind: "manifest", scope: "generated", role: "disk-manifest", format: "json", producedByTool: "extract_disk_custom_lut" } as never],
       });
       if (reg.runPath) lines.push(`Knowledge run: ${reg.runPath}`);
@@ -450,7 +452,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "disk_sector_allocation",
-    "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
+    "Report per-track/sector ownership for an extracted disk — system (header/BAM/dir), kernal file, custom file, unclaimed zero-filled padding, orphan data (unexplained bytes, never free) — and flag overlaps. Works on D64/G64 (35 tracks) and D81 (80 x 40). Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
     {
       project_dir: z.string().optional(),
       image_path: z.string(),
@@ -468,8 +470,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       const lines: string[] = [];
       lines.push(`Sector allocation for ${result.imagePath}`);
       lines.push(`Disk: ${result.diskName ?? "(unknown)"} [${result.diskId ?? "??"}]`);
-      lines.push(`Total sectors: ${result.totalSectors}`);
-      lines.push(`Unclaimed: ${result.unclaimedCount} (of which ${result.orphanCount} hold data — role orphan_data)`);
+      lines.push(`Total sectors: ${result.totalSectors} on ${result.tracks} tracks`);
+      lines.push(`Unclaimed: ${result.unclaimedCount} — ${result.orphanCount} hold bytes no directory entry or system sector explains (unexplained data, role orphan_data), ${result.unclaimedCount - result.orphanCount} are zero-filled`);
       lines.push(`Overlaps: ${result.overlapsCount}`);
       if (!result.imageRead) {
         lines.push(`NOTE: the image could not be parsed, so an unclaimed sector could not be told from an empty one — every one of them reads as padding.`);
@@ -486,6 +488,13 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       lines.push(`## Map — one character per sector, sector 0 leftmost`);
       lines.push(SECTOR_MAP_LEGEND);
       lines.push(...formatSectorMap(result));
+      const orphanRuns = formatOrphanRanges(result);
+      if (orphanRuns.length > 0) {
+        lines.push(``);
+        lines.push(`## Unexplained data (${result.orphanCount} sectors in ${orphanRuns.length} ${orphanRuns.length === 1 ? "range" : "ranges"})`);
+        lines.push(...orphanRuns.slice(0, 40));
+        if (orphanRuns.length > 40) lines.push(`  … and ${orphanRuns.length - 40} more ranges — the written map has every sector.`);
+      }
       const overlaps = result.ownership.filter((slot) => slot.overlaps && slot.overlaps.length > 0);
       if (overlaps.length > 0) {
         lines.push(``);
@@ -539,7 +548,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "suggest_disk_lut_sector",
-    "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
+    "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64, .g64 or .d81). Returns: ranked candidate list; does not write any artifact.",
     {
       project_dir: z.string().optional(),
       image_path: z.string(),

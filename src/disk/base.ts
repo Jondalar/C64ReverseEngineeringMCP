@@ -4,7 +4,7 @@
 
 export interface DiskFileEntry {
   name: string;
-  type: "PRG" | "SEQ" | "DEL" | "USR" | "REL";
+  type: "PRG" | "SEQ" | "DEL" | "USR" | "REL" | "CBM";
   size: number;
   track: number;
   sector: number;
@@ -23,6 +23,17 @@ export interface DiskDirectory {
   files: DiskFileEntry[];
   /** Set when the disk carries no DOS directory: what 18/0 holds instead. The blocks stay readable. */
   noDos?: string;
+  /** The DOS version bytes of the header ("3D" on a 1581). Absent on a 1541 image: the
+   *  parser reads none there. */
+  dosType?: string;
+}
+
+/** A sector the DOS itself owns (header, BAM, directory), with who owns it. */
+export interface DiskSystemSector {
+  track: number;
+  sector: number;
+  owner: string;
+  detail?: string;
 }
 
 export interface DiskImage {
@@ -33,6 +44,27 @@ export interface DiskImage {
    *  for extended/protected G64. Used so the UI shows every track, not just the
    *  ones referenced by directory files (BUG-017). */
   getTrackCount(): number;
+  /** Sectors on `track` — the image's own geometry, not a global table (Spec 921 D1). */
+  sectorsPerTrack(track: number): number;
+  /** Tracks the sector allocation accounts for: the standard disk (35 on a 1541, 80 on a
+   *  1581), not the extended tracks a protected image may add. */
+  allocationTracks(): number;
+  /** The sectors DOS itself claims on this image: header, BAM, directory. */
+  systemSectors(): DiskSystemSector[];
+  /** The blocks a directory entry occupies, with how the walk ended. A chain on every image
+   *  but a 1581 CBM partition, which is a contiguous range. */
+  walkFile(entry: DiskFileEntry): SectorChainWalk;
+}
+
+/** The 1541 answer to `DiskImage.systemSectors`: the BAM at 18/0, the rest of track 18 is directory. */
+export function d64SystemSectors(sectorsPerTrack: (track: number) => number): DiskSystemSector[] {
+  const out: DiskSystemSector[] = [];
+  for (let sector = 0; sector < sectorsPerTrack(18); sector += 1) {
+    out.push(sector === 0
+      ? { track: 18, sector, owner: "BAM" }
+      : { track: 18, sector, owner: "DOS directory", detail: `T18/S${sector}` });
+  }
+  return out;
 }
 
 export interface DiskFileSectorLink {
@@ -164,40 +196,93 @@ export function getFileType(typeByte: number): DiskFileEntry["type"] {
       return "USR";
     case 0x04:
       return "REL";
+    case 0x05:
+      return "CBM";
     default:
       return "DEL";
   }
 }
 
-export function parseDirectory(getSector: (t: number, s: number) => Uint8Array | null): DiskDirectory {
+/**
+ * Where a disk keeps its header and directory. The 32-byte directory entry is the same on a
+ * 1541 and a 1581; only the places differ (Spec 921 D2).
+ */
+export interface DirectoryLayout {
+  /** Track/sector of the header (disk name, id). */
+  header: [number, number];
+  /** Where the directory starts when the header's link does not say. */
+  firstDir: [number, number];
+  /** True: the header's own link bytes are the first directory sector (1581). False: DOS reads
+   *  `firstDir` whatever the header says (1541, 18/1). */
+  dirFromHeaderLink: boolean;
+  /** The track the header's link must name for the disk to count as DOS-formatted; undefined
+   *  accepts any valid directory track (a partition's header). */
+  expectedLinkTrack?: number;
+  /** Header byte that must be `D` (1581 DOS format byte); undefined: not required. */
+  dosFormatOffset?: number;
+  nameOffset: number;
+  idOffset: number;
+  dosOffset?: number;
+  /** Highest file type an unlinked directory entry may carry and still be believed. */
+  maxType: number;
+  maxTrack: number;
+  sectorsPerTrack: (track: number) => number;
+}
+
+export const D64_LAYOUT: DirectoryLayout = {
+  header: [18, 0],
+  firstDir: [18, 1],
+  dirFromHeaderLink: false,
+  expectedLinkTrack: 18,
+  nameOffset: 0x90,
+  idOffset: 0xa2,
+  maxType: 4,
+  maxTrack: 42,
+  sectorsPerTrack: (t) => SECTORS_PER_TRACK[t] ?? 17,
+};
+
+export function parseDirectory(
+  getSector: (t: number, s: number) => Uint8Array | null,
+  layout: DirectoryLayout = D64_LAYOUT,
+): DiskDirectory {
   const files: DiskFileEntry[] = [];
-  const bamSector = getSector(18, 0);
+  const [headerTrack, headerSector] = layout.header;
+  const bamSector = getSector(headerTrack, headerSector);
+  const where = `${headerTrack}/${headerSector}`;
   if (!bamSector) {
     // Fail-soft: the DOS directory is ONE resolver (KERNAL/1541-DOS/BAM), not the
     // substrate. A non-DOS / custom-framed disk (custom-GCR, own catalog) has no
     // standard BAM at 18/0 — return an EMPTY directory instead of crashing the read.
     // The raw blocks stay readable via getSector; the custom loader (per-project
     // extractor / loader-lens) resolves payloads on top. NEVER throw here.
-    return { name: "UNTITLED", id: "", files: [], noDos: "18/0 does not decode" };
+    return { name: "UNTITLED", id: "", files: [], noDos: `${where} does not decode` };
   }
   // DOS reads the directory from 18/1 whatever 18/0 says, so a bent BAM link does not end the
   // walk. But without the link, 18/1 may be plain data: then only an entry DOS could load
   // counts (a file type, a track and sector that exist), and none at all means a data disk.
-  const noBamLink = bamSector[0] !== 18;
+  const linkTrackOk = layout.expectedLinkTrack !== undefined
+    ? bamSector[0] === layout.expectedLinkTrack
+    : bamSector[0] >= 1 && bamSector[0] <= layout.maxTrack;
+  const formatOk = layout.dosFormatOffset === undefined || bamSector[layout.dosFormatOffset] === 0x44;
+  const noBamLink = !(linkTrackOk && formatOk);
   const plausible = (type: number, t: number, sec: number): boolean =>
-    (type & 0x0f) <= 4 && t >= 1 && t <= 42 && sec < (SECTORS_PER_TRACK[t] ?? 17);
+    (type & 0x0f) <= layout.maxType && t >= 1 && t <= layout.maxTrack && sec < layout.sectorsPerTrack(t);
 
   let diskName = "";
   for (let i = 0; i < 16; i++) {
-    const byte = bamSector[0x90 + i];
+    const byte = bamSector[layout.nameOffset + i];
     if (byte === 0xa0) break;
     diskName += petToAscii(byte);
   }
 
-  const diskId = String.fromCharCode(bamSector[0xa2]) + String.fromCharCode(bamSector[0xa3]);
+  const diskId = String.fromCharCode(bamSector[layout.idOffset]) + String.fromCharCode(bamSector[layout.idOffset + 1]);
+  const dosType = layout.dosOffset === undefined
+    ? undefined
+    : String.fromCharCode(bamSector[layout.dosOffset]) + String.fromCharCode(bamSector[layout.dosOffset + 1]);
 
-  let dirTrack = 18;
-  let dirSector = 1;
+  let [dirTrack, dirSector] = layout.dirFromHeaderLink && !noBamLink
+    ? [bamSector[0], bamSector[1]]
+    : layout.firstDir;
   // Cycle guard — MUST match extractFileFromChain / traceFileSectorChain. A
   // protected/custom disk (e.g. Hewson Cybernoid) can have a self-referencing or
   // looping directory T/S chain (sector[0]/[1] points back into the chain).
@@ -244,17 +329,84 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
     dirSector = sector[1];
   }
 
+  const dos = dosType === undefined ? {} : { dosType };
   if (noBamLink) {
     const hex = (v: number) => `$${v.toString(16).toUpperCase().padStart(2, "0")}`;
-    const link = `18/0 links ${hex(bamSector[0]!)}/${hex(bamSector[1]!)}, not the directory track`;
+    const link = layout.dosFormatOffset !== undefined && linkTrackOk
+      ? `${where} byte $${layout.dosFormatOffset.toString(16).padStart(2, "0")} is not the DOS format byte 'D'`
+      : `${where} links ${hex(bamSector[0]!)}/${hex(bamSector[1]!)}, not the directory track`;
     if (files.length === 0) return { name: "UNTITLED", id: "", files: [], noDos: link };
-    return { name: diskName || "UNTITLED", id: diskId, files, noDos: `${link}; DOS reads 18/1 regardless, and ${files.length} loadable entr${files.length === 1 ? "y is" : "ies are"} there` };
+    return { name: diskName || "UNTITLED", id: diskId, files, ...dos, noDos: `${link}; DOS reads ${layout.firstDir[0]}/${layout.firstDir[1]} regardless, and ${files.length} loadable entr${files.length === 1 ? "y is" : "ies are"} there` };
   }
   return {
     name: diskName || "UNTITLED",
     id: diskId,
     files,
+    ...dos,
   };
+}
+
+/**
+ * A CBM partition (type 5): `size` sectors from its T/S, contiguous in track-then-sector
+ * order. Not a link chain — the sectors carry data from byte 0. Stops at the image's end.
+ */
+export function partitionSectors(
+  entry: DiskFileEntry,
+  geometry: { sectorsPerTrack: (track: number) => number; trackCount: number },
+): Array<{ track: number; sector: number }> {
+  const out: Array<{ track: number; sector: number }> = [];
+  let track = entry.track;
+  let sector = entry.sector;
+  while (out.length < entry.size && track >= 1 && track <= geometry.trackCount && sector < geometry.sectorsPerTrack(track)) {
+    out.push({ track, sector });
+    sector += 1;
+    if (sector >= geometry.sectorsPerTrack(track)) {
+      sector = 0;
+      track += 1;
+    }
+  }
+  return out;
+}
+
+/** The walk of a partition in the shape of a chain walk: complete when every declared sector exists. */
+export function walkPartition(
+  getSector: (t: number, s: number) => Uint8Array | null,
+  entry: DiskFileEntry,
+  geometry: { sectorsPerTrack: (track: number) => number; trackCount: number },
+): SectorChainWalk {
+  const cells = partitionSectors(entry, geometry);
+  const links: DiskFileSectorLink[] = [];
+  for (const [index, cell] of cells.entries()) {
+    if (!getSector(cell.track, cell.sector)) break;
+    const next = cells[index + 1];
+    links.push({
+      index,
+      track: cell.track,
+      sector: cell.sector,
+      nextTrack: next?.track ?? 0,
+      nextSector: next?.sector ?? 0,
+      bytesUsed: 256,
+      isLast: index === cells.length - 1,
+    });
+  }
+  if (links.length === entry.size && entry.size > 0) return { links, status: "complete" };
+  return {
+    links,
+    status: links.length === 0 ? "empty" : "unreadable",
+    note: `partition declares ${entry.size} sector(s) from ${entry.track}/${entry.sector}; ${links.length} lie inside the image — the span is the reachable prefix`,
+  };
+}
+
+export function extractPartition(
+  getSector: (t: number, s: number) => Uint8Array | null,
+  entry: DiskFileEntry,
+  geometry: { sectorsPerTrack: (track: number) => number; trackCount: number },
+): Uint8Array | null {
+  const walk = walkPartition(getSector, entry, geometry);
+  if (walk.links.length === 0) return null;
+  const out = new Uint8Array(walk.links.length * 256);
+  walk.links.forEach((link, i) => out.set(getSector(link.track, link.sector)!, i * 256));
+  return out;
 }
 
 export function extractFileFromChain(

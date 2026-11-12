@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { createDiskParser, walkFileSectorChain, type DiskFileEntry, type SectorChainStatus, G64Parser } from "./disk/index.js";
+import { createDiskParser, type DiskFileEntry, type DiskImage, type SectorChainStatus, D81Parser, G64Parser } from "./disk/index.js";
 
 export type DiskFileOrigin = "kernal" | "custom";
 
@@ -65,7 +65,7 @@ function hexSlice(bytes: Uint8Array, start: number, end: number): string | undef
 
 export interface ExtractedDiskManifest {
   sourceImage: string;
-  format: "d64" | "g64";
+  format: "d64" | "g64" | "d81";
   diskName: string;
   diskId: string;
   outputDir: string;
@@ -73,6 +73,8 @@ export interface ExtractedDiskManifest {
   files: ExtractedDiskFile[];
   /** No DOS directory on this disk (a data disk): what 18/0 holds instead. */
   noDos?: string;
+  /** DOS version bytes of the header ("3D" on a 1581); absent on a 1541 image. */
+  dosType?: string;
 }
 
 function sanitizeName(value: string): string {
@@ -93,9 +95,17 @@ function extensionForType(type: DiskFileEntry["type"]): string {
       return ".usr";
     case "REL":
       return ".rel";
+    case "CBM":
+      return ".cbm";
     default:
       return ".del";
   }
+}
+
+function formatOf(parser: DiskImage): ExtractedDiskManifest["format"] {
+  if (parser instanceof G64Parser) return "g64";
+  if (parser instanceof D81Parser) return "d81";
+  return "d64";
 }
 
 export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
@@ -106,7 +116,7 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
   }
 
   const directory = parser.getDirectory();
-  const format = parser instanceof G64Parser ? "g64" : "d64";
+  const format = formatOf(parser);
 
   return {
     sourceImage: imagePath,
@@ -114,10 +124,11 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
     diskName: directory.name,
     diskId: directory.id,
     ...(directory.noDos ? { noDos: directory.noDos } : {}),
+    ...(directory.dosType ? { dosType: directory.dosType } : {}),
     outputDir: "",
     manifestPath: "",
     files: directory.files.map((entry, index): ExtractedDiskFile => {
-      const walk = walkFileSectorChain((t, s) => parser.getSector(t, s), entry);
+      const walk = parser.walkFile(entry);
       return {
         index,
         origin: "kernal",
@@ -168,7 +179,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
     // same cycle / unreadable sector this walk does, so a truncated blob and a truncated
     // span list agree with each other and nothing downstream can tell either is short.
     // Only this verdict can.
-    const walk = walkFileSectorChain((t, s) => parser.getSector(t, s), entry);
+    const walk = parser.walkFile(entry);
 
     files.push({
       index,
@@ -197,7 +208,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
     });
   });
 
-  const format = parser instanceof G64Parser ? "g64" : "d64";
+  const format = formatOf(parser);
   const manifestPath = join(outputDir, "manifest.json");
   const manifest = {
     sourceImage: imagePath,
@@ -205,6 +216,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
     format,
     diskName: directory.name,
     diskId: directory.id,
+    ...(directory.dosType ? { dosType: directory.dosType } : {}),
     fileCount: files.length,
     files,
   };
@@ -216,6 +228,7 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
     format,
     diskName: directory.name,
     diskId: directory.id,
+    ...(directory.dosType ? { dosType: directory.dosType } : {}),
     outputDir,
     manifestPath,
     files,

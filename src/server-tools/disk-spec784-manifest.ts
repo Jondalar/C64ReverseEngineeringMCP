@@ -90,7 +90,7 @@ export function buildDiskSpec784Manifest(
     loaderModels.push({
       id: KERNAL_DIRECTORY_MODEL,
       kind: "dos",
-      indexLocation: "track 18 (BAM + directory)",
+      indexLocation: extracted.format === "d81" ? "track 40 (header + BAM + directory)" : "track 18 (BAM + directory)",
       notes: "Stock CBM-DOS directory + sector-linked files (KERNAL-loadable). Auto-emitted by extract_disk.",
     });
   }
