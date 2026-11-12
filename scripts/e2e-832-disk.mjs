@@ -331,7 +331,7 @@ try {
       project_dir: dir, image_path: imagePath, manifest_path: manifestPath,
     })).content.map((c) => c.text).join("\n");
     check(/^T18 SSS/m.test(answer), "the answer PRINTS the map — it used to print three numbers");
-    check(/Unclaimed: \d+ \(of which 1 hold data/.test(answer), "…and says how much of the unclaimed space is not empty");
+    check(/Unclaimed: \d+ — 1 hold bytes[^\n]*unexplained data/.test(answer), "…and says how much of the unclaimed space is not empty");
     const written = /written to (\S+) \((\d+) rows/.exec(answer);
     check(!!written, "…and names the file it wrote the full per-sector map to");
     check(!!written && existsSync(written[1]) && Number(written[2]) === total,

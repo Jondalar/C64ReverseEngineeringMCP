@@ -351,6 +351,7 @@
     "e2e:crt-manifest-image-link": "node scripts/ensure-built.mjs mcp && node scripts/e2e-crt-manifest-image-link.mjs",
     "e2e:relpath-spelling": "node scripts/ensure-built.mjs all && node scripts/e2e-relpath-spelling.mjs",
     "smoke:d64-no-bam": "node scripts/smoke-d64-no-bam.mjs",
+    "smoke:921": "node scripts/ensure-built.mjs mcp && node scripts/smoke-921-d81.mjs",
     "smoke:boot-stage-payload": "node scripts/smoke-boot-stage-payload.mjs"
   },
   "dependencies": {

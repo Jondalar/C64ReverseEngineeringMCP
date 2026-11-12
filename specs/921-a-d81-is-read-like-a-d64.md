@@ -1,6 +1,6 @@
 # Spec 921 — A D81 is read like a D64: inspect, extract, register, and every sector accounted for
 
-**Status:** PROPOSED (2026-11-12).
+**Status:** BUILT on `spec/921-d81-static` (2026-11-12); S1-S7 green in `scripts/smoke-921-d81.mjs`, S8 (the 4 Metal Dust disks) is the owner's acceptance, by hand.
 **Repo:** C64RE only (static media reading). TRX64: no change — its 1581 (Spec 872) already mounts D81.
 **Number:** 921 (registry: `specs/README.md`).
 **Origin:** the MetalDustUltimate session (a SuperCPU → C64 Ultimate port, 4 × D81), 2026-11-12;
@@ -120,4 +120,12 @@ orphan ranges and never calls them free.
 
 ## §5 As built
 
-(empty)
+- **D1** `DiskImage` (`src/disk/base.ts`) gained `sectorsPerTrack`, `allocationTracks`, `systemSectors`, `walkFile`. D64/G64 answer from `SECTORS_PER_TRACK` and track 18 (`d64SystemSectors`), `D81Parser` from 40 sectors and 40/0-40/2 + the directory chain. Readers moved to the parser: `disk-custom-lut.ts` (`isValidTs`, `readContiguousSectors`, `diskSectorAllocation`, `suggestDiskLutSector`), `view-builders.ts` (disk layout view: directory start, BAM cells, sectors per track, 1581 BAM from 40/1-40/2, `diskLayoutToMediums` takes the count from the cells), `workspace-ui/server.ts` (`/api/disk/file-bytes` through `parser.extractFile`, `/api/disk/sector-bytes`). Left on the 1541 table on purpose: the D64/G64 builders and GCR code (`d64-builder.ts`, `g64-builder.ts`, `g64-parser.ts`), the 1541 BAM branch of the disk layout view (only reached for a non-D81 parser), and `diskSectorAllocation`'s fallback when the image cannot be parsed.
+- **D2** `parseDirectory(getSector, layout)` with `DirectoryLayout`; `D64_LAYOUT` is the old constants, so D64 output is unchanged. `DiskDirectory.dosType` carries "3D".
+- **D3** chain functions unchanged; `D81Parser.walkFile`/`extractFile` call them.
+- **D4** `src/disk/d81-parser.ts`, probed by size in `createDiskParser`/`isDiskImage`.
+- **D5** `getFileType` maps 5 to `CBM`; `partitionSectors`/`walkPartition`/`extractPartition` in `base.ts`; `D81Parser.getDirectory` expands subdirectory partitions as `PART/NAME` (depth 4, revisited-header guard); `.cbm` extension in `disk-extractor.ts`.
+- **D6** kind `d81` in `ArtifactKindSchema`, `INVENTORY_KIND_VALUES`, `KIND_BY_EXT`, `INPUT_ROLE_BY_EXT`, `DEFAULT_PATTERNS` (`input/disk/*.d81` and the loose `input/*.d64|g64|d81`), `sortLooseInputMedia` route, `MediaType`, the kind lists in the MCP tools, `registration-delta`.
+- **D7** `recordDiskSubstrate`: a D81 is a sector image (standard, static depack), evidence names 40/0 and MFM.
+- **D8** `diskSectorAllocation` takes tracks, sectors and system cells from the parser; the answer prints "unexplained data" ranges (`formatOrphanRanges`), the legend and the owner of an unclaimed sector no longer say free.
+- Test: `scripts/smoke-921-d81.mjs` (`npm run smoke:921`), fixture builder `D81Image` in `scripts/lib/d81-fixture.mjs`.
