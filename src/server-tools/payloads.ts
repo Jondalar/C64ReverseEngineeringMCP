@@ -90,7 +90,7 @@ function bootStageProblem(service: ProjectKnowledgeService, loadedBy: string, sp
   const first = spans.find((x) => x.kind === "sector");
   if (loadedBy.trim().toLowerCase() === "kernal") {
     if (!first || first.track === undefined || first.sector === undefined) return `loaded_by "kernal" needs medium_spans starting at the file's first sector`;
-    const disks = service.listArtifacts().filter((a) => a.kind === "d64" || a.kind === "g64")
+    const disks = service.listArtifacts().filter((a) => a.kind === "d64" || a.kind === "g64" || a.kind === "d81")
       .filter((a) => !first.image || basename(a.path).toLowerCase().includes(first.image.toLowerCase()) || a.id === first.image);
     for (const d of disks) {
       try {

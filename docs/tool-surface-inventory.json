@@ -650,8 +650,8 @@
       "file": "server-tools/media.ts",
       "ns": "disk",
       "hasSpec": false,
-      "firstSentence": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps.",
-      "desc": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
+      "firstSentence": "Report per-track/sector ownership for an extracted disk — system (header/BAM/dir), kernal file, custom file, unclaimed zero-filled padding, orphan data (unexplained bytes, never free) — and flag overlaps.",
+      "desc": "Report per-track/sector ownership for an extracted disk — system (header/BAM/dir), kernal file, custom file, unclaimed zero-filled padding, orphan data (unexplained bytes, never free) — and flag overlaps. Works on D64/G64 (35 tracks) and D81 (80 x 40). Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
       "tier": "default?"
     },
     {
@@ -704,8 +704,8 @@
       "file": "server-tools/media.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Extract files from a D64/G64 image into the project and write manifest.json.",
-      "desc": "Extract files from a D64/G64 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
+      "firstSentence": "Extract files from a D64/G64/D81 image into the project and write manifest.json.",
+      "desc": "Extract files from a D64/G64/D81 image into the project and write manifest.json. Use to get bytes off a disk image. Not for cartridges (use extract_crt) or to just peek the directory (use inspect_disk). Inputs: image path, project dir. Returns: extracted files + manifest.",
       "tier": "default?"
     },
     {
@@ -848,8 +848,8 @@
       "file": "server-tools/media.ts",
       "ns": "inspect",
       "hasSpec": false,
-      "firstSentence": "List the directory of a D64/G64 image WITHOUT extracting.",
-      "desc": "List the directory of a D64/G64 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
+      "firstSentence": "List the directory of a D64/G64/D81 image WITHOUT extracting.",
+      "desc": "List the directory of a D64/G64/D81 image WITHOUT extracting. Use for a quick peek at what a disk holds. Not to write files (use extract_disk) or for memory-range facts (use inspect_address_range). Inputs: image path. Returns: file list (name, type, size).",
       "tier": "default?"
     },
     {
@@ -2703,7 +2703,7 @@
       "ns": "suggest",
       "hasSpec": false,
       "firstSentence": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from.",
-      "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
+      "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64, .g64 or .d81). Returns: ranked candidate list; does not write any artifact.",
       "tier": "default?"
     },
     {

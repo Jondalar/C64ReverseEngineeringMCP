@@ -7,9 +7,13 @@ import {
   type DiskDirectory,
   type DiskFileEntry,
   type DiskImage,
+  type DiskSystemSector,
+  type SectorChainWalk,
   SECTORS_PER_TRACK,
+  d64SystemSectors,
   extractFileFromChain,
   parseDirectory,
+  walkFileSectorChain,
 } from "./base.js";
 import {
   type DecodedSector,
@@ -827,6 +831,22 @@ export class G64Parser implements DiskImage {
       }
     }
     return Math.max(maxFull, Math.floor(this.trackCount / 2));
+  }
+
+  sectorsPerTrack(track: number): number {
+    return SECTORS_PER_TRACK[track] ?? 0;
+  }
+
+  allocationTracks(): number {
+    return 35;
+  }
+
+  systemSectors(): DiskSystemSector[] {
+    return d64SystemSectors((t) => this.sectorsPerTrack(t));
+  }
+
+  walkFile(entry: DiskFileEntry): SectorChainWalk {
+    return walkFileSectorChain((t, s) => this.getSector(t, s), entry);
   }
 
   getHalfTrackCount(): number {

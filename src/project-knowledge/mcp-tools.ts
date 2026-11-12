@@ -417,7 +417,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
-      kind: z.enum(["prg", "crt", "d64", "g64", "raw", "analysis-run", "report", "generated-source", "manifest", "extract", "preview", "listing", "trace", "view-model", "checkpoint", "other"]),
+      kind: z.enum(["prg", "crt", "d64", "g64", "d81", "raw", "analysis-run", "report", "generated-source", "manifest", "extract", "preview", "listing", "trace", "view-model", "checkpoint", "other"]),
       scope: z.enum(["input", "generated", "analysis", "knowledge", "view", "session"]),
       title: z.string(),
       path: z.string(),

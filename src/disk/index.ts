@@ -3,6 +3,7 @@ export type {
   DiskFileEntry,
   DiskFileSectorLink,
   DiskImage,
+  DiskSystemSector,
   SectorChainStatus,
   SectorChainWalk,
 } from "./base.js";
@@ -10,6 +11,8 @@ export type {
 export {
   SECTORS_PER_TRACK,
   TRACK_SPEED_ZONE,
+  d64SystemSectors,
+  D64_LAYOUT,
   extractFileFromChain,
   traceFileSectorChain,
   walkFileSectorChain,
@@ -20,11 +23,13 @@ export {
 } from "./base.js";
 
 export { D64Parser } from "./d64-parser.js";
+export { D81Parser } from "./d81-parser.js";
 export { G64Parser } from "./g64-parser.js";
 export * from "./gcr.js";
 
 import type { DiskImage } from "./base.js";
 import { D64Parser } from "./d64-parser.js";
+import { D81Parser } from "./d81-parser.js";
 import { G64Parser } from "./g64-parser.js";
 
 // Spec 413 — 1541 Phase G: image format dispatch.
@@ -37,14 +42,20 @@ import { G64Parser } from "./g64-parser.js";
 // VICE: src/diskimage/diskimage.c (probe order + dispatch),
 //       src/drive/driveimage.c:169-220 drive_image_attach().
 //
-// Probe order matches VICE: G64 / G71 magic header first, then D64 by
-// size + BAM heuristic. P64 is recognised here only enough to fall
+// Probe order matches VICE: G64 / G71 magic header first, then D81 by size
+// (Spec 921), then D64 by size + BAM heuristic. P64 is recognised here only enough to fall
 // through cleanly — the actual flux-level decoder is deferred per
 // OQ-413-2 (no in-scope title needs it; G64 covers all current
 // copy-protected disks).
 export function createDiskParser(data: Uint8Array): DiskImage | null {
   if (G64Parser.isG64(data)) {
     return new G64Parser(data);
+  }
+
+  // Spec 921 D4: a D81 is its size (819 200, or 822 400 with error bytes); the sizes of
+  // the D81 and the D64 do not overlap, so the order between them does not matter.
+  if (D81Parser.isD81(data)) {
+    return new D81Parser(data);
   }
 
   if (D64Parser.isD64(data)) {
@@ -65,7 +76,7 @@ export function createDiskParser(data: Uint8Array): DiskImage | null {
 }
 
 export function isDiskImage(data: Uint8Array): boolean {
-  return G64Parser.isG64(data) || D64Parser.isD64(data);
+  return G64Parser.isG64(data) || D81Parser.isD81(data) || D64Parser.isD64(data);
 }
 
 // Spec 413 OQ-413-2 — P64 magic probe.

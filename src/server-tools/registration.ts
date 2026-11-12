@@ -33,6 +33,11 @@ export interface RegistrationPattern {
 export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "input/disk/*.d64", kind: "d64", scope: "input", role: "source-disk" },
   { glob: "input/disk/*.g64", kind: "g64", scope: "input", role: "source-disk" },
+  { glob: "input/disk/*.d81", kind: "d81", scope: "input", role: "source-disk" },
+  // A disk image the user left loose in input/ is registered where it lies; it is not moved.
+  { glob: "input/*.d64", kind: "d64", scope: "input", role: "source-disk" },
+  { glob: "input/*.g64", kind: "g64", scope: "input", role: "source-disk" },
+  { glob: "input/*.d81", kind: "d81", scope: "input", role: "source-disk" },
   { glob: "input/cart/*.crt", kind: "crt", scope: "input", role: "source-cart" },
   { glob: "input/prg/*.prg", kind: "prg", scope: "input", role: "source-prg" },
   { glob: "analysis/**/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },

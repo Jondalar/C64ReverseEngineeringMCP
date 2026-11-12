@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
-import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
+import { createDiskParser, D81Parser, SECTORS_PER_TRACK, type DiskFileEntry } from "../disk/index.js";
 import { decodeGCRTrack } from "../disk/gcr.js";
 import { classifyArtifactInternal } from "./service.js";
 import { deriveCartridgeIdentity } from "./cartridge-identity.js";
@@ -267,10 +267,13 @@ function readSemanticAnnotationSummary(path: string): { binary?: string; comment
   return { binary: raw.binary, comments };
 }
 
-function traceDirectorySectorChain(getSector: (track: number, sector: number) => Uint8Array | null): Array<{ track: number; sector: number }> {
+function traceDirectorySectorChain(
+  getSector: (track: number, sector: number) => Uint8Array | null,
+  start: { track: number; sector: number } = { track: 18, sector: 1 },
+): Array<{ track: number; sector: number }> {
   const sectors: Array<{ track: number; sector: number }> = [];
-  let track = 18;
-  let sector = 1;
+  let track = start.track;
+  let sector = start.sector;
   const visited = new Set<string>();
   while (track !== 0) {
     const key = `${track}:${sector}`;
@@ -424,7 +427,7 @@ export function buildProjectDashboardView(context: ViewBuildContext): ProjectDas
       .map((artifact) => deriveStageDescriptor(artifact)?.key)
       .filter((value): value is string => value !== undefined),
   );
-  const diskArtifacts = context.artifacts.filter((artifact) => artifact.kind === "g64" || artifact.kind === "d64" || artifact.role === "disk-manifest");
+  const diskArtifacts = context.artifacts.filter((artifact) => artifact.kind === "g64" || artifact.kind === "d64" || artifact.kind === "d81" || artifact.role === "disk-manifest");
   const latestCheckpoint = [...context.checkpoints].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
   const recentTimeline = [...context.timeline].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 12);
   const overview = [
@@ -800,7 +803,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
   // sides, The Pawn → 2 sides), medium-agnostic. Never one-per-manifest, never 0
   // for a custom-GCR image with no CBM directory.
   const disks = context.artifacts
-    .filter((artifact) => artifact.kind === "g64" || artifact.kind === "d64")
+    .filter((artifact) => artifact.kind === "g64" || artifact.kind === "d64" || artifact.kind === "d81")
     .sort(compareByRelativePath)
     .map((imageArtifact) => {
       // Match a CBM directory manifest to THIS image: resolved-absolute
@@ -884,12 +887,14 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       // must never crash the view build (which would blank the whole workspace
       // snapshot AND fail project_inventory_sync's view rebuild).
       let directoryEntries: ReturnType<NonNullable<typeof parser>["getDirectory"]>["files"] = [];
-      let directoryChain: ReturnType<typeof traceDirectorySectorChain> = [{ track: 18, sector: 1 }];
+      // Where the directory starts is the image's own answer (18/1 on a 1541, the header's link on a 1581).
+      const directoryStart = parser?.systemSectors().find((cell) => cell.owner === "DOS directory") ?? { track: 18, sector: 1 };
+      let directoryChain: ReturnType<typeof traceDirectorySectorChain> = [{ track: directoryStart.track, sector: directoryStart.sector }];
       try {
         directoryEntries = parser?.getDirectory().files ?? [];
         directoryChain = parser
-          ? traceDirectorySectorChain((track, sector) => parser!.getSector(track, sector))
-          : [{ track: 18, sector: 1 }];
+          ? traceDirectorySectorChain((track, sector) => parser!.getSector(track, sector), directoryStart)
+          : directoryChain;
       } catch {
         // No standard CBM directory (custom-GCR / copy-protected). The DIRECTORY
         // is gone, but the parser can still GCR-decode raw track/sector content —
@@ -897,7 +902,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         // the disk. Keep the parser alive so content-based sector classification
         // still sees the data (otherwise a whole custom disk reads as "free").
         directoryEntries = [];
-        directoryChain = [{ track: 18, sector: 1 }];
+        directoryChain = [{ track: directoryStart.track, sector: directoryStart.sector }];
       }
       const manifestFiles = [...(manifest?.files ?? [])]
         .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
@@ -930,7 +935,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           const tracedSectorChain = sectorChain.length > 0
             ? sectorChain
             : parser && parserEntry
-              ? traceFileSectorChain((track, sector) => parser.getSector(track, sector), parserEntry)
+              ? parser.walkFile(parserEntry).links
               : [];
           const loaderInfo = inferDiskFileLoader({
             relativePath: file.relativePath,
@@ -993,11 +998,11 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       // them as origin=custom file entries (with a synthesized sector chain) so the
       // reversed cartography colours the disk, not just the 2 dir files. Disk-view
       // analogue of BUG-024.
-      const sectorsPerTrack = (t: number) => SECTORS_PER_TRACK[t] ?? 17;
+      const sectorsPerTrack = (t: number) => parser?.sectorsPerTrack(t) || (SECTORS_PER_TRACK[t] ?? 17);
       const synthSectorChain = (startTrack: number, startSector: number, count: number) => {
         const cells: Array<{ index: number; track: number; sector: number; nextTrack: number; nextSector: number; bytesUsed: number; isLast: boolean }> = [];
         let t = startTrack, s = startSector;
-        for (let i = 0; i < count && t >= 1 && t <= 42; i += 1) {
+        for (let i = 0; i < count && t >= 1 && t <= Math.max(42, parser?.getTrackCount() ?? 0); i += 1) {
           cells.push({ index: i, track: t, sector: s, nextTrack: 0, nextSector: 0, bytesUsed: 254, isLast: i === count - 1 });
           s += 1;
           if (s >= sectorsPerTrack(t)) { s = 0; t += 1; }
@@ -1119,7 +1124,22 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       // 1 = free). Everything else falls back to the previous
       // "free vs file vs dir vs bam" classification.
       const bamFreePerTrack = new Map<number, Set<number>>();
-      if (parser) {
+      if (parser instanceof D81Parser) {
+        // 1581 BAM: 40/1 holds tracks 1-40, 40/2 tracks 41-80; a track is its free count and
+        // 5 bitmap bytes at $10 + 6 * n, a set bit = free.
+        for (const [bamSectorNo, firstTrack] of [[1, 1], [2, 41]] as const) {
+          const bam = parser.getSector(40, bamSectorNo);
+          if (!bam) continue;
+          for (let n = 0; n < 40; n += 1) {
+            const base = 0x10 + n * 6;
+            const free = new Set<number>();
+            for (let sector = 0; sector < parser.sectorsPerTrack(firstTrack + n); sector += 1) {
+              if (((bam[base + 1 + (sector >> 3)] ?? 0) >> (sector & 7)) & 1) free.add(sector);
+            }
+            bamFreePerTrack.set(firstTrack + n, free);
+          }
+        }
+      } else if (parser) {
         const bam = parser.getSector(18, 0);
         if (bam) {
           for (let track = 1; track <= 35; track += 1) {
@@ -1209,12 +1229,18 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         }
       }
 
+      // The sectors DOS keeps its allocation in: 18/0 on a 1541, the header and both BAM sectors on a 1581.
+      const bamCells = new Set(
+        parser
+          ? parser.systemSectors().filter((cell) => cell.owner === "BAM" || cell.owner === "Header").map((cell) => `${cell.track}:${cell.sector}`)
+          : ["18:0"],
+      );
       const sectors = Array.from({ length: trackCount }, (_, trackIndex) => trackIndex + 1)
         .flatMap((track) => {
-          const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
+          const sectorCount = parser?.sectorsPerTrack(track) || (SECTORS_PER_TRACK[track] ?? 17);
           return Array.from({ length: sectorCount }, (_, sector) => {
             const match = fileBySector.get(`${track}:${sector}`);
-            const isBam = track === 18 && sector === 0;
+            const isBam = bamCells.has(`${track}:${sector}`);
             const isDirectory = directoryChain.some((item) => item.track === track && item.sector === sector);
             const bamTrack = bamFreePerTrack.get(track);
             const bamKnown = bamTrack !== undefined;
@@ -3063,7 +3089,7 @@ function diskLayoutToMediums(view: DiskLayoutView, entities: EntityRecord[]): Me
       new Map(
         disk.sectors.map((cell) => [
           cell.track,
-          { track: cell.track, sectorCount: SECTORS_PER_TRACK[cell.track] ?? 0 },
+          { track: cell.track, sectorCount: disk.sectors.reduce((n, other) => (other.track === cell.track ? Math.max(n, other.sector + 1) : n), 0) },
         ]),
       ).values(),
     ).sort((left, right) => left.track - right.track);

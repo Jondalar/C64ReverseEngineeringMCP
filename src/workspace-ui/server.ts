@@ -17,7 +17,7 @@ import { repairProject } from "../project-knowledge/repair.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
-import { createDiskParser, extractFileFromChain, SECTORS_PER_TRACK, type DiskFileEntry } from "../disk/index.js";
+import { createDiskParser, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } from "node:fs/promises";
@@ -2115,7 +2115,7 @@ const server = createServer((req, res) => {
   }
 
   if (requestUrl.pathname === "/api/disk/file-bytes") {
-    // Extract a full file from a D64/G64 image by walking its sector
+    // Extract a full file from a D64/G64/D81 image by walking its sector
     // chain starting at the given track/sector. Used by the disk-file
     // hex view so the user sees the ASSEMBLED file, not just the first
     // physical sector.
@@ -2155,7 +2155,7 @@ const server = createServer((req, res) => {
         track,
         sector,
       };
-      const bytes = extractFileFromChain((t, s) => parser.getSector(t, s), entry, stripLoadParam);
+      const bytes = parser.extractFile(entry, stripLoadParam);
       if (!bytes) {
         send(res, jsonResponse(404, { error: "File chain produced no bytes.", track, sector }));
         return;
@@ -2257,7 +2257,7 @@ const server = createServer((req, res) => {
         send(res, jsonResponse(415, { error: "Unrecognised disk image format.", path }));
         return;
       }
-      const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
+      const sectorCount = parser.sectorsPerTrack(track) || 17;
       const buffer = Buffer.alloc(sectorCount * 256); // zero-filled; missing sectors stay zero
       for (let sector = 0; sector < sectorCount; sector += 1) {
         const bytes = parser.getSector(track, sector);

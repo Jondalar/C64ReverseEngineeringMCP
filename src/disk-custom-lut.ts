@@ -9,7 +9,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskImage } from "./disk/index.js";
+import { createDiskParser, d64SystemSectors, SECTORS_PER_TRACK, traceFileSectorChain, type DiskImage } from "./disk/index.js";
+
+const D64_SECTORS = (t: number): number => SECTORS_PER_TRACK[t] ?? 0;
 import type {
   DiskFileOrigin,
   ExtractedDiskFile,
@@ -70,18 +72,16 @@ function hexSlice(bytes: Uint8Array, start: number, end: number): string | undef
   return Buffer.from(slice).toString("hex");
 }
 
-function isValidTs(track: number, sector: number): boolean {
-  if (track < 1 || track > 35) return false;
-  const max = SECTORS_PER_TRACK[track];
-  if (max === undefined) return false;
-  return sector >= 0 && sector < max;
+function isValidTs(parser: DiskImage, track: number, sector: number): boolean {
+  if (track < 1 || track > parser.allocationTracks()) return false;
+  return sector >= 0 && sector < parser.sectorsPerTrack(track);
 }
 
-function decodeEntry(payload: Uint8Array, format: CustomLutPayloadFormat): CustomLutEntry["decoded"] | undefined {
+function decodeEntry(parser: DiskImage, payload: Uint8Array, format: CustomLutPayloadFormat): CustomLutEntry["decoded"] | undefined {
   if (payload.length < 2) return undefined;
   const t = payload[0]!;
   const s = payload[1]!;
-  if (!isValidTs(t, s)) return undefined;
+  if (!isValidTs(parser, t, s)) return undefined;
   switch (format) {
     case "raw":
       return { track: t, sector: s };
@@ -129,10 +129,10 @@ function readContiguousSectors(parser: DiskImage, startTrack: number, startSecto
     });
     remaining -= take;
     sector += 1;
-    if (sector >= (SECTORS_PER_TRACK[track] ?? 0)) {
+    if (sector >= parser.sectorsPerTrack(track)) {
       sector = 0;
       track += 1;
-      if (!SECTORS_PER_TRACK[track]) break;
+      if (parser.sectorsPerTrack(track) === 0) break;
     }
     index += 1;
   }
@@ -175,7 +175,7 @@ export function extractDiskCustomLut(opts: CustomLutOptions): CustomLutExtractRe
       continue;
     }
 
-    const decoded = decodeEntry(payload, opts.payloadFormat);
+    const decoded = decodeEntry(parser, payload, opts.payloadFormat);
     if (!decoded) {
       entries.push({ index: i, payloadHex, isSentinel: false, warnings: ["entry decode failed"] });
       continue;
@@ -236,7 +236,7 @@ export function extractDiskCustomLut(opts: CustomLutOptions): CustomLutExtractRe
   }
 
   const manifestPath = join(opts.outputDir, "manifest.json");
-  let manifest: Partial<ExtractedDiskManifest> & { files?: ExtractedDiskFile[]; sourceImage?: string; format?: "d64" | "g64" } = {};
+  let manifest: Partial<ExtractedDiskManifest> & { files?: ExtractedDiskFile[]; sourceImage?: string; format?: "d64" | "g64" | "d81" } = {};
   if (existsSync(manifestPath)) {
     try {
       manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -322,6 +322,8 @@ export interface DiskSectorAllocationResult {
   diskName?: string;
   diskId?: string;
   totalSectors: number;
+  /** Tracks the accounting covers (35 on a 1541 image, 80 on a 1581). */
+  tracks: number;
   ownership: DiskSectorOwnership[];
   overlapsCount: number;
   unclaimedCount: number;
@@ -367,17 +369,20 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
   const lookup = new Map<string, DiskSectorOwnership>();
   let total = 0;
 
-  for (const trackEntry of Object.entries(SECTORS_PER_TRACK)) {
-    const track = Number.parseInt(trackEntry[0]!, 10);
-    if (track > 35) continue;
-    for (let sector = 0; sector < trackEntry[1]; sector += 1) {
+  // The geometry and the DOS's own sectors come from the image (Spec 921 D1). Without a
+  // readable image the 1541 table answers, as it always did.
+  const tracks = parser?.allocationTracks() ?? 35;
+  const perTrack = (t: number): number => parser?.sectorsPerTrack(t) ?? D64_SECTORS(t);
+  const system = new Map<string, { owner: string; detail?: string }>();
+  for (const cell of parser?.systemSectors() ?? d64SystemSectors(perTrack)) {
+    system.set(`${cell.track}/${cell.sector}`, { owner: cell.owner, detail: cell.detail });
+  }
+  for (let track = 1; track <= tracks; track += 1) {
+    for (let sector = 0; sector < perTrack(track); sector += 1) {
       total += 1;
-      let role: DiskSectorOwnership["role"] = "unclaimed_padding";
-      let owner = "(free)";
-      let detail: string | undefined;
-      if (track === 18 && sector === 0) { role = "system"; owner = "BAM"; }
-      else if (track === 18) { role = "system"; owner = "DOS directory"; detail = `T18/S${sector}`; }
-      const slot: DiskSectorOwnership = { track, sector, owner, role, detail };
+      const sys = system.get(`${track}/${sector}`);
+      const role: DiskSectorOwnership["role"] = sys ? "system" : "unclaimed_padding";
+      const slot: DiskSectorOwnership = { track, sector, owner: sys?.owner ?? "(unclaimed)", role, detail: sys?.detail };
       ownership.push(slot);
       lookup.set(`${track}/${sector}`, slot);
     }
@@ -427,7 +432,7 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
       slot.role = "orphan_data";
       slot.owner = "(orphan)";
       const nonZero = bytes.reduce((n, b) => n + (b !== 0 ? 1 : 0), 0);
-      slot.detail = `${nonZero} non-zero bytes, no directory entry claims it`;
+      slot.detail = `${nonZero} non-zero bytes, unexplained: no directory entry or system sector claims it`;
       orphanCount += 1;
     }
   }
@@ -437,6 +442,7 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
     diskName: manifest.diskName,
     diskId: manifest.diskId,
     totalSectors: total,
+    tracks,
     ownership,
     overlapsCount,
     unclaimedCount,
@@ -454,7 +460,7 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
  * `extraction-manifest.json` by hand. 683 sectors are 35 short lines; there was never a
  * size reason to withhold them.
  */
-export const SECTOR_MAP_LEGEND = ". free  # orphan data (unclaimed, NOT empty)  S system (BAM/dir)  K kernal file  C custom file  ! overlap";
+export const SECTOR_MAP_LEGEND = ". empty (zero-filled, unclaimed)  # orphan data = unexplained (holds bytes, no claimant)  S system (header/BAM/dir)  K kernal file  C custom file  ! overlap";
 
 const MAP_GLYPH: Record<DiskSectorOwnership["role"], string> = {
   unclaimed_padding: ".",
@@ -478,6 +484,28 @@ export function formatSectorMap(result: DiskSectorAllocationResult): string[] {
     lines.push(`T${String(track).padStart(2, "0")} ${glyphs}`);
   }
   return lines;
+}
+
+/**
+ * The unexplained sectors (role orphan_data) as runs of consecutive sectors in track-then-sector
+ * order. These hold bytes no directory entry or system sector accounts for; they are not free.
+ */
+export function formatOrphanRanges(result: DiskSectorAllocationResult): string[] {
+  const runs: DiskSectorOwnership[][] = [];
+  let previous = -2;
+  result.ownership.forEach((slot, i) => {
+    if (slot.role !== "orphan_data") return;
+    if (i === previous + 1) runs[runs.length - 1]!.push(slot);
+    else runs.push([slot]);
+    previous = i;
+  });
+  return runs.map((run) => {
+    const first = run[0]!;
+    const last = run[run.length - 1]!;
+    return run.length === 1
+      ? `T${first.track}/S${first.sector}  1 sector`
+      : `T${first.track}/S${first.sector} .. T${last.track}/S${last.sector}  ${run.length} sectors`;
+  });
 }
 
 /** Per owner, the sectors it holds, collapsed to T/S runs. */
@@ -518,10 +546,8 @@ export function suggestDiskLutSector(imagePath: string): SuggestedLutSector[] {
   const candidates: SuggestedLutSector[] = [];
   const strides = [4, 5, 6, 8];
 
-  for (const trackEntry of Object.entries(SECTORS_PER_TRACK)) {
-    const track = Number.parseInt(trackEntry[0]!, 10);
-    if (track > 35) continue;
-    for (let sector = 0; sector < trackEntry[1]; sector += 1) {
+  for (let track = 1; track <= parser.allocationTracks(); track += 1) {
+    for (let sector = 0; sector < parser.sectorsPerTrack(track); sector += 1) {
       const bytes = parser.getSector(track, sector);
       if (!bytes || bytes.length < 16) continue;
       for (const stride of strides) {
@@ -533,7 +559,7 @@ export function suggestDiskLutSector(imagePath: string): SuggestedLutSector[] {
           const t = bytes[i * stride]!;
           const s = bytes[i * stride + 1]!;
           if (t === 0 && s === 0) { zeroCount += 1; continue; }
-          if (isValidTs(t, s)) validCount += 1;
+          if (isValidTs(parser, t, s)) validCount += 1;
         }
         const ratio = validCount / Math.max(1, maxEntries - zeroCount);
         if (validCount >= 4 && ratio >= 0.7) {

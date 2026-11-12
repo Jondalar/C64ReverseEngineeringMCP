@@ -6,9 +6,13 @@ import {
   type DiskDirectory,
   type DiskFileEntry,
   type DiskImage,
+  type DiskSystemSector,
+  type SectorChainWalk,
   SECTORS_PER_TRACK,
+  d64SystemSectors,
   extractFileFromChain,
   parseDirectory,
+  walkFileSectorChain,
 } from "./base.js";
 
 const D64_SIZE_35_TRACKS = 174848;
@@ -87,5 +91,21 @@ export class D64Parser implements DiskImage {
 
   getTrackCount(): number {
     return this.trackCount;
+  }
+
+  sectorsPerTrack(track: number): number {
+    return SECTORS_PER_TRACK[track] ?? 0;
+  }
+
+  allocationTracks(): number {
+    return 35;
+  }
+
+  systemSectors(): DiskSystemSector[] {
+    return d64SystemSectors((t) => this.sectorsPerTrack(t));
+  }
+
+  walkFile(entry: DiskFileEntry): SectorChainWalk {
+    return walkFileSectorChain((t, s) => this.getSector(t, s), entry);
   }
 }

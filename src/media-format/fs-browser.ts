@@ -13,11 +13,11 @@ import { join, resolve, extname, basename } from "node:path";
 import { homedir } from "node:os";
 
 // File extensions that are supported + deferred.
-const MEDIA_EXTS_ACTIVE = new Set([".d64", ".g64", ".crt", ".prg", ".vsf"]);
+const MEDIA_EXTS_ACTIVE = new Set([".d64", ".g64", ".d81", ".crt", ".prg", ".vsf"]);
 const MEDIA_EXTS_DEFERRED = new Set([".t64", ".tap"]);
 const MEDIA_EXTS_ALL = new Set([...MEDIA_EXTS_ACTIVE, ...MEDIA_EXTS_DEFERRED]);
 
-export type MediaType = "d64" | "g64" | "crt" | "prg" | "vsf" | "t64" | "tap";
+export type MediaType = "d64" | "g64" | "d81" | "crt" | "prg" | "vsf" | "t64" | "tap";
 
 export interface FsRoot {
   label: string;
@@ -87,6 +87,7 @@ function mediaTypeFromExt(ext: string): MediaType | undefined {
   switch (ext) {
     case ".d64": return "d64";
     case ".g64": return "g64";
+    case ".d81": return "d81";
     case ".crt": return "crt";
     case ".prg": return "prg";
     case ".vsf": return "vsf";

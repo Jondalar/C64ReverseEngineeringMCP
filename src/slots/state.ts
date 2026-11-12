@@ -552,7 +552,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   };
 
   // ---- derived fills --------------------------------------------------------
-  const mediaKinds = new Set(["d64", "g64", "crt", "prg", "raw"]);
+  const mediaKinds = new Set(["d64", "g64", "d81", "crt", "prg", "raw"]);
   const media = visible.filter((a) => mediaKinds.has(a.kind));
   const loaderStages = entities.filter((e) => e.kind === "loader-stage");
   const payloads = entities.filter((e) => e.kind === "payload");
