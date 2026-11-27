@@ -2023,7 +2023,7 @@ function applyAnnotationDataTables(context: RenderAnalysisContext, prg: PrgImage
 
   for (const pt of annotations.pointerTables) {
     ranges.push({ start: pt.start, end: pt.end, kind: "pointer_table" });
-    seedWordTableTargets(prg, pt.start, pt.end, pt.endian, context);
+    seedWordTableTargets(prg, pt.start, pt.end, pt.endian, context, pt.adjust);
   }
 
   for (const jt of annotations.jumpTables) {
@@ -2110,14 +2110,15 @@ function seedWordTableTargets(
   end: number,
   endian: "little" | "big",
   context: RenderAnalysisContext,
+  adjust = 0,
 ): void {
   for (let address = start; address + 1 <= end; address += 2) {
     const offset = address - prg.loadAddress;
     if (offset < 0 || offset + 1 >= prg.data.length) break;
     const a = prg.data[offset]!;
     const b = prg.data[offset + 1]!;
-    const target = endian === "little" ? a | (b << 8) : (a << 8) | b;
-    context.labelSet.add(target);
+    const target = (endian === "little" ? a | (b << 8) : (a << 8) | b) + adjust;
+    if (target >= 0 && target <= 0xffff) context.labelSet.add(target);
   }
 }
 
@@ -3046,6 +3047,7 @@ function emitPointerTableSegment(
   analysis: RenderAnalysisContext,
 ): void {
   let address = segment.start;
+  const adjust = analysis.annotations?.pointerTables.find((pt) => segment.start >= pt.start && segment.start <= pt.end)?.adjust ?? 0;
   while (address + 1 <= segment.end) {
     if (analysis.labelSet.has(address) && address !== segment.start) {
       lines.push(L.label(makeLabel(address), labelCommentTextFromAnalysis(address, analysis.xrefsByTarget)));
@@ -3054,9 +3056,19 @@ function emitPointerTableSegment(
     const lo = prg.data[offset];
     const hi = prg.data[offset + 1];
     if (lo === undefined || hi === undefined) break;
-    const target = (hi << 8) | lo;
-    const expr = findOperandExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress, analysis.segmentOwnerByAddress)
-      ?? `$${formatHex16(target)}`;
+    const target = ((hi << 8) | lo) + adjust;
+    const inRange = target >= 0 && target <= 0xffff;
+    let expr: string;
+    if (adjust === 0) {
+      expr = findOperandExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress, analysis.segmentOwnerByAddress)
+        ?? `$${formatHex16(target)}`;
+    } else {
+      // stored = target - adjust: name the target, subtract the adjust in the expression
+      const named = inRange
+        ? findOperandExpression(target, analysis.labelSet, analysis.instructionOwnerByAddress, analysis.segmentOwnerByAddress)
+        : undefined;
+      expr = `(${named ?? (inRange ? `$${formatHex16(target)}` : `${target}`)}${adjust > 0 ? "-" : "+"}${Math.abs(adjust)})`;
+    }
     lines.push(L.word(expr));
     address += 2;
   }

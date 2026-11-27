@@ -82,6 +82,7 @@ export interface PointerTableAnnotation {
   end: string;          // hex end address (inclusive)
   stride?: 2;           // future: support 1-byte tables; default 2 (.word)
   endian?: "little" | "big"; // default little
+  adjust?: number;      // stored = target - adjust. An RTS dispatch stores target-1, so adjust: 1. Default 0.
   comment?: string;
 }
 
@@ -151,6 +152,8 @@ export interface PointerTableIndexEntry {
   end: number;
   stride: number;
   endian: "little" | "big";
+  /** stored = target - adjust (an RTS dispatch table stores target-1: adjust 1) */
+  adjust: number;
   annotation: PointerTableAnnotation;
 }
 
@@ -390,11 +393,22 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
       noteSkip({ section: "pointerTable", reason: `unparseable range start=${pt.start} end=${pt.end}` });
       continue;
     }
+    const ptId = `$${hex4(start)}-$${hex4(end)}`;
+    for (const key of Object.keys(pt)) {
+      if (!POINTER_TABLE_KEYS.has(key)) {
+        noteSkip({ section: "pointerTable", reason: `${ptId}: unknown field "${key}" is ignored`, hint: `a pointerTables entry takes ${[...POINTER_TABLE_KEYS].join(", ")}` });
+      }
+    }
+    if (pt.adjust !== undefined && (typeof pt.adjust !== "number" || !Number.isInteger(pt.adjust) || Math.abs(pt.adjust) > 0xffff)) {
+      noteSkip({ section: "pointerTable", reason: `${ptId}: adjust must be a whole number (an RTS dispatch stores target-1, so adjust: 1), got ${JSON.stringify(pt.adjust)}` });
+      continue;
+    }
     pointerTables.push({
       start,
       end,
       stride: pt.stride ?? 2,
       endian: pt.endian ?? "little",
+      adjust: pt.adjust ?? 0,
       annotation: pt,
     });
   }
@@ -593,6 +607,7 @@ export function assertNoDuplicateSegmentStarts(file: AnnotationsFile, path: stri
 }
 
 const hex4 = (n: number): string => n.toString(16).toUpperCase().padStart(4, "0");
+const POINTER_TABLE_KEYS = new Set(["start", "end", "stride", "endian", "adjust", "comment"]);
 const STRICT_HEX = /^(?:\$|0x)?[0-9a-fA-F]{1,4}$/;
 const CODE_SEGMENT_KINDS = new Set(["code", "basic_stub"]);
 

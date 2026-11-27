@@ -227,6 +227,7 @@
     "e2e:899-notation": "node scripts/ensure-built.mjs mcp && node scripts/e2e-899-notation.mjs",
     "e2e:899-sweep": "node scripts/ensure-built.mjs mcp && node scripts/e2e-899-sweep.mjs",
     "e2e:900-checks": "node scripts/ensure-built.mjs mcp && node scripts/e2e-900-checks.mjs",
+    "e2e:145": "node scripts/ensure-built.mjs all && node scripts/e2e-145-pointer-table-adjust.mjs",
     "e2e:903": "node scripts/ensure-built.mjs all && node scripts/e2e-903-split-tables.mjs",
     "e2e:908": "node scripts/ensure-built.mjs all && node scripts/e2e-908-io-names.mjs",
     "e2e:909": "node scripts/ensure-built.mjs all && node scripts/e2e-909-cartridge-identity.mjs",
