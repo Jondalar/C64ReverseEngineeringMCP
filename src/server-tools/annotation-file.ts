@@ -48,7 +48,7 @@ export interface SegmentEntry {
 }
 export interface LabelEntry { address: string; label: string; comment?: string }
 export interface RoutineEntry { address: string; name: string; comment?: string }
-export interface PointerTableEntry { start: string; end: string; stride?: number; endian?: "little" | "big"; comment?: string }
+export interface PointerTableEntry { start: string; end: string; stride?: number; endian?: "little" | "big"; adjust?: number; comment?: string }
 export interface JumpTableEntry { start: string; end: string; kind: "jmp" | "jsr" | "word"; comment?: string }
 export interface SplitTableEntry {
   lo: string;
@@ -257,7 +257,8 @@ export function buildAnnotationsDocument(sections: RawSections, binary: string, 
     if (stride !== undefined && stride !== 1 && stride !== 2) { bad(where, `stride=${JSON.stringify(e.stride)}`, "stride is 1 or 2 (default 2, a .word table)"); return; }
     const endian = e.endian === undefined ? undefined : str(e.endian);
     if (endian !== undefined && endian !== "little" && endian !== "big") { bad(where, `endian="${endian}"`, 'endian is "little" (default) or "big"'); return; }
-    pointerTables.push({ start, end, ...(stride !== undefined ? { stride } : {}), ...(endian ? { endian: endian as "little" | "big" } : {}), ...(str(e.comment) ? { comment: str(e.comment)! } : {}) });
+    if (e.adjust !== undefined && (typeof e.adjust !== "number" || !Number.isInteger(e.adjust) || Math.abs(e.adjust) > 0xffff)) { bad(where, `adjust=${JSON.stringify(e.adjust)}`, "adjust must be a whole number (an RTS dispatch stores target-1, so adjust: 1)"); return; }
+    pointerTables.push({ start, end, ...(stride !== undefined ? { stride } : {}), ...(endian ? { endian: endian as "little" | "big" } : {}), ...(e.adjust !== undefined ? { adjust: e.adjust as number } : {}), ...(str(e.comment) ? { comment: str(e.comment)! } : {}) });
   });
 
   const jumpTables: JumpTableEntry[] = [];

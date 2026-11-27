@@ -101,7 +101,10 @@ monitor's label column, so in such a project no name ever wraps there.
   ],
 
   // OPTIONAL sections (omit entirely if unused):
-  "pointerTables": [ { "start": "1000", "end": "101F", "stride": 2, "endian": "little", "comment": "..." } ],
+  "pointerTables": [ { "start": "1000", "end": "101F", "stride": 2, "endian": "little", "adjust": 0, "comment": "..." } ],
+                     // adjust: stored = target - adjust (default 0). An RTS-dispatch word table stores target-1, so
+                     // adjust: 1 -> each entry renders `.word (name-1)` and `name` is a label at word+1.
+                     // A key the entry does not take (a typo such as "adjsut") is listed in the disasm result as skipped.
   "jumpTables":   [ { "start": "1100", "end": "111F", "kind": "jmp", "comment": "..." } ],  // kind: jmp | jsr | word
   "splitTables":  [ { "lo": "1021", "hi": "102A", "count": 9, "adjust": 0, "base": "handlers", "comment": "..." },
                     { "lo": "2000", "hi": "2010", "reject": "string table indexed by a counter, not addresses" } ],

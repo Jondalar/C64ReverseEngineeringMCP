@@ -57,6 +57,7 @@ const pointerTableSchema = z.object({
   start: hexAddress, end: hexAddress,
   stride: z.number().int().optional().describe("1 or 2 (default 2, a .word table)"),
   endian: z.string().optional().describe("`little` (default) or `big`"),
+  adjust: z.number().int().optional().describe("stored = target - adjust (default 0). An RTS dispatch stores target-1, so adjust: 1"),
   comment: z.string().optional(),
 }).passthrough();
 const jumpTableSchema = z.object({
